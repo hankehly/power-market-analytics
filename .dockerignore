@@ -1,0 +1,43 @@
+# Applies to builds with the repo root as context (the devcontainer service).
+# That Dockerfile only COPYs pyproject.toml and uv.lock, so keep everything
+# heavy or secret out of the build context.
+
+# Git
+.git
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Environment / secrets
+.env
+.env.local
+
+# Data & models
+data/
+*.csv
+*.parquet
+*.h5
+*.hdf5
+*.pkl
+*.joblib
+models/
+checkpoints/
+mlruns/
+wandb/
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+*.swp
+
+# Temp
+tmp/
