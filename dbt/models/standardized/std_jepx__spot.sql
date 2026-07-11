@@ -11,6 +11,7 @@ with
     trade_date,
     time_code,
     timestampadd(minute, (time_code - 1) * 30, cast(trade_date as timestamp)) as trade_datetime,
+    case when month(trade_date) >= 4 then year(trade_date) else year(trade_date) - 1 end as fiscal_year,
     sell_bid_volume_kwh,
     buy_bid_volume_kwh,
     contract_volume_kwh,

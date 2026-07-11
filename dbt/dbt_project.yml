@@ -17,6 +17,8 @@ models:
     +file_format: parquet
     staging:
       +schema: staging
+    standardized:
+      +schema: standardized
 seeds:
   # Globally quote all seed columns
   # https://docs.getdbt.com/reference/resource-configs/quote_columns

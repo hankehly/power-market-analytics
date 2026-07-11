@@ -7,13 +7,29 @@ models:
       Standardized JEPX day-ahead spot market results: all fields from
       stg_jepx__spot plus trade_datetime, the delivery period start
       (trade_date + (time_code - 1) * 30 minutes, naive JST; time code 1 =
-      00:00-00:30, 48 = 23:30-24:00). One row per trade_datetime.
+      00:00-00:30, 48 = 23:30-24:00), and fiscal_year (Japanese fiscal year,
+      April through March). One row per trade_datetime. All price columns are
+      non-negative. Note the JEPX 0.01 JPY/kWh minimum-bid floor does not
+      hold in the earliest fiscal years: FY2016 contains genuine 0.00 area
+      prices, so tests only assert >= 0.
     data_tests:
       - dbt_utils.unique_combination_of_columns:
           arguments:
             combination_of_columns:
               - trade_date
               - time_code
+      - dbt_utils.expression_is_true:
+          name: std_jepx__spot_contract_lte_bid_volumes
+          arguments:
+            expression: "contract_volume_kwh <= sell_bid_volume_kwh and contract_volume_kwh <= buy_bid_volume_kwh"
+      - dbt_utils.expression_is_true:
+          name: std_jepx__spot_sell_block_contract_lte_bid
+          arguments:
+            expression: "sell_block_contract_volume_kwh <= sell_block_bid_volume_kwh"
+      - dbt_utils.expression_is_true:
+          name: std_jepx__spot_buy_block_contract_lte_bid
+          arguments:
+            expression: "buy_block_contract_volume_kwh <= buy_block_bid_volume_kwh"
     columns:
       - name: trade_date
         data_type: date
@@ -23,92 +39,268 @@ models:
         data_type: int
         data_tests:
           - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 1
+                max_value: 48
       - name: trade_datetime
         data_type: timestamp
         data_tests:
           - unique
           - not_null
+      - name: fiscal_year
+        data_type: int
+        data_tests:
+          - not_null
       - name: sell_bid_volume_kwh
         data_type: bigint
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
       - name: buy_bid_volume_kwh
         data_type: bigint
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
       - name: contract_volume_kwh
         data_type: bigint
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
       - name: system_price_jpy_kwh
         data_type: double
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
       - name: area_price_hokkaido_jpy_kwh
         data_type: double
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
       - name: area_price_tohoku_jpy_kwh
         data_type: double
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
       - name: area_price_tokyo_jpy_kwh
         data_type: double
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
       - name: area_price_chubu_jpy_kwh
         data_type: double
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
       - name: area_price_hokuriku_jpy_kwh
         data_type: double
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
       - name: area_price_kansai_jpy_kwh
         data_type: double
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
       - name: area_price_chugoku_jpy_kwh
         data_type: double
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
       - name: area_price_shikoku_jpy_kwh
         data_type: double
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
       - name: area_price_kyushu_jpy_kwh
         data_type: double
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
       - name: spot_intraday_avg_price_jpy_kwh
         data_type: double
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
       - name: alpha_upper_x_avg_price_jpy_kwh
         data_type: double
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
       - name: alpha_lower_x_avg_price_jpy_kwh
         data_type: double
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
       - name: alpha_preliminary_x_avg_price_jpy_kwh
         data_type: double
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
       - name: alpha_final_x_avg_price_jpy_kwh
         data_type: double
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
       - name: avoidable_cost_national_jpy_kwh
         data_type: double
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
       - name: avoidable_cost_hokkaido_jpy_kwh
         data_type: double
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
       - name: avoidable_cost_tohoku_jpy_kwh
         data_type: double
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
       - name: avoidable_cost_tokyo_jpy_kwh
         data_type: double
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
       - name: avoidable_cost_chubu_jpy_kwh
         data_type: double
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
       - name: avoidable_cost_hokuriku_jpy_kwh
         data_type: double
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
       - name: avoidable_cost_kansai_jpy_kwh
         data_type: double
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
       - name: avoidable_cost_chugoku_jpy_kwh
         data_type: double
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
       - name: avoidable_cost_shikoku_jpy_kwh
         data_type: double
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
       - name: avoidable_cost_kyushu_jpy_kwh
         data_type: double
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
       - name: sell_block_bid_volume_kwh
         data_type: bigint
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
       - name: sell_block_contract_volume_kwh
         data_type: bigint
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
       - name: buy_block_bid_volume_kwh
         data_type: bigint
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
       - name: buy_block_contract_volume_kwh
         data_type: bigint
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
       - name: fip_reference_price_national_jpy_kwh
         data_type: double
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
       - name: fip_reference_price_hokkaido_jpy_kwh
         data_type: double
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
       - name: fip_reference_price_tohoku_jpy_kwh
         data_type: double
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
       - name: fip_reference_price_tokyo_jpy_kwh
         data_type: double
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
       - name: fip_reference_price_chubu_jpy_kwh
         data_type: double
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
       - name: fip_reference_price_hokuriku_jpy_kwh
         data_type: double
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
       - name: fip_reference_price_kansai_jpy_kwh
         data_type: double
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
       - name: fip_reference_price_chugoku_jpy_kwh
         data_type: double
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
       - name: fip_reference_price_shikoku_jpy_kwh
         data_type: double
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
       - name: fip_reference_price_kyushu_jpy_kwh
         data_type: double
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
