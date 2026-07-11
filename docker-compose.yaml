@@ -86,7 +86,9 @@ services:
       retries: 10
 
   hive-metastore:
-    image: apache/hive:3.1.3
+    build:
+      context: ./docker/hive-metastore
+      dockerfile: Dockerfile
     platform: linux/amd64 # apache/hive has no arm64 build; Rosetta 2 handles emulation on Mac
     user: "0:0"
     depends_on:
@@ -102,7 +104,6 @@ services:
       - "127.0.0.1:9083:9083"
     volumes:
       - spark-warehouse:/spark-warehouse
-      - ./docker/hive-metastore/jars/postgresql-42.7.8.jar:/opt/hive/lib/postgresql-42.7.8.jar
     entrypoint:
       - /bin/bash
       - -c
