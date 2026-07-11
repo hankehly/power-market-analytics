@@ -7,7 +7,8 @@ Power market analytics.
 The project runs inside a Docker Compose stack (see `docker-compose.yaml`):
 
 - **devcontainer** — Python 3.13 + uv + Spark client tooling; open the repo in VS Code and reopen in container
-- **postgres** — backing store for the Hive Metastore and MLflow
+- **postgres-metastore** — backing store for the Hive Metastore (host port 5432)
+- **postgres-mlflow** — backing store for MLflow (host port 5433)
 - **hive-metastore** — standalone Hive Metastore backed by Postgres
 - **thriftserver** — Spark Thrift Server (JDBC/ODBC, port 10000; Spark UI on 4040)
 - **mlflow** — experiment tracking UI on port 5005

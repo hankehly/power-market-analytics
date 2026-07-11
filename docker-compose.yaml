@@ -51,19 +51,36 @@ services:
       retries: 10
       start_period: 5s
 
-  # psql -U admin -h localhost -p 5432
-  postgres:
+  # Hive Metastore backing store — psql -U admin -h localhost -p 5432 metastore
+  postgres-metastore:
     image: postgres:18
     environment:
       POSTGRES_USER: admin
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      POSTGRES_DB: metastore
     ports:
       - 127.0.0.1:5432:5432
     volumes:
-      - postgres:/var/lib/postgresql
-      - ./docker/postgres/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
+      - postgres-metastore:/var/lib/postgresql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U admin"]
+      test: ["CMD-SHELL", "pg_isready -U admin -d metastore"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # MLflow backing store — psql -U admin -h localhost -p 5433 mlflow
+  postgres-mlflow:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      POSTGRES_DB: mlflow
+    ports:
+      - 127.0.0.1:5433:5432
+    volumes:
+      - postgres-mlflow:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d mlflow"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -73,14 +90,14 @@ services:
     platform: linux/amd64 # apache/hive has no arm64 build; Rosetta 2 handles emulation on Mac
     user: "0:0"
     depends_on:
-      postgres:
+      postgres-metastore:
         condition: service_healthy
     environment:
       SERVICE_NAME: metastore
       DB_DRIVER: postgres
       SKIP_SCHEMA_INIT: "true"
       SERVICE_OPTS: >-
-        -Djavax.jdo.option.ConnectionURL=jdbc:postgresql://postgres/metastore -Djavax.jdo.option.ConnectionDriverName=org.postgresql.Driver -Djavax.jdo.option.ConnectionUserName=admin -Djavax.jdo.option.ConnectionPassword=${POSTGRES_PASSWORD} -Dhive.metastore.warehouse.dir=/spark-warehouse
+        -Djavax.jdo.option.ConnectionURL=jdbc:postgresql://postgres-metastore/metastore -Djavax.jdo.option.ConnectionDriverName=org.postgresql.Driver -Djavax.jdo.option.ConnectionUserName=admin -Djavax.jdo.option.ConnectionPassword=${POSTGRES_PASSWORD} -Dhive.metastore.warehouse.dir=/spark-warehouse
     ports:
       - "127.0.0.1:9083:9083"
     volumes:
@@ -123,7 +140,7 @@ services:
       - "127.0.0.1:10000:10000"
       - "127.0.0.1:4040:4040"
     depends_on:
-      postgres:
+      postgres-metastore:
         condition: service_healthy
       hive-metastore:
         condition: service_healthy
@@ -141,10 +158,10 @@ services:
   mlflow:
     image: ghcr.io/mlflow/mlflow:v3.8.1
     depends_on:
-      postgres:
+      postgres-mlflow:
         condition: service_healthy
     environment:
-      MLFLOW_BACKEND_STORE_URI: postgresql://admin:${POSTGRES_PASSWORD}@postgres:5432/mlflow
+      MLFLOW_BACKEND_STORE_URI: postgresql://admin:${POSTGRES_PASSWORD}@postgres-mlflow:5432/mlflow
       MLFLOW_DEFAULT_ARTIFACT_ROOT: /mlartifacts
       MLFLOW_HOST: 0.0.0.0
       MLFLOW_PORT: 5005
@@ -153,7 +170,7 @@ services:
       /bin/bash -c "
         pip install --no-cache-dir psycopg2-binary boto3 &&
         mlflow server \
-          --backend-store-uri postgresql://admin:$${POSTGRES_PASSWORD}@postgres:5432/mlflow \
+          --backend-store-uri postgresql://admin:$${POSTGRES_PASSWORD}@postgres-mlflow:5432/mlflow \
           --default-artifact-root /mlartifacts \
           --host 0.0.0.0 \
           --port 5005 \
@@ -176,6 +193,7 @@ services:
       retries: 30
 
 volumes:
-  postgres:
+  postgres-metastore:
+  postgres-mlflow:
   spark-warehouse:
   mlartifacts:
