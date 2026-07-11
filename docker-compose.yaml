@@ -136,6 +136,7 @@ services:
     build:
       context: ./docker/spark
       dockerfile: Dockerfile
+    user: "0:0" # base image runs as uid 185, which cannot write to the root-owned spark-warehouse volume
     mem_limit: ${CONTAINER_MEM_LIMIT:-28g}
     ports:
       - "127.0.0.1:10000:10000"
@@ -153,8 +154,15 @@ services:
       --name Thrift JDBC/ODBC Server
     volumes:
       - spark-warehouse:/spark-warehouse/
-      - ./conf/spark/hive-site.xml:/usr/spark/conf/hive-site.xml
-      - ./conf/spark/spark-defaults.conf:/usr/spark/conf/spark-defaults.conf
+      - ./conf/spark/hive-site.xml:/opt/spark/conf/hive-site.xml
+      - ./conf/spark/spark-defaults.conf:/opt/spark/conf/spark-defaults.conf
+    healthcheck:
+      # bash /dev/tcp probe of the JDBC port; the image has no netcat
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/10000"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
 
   mlflow:
     image: ghcr.io/mlflow/mlflow:v3.8.1

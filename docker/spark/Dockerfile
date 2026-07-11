@@ -1,25 +1,10 @@
-ARG OPENJDK_VERSION=17
-FROM eclipse-temurin:${OPENJDK_VERSION}-jre
-
 ARG SPARK_VERSION=4.1.1
+FROM apache/spark:${SPARK_VERSION}
+
 ARG POSTGRES_JDBC_VERSION=42.7.13
 
-LABEL org.label-schema.name="Apache Spark ${SPARK_VERSION}" \
-    org.label-schema.version=$SPARK_VERSION
+# The base image does not put the spark binaries on PATH
+ENV PATH="/opt/spark/bin:/opt/spark/sbin:${PATH}"
 
-ENV SPARK_HOME=/usr/spark
-ENV PATH="/usr/spark/bin:/usr/spark/sbin:${PATH}"
-
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends wget netcat-openbsd procps ca-certificates && \
-    wget -q "https://archive.apache.org/dist/spark/spark-${SPARK_VERSION}/spark-${SPARK_VERSION}-bin-hadoop3.tgz" && \
-    tar xzf "spark-${SPARK_VERSION}-bin-hadoop3.tgz" && \
-    rm "spark-${SPARK_VERSION}-bin-hadoop3.tgz" && \
-    mv "spark-${SPARK_VERSION}-bin-hadoop3" /usr/spark && \
-    wget -q -O "/usr/spark/jars/postgresql-${POSTGRES_JDBC_VERSION}.jar" \
-    "https://jdbc.postgresql.org/download/postgresql-${POSTGRES_JDBC_VERSION}.jar" && \
-    apt-get purge -y wget && \
-    apt-get autoremove -y && \
-    apt-get clean && rm -rf /var/lib/apt/lists/*
-
-CMD ["--help"]
+# Postgres JDBC driver (same pinned version across all services)
+ADD --chmod=644 https://jdbc.postgresql.org/download/postgresql-${POSTGRES_JDBC_VERSION}.jar /opt/spark/jars/postgresql-${POSTGRES_JDBC_VERSION}.jar
