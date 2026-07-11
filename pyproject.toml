@@ -2,7 +2,7 @@
 name = "power-market-analytics"
 version = "0.1.0"
 description = "Power market analytics"
-readme = "README.md"
+readme = "docs/README.md"
 requires-python = ">=3.13"
 dependencies = [
     "dbt-core>=1.11.10",
