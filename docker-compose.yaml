@@ -9,7 +9,7 @@ services:
       SPARK_DRIVER_MEMORY: ${SPARK_DRIVER_MEMORY:-20g} # set per-host in .env
       SPARK_DRIVER_MAX_RESULT_SIZE: ${SPARK_DRIVER_MAX_RESULT_SIZE:-16g} # set per-host in .env
       MLFLOW_TRACKING_URI: http://mlflow:5005
-      PYTHONPATH: /workspace
+      PYTHONPATH: /workspace/src
       AWS_SDK_LOAD_CONFIG: "1"
       SSH_AUTH_SOCK: /run/host-services/ssh-auth.sock
     volumes:

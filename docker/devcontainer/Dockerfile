@@ -68,9 +68,11 @@ WORKDIR /workspace
 
 # /opt/venv is the virtual environment location for uv, and is on PATH.
 # /root/.cache/uv is the cache location for uv, and is mounted as a cache to speed up builds.
+# --no-install-project: only pyproject/uv.lock are copied here, not src/; the
+# package itself is importable at runtime via PYTHONPATH=/workspace/src.
 COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
-    UV_LINK_MODE=copy uv sync --locked
+    UV_LINK_MODE=copy uv sync --locked --no-install-project
 
 ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["bash"]
