@@ -1,0 +1,114 @@
+models:
+  - name: std_jepx__spot
+    config:
+      contract:
+        enforced: true
+    description: >
+      Standardized JEPX day-ahead spot market results: all fields from
+      stg_jepx__spot plus trade_datetime, the delivery period start
+      (trade_date + (time_code - 1) * 30 minutes, naive JST; time code 1 =
+      00:00-00:30, 48 = 23:30-24:00). One row per trade_datetime.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - trade_date
+              - time_code
+    columns:
+      - name: trade_date
+        data_type: date
+        data_tests:
+          - not_null
+      - name: time_code
+        data_type: int
+        data_tests:
+          - not_null
+      - name: trade_datetime
+        data_type: timestamp
+        data_tests:
+          - unique
+          - not_null
+      - name: sell_bid_volume_kwh
+        data_type: bigint
+      - name: buy_bid_volume_kwh
+        data_type: bigint
+      - name: contract_volume_kwh
+        data_type: bigint
+      - name: system_price_jpy_kwh
+        data_type: double
+      - name: area_price_hokkaido_jpy_kwh
+        data_type: double
+      - name: area_price_tohoku_jpy_kwh
+        data_type: double
+      - name: area_price_tokyo_jpy_kwh
+        data_type: double
+      - name: area_price_chubu_jpy_kwh
+        data_type: double
+      - name: area_price_hokuriku_jpy_kwh
+        data_type: double
+      - name: area_price_kansai_jpy_kwh
+        data_type: double
+      - name: area_price_chugoku_jpy_kwh
+        data_type: double
+      - name: area_price_shikoku_jpy_kwh
+        data_type: double
+      - name: area_price_kyushu_jpy_kwh
+        data_type: double
+      - name: spot_intraday_avg_price_jpy_kwh
+        data_type: double
+      - name: alpha_upper_x_avg_price_jpy_kwh
+        data_type: double
+      - name: alpha_lower_x_avg_price_jpy_kwh
+        data_type: double
+      - name: alpha_preliminary_x_avg_price_jpy_kwh
+        data_type: double
+      - name: alpha_final_x_avg_price_jpy_kwh
+        data_type: double
+      - name: avoidable_cost_national_jpy_kwh
+        data_type: double
+      - name: avoidable_cost_hokkaido_jpy_kwh
+        data_type: double
+      - name: avoidable_cost_tohoku_jpy_kwh
+        data_type: double
+      - name: avoidable_cost_tokyo_jpy_kwh
+        data_type: double
+      - name: avoidable_cost_chubu_jpy_kwh
+        data_type: double
+      - name: avoidable_cost_hokuriku_jpy_kwh
+        data_type: double
+      - name: avoidable_cost_kansai_jpy_kwh
+        data_type: double
+      - name: avoidable_cost_chugoku_jpy_kwh
+        data_type: double
+      - name: avoidable_cost_shikoku_jpy_kwh
+        data_type: double
+      - name: avoidable_cost_kyushu_jpy_kwh
+        data_type: double
+      - name: sell_block_bid_volume_kwh
+        data_type: bigint
+      - name: sell_block_contract_volume_kwh
+        data_type: bigint
+      - name: buy_block_bid_volume_kwh
+        data_type: bigint
+      - name: buy_block_contract_volume_kwh
+        data_type: bigint
+      - name: fip_reference_price_national_jpy_kwh
+        data_type: double
+      - name: fip_reference_price_hokkaido_jpy_kwh
+        data_type: double
+      - name: fip_reference_price_tohoku_jpy_kwh
+        data_type: double
+      - name: fip_reference_price_tokyo_jpy_kwh
+        data_type: double
+      - name: fip_reference_price_chubu_jpy_kwh
+        data_type: double
+      - name: fip_reference_price_hokuriku_jpy_kwh
+        data_type: double
+      - name: fip_reference_price_kansai_jpy_kwh
+        data_type: double
+      - name: fip_reference_price_chugoku_jpy_kwh
+        data_type: double
+      - name: fip_reference_price_shikoku_jpy_kwh
+        data_type: double
+      - name: fip_reference_price_kyushu_jpy_kwh
+        data_type: double
