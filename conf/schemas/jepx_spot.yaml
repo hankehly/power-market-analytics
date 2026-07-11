@@ -1,0 +1,60 @@
+description: >
+  JEPX day-ahead (spot) market trading results, one row per delivery date and
+  30-minute time code (1-48). Source: https://www.jepx.jp/market/excel/spot_{fy}.csv
+  (one file per Japanese fiscal year, Shift_JIS encoded). Fiscal years 2016-2021
+  have 32 columns; the block-bid and FIP columns were appended later, so they are
+  marked required: false and load as null for older years. The source files also
+  contain unnamed separator columns, which are dropped because no schema column
+  references them.
+
+read_options:
+  # Java charset name for cp932 / Shift_JIS with Windows extensions
+  encoding: windows-31j
+
+grain: [trade_date, time_code]
+
+columns:
+  - { name: trade_date, source: 年月日, type: date, format: yyyy/MM/dd, nullable: false }
+  - { name: time_code, source: 時刻コード, type: int, nullable: false }
+  - { name: sell_bid_volume_kwh, source: 売り入札量(kWh), type: bigint, nullable: false }
+  - { name: buy_bid_volume_kwh, source: 買い入札量(kWh), type: bigint, nullable: false }
+  - { name: contract_volume_kwh, source: 約定総量(kWh), type: bigint, nullable: false }
+  - { name: system_price_jpy_kwh, source: システムプライス(円/kWh), type: double, nullable: false }
+  - { name: area_price_hokkaido_jpy_kwh, source: エリアプライス北海道(円/kWh), type: double, nullable: false }
+  - { name: area_price_tohoku_jpy_kwh, source: エリアプライス東北(円/kWh), type: double, nullable: false }
+  - { name: area_price_tokyo_jpy_kwh, source: エリアプライス東京(円/kWh), type: double, nullable: false }
+  - { name: area_price_chubu_jpy_kwh, source: エリアプライス中部(円/kWh), type: double, nullable: false }
+  - { name: area_price_hokuriku_jpy_kwh, source: エリアプライス北陸(円/kWh), type: double, nullable: false }
+  - { name: area_price_kansai_jpy_kwh, source: エリアプライス関西(円/kWh), type: double, nullable: false }
+  - { name: area_price_chugoku_jpy_kwh, source: エリアプライス中国(円/kWh), type: double, nullable: false }
+  - { name: area_price_shikoku_jpy_kwh, source: エリアプライス四国(円/kWh), type: double, nullable: false }
+  - { name: area_price_kyushu_jpy_kwh, source: エリアプライス九州(円/kWh), type: double, nullable: false }
+  - { name: spot_intraday_avg_price_jpy_kwh, source: スポット・時間前平均価格(円/kWh), type: double }
+  - { name: alpha_upper_x_avg_price_jpy_kwh, source: α上限値×スポット・時間前平均価格(円/kWh), type: double }
+  - { name: alpha_lower_x_avg_price_jpy_kwh, source: α下限値×スポット・時間前平均価格(円/kWh), type: double }
+  - { name: alpha_preliminary_x_avg_price_jpy_kwh, source: α速報値×スポット・時間前平均価格(円/kWh), type: double }
+  - { name: alpha_final_x_avg_price_jpy_kwh, source: α確報値×スポット・時間前平均価格(円/kWh), type: double }
+  - { name: avoidable_cost_national_jpy_kwh, source: 回避可能原価全国値(円/kWh), type: double }
+  - { name: avoidable_cost_hokkaido_jpy_kwh, source: 回避可能原価北海道(円/kWh), type: double }
+  - { name: avoidable_cost_tohoku_jpy_kwh, source: 回避可能原価東北(円/kWh), type: double }
+  - { name: avoidable_cost_tokyo_jpy_kwh, source: 回避可能原価東京(円/kWh), type: double }
+  - { name: avoidable_cost_chubu_jpy_kwh, source: 回避可能原価中部(円/kWh), type: double }
+  - { name: avoidable_cost_hokuriku_jpy_kwh, source: 回避可能原価北陸(円/kWh), type: double }
+  - { name: avoidable_cost_kansai_jpy_kwh, source: 回避可能原価関西(円/kWh), type: double }
+  - { name: avoidable_cost_chugoku_jpy_kwh, source: 回避可能原価中国(円/kWh), type: double }
+  - { name: avoidable_cost_shikoku_jpy_kwh, source: 回避可能原価四国(円/kWh), type: double }
+  - { name: avoidable_cost_kyushu_jpy_kwh, source: 回避可能原価九州(円/kWh), type: double }
+  - { name: sell_block_bid_volume_kwh, source: 売りブロック入札総量(kWh), type: bigint, required: false }
+  - { name: sell_block_contract_volume_kwh, source: 売りブロック約定総量(kWh), type: bigint, required: false }
+  - { name: buy_block_bid_volume_kwh, source: 買いブロック入札総量(kWh), type: bigint, required: false }
+  - { name: buy_block_contract_volume_kwh, source: 買いブロック約定総量(kWh), type: bigint, required: false }
+  - { name: fip_reference_price_national_jpy_kwh, source: FIP参照価格（卸電力取引市場分）全国値(円/kWh), type: double, required: false }
+  - { name: fip_reference_price_hokkaido_jpy_kwh, source: FIP参照価格（卸電力取引市場分）北海道(円/kWh), type: double, required: false }
+  - { name: fip_reference_price_tohoku_jpy_kwh, source: FIP参照価格（卸電力取引市場分）東北(円/kWh), type: double, required: false }
+  - { name: fip_reference_price_tokyo_jpy_kwh, source: FIP参照価格（卸電力取引市場分）東京(円/kWh), type: double, required: false }
+  - { name: fip_reference_price_chubu_jpy_kwh, source: FIP参照価格（卸電力取引市場分）中部(円/kWh), type: double, required: false }
+  - { name: fip_reference_price_hokuriku_jpy_kwh, source: FIP参照価格（卸電力取引市場分）北陸(円/kWh), type: double, required: false }
+  - { name: fip_reference_price_kansai_jpy_kwh, source: FIP参照価格（卸電力取引市場分）関西(円/kWh), type: double, required: false }
+  - { name: fip_reference_price_chugoku_jpy_kwh, source: FIP参照価格（卸電力取引市場分）中国(円/kWh), type: double, required: false }
+  - { name: fip_reference_price_shikoku_jpy_kwh, source: FIP参照価格（卸電力取引市場分）四国(円/kWh), type: double, required: false }
+  - { name: fip_reference_price_kyushu_jpy_kwh, source: FIP参照価格（卸電力取引市場分）九州(円/kWh), type: double, required: false }
