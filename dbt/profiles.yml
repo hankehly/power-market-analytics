@@ -1,0 +1,21 @@
+pma:
+  target: local
+  outputs:
+    local:
+      type: spark
+      method: thrift
+      # Service name on the docker-compose network; run dbt from inside the
+      # devcontainer. From the macOS host, override with
+      # DBT_THRIFT_HOST=localhost (the port is published to 127.0.0.1:10000).
+      host: "{{ env_var('DBT_THRIFT_HOST', 'thriftserver') }}"
+      port: 10000
+      user: admin
+      auth: NOSASL
+      # In dbt_project.yml we set custom schema names like "staging" and "seed",
+      # so the resulting schema names will be "pma_staging" and "pma_seed".
+      # https://docs.getdbt.com/docs/build/custom-schemas#understanding-custom-schemas
+      schema: pma
+      connect_retries: 5
+      connect_timeout: 15
+      retry_all: true
+      threads: 16

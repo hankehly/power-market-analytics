@@ -1,0 +1,25 @@
+name: "pma"
+version: "1.0.0"
+config-version: 2
+profile: pma
+model-paths: ["models"]
+analysis-paths: ["analyses"]
+test-paths: ["dbt_tests"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+clean-targets:
+  - "target"
+  - "dbt_packages"
+models:
+  +materialized: table
+  pma:
+    +file_format: parquet
+    staging:
+      +schema: staging
+seeds:
+  # Globally quote all seed columns
+  # https://docs.getdbt.com/reference/resource-configs/quote_columns
+  +quote_columns: true
+  pma:
+    +schema: seed

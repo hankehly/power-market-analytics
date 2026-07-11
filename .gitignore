@@ -15,15 +15,22 @@ env/
 .env
 .env.local
 
+# dbt
+target/
+dbt_packages/
+logs/
+.user.yml
+
 # Data & models
 data/
 *.csv
+# dbt seeds must be versioned despite the global *.csv ignore
+!dbt/seeds/**/*.csv
 *.parquet
 *.h5
 *.hdf5
 *.pkl
 *.joblib
-models/
 checkpoints/
 mlruns/
 wandb/
