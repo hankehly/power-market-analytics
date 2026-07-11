@@ -17,14 +17,13 @@ ENV PYTHONUNBUFFERED=1 \
     VIRTUAL_ENV=/opt/venv \
     POSTGRES_JDBC_DIR=/opt/jdbc \
     POSTGRES_JDBC_JAR=/opt/jdbc/postgresql.jar \
-    CLASSPATH=/opt/jdbc/postgresql.jar \
     UV_HTTP_TIMEOUT=600 \
     GIT_PAGER="less -R" \
     PATH="/opt/venv/bin:$PATH"
 
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    openjdk-17-jdk-headless \
+    openjdk-17-jre-headless \
     ca-certificates \
     curl \
     bash-completion \
