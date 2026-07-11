@@ -35,6 +35,7 @@ RUN apt-get update && \
     ripgrep \
     jq \
     rsync \
+    unzip \
     tini && \
     rm -rf /var/lib/apt/lists/*
 
