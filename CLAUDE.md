@@ -1,5 +1,11 @@
 # CLAUDE.md
 
+## Dimensional Modeling
+
+- For anything dimensional-modeling related (fact/dimension table design, grain declarations,
+  star schemas, SCDs, etc.), abide by the guidelines in
+  [docs/Kimball-Dimensional-Modeling-Techniques.md](docs/Kimball-Dimensional-Modeling-Techniques.md).
+
 ## Docstrings
 
 - Always use NumPy-style docstrings
