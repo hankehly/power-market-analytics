@@ -1754,7 +1754,7 @@ wheels = [
 [[package]]
 name = "power-market-analytics"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "dbt-core" },
     { name = "dbt-spark", extra = ["pyhive"] },
@@ -1763,6 +1763,7 @@ dependencies = [
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "pyspark", extra = ["ml", "pandas-on-spark"] },
+    { name = "requests" },
 ]
 
 [package.metadata]
@@ -1774,6 +1775,7 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.13.4" },
     { name = "pydantic-settings", specifier = ">=2.14.1" },
     { name = "pyspark", extras = ["ml", "pandas-on-spark"], specifier = "==4.1.1" },
+    { name = "requests", specifier = ">=2.32.0" },
 ]
 
 [[package]]
