@@ -1,0 +1,22 @@
+{
+    "dockerComposeFile": "../docker-compose.yaml",
+    "service": "devcontainer",
+    "workspaceFolder": "/workspace",
+    "shutdownAction": "none",
+    "customizations": {
+        "vscode": {
+            "files.associations": {
+                "*.sql": "sql",
+                "*.yml": "yaml"
+            },
+            "extensions": [
+                "ms-python.python",
+                "charliermarsh.ruff",
+                "ms-toolsai.jupyter",
+                "redhat.vscode-yaml",
+                "Anthropic.claude-code",
+                "openai.chatgpt"
+            ]
+        }
+    }
+}

@@ -1,0 +1,181 @@
+services:
+  devcontainer:
+    build:
+      context: .
+      dockerfile: docker/devcontainer/Dockerfile
+    mem_limit: ${CONTAINER_MEM_LIMIT:-28g} # set per-host in .env
+    environment:
+      SPARK_CONF_DIR: /workspace/conf/spark
+      SPARK_DRIVER_MEMORY: ${SPARK_DRIVER_MEMORY:-20g} # set per-host in .env
+      SPARK_DRIVER_MAX_RESULT_SIZE: ${SPARK_DRIVER_MAX_RESULT_SIZE:-16g} # set per-host in .env
+      MLFLOW_TRACKING_URI: http://mlflow:5005
+      PYTHONPATH: /workspace
+      AWS_SDK_LOAD_CONFIG: "1"
+      SSH_AUTH_SOCK: /run/host-services/ssh-auth.sock
+    volumes:
+      - .:/workspace:cached
+      - spark-warehouse:/spark-warehouse
+      - mlartifacts:/mlartifacts
+      - ${HOME}/.aws:/root/.aws
+      - ${HOME}/.ssh:/root/.ssh:ro
+      - ${HOME}/.claude:/root/.claude
+      - ${HOME}/.codex:/root/.codex
+      - ${HOME}/.copilot:/root/.copilot
+      - ${HOME}/.gemini:/root/.gemini
+    command: sleep infinity
+    ports:
+      - 127.0.0.1:8787:8787
+      - 127.0.0.1:4041:4041
+      - 127.0.0.1:8501:8501
+
+  docsify:
+    build:
+      context: ./docker/docsify
+      dockerfile: Dockerfile
+    working_dir: /workspace
+    volumes:
+      - .:/workspace:cached
+    command: docsify serve docs --port 3000
+    ports:
+      - 127.0.0.1:3000:3000
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://localhost:3000').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  # psql -U admin -h localhost -p 5432
+  postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+    ports:
+      - 127.0.0.1:5432:5432
+    volumes:
+      - postgres:/var/lib/postgresql
+      - ./docker/postgres/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  hive-metastore:
+    image: apache/hive:3.1.3
+    platform: linux/amd64 # apache/hive has no arm64 build; Rosetta 2 handles emulation on Mac
+    user: "0:0"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      SERVICE_NAME: metastore
+      DB_DRIVER: postgres
+      SKIP_SCHEMA_INIT: "true"
+      SERVICE_OPTS: >-
+        -Djavax.jdo.option.ConnectionURL=jdbc:postgresql://postgres/metastore -Djavax.jdo.option.ConnectionDriverName=org.postgresql.Driver -Djavax.jdo.option.ConnectionUserName=admin -Djavax.jdo.option.ConnectionPassword=${POSTGRES_PASSWORD} -Dhive.metastore.warehouse.dir=/spark-warehouse
+    ports:
+      - "127.0.0.1:9083:9083"
+    volumes:
+      - spark-warehouse:/spark-warehouse
+      - ./docker/hive-metastore/jars/postgresql-42.7.8.jar:/opt/hive/lib/postgresql-42.7.8.jar
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        export HIVE_CONF_DIR=/opt/hive/conf
+        export HADOOP_CLIENT_OPTS="$$HADOOP_CLIENT_OPTS -Xmx1G $$SERVICE_OPTS"
+
+        echo "Checking schema..."
+        if /opt/hive/bin/schematool -dbType postgres -info; then
+          echo "Schema already exists. Skipping initialization."
+        else
+          echo "Schema not found. Initializing..."
+          /opt/hive/bin/schematool -dbType postgres -initSchema
+        fi
+
+        echo "Starting Hive Metastore..."
+        exec /opt/hive/bin/hive --service metastore
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'export HIVE_CONF_DIR=/opt/hive/conf && export HADOOP_CLIENT_OPTS="$$HADOOP_CLIENT_OPTS -Xmx1G $$SERVICE_OPTS" && /opt/hive/bin/schematool -dbType postgres -info',
+        ]
+      interval: 30s
+      timeout: 30s
+      retries: 5
+      start_period: 5s
+
+  thriftserver:
+    build:
+      context: ./docker/spark
+      dockerfile: Dockerfile
+    mem_limit: ${CONTAINER_MEM_LIMIT:-28g}
+    ports:
+      - "127.0.0.1:10000:10000"
+      - "127.0.0.1:4040:4040"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      hive-metastore:
+        condition: service_healthy
+    command: >-
+      spark-submit
+      --conf spark.master=local[4]
+      --conf spark.driver.memory=${SPARK_DRIVER_MEMORY:-20g}
+      --class org.apache.spark.sql.hive.thriftserver.HiveThriftServer2
+      --name Thrift JDBC/ODBC Server
+    volumes:
+      - spark-warehouse:/spark-warehouse/
+      - ./conf/spark/hive-site.xml:/usr/spark/conf/hive-site.xml
+      - ./conf/spark/spark-defaults.conf:/usr/spark/conf/spark-defaults.conf
+
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v3.8.1
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      MLFLOW_BACKEND_STORE_URI: postgresql://admin:${POSTGRES_PASSWORD}@postgres:5432/mlflow
+      MLFLOW_DEFAULT_ARTIFACT_ROOT: /mlartifacts
+      MLFLOW_HOST: 0.0.0.0
+      MLFLOW_PORT: 5005
+      MLFLOW_SERVER_ALLOWED_HOSTS: "*"
+    command: >
+      /bin/bash -c "
+        pip install --no-cache-dir psycopg2-binary boto3 &&
+        mlflow server \
+          --backend-store-uri postgresql://admin:$${POSTGRES_PASSWORD}@postgres:5432/mlflow \
+          --default-artifact-root /mlartifacts \
+          --host 0.0.0.0 \
+          --port 5005 \
+          --allowed-hosts '*'
+      "
+    ports:
+      - 127.0.0.1:5005:5005
+    volumes:
+      - mlartifacts:/mlartifacts
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:5005/health')",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+volumes:
+  postgres:
+  spark-warehouse:
+  mlartifacts:

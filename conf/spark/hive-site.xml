@@ -1,0 +1,29 @@
+<configuration>
+    <!-- Tell ThriftServer to use the standalone Hive Metastore service -->
+    <property>
+        <name>hive.metastore.uris</name>
+        <value>thrift://hive-metastore:9083</value>
+    </property>
+
+    <!-- No auth / NOSASL for PyHive clients -->
+    <property>
+        <name>hive.server2.authentication</name>
+        <value>NOSASL</value>
+    </property>
+
+    <!-- Binary transport (PyHive does not support HTTP mode) -->
+    <property>
+        <name>hive.server2.transport.mode</name>
+        <value>binary</value>
+    </property>
+
+    <property>
+        <name>hive.metastore.schema.verification</name>
+        <value>false</value>
+    </property>
+
+    <property>
+        <name>hive.metastore.warehouse.dir</name>
+        <value>/spark-warehouse</value>
+    </property>
+</configuration>

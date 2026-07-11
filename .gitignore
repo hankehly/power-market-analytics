@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+venv/
+env/
+.python-version
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Environment / secrets
+.env
+.env.local
+
+# Data & models
+data/
+*.csv
+*.parquet
+*.h5
+*.hdf5
+*.pkl
+*.joblib
+models/
+checkpoints/
+mlruns/
+wandb/
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+*.swp
+
+# Temp
+tmp/
