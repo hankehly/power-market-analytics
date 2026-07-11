@@ -1,0 +1,122 @@
+sources:
+  - name: jepx
+    schema: raw
+    description: >
+      JEPX (Japan Electric Power Exchange) market data, loaded from
+      https://www.jepx.jp/ CSV files by scripts/load_jepx_spot.py (full
+      reload). The load contract (source headers, types, nullability) is
+      defined in conf/schemas/jepx_spot.yaml.
+    tables:
+      - name: jepx_spot
+        description: >
+          Day-ahead (spot) market trading results. One row per delivery date
+          and 30-minute time code; grain (trade_date, time_code) is enforced
+          at load time. Fiscal years before the block-bid and FIP columns
+          were added to the source files load those columns as null.
+        columns:
+          - name: trade_date
+            description: Delivery date (年月日).
+            data_tests:
+              - not_null
+          - name: time_code
+            description: >
+              30-minute delivery period of the day, 1-48 (時刻コード).
+              1 = 00:00-00:30, 48 = 23:30-24:00.
+            data_tests:
+              - not_null
+          - name: sell_bid_volume_kwh
+            description: Sell bid volume in kWh (売り入札量).
+          - name: buy_bid_volume_kwh
+            description: Buy bid volume in kWh (買い入札量).
+          - name: contract_volume_kwh
+            description: Total contracted volume in kWh (約定総量).
+          - name: system_price_jpy_kwh
+            description: System price in JPY/kWh (システムプライス).
+          - name: area_price_hokkaido_jpy_kwh
+            description: Hokkaido area price in JPY/kWh (エリアプライス北海道).
+          - name: area_price_tohoku_jpy_kwh
+            description: Tohoku area price in JPY/kWh (エリアプライス東北).
+          - name: area_price_tokyo_jpy_kwh
+            description: Tokyo area price in JPY/kWh (エリアプライス東京).
+          - name: area_price_chubu_jpy_kwh
+            description: Chubu area price in JPY/kWh (エリアプライス中部).
+          - name: area_price_hokuriku_jpy_kwh
+            description: Hokuriku area price in JPY/kWh (エリアプライス北陸).
+          - name: area_price_kansai_jpy_kwh
+            description: Kansai area price in JPY/kWh (エリアプライス関西).
+          - name: area_price_chugoku_jpy_kwh
+            description: Chugoku area price in JPY/kWh (エリアプライス中国).
+          - name: area_price_shikoku_jpy_kwh
+            description: Shikoku area price in JPY/kWh (エリアプライス四国).
+          - name: area_price_kyushu_jpy_kwh
+            description: Kyushu area price in JPY/kWh (エリアプライス九州).
+          - name: spot_intraday_avg_price_jpy_kwh
+            description: >
+              Average of spot and intraday (時間前) prices in JPY/kWh
+              (スポット・時間前平均価格).
+          - name: alpha_upper_x_avg_price_jpy_kwh
+            description: >
+              Imbalance parameter α upper bound × spot/intraday average price
+              (α上限値×スポット・時間前平均価格).
+          - name: alpha_lower_x_avg_price_jpy_kwh
+            description: >
+              Imbalance parameter α lower bound × spot/intraday average price
+              (α下限値×スポット・時間前平均価格).
+          - name: alpha_preliminary_x_avg_price_jpy_kwh
+            description: >
+              Preliminary (速報値) imbalance parameter α × spot/intraday
+              average price (α速報値×スポット・時間前平均価格).
+          - name: alpha_final_x_avg_price_jpy_kwh
+            description: >
+              Final (確報値) imbalance parameter α × spot/intraday average
+              price (α確報値×スポット・時間前平均価格).
+          - name: avoidable_cost_national_jpy_kwh
+            description: National avoidable cost in JPY/kWh (回避可能原価全国値).
+          - name: avoidable_cost_hokkaido_jpy_kwh
+            description: Hokkaido avoidable cost in JPY/kWh (回避可能原価北海道).
+          - name: avoidable_cost_tohoku_jpy_kwh
+            description: Tohoku avoidable cost in JPY/kWh (回避可能原価東北).
+          - name: avoidable_cost_tokyo_jpy_kwh
+            description: Tokyo avoidable cost in JPY/kWh (回避可能原価東京).
+          - name: avoidable_cost_chubu_jpy_kwh
+            description: Chubu avoidable cost in JPY/kWh (回避可能原価中部).
+          - name: avoidable_cost_hokuriku_jpy_kwh
+            description: Hokuriku avoidable cost in JPY/kWh (回避可能原価北陸).
+          - name: avoidable_cost_kansai_jpy_kwh
+            description: Kansai avoidable cost in JPY/kWh (回避可能原価関西).
+          - name: avoidable_cost_chugoku_jpy_kwh
+            description: Chugoku avoidable cost in JPY/kWh (回避可能原価中国).
+          - name: avoidable_cost_shikoku_jpy_kwh
+            description: Shikoku avoidable cost in JPY/kWh (回避可能原価四国).
+          - name: avoidable_cost_kyushu_jpy_kwh
+            description: Kyushu avoidable cost in JPY/kWh (回避可能原価九州).
+          - name: sell_block_bid_volume_kwh
+            description: Sell block bid total volume in kWh (売りブロック入札総量).
+          - name: sell_block_contract_volume_kwh
+            description: Sell block contracted volume in kWh (売りブロック約定総量).
+          - name: buy_block_bid_volume_kwh
+            description: Buy block bid total volume in kWh (買いブロック入札総量).
+          - name: buy_block_contract_volume_kwh
+            description: Buy block contracted volume in kWh (買いブロック約定総量).
+          - name: fip_reference_price_national_jpy_kwh
+            description: >
+              National FIP reference price, wholesale market portion, in
+              JPY/kWh (FIP参照価格（卸電力取引市場分）全国値).
+          - name: fip_reference_price_hokkaido_jpy_kwh
+            description: Hokkaido FIP reference price in JPY/kWh (FIP参照価格北海道).
+          - name: fip_reference_price_tohoku_jpy_kwh
+            description: Tohoku FIP reference price in JPY/kWh (FIP参照価格東北).
+          - name: fip_reference_price_tokyo_jpy_kwh
+            description: Tokyo FIP reference price in JPY/kWh (FIP参照価格東京).
+          - name: fip_reference_price_chubu_jpy_kwh
+            description: Chubu FIP reference price in JPY/kWh (FIP参照価格中部).
+          - name: fip_reference_price_hokuriku_jpy_kwh
+            description: Hokuriku FIP reference price in JPY/kWh (FIP参照価格北陸).
+          - name: fip_reference_price_kansai_jpy_kwh
+            description: Kansai FIP reference price in JPY/kWh (FIP参照価格関西).
+          - name: fip_reference_price_chugoku_jpy_kwh
+            description: Chugoku FIP reference price in JPY/kWh (FIP参照価格中国).
+          - name: fip_reference_price_shikoku_jpy_kwh
+            description: Shikoku FIP reference price in JPY/kWh (FIP参照価格四国).
+          - name: fip_reference_price_kyushu_jpy_kwh
+            description: Kyushu FIP reference price in JPY/kWh (FIP参照価格九州).
