@@ -67,9 +67,11 @@ RUN mkdir -p "$POSTGRES_JDBC_DIR" && \
 
 WORKDIR /workspace
 
-# Python deps (most expensive step — only invalidated by pyproject.toml or uv.lock changes)
+# /opt/venv is the virtual environment location for uv, and is on PATH.
+# /root/.cache/uv is the cache location for uv, and is mounted as a cache to speed up builds.
 COPY pyproject.toml uv.lock ./
-RUN uv sync --locked
+RUN --mount=type=cache,target=/root/.cache/uv \
+    UV_LINK_MODE=copy uv sync --locked
 
 ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["bash"]
