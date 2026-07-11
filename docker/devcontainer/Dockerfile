@@ -1,15 +1,15 @@
-# Stage providing uv binaries (avoid unsupported variable expansion in COPY --from)
 ARG PYTHON_VERSION=3.13
 ARG UV_VERSION=0.10.12
+ARG NODE_VERSION=24
 
 FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uvbin
+
+FROM node:${NODE_VERSION}-bookworm-slim AS nodebin
 
 FROM python:${PYTHON_VERSION}-bookworm AS base
 
 ARG POSTGRES_JDBC_VERSION=42.7.13
-ARG NODE_VERSION=25
 ARG TARGETARCH
-ARG NVM_VERSION=0.40.4
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -18,7 +18,6 @@ ENV PYTHONUNBUFFERED=1 \
     POSTGRES_JDBC_DIR=/opt/jdbc \
     POSTGRES_JDBC_JAR=/opt/jdbc/postgresql.jar \
     CLASSPATH=/opt/jdbc/postgresql.jar \
-    NVM_DIR=/root/.nvm \
     UV_HTTP_TIMEOUT=600 \
     GIT_PAGER="less -R" \
     PATH="/opt/venv/bin:$PATH"
@@ -46,8 +45,9 @@ RUN echo 'if [ -f /etc/bash_completion ]; then . /etc/bash_completion; fi' >> /e
  && printf "alias mv='mv -i'\n" >> /etc/bash.bashrc \
  && printf "alias rm='rm -i'\n" >> /etc/bash.bashrc
 
-RUN curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v${NVM_VERSION}/install.sh | bash
-RUN bash -c "source $NVM_DIR/nvm.sh && nvm install $NODE_VERSION && npm install -g rust-just @anthropic-ai/claude-code"
+# Node (copy from named stage) — on PATH for non-interactive shells, unlike nvm
+COPY --from=nodebin /usr/local /usr/local
+RUN npm install -g rust-just @anthropic-ai/claude-code
 
 # AWS CLI (official installer, multi-arch) — required for the S3 data download
 RUN AWS_ARCH=$([ "$TARGETARCH" = "arm64" ] && echo "aarch64" || echo "x86_64") && \
