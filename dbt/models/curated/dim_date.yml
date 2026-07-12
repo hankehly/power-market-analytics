@@ -1,0 +1,96 @@
+models:
+  - name: dim_date
+    config:
+      contract:
+        enforced: true
+    description: >
+      Calendar date dimension, one row per day from 2016-04-01 (earliest JEPX
+      data) through the end of the jpn_national_holidays seed coverage.
+      Japanese fiscal calendar (April-March) and official national holidays
+      from the Cabinet Office (refresh with scripts/update_holidays_seed.py).
+      Keyed by the date itself (Kimball exempts the date dimension from
+      surrogate keys).
+    data_tests:
+      - dbt_utils.expression_is_true:
+          name: dim_date_weekend_matches_day_of_week
+          arguments:
+            expression: "is_weekend = (day_of_week_iso in (6, 7))"
+    columns:
+      - name: date_key
+        data_type: date
+        data_tests:
+          - unique
+          - not_null
+      - name: year
+        data_type: int
+        data_tests:
+          - not_null
+      - name: quarter
+        data_type: int
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 1
+                max_value: 4
+      - name: month
+        data_type: int
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 1
+                max_value: 12
+      - name: day_of_month
+        data_type: int
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 1
+                max_value: 31
+      - name: day_of_week_iso
+        data_type: int
+        description: ISO day of week, 1 = Monday through 7 = Sunday.
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 1
+                max_value: 7
+      - name: day_name
+        data_type: string
+        data_tests:
+          - not_null
+      - name: month_name
+        data_type: string
+        data_tests:
+          - not_null
+      - name: fiscal_year
+        data_type: int
+        description: Japanese fiscal year (April through March).
+        data_tests:
+          - not_null
+      - name: fiscal_quarter
+        data_type: int
+        description: Quarter within the Japanese fiscal year (Q1 = April-June).
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 1
+                max_value: 4
+      - name: is_weekend
+        data_type: boolean
+        data_tests:
+          - not_null
+      - name: is_holiday
+        data_type: boolean
+        description: Japanese national holiday per the Cabinet Office calendar.
+        data_tests:
+          - not_null
+      - name: holiday_name_ja
+        data_type: string
+        description: Holiday name in Japanese; "Not Applicable" on non-holidays.
+        data_tests:
+          - not_null
+      - name: is_business_day
+        data_type: boolean
+        description: Weekday that is not a national holiday.
+        data_tests:
+          - not_null
