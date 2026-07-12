@@ -43,3 +43,4 @@ wandb/
 
 # Temp
 tmp/
+.playwright-mcp
