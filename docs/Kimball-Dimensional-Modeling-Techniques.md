@@ -44,7 +44,6 @@ in a fact table. Most fact tables focus on the results of a single business proc
 is important because it defines a specific design target and allows the grain, dimensions, and facts to be
 declared. Each business process corresponds to a row in the enterprise data warehouse bus matrix.
 
-
 ### Grain
 
 Declaring the grain is the pivotal step in a dimensional design. The grain establishes exactly what a
@@ -90,7 +89,6 @@ included in this list of basic techniques because an OLAP cube is often the fina
 of a dimensional DW/BI system, or may exist as an aggregate structure based on a more atomic
 relational star schema.
 
-
 ### Grace Extensions to Dimensional Modeling
 
 Dimensional models are resilient when data relationships change. All the following changes can be
@@ -98,13 +96,10 @@ implemented without altering any existing BI query or application, and without a
 results.
 
 ```
- Facts consistent with the grain of an existing fact table can be added by creating new columns.
- Dimensions can be added to an existing fact table by creating new foreign key columns,
-presuming they don’t alter the fact table’s grain.
- Attributes can be added to an existing dimension table by creating new columns.
- The grain of a fact table can be made more atomic by adding attributes to an existing dimension
-table, and then restating the fact table at the lower grain, being careful to preserve the existing
-column names in the fact and dimension tables.
+* Facts consistent with the grain of an existing fact table can be added by creating new columns.
+* Dimensions can be added to an existing fact table by creating new foreign key columns, presuming they don’t alter the fact table’s grain.
+* Attributes can be added to an existing dimension table by creating new columns.
+* The grain of a fact table can be made more atomic by adding attributes to an existing dimension table, and then restating the fact table at the lower grain, being careful to preserve the existing column names in the fact and dimension tables.
 ```
 
 ## Basic Fact Table Techniques
@@ -154,7 +149,6 @@ may be dense or sparse because rows exist only if measurements take place. These
 always contain a foreign key for each associated dimension, and optionally contain precise time
 stamps and degenerate dimension keys. The measured numeric facts must be consistent with the
 transaction grain.
-
 
 ### Periodic Snapshot Fact Tables
 
@@ -206,7 +200,6 @@ from more atomic fact tables. Finally, _aggregate OLAP cubes_ with summarized me
 frequently built in the same way as relational aggregates, but the OLAP cubes are meant to be
 accessed directly by the business users.
 
-
 ### Consolidated Fact Tables
 
 It is often convenient to combine facts from multiple processes together into a single _consolidated
@@ -216,7 +209,6 @@ simple and fast, as compared to assembling a drill-across application using sepa
 Consolidated fact tables add burden to the ETL processing, but ease the analytic burden on the BI
 applications. They should be considered for cross-process metrics that are frequently analyzed
 together.
-
 
 ## Basic DimensionTable Techniques
 
@@ -268,8 +260,6 @@ Sometimes a dimension is defined that has no content except for its primary key.
 an invoice has multiple line items, the line item fact rows inherit all the descriptive dimension foreign
 keys of the invoice, and the invoice is left with no unique content. But the invoice number remains a
 valid dimension key for fact tables at the line item level. This _degenerate dimension_ is placed
-
-
 in the fact table with the explicit acknowledgment that there is no associated dimension table.
 Degenerate dimensions are most common with transaction and accumulating snapshot fact tables.
 
@@ -318,7 +308,6 @@ a dimension table, but rather is a standalone column. If business users constrai
 day attributes, such as day part grouping or shift number, then you would add a separate time-of-day
 dimension foreign key to the fact table.
 
-
 ### Role-Playing Dimensions
 
 A single physical dimension can be referenced multiple times in a fact table, with each reference
@@ -353,7 +342,6 @@ dimension can reference a separate dimension representing the date the account w
 These secondary dimension references are called _outrigger dimensions_. Outrigger dimensions are
 permissible, but should be used sparingly. In most cases, the correlations between dimensions
 should be demoted to a fact table, where both dimensions are represented as separate foreign keys.
-
 
 ## Integration via Conformed Dimensions
 
@@ -405,7 +393,6 @@ while also decomposing the program to encourage manageable agile implementations
 to the rows on the enterprise data warehouse bus matrix. The bus architecture is technology and
 database platform independent; both relational and OLAP dimensional structures can participate.
 
-
 ### Enterprise Data Warehouse Bus Matrix
 
 The _enterprise data warehouse bus matrix_ is the essential tool for designing and communicating the
@@ -428,7 +415,6 @@ matrix by replacing the dimension columns with business functions, such as marke
 finance, and then shading the matrix cells to indicate which business functions are interested in
 which business process rows. The _opportunity/stakeholder matrix_ helps identify which business
 groups should be invited to the collaborative design sessions for each process-centric row.
-
 
 ## Slowly Changing Dimension Techniques
 
@@ -481,8 +467,6 @@ Slowly changing dimension _type 5_ is used to accurately preserve historical att
 report historical facts according to current attribute values. Type 5 builds on the type 4 mini-
 dimension by also embedding a current type 1 reference to the mini-dimension in the base
 dimension. This enables the currently-assigned mini- dimension attributes to be accessed along with
-
-
 the others in the base dimension without linking through a fact table. Logically, you’d represent the
 base dimension and mini-dimension outrigger as a single table in the presentation area. The ETL
 team must overwrite this type 1 mini-dimension reference whenever the current mini-dimension
@@ -508,7 +492,6 @@ perspective, the current flag in the dimension is constrained to be current, and
 via the durable key. For the type 2 perspective, the current flag is not constrained, and the fact table
 is joined via the surrogate primary key. These two perspectives would be deployed as separate views
 to the BI applications.
-
 
 ## Dealing with Dimension Hierarchies
 
@@ -550,7 +533,6 @@ language extensions. However, the pathstring approach does not enable rapid subs
 alternative hierarchies or shared ownership hierarchies. The pathstring approach may also be
 vulnerable to structure changes in the ragged hierarchy that could force the entire hierarchy to be
 relabeled.
-
 
 ## Advanced Fact Table Techniques
 
@@ -602,7 +584,6 @@ Operational transaction systems often consist of a transaction header row that�
 multiple transaction lines. With _header/line_ schemas (also known as _parent/child_ schemas), all the
 header-level dimension foreign keys and degenerate dimensions should be included on the line-level
 fact table.
-
 
 ### Allocated Facts
 
@@ -681,7 +662,6 @@ the incoming row. This happens when the fact row is delayed. In this case, the r
 must be searched to find the dimension keys that were effective when the late arriving measurement
 event occurred.
 
-
 ## Advanced Dimension Table Techniques
 
 ### Dimension-to-Dimension Table Joins
@@ -731,8 +711,6 @@ results of the complex behavior analyses, however, can be captured in a simple t
 group_ , consisting only of the customers’ durable keys. This static table can then be used as a kind of
 filter on any dimensional schema with a customer dimension by constraining the study group column
 to the customer dimension’s durable key in the target schema at query time. Multiple study groups
-
-
 can be defined and derivative study groups can be created with intersections, unions, and set
 differences.
 
@@ -782,12 +760,7 @@ hundreds), but less than a handful would be applicable to any given fact table r
 
 ### Step Dimensions
 
-Sequential processes, such as web page events, normally have a separate row in a transaction fact
-table for each step in a process. To tell where the individual step fits into the overall session, a _step_
-
-
-_dimension_ is used that shows what step number is represented by the current step and how many
-more steps were required to complete the session.
+Sequential processes, such as web page events, normally have a separate row in a transaction fact table for each step in a process. To tell where the individual step fits into the overall session, a _step dimension_ is used that shows what step number is represented by the current step and how many more steps were required to complete the session.
 
 ### Hot Swappable Dimensions
 
@@ -835,7 +808,6 @@ dimensional context is eventually supplied, the placeholder dimension rows are u
 overwrites. Late arriving dimension data also occurs when retroactive changes are made to type 2
 dimension attributes. In this case, a new row needs to be inserted in the dimension table, and then
 the associated fact rows must be restated.
-
 
 ## Special Purpose Schemas
 
