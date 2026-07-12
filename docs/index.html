@@ -8,9 +8,28 @@
 </head>
 <body>
   <div id="app"></div>
+  <script src="//cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
   <script>
+    mermaid.initialize({ startOnLoad: false });
     window.$docsify = {
       name: 'power-market-analytics',
+      markdown: {
+        renderer: {
+          code: function (code, lang) {
+            if (lang === 'mermaid') {
+              return '<pre class="mermaid">' + code + '</pre>';
+            }
+            return this.origin.code.apply(this, arguments);
+          },
+        },
+      },
+      plugins: [
+        function (hook) {
+          hook.doneEach(function () {
+            mermaid.run({ querySelector: '.mermaid' });
+          });
+        },
+      ],
     };
   </script>
   <script src="//cdn.jsdelivr.net/npm/docsify@4"></script>
