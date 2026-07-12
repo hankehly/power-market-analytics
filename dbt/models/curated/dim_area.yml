@@ -1,0 +1,52 @@
+models:
+  - name: dim_area
+    config:
+      contract:
+        enforced: true
+    description: >
+      JEPX bidding zone (area) dimension, keyed by the official JEPX area
+      number (1 = Hokkaido through 9 = Kyushu). Row 0 is the default
+      "System (Nationwide)" row for market-wide measures so fact tables never
+      carry a null area foreign key. Maintained in the jepx_areas seed.
+    columns:
+      - name: area_key
+        data_type: int
+        data_tests:
+          - unique
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 9
+      - name: area_code
+        data_type: string
+        description: Snake-case code matching std_jepx__spot column suffixes.
+        data_tests:
+          - unique
+          - not_null
+      - name: area_name_en
+        data_type: string
+        data_tests:
+          - not_null
+      - name: area_name_ja
+        data_type: string
+        data_tests:
+          - not_null
+      - name: tso_name_en
+        data_type: string
+        description: Transmission system operator; "Not Applicable" for the system row.
+        data_tests:
+          - not_null
+      - name: grid_frequency
+        data_type: string
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [50Hz, 60Hz, Not Applicable]
+      - name: grid_region
+        data_type: string
+        description: East (50Hz) or West (60Hz) synchronous grid.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [East, West, Not Applicable]
