@@ -17,7 +17,11 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from power_market_analytics.common.metrics import mae, mape
-from power_market_analytics.tasks.spot_price.frames import N_PERIODS, BacktestResult
+from power_market_analytics.tasks.spot_price.frames import (
+    N_PERIODS,
+    BacktestResult,
+    MetricByYearTimeCode,
+)
 
 SEQUENTIAL_BLUES = [
     "#cde2fb", "#b7d3f6", "#9ec5f4", "#86b6ef", "#6da7ec", "#5598e7",
@@ -36,11 +40,10 @@ INK_MUTED = "#898781"
 FONT_FAMILY = 'system-ui, -apple-system, "Segoe UI", sans-serif'
 
 
-# TODO: Return dataframe wrapper object instead of raw DataFrame
 def metric_by_year_time_code(
     result: BacktestResult, metric: Callable[[pd.Series, pd.Series], float]
-) -> pd.DataFrame:
-    """Pivot backtest errors into a year x time_code metric matrix.
+) -> MetricByYearTimeCode:
+    """Aggregate backtest errors to one metric value per year and time code.
 
     Parameters
     ----------
@@ -51,19 +54,20 @@ def metric_by_year_time_code(
 
     Returns
     -------
-    pandas.DataFrame
-        Index: year (ascending). Columns: time_code 1..48.
+    MetricByYearTimeCode
     """
     df = result.df.assign(year=result.df["trade_date"].dt.year)
-    return (
+    long = (
         df.groupby(["year", "time_code"])
         .apply(
             lambda g: metric(g["actual_price_jpy_kwh"], g["forecast_price_jpy_kwh"]),
             include_groups=False,
         )
-        .unstack("time_code")
-        .sort_index()
+        .rename("value")
+        .reset_index()
+        .astype({"year": "int64", "time_code": "int64", "value": "float64"})
     )
+    return MetricByYearTimeCode.from_df(long)
 
 
 def _period_label(time_code: int) -> str:
@@ -103,7 +107,7 @@ def error_heatmaps(result: BacktestResult, title: str) -> go.Figure:
 
     n_years = 0
     for row, (name, unit, metric, ramp) in enumerate(panels, start=1):
-        pivot = metric_by_year_time_code(result, metric)
+        pivot = metric_by_year_time_code(result, metric).to_matrix()
         n_years = len(pivot.index)
         period_labels = [_period_label(tc) for tc in pivot.columns]
         # One colorbar per panel, each aligned to its own subplot.
