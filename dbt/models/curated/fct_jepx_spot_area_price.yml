@@ -7,7 +7,9 @@ models:
       JEPX day-ahead spot clearing prices by bidding zone. Grain: one row per
       delivery period (trade date x 30-minute time code) per area — 9 rows
       per period, unpivoted from std_jepx__spot. area_price_jpy_kwh is
-      NON-ADDITIVE: average (volume-weight if needed), never sum.
+      NON-ADDITIVE: average (volume-weight if needed), never sum. It is null
+      when the area market was suspended (Hokkaido 2018-09-07..2018-09-26,
+      Iburi earthquake blackout); the row is kept so the grain stays dense.
       trade_datetime is a standalone timestamp for time-series work, not a
       dimension key.
     data_tests:
@@ -49,7 +51,6 @@ models:
       - name: area_price_jpy_kwh
         data_type: double
         data_tests:
-          - not_null
           - dbt_utils.accepted_range:
               arguments:
                 min_value: 0
