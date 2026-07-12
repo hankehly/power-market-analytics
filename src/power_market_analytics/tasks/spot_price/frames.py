@@ -66,3 +66,43 @@ class BacktestResult(DomainFrame):
     }
     keys = ["trade_date", "time_code"]
     non_null_cols = ["actual_price_jpy_kwh", "forecast_price_jpy_kwh"]
+
+
+class MetricByYearTimeCode(DomainFrame):
+    """One error-metric value per calendar year and time code.
+
+    Grain: (year, time_code). ``value`` may be NaN where the metric is
+    undefined for a cell (e.g. MAPE over all-zero actuals), so it is not a
+    non-null column.
+    """
+
+    schema = {
+        "year": "int64",
+        "time_code": "int64",
+        "value": "float64",
+    }
+    keys = ["year", "time_code"]
+
+    @classmethod
+    def _validate_extra(cls, df: pd.DataFrame) -> None:
+        bad = df.loc[~df["time_code"].between(1, N_PERIODS), "time_code"]
+        if not bad.empty:
+            raise ValueError(
+                f"{cls.__name__}: time_code outside 1..{N_PERIODS}: "
+                f"{sorted(bad.unique())}"
+            )
+
+    def to_matrix(self) -> pd.DataFrame:
+        """Pivot to a wide year x time_code matrix for rendering.
+
+        Returns
+        -------
+        pandas.DataFrame
+            Index: year (ascending). Columns: time_code (ascending).
+            Values: the metric.
+        """
+        return (
+            self.df.pivot(index="year", columns="time_code", values="value")
+            .sort_index()
+            .sort_index(axis="columns")
+        )
