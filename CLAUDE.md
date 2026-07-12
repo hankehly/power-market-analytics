@@ -6,6 +6,14 @@
   star schemas, SCDs, etc.), abide by the guidelines in
   [docs/Kimball-Dimensional-Modeling-Techniques.md](docs/Kimball-Dimensional-Modeling-Techniques.md).
 
+## dbt
+
+- Every dbt model must have an enforced contract
+  (`config: contract: enforced: true` with a `data_type` for every column).
+- Every dbt model must have a uniqueness test on its primary key column(s):
+  `unique` for a single column, `dbt_utils.unique_combination_of_columns` for
+  composite keys.
+
 ## Docstrings
 
 - Always use NumPy-style docstrings
