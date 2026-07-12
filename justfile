@@ -17,3 +17,7 @@ dbt *args:
 [doc("Open a shell inside the devcontainer")]
 shell:
     @docker compose exec -e PYTHONPATH=/workspace/src devcontainer bash
+
+[doc("Open a beeline SQL shell on the thriftserver")]
+sql:
+    @docker compose exec thriftserver /opt/spark/bin/beeline -u 'jdbc:hive2://localhost:10000/;auth=noSasl' -n admin
