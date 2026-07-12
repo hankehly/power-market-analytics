@@ -1,0 +1,54 @@
+models:
+  - name: dim_delivery_period
+    config:
+      contract:
+        enforced: true
+    description: >
+      Time-of-day dimension for the 48 half-hour delivery periods used by the
+      Japanese power market, keyed by JEPX time code (1 = 00:00-00:30,
+      48 = 23:30-24:00). is_daytime marks the JEPX daytime window
+      (8:00-18:00, time codes 17-36).
+    columns:
+      - name: time_code
+        data_type: int
+        data_tests:
+          - unique
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 1
+                max_value: 48
+      - name: start_minute_of_day
+        data_type: int
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 1410
+      - name: hour_of_day
+        data_type: int
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 23
+      - name: period_start_time
+        data_type: string
+        description: Period start as HH:MM (00:00 through 23:30).
+        data_tests:
+          - not_null
+      - name: period_end_time
+        data_type: string
+        description: Period end as HH:MM; the last period ends at 24:00.
+        data_tests:
+          - not_null
+      - name: is_daytime
+        data_type: boolean
+        data_tests:
+          - not_null
+      - name: day_part
+        data_type: string
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [Overnight, Morning, Daytime, Evening]
