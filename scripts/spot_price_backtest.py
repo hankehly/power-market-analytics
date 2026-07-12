@@ -17,6 +17,7 @@ from power_market_analytics.common.tracking import log_dataframe, task_run
 from power_market_analytics.tasks.spot_price import MLFLOW_EXPERIMENT
 from power_market_analytics.tasks.spot_price.backtest import daily_metrics, run_backtest
 from power_market_analytics.tasks.spot_price.datasets import load_area_spot_prices
+from power_market_analytics.tasks.spot_price.plots import error_heatmaps
 from power_market_analytics.tasks.spot_price.strategies import STRATEGIES
 
 
@@ -27,7 +28,7 @@ def main() -> None:
     parser.add_argument(
         "--days",
         type=int,
-        default=730,
+        default=1825,
         help="Backtest window length in delivery days, ending at the last day in the data.",
     )
     args = parser.parse_args()
@@ -65,6 +66,10 @@ def main() -> None:
         mlflow.log_metrics({"mae": overall_mae, "mape": overall_mape})
         log_dataframe(per_day, "daily_errors.csv")
         log_dataframe(result.df, "predictions.csv")
+        heatmaps = error_heatmaps(
+            result, title=f"Error by year and time code — {args.strategy}, {args.area}"
+        )
+        mlflow.log_figure(heatmaps, "error_heatmaps_year_time_code.html")
         run_id = run.info.run_id
 
     print(
