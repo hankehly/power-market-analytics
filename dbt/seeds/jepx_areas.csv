@@ -1,0 +1,11 @@
+area_key,area_code,area_name_en,area_name_ja,tso_name_en,grid_frequency,grid_region
+0,system,System (Nationwide),システム,Not Applicable,Not Applicable,Not Applicable
+1,hokkaido,Hokkaido,北海道,Hokkaido Electric Power Network,50Hz,East
+2,tohoku,Tohoku,東北,Tohoku Electric Power Network,50Hz,East
+3,tokyo,Tokyo,東京,TEPCO Power Grid,50Hz,East
+4,chubu,Chubu,中部,Chubu Electric Power Grid,60Hz,West
+5,hokuriku,Hokuriku,北陸,Hokuriku Electric Power Transmission & Distribution,60Hz,West
+6,kansai,Kansai,関西,Kansai Transmission and Distribution,60Hz,West
+7,chugoku,Chugoku,中国,Chugoku Electric Power Transmission & Distribution,60Hz,West
+8,shikoku,Shikoku,四国,Shikoku Electric Power Transmission & Distribution,60Hz,West
+9,kyushu,Kyushu,九州,Kyushu Electric Power Transmission & Distribution,60Hz,West
