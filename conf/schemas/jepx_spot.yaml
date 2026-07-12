@@ -5,7 +5,9 @@ description: >
   have 32 columns; the block-bid and FIP columns were appended later, so they are
   marked required: false and load as null for older years. The source files also
   contain unnamed separator columns, which are dropped because no schema column
-  references them.
+  references them. Area prices are nullable because area markets can be
+  suspended (e.g. Hokkaido 2018-09-07..2018-09-26 after the Iburi earthquake
+  blackout); the system price has no such gaps.
 
 read_options:
   # Java charset name for cp932 / Shift_JIS with Windows extensions
@@ -20,15 +22,15 @@ columns:
   - { name: buy_bid_volume_kwh, source: 買い入札量(kWh), type: bigint, nullable: false }
   - { name: contract_volume_kwh, source: 約定総量(kWh), type: bigint, nullable: false }
   - { name: system_price_jpy_kwh, source: システムプライス(円/kWh), type: double, nullable: false }
-  - { name: area_price_hokkaido_jpy_kwh, source: エリアプライス北海道(円/kWh), type: double, nullable: false }
-  - { name: area_price_tohoku_jpy_kwh, source: エリアプライス東北(円/kWh), type: double, nullable: false }
-  - { name: area_price_tokyo_jpy_kwh, source: エリアプライス東京(円/kWh), type: double, nullable: false }
-  - { name: area_price_chubu_jpy_kwh, source: エリアプライス中部(円/kWh), type: double, nullable: false }
-  - { name: area_price_hokuriku_jpy_kwh, source: エリアプライス北陸(円/kWh), type: double, nullable: false }
-  - { name: area_price_kansai_jpy_kwh, source: エリアプライス関西(円/kWh), type: double, nullable: false }
-  - { name: area_price_chugoku_jpy_kwh, source: エリアプライス中国(円/kWh), type: double, nullable: false }
-  - { name: area_price_shikoku_jpy_kwh, source: エリアプライス四国(円/kWh), type: double, nullable: false }
-  - { name: area_price_kyushu_jpy_kwh, source: エリアプライス九州(円/kWh), type: double, nullable: false }
+  - { name: area_price_hokkaido_jpy_kwh, source: エリアプライス北海道(円/kWh), type: double }
+  - { name: area_price_tohoku_jpy_kwh, source: エリアプライス東北(円/kWh), type: double }
+  - { name: area_price_tokyo_jpy_kwh, source: エリアプライス東京(円/kWh), type: double }
+  - { name: area_price_chubu_jpy_kwh, source: エリアプライス中部(円/kWh), type: double }
+  - { name: area_price_hokuriku_jpy_kwh, source: エリアプライス北陸(円/kWh), type: double }
+  - { name: area_price_kansai_jpy_kwh, source: エリアプライス関西(円/kWh), type: double }
+  - { name: area_price_chugoku_jpy_kwh, source: エリアプライス中国(円/kWh), type: double }
+  - { name: area_price_shikoku_jpy_kwh, source: エリアプライス四国(円/kWh), type: double }
+  - { name: area_price_kyushu_jpy_kwh, source: エリアプライス九州(円/kWh), type: double }
   - { name: spot_intraday_avg_price_jpy_kwh, source: スポット・時間前平均価格(円/kWh), type: double }
   - { name: alpha_upper_x_avg_price_jpy_kwh, source: α上限値×スポット・時間前平均価格(円/kWh), type: double }
   - { name: alpha_lower_x_avg_price_jpy_kwh, source: α下限値×スポット・時間前平均価格(円/kWh), type: double }
