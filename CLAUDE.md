@@ -1,5 +1,35 @@
 # CLAUDE.md
 
+## Commands
+
+- `just refresh` — full warehouse refresh: download JEPX CSVs + holidays, reload `raw`, `dbt build` (models + tests).
+- `just python <args>` / `just exec <cmd>` / `just shell` — run inside the devcontainer.
+- `just dbt <args>` — dbt from `/workspace/dbt` (e.g. `just dbt build`, `just dbt show --inline "select ..." --limit 5`).
+- `just sql` — beeline shell on the thriftserver.
+- Host-side dbt also works: `cd dbt && DBT_THRIFT_HOST=localhost uv run dbt <cmd>`.
+- Anything that creates a SparkSession MUST run in the devcontainer (metastore/warehouse only
+  resolve on the compose network); plain python and dbt work from the host too.
+
+## Architecture (data flow)
+
+- JEPX CSVs: `scripts/download_jepx_spot.py` → `data/jepx/spot/` (gitignored) →
+  `scripts/load_jepx_spot.py` (`CsvLoader`, load contract in `conf/schemas/jepx_spot.yaml`) → `raw.jepx_spot`.
+- dbt (`dbt/`): sources in `models/raw/<source>.yml` → `staging` (as-is) → `standardized`
+  (typed time axis) → `curated` (Kimball star: `dim_*`, `fct_*`). Schemas: `pma_<layer>`.
+- Japanese holidays: Cabinet Office CSV → `scripts/update_holidays_seed.py` → seed → `dim_date`
+  (spine end derives from the seed's max year).
+
+## Gotchas
+
+- dbt 1.11 generic tests: put test args under `arguments:` (e.g. `dbt_utils.accepted_range`),
+  else deprecation warnings.
+- Spark SQL `div` returns `bigint` — cast to `int` where the model contract says `int`.
+- `dbt show --inline`: use the `--limit` flag; a `limit` clause inside the SQL breaks dbt's wrapper.
+- JEPX data history constrains tests: FY2016 has genuine 0.00 area prices (no 0.01 floor yet),
+  Hokkaido area prices are null 2018-09-07..26 (earthquake suspension), block/FIP columns are
+  null before ~FY2022. Check `conf/schemas/jepx_spot.yaml` + model descriptions before
+  tightening constraints.
+
 ## Dimensional Modeling
 
 - For anything dimensional-modeling related (fact/dimension table design, grain declarations,
