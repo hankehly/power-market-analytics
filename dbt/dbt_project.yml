@@ -19,9 +19,17 @@ models:
       +schema: staging
     standardized:
       +schema: standardized
+    curated:
+      +schema: curated
 seeds:
   # Globally quote all seed columns
   # https://docs.getdbt.com/reference/resource-configs/quote_columns
   +quote_columns: true
   pma:
     +schema: seed
+    jpn_national_holidays:
+      +column_types:
+        holiday_date: date
+    jepx_areas:
+      +column_types:
+        area_key: int
