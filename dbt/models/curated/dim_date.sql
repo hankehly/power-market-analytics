@@ -1,18 +1,29 @@
 with
-  -- Spine end matches the coverage of the jpn_national_holidays seed
-  -- (Cabinet Office publishes through the end of the next calendar year).
-  -- Extend after refreshing the seed with scripts/update_holidays_seed.py.
-  date_spine as (
-  select
-    explode(sequence(to_date('2016-04-01'), to_date('2027-12-31'), interval 1 day)) as date_key
-  ),
-
   holidays as (
   select
     holiday_date,
     holiday_name_ja
   from
     {{ ref('jpn_national_holidays') }}
+  ),
+
+  -- Spine runs to the end of the last calendar year covered by the holiday
+  -- seed, so refreshing the seed (scripts/update_holidays_seed.py) extends
+  -- the calendar automatically and is_holiday is never silently false for
+  -- dates beyond holiday coverage.
+  spine_bounds as (
+  select
+    to_date('2016-04-01') as start_date,
+    make_date(year(max(holiday_date)), 12, 31) as end_date
+  from
+    holidays
+  ),
+
+  date_spine as (
+  select
+    explode(sequence(start_date, end_date, interval 1 day)) as date_key
+  from
+    spine_bounds
   ),
 
   final as (

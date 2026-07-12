@@ -4,8 +4,8 @@ Downloads the official Cabinet Office holiday CSV (Shift_JIS, published
 annually with coverage through the end of the next calendar year) and
 rewrites dbt/seeds/jpn_national_holidays.csv as UTF-8 with ISO dates.
 
-After refreshing, extend the dim_date spine end date to match the new
-coverage and run: just dbt seed && just dbt build --select dim_date
+The dim_date spine derives its end date from this seed, so rebuilding dbt
+(just dbt build) after a refresh extends the calendar automatically.
 """
 
 import csv

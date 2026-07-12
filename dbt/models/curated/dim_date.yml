@@ -5,7 +5,8 @@ models:
         enforced: true
     description: >
       Calendar date dimension, one row per day from 2016-04-01 (earliest JEPX
-      data) through the end of the jpn_national_holidays seed coverage.
+      data) through the end of the last calendar year covered by the
+      jpn_national_holidays seed (the spine end derives from the seed).
       Japanese fiscal calendar (April-March) and official national holidays
       from the Cabinet Office (refresh with scripts/update_holidays_seed.py).
       Keyed by the date itself (Kimball exempts the date dimension from
