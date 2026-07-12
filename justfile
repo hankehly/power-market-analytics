@@ -21,3 +21,10 @@ shell:
 [doc("Open a beeline SQL shell on the thriftserver")]
 sql:
     @docker compose exec thriftserver /opt/spark/bin/beeline -u 'jdbc:hive2://localhost:10000/;auth=noSasl' -n admin
+
+[doc("Refresh the warehouse: redownload all sources, reload raw, rebuild + test all dbt models")]
+refresh:
+    just python scripts/download_jepx_spot.py
+    just python scripts/update_holidays_seed.py
+    just python scripts/load_jepx_spot.py
+    just dbt build
