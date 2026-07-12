@@ -6,6 +6,7 @@ readme = "docs/README.md"
 requires-python = ">=3.13"
 dependencies = [
     "dbt-core>=1.11.10",
+    "plotly>=6.0",
     "dbt-spark[pyhive]>=1.10.1",
     "mlflow>=3.12.0",
     "pandas>=2.3.3",
