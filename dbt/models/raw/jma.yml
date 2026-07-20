@@ -1,0 +1,136 @@
+sources:
+  - name: jma
+    schema: raw
+    description: >
+      JMA (Japan Meteorological Agency) historical weather observations,
+      scraped from https://www.data.jma.go.jp/risk/obsdl/ by
+      scripts/download_jma_hourly.py and loaded by scripts/load_jma_hourly.py
+      (full reload). The retrieval protocol and CSV formats are documented in
+      docs/JMA-Weather-Data-Retrieval.md. The core element set (precipitation,
+      temperature, wind, sunshine) arrives in two fixed layouts — AMeDAS
+      stations and staffed stations (extra 現象なし情報 columns) — each with
+      its own load contract in conf/schemas/ and its own raw table. Hours run
+      01:00-24:00 JST with 24:00 stored as 00:00 of the next day. Quality
+      flags: 8 normal, 5 quasi-normal, 4 insufficient, 2 questionable,
+      1 missing, 0 not observed; value cells are empty when the flag is
+      2/1/0. Homogeneity numbers restart at 1 per downloaded file, so only
+      within-file changes mark observation-environment breaks.
+    tables:
+      - name: jma_hourly_amedas
+        description: >
+          Hourly core-element observations from AMeDAS stations (a-prefixed
+          station ids). One row per station and hour; grain
+          (station_id, observed_at) is enforced at load time. AMeDAS sunshine
+          stores an empty cell (not 0) with quality flag 8 for no-sunshine
+          hours, so sunshine values must be read together with their flag.
+          Load contract: conf/schemas/jma_hourly_amedas.yaml.
+        columns:
+          - name: station_id
+            description: >
+              JMA obsdl station id (e.g. a1133 = 府中), parsed from the file
+              name. Joinable to the station master (data/jma/stations.csv).
+            data_tests:
+              - not_null
+          - name: observed_at
+            description: >
+              Observation hour (JST). Hour 24:00 is stored as 00:00 of the
+              next day, so a calendar-year file spans Jan 1 01:00 through
+              next Jan 1 00:00.
+            data_tests:
+              - not_null
+          - name: precipitation_mm
+            description: Precipitation in the past hour in mm (降水量(前1時間)).
+          - name: precipitation_quality_flag
+            description: Quality flag for precipitation (品質情報).
+          - name: precipitation_homogeneity_no
+            description: Homogeneity number for precipitation (均質番号).
+          - name: temperature_c
+            description: Air temperature in °C (気温).
+          - name: temperature_quality_flag
+            description: Quality flag for temperature (品質情報).
+          - name: temperature_homogeneity_no
+            description: Homogeneity number for temperature (均質番号).
+          - name: wind_speed_ms
+            description: Wind speed in m/s (風速).
+          - name: wind_speed_quality_flag
+            description: Quality flag for wind speed (品質情報).
+          - name: wind_direction
+            description: >
+              Wind direction as a 16-point compass word (北西 etc.) or 静穏
+              (calm) (風向).
+          - name: wind_direction_quality_flag
+            description: Quality flag for wind direction (品質情報).
+          - name: wind_homogeneity_no
+            description: Homogeneity number shared by wind speed and direction (均質番号).
+          - name: sunshine_duration_h
+            description: >
+              Sunshine duration in the past hour in hours (日照時間(前1時間)).
+              Empty (null) with quality flag 8 means a no-sunshine hour at
+              AMeDAS stations. Estimated (satellite-derived) at active AMeDAS
+              stations since 2021-03.
+          - name: sunshine_quality_flag
+            description: Quality flag for sunshine duration (品質情報).
+          - name: sunshine_homogeneity_no
+            description: Homogeneity number for sunshine duration (均質番号).
+      - name: jma_hourly_staffed
+        description: >
+          Hourly core-element observations from staffed stations (気象官署,
+          s-prefixed station ids, e.g. s47662 = 東京). One row per station and
+          hour; grain (station_id, observed_at) is enforced at load time.
+          Same layout as jma_hourly_amedas plus 現象なし情報 columns on the
+          phenomenon-recording elements (precipitation, sunshine):
+          1 = no phenomenon that hour (the 0 value is a true zero),
+          0 = phenomenon occurred, null when the quality flag is 2/1/0.
+          Load contract: conf/schemas/jma_hourly_staffed.yaml.
+        columns:
+          - name: station_id
+            description: >
+              JMA obsdl station id (e.g. s47662 = 東京), parsed from the file
+              name. Joinable to the station master (data/jma/stations.csv).
+            data_tests:
+              - not_null
+          - name: observed_at
+            description: >
+              Observation hour (JST). Hour 24:00 is stored as 00:00 of the
+              next day, so a calendar-year file spans Jan 1 01:00 through
+              next Jan 1 00:00.
+            data_tests:
+              - not_null
+          - name: precipitation_mm
+            description: Precipitation in the past hour in mm (降水量(前1時間)).
+          - name: precipitation_phenomenon_absent
+            description: >
+              現象なし情報 for precipitation: 1 = no precipitation occurred
+              (value 0 is a true zero), 0 = precipitation occurred.
+          - name: precipitation_quality_flag
+            description: Quality flag for precipitation (品質情報).
+          - name: precipitation_homogeneity_no
+            description: Homogeneity number for precipitation (均質番号).
+          - name: temperature_c
+            description: Air temperature in °C (気温).
+          - name: temperature_quality_flag
+            description: Quality flag for temperature (品質情報).
+          - name: temperature_homogeneity_no
+            description: Homogeneity number for temperature (均質番号).
+          - name: wind_speed_ms
+            description: Wind speed in m/s (風速).
+          - name: wind_speed_quality_flag
+            description: Quality flag for wind speed (品質情報).
+          - name: wind_direction
+            description: >
+              Wind direction as a 16-point compass word (北西 etc.) or 静穏
+              (calm) (風向).
+          - name: wind_direction_quality_flag
+            description: Quality flag for wind direction (品質情報).
+          - name: wind_homogeneity_no
+            description: Homogeneity number shared by wind speed and direction (均質番号).
+          - name: sunshine_duration_h
+            description: Sunshine duration in the past hour in hours (日照時間(前1時間)).
+          - name: sunshine_phenomenon_absent
+            description: >
+              現象なし情報 for sunshine: 1 = no sunshine that hour (value 0 is
+              a true zero), 0 = sunshine occurred.
+          - name: sunshine_quality_flag
+            description: Quality flag for sunshine duration (品質情報).
+          - name: sunshine_homogeneity_no
+            description: Homogeneity number for sunshine duration (均質番号).
