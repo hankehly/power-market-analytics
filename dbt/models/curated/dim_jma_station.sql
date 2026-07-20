@@ -1,3 +1,8 @@
+-- SCD type 1: rebuilt from the jma_stations seed snapshot, so attribute changes
+-- (coordinates, elevation, kansoku) overwrite in place and no history is kept.
+-- Observation-environment breaks are tracked in the hourly facts via homogeneity
+-- numbers instead; era-level history exists in JMA's mdrr metadata files
+-- (docs/JMA-Weather-Data-Retrieval.md §4.3) if ever needed.
 with
   final as (
   select
