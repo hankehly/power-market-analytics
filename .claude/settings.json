@@ -8,7 +8,10 @@
       "mcp__plugin_playwright_playwright__browser_take_screenshot",
       "mcp__plugin_playwright_playwright__browser_hover",
       "Skill(dataviz)",
-      "Skill(dataviz:*)"
+      "Skill(dataviz:*)",
+      "Bash(just --list)",
+      "Bash(just open *)",
+      "Bash(echo \"exit=$?\")"
     ]
   }
 }
