@@ -18,18 +18,6 @@ models:
             combination_of_columns:
               - trade_date
               - time_code
-      - dbt_utils.expression_is_true:
-          name: std_jepx__spot_contract_lte_bid_volumes
-          arguments:
-            expression: "contract_volume_kwh <= sell_bid_volume_kwh and contract_volume_kwh <= buy_bid_volume_kwh"
-      - dbt_utils.expression_is_true:
-          name: std_jepx__spot_sell_block_contract_lte_bid
-          arguments:
-            expression: "sell_block_contract_volume_kwh <= sell_block_bid_volume_kwh"
-      - dbt_utils.expression_is_true:
-          name: std_jepx__spot_buy_block_contract_lte_bid
-          arguments:
-            expression: "buy_block_contract_volume_kwh <= buy_block_bid_volume_kwh"
     columns:
       - name: trade_date
         data_type: date

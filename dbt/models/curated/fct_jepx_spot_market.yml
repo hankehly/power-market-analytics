@@ -20,6 +20,14 @@ models:
           name: fct_jepx_spot_market_contract_lte_bid_volumes
           arguments:
             expression: "contract_volume_kwh <= sell_bid_volume_kwh and contract_volume_kwh <= buy_bid_volume_kwh"
+      - dbt_utils.expression_is_true:
+          name: fct_jepx_spot_market_sell_block_contract_lte_bid
+          arguments:
+            expression: "sell_block_contract_volume_kwh <= sell_block_bid_volume_kwh"
+      - dbt_utils.expression_is_true:
+          name: fct_jepx_spot_market_buy_block_contract_lte_bid
+          arguments:
+            expression: "buy_block_contract_volume_kwh <= buy_block_bid_volume_kwh"
     columns:
       - name: date_key
         data_type: date
