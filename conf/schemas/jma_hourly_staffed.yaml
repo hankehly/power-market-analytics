@@ -1,0 +1,43 @@
+description: >
+  JMA hourly observations from staffed stations (気象官署, s-prefixed station
+  ids), core element set 降水量+気温+風向・風速+日照時間 (element codes
+  101-201-301-401): the 17-column staffed layout described in
+  docs/JMA-Weather-Data-Retrieval.md §7. Identical to the AMeDAS layout
+  (conf/schemas/jma_hourly_amedas.yaml) except that the phenomenon-recording
+  elements 降水量 and 日照時間 each carry an extra 現象なし情報 column:
+  1 = no phenomenon that hour (the 0 value is a true zero), 0 = phenomenon
+  occurred, empty when the quality flag is 2/1/0. Files are downloaded by
+  scripts/download_jma_hourly.py and read positionally (source _c0.._c16) by
+  JmaHourlyCsvLoader; station_id is injected from the file name. One row per
+  station and hour; hours run 01:00-24:00 JST with 24:00 stored as 00:00 of
+  the next day. Quality flags: 8 normal, 5 quasi-normal, 4 insufficient,
+  2 questionable, 1 missing, 0 not observed; value cells are empty when the
+  flag is 2/1/0. Wind direction is a 16-point compass word (北西 etc.) or
+  静穏 (calm). Homogeneity numbers restart at 1 in every downloaded file;
+  only within-file changes mark observation-environment breaks.
+
+read_options:
+  # Java charset name for cp932 / Shift_JIS with Windows extensions
+  encoding: windows-31j
+
+grain: [station_id, observed_at]
+
+columns:
+  - { name: station_id, source: __station_id, type: string, nullable: false }
+  - { name: observed_at, source: _c0, type: timestamp, format: yyyy/M/d H:mm:ss, nullable: false }
+  - { name: precipitation_mm, source: _c1, type: double }
+  - { name: precipitation_phenomenon_absent, source: _c2, type: int }
+  - { name: precipitation_quality_flag, source: _c3, type: int, nullable: false }
+  - { name: precipitation_homogeneity_no, source: _c4, type: int, nullable: false }
+  - { name: temperature_c, source: _c5, type: double }
+  - { name: temperature_quality_flag, source: _c6, type: int, nullable: false }
+  - { name: temperature_homogeneity_no, source: _c7, type: int, nullable: false }
+  - { name: wind_speed_ms, source: _c8, type: double }
+  - { name: wind_speed_quality_flag, source: _c9, type: int, nullable: false }
+  - { name: wind_direction, source: _c10, type: string }
+  - { name: wind_direction_quality_flag, source: _c11, type: int, nullable: false }
+  - { name: wind_homogeneity_no, source: _c12, type: int, nullable: false }
+  - { name: sunshine_duration_h, source: _c13, type: double }
+  - { name: sunshine_phenomenon_absent, source: _c14, type: int }
+  - { name: sunshine_quality_flag, source: _c15, type: int, nullable: false }
+  - { name: sunshine_homogeneity_no, source: _c16, type: int, nullable: false }

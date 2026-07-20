@@ -1,0 +1,72 @@
+models:
+  - name: stg_jma__hourly_amedas
+    config:
+      contract:
+        enforced: true
+    description: >
+      As-is representation of raw.jma_hourly_amedas (JMA hourly core-element
+      observations, AMeDAS stations). One row per station_id and observation
+      hour. Column documentation lives on the source (models/raw/jma.yml).
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - station_id
+              - observed_at
+    columns:
+      - name: station_id
+        data_type: string
+        data_tests:
+          - not_null
+      - name: observed_at
+        data_type: timestamp
+        data_tests:
+          - not_null
+      - name: precipitation_mm
+        data_type: double
+      - name: precipitation_quality_flag
+        data_type: int
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [0, 1, 2, 4, 5, 8]
+      - name: precipitation_homogeneity_no
+        data_type: int
+      - name: temperature_c
+        data_type: double
+      - name: temperature_quality_flag
+        data_type: int
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [0, 1, 2, 4, 5, 8]
+      - name: temperature_homogeneity_no
+        data_type: int
+      - name: wind_speed_ms
+        data_type: double
+      - name: wind_speed_quality_flag
+        data_type: int
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [0, 1, 2, 4, 5, 8]
+      - name: wind_direction
+        data_type: string
+      - name: wind_direction_quality_flag
+        data_type: int
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [0, 1, 2, 4, 5, 8]
+      - name: wind_homogeneity_no
+        data_type: int
+      - name: sunshine_duration_h
+        data_type: double
+      - name: sunshine_quality_flag
+        data_type: int
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [0, 1, 2, 4, 5, 8]
+      - name: sunshine_homogeneity_no
+        data_type: int
