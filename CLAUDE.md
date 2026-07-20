@@ -14,6 +14,13 @@
 
 - JEPX CSVs: `scripts/download_jepx_spot.py` → `data/jepx/spot/` (gitignored) →
   `scripts/load_jepx_spot.py` (`CsvLoader`, load contract in `conf/schemas/jepx_spot.yaml`) → `raw.jepx_spot`.
+- JMA weather CSVs: `scripts/download_jma_hourly_all.py` (per-station:
+  `download_jma_hourly.py`) → `data/jma/hourly/` → `scripts/load_jma_hourly.py`
+  (`JmaHourlyCsvLoader`, positional contracts in `conf/schemas/jma_hourly_*.yaml`, one per
+  station-class layout) → `raw.jma_hourly_amedas` / `raw.jma_hourly_staffed`.
+  Station master: `scripts/update_jma_stations_seed.py` → seed `jma_stations` →
+  `dim_jma_station`. Protocol + CSV format:
+  [docs/JMA-Weather-Data-Retrieval.md](docs/JMA-Weather-Data-Retrieval.md).
 - dbt (`dbt/`): sources in `models/raw/<source>.yml` → `staging` (as-is) → `standardized`
   (typed time axis) → `curated` (Kimball star: `dim_*`, `fct_*`). Schemas: `pma_<layer>`.
 - Japanese holidays: Cabinet Office CSV → `scripts/update_holidays_seed.py` → seed → `dim_date`
