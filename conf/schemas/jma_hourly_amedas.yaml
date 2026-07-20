@@ -11,8 +11,11 @@ description: >
   5 quasi-normal, 4 insufficient, 2 questionable, 1 missing, 0 not observed.
   Value cells are empty when the flag is 2/1/0 — and AMeDAS sunshine also
   stores an empty cell (not 0) with flag 8 for no-sunshine hours, so values
-  must be interpreted together with their flag. Wind direction is a 16-point
-  compass word (北西 etc.) or 静穏 (calm). Homogeneity numbers restart at 1 in
+  must be interpreted together with their flag. At a few stations the
+  wind-direction quality flag cell itself is empty (null) instead of 0 while
+  the wind element is unobserved (wind_speed_quality_flag 0): a1674 through
+  2022-10-30, a1643/a1644 in Dec 2016 — hence that flag is nullable. Wind
+  direction is a 16-point compass word (北西 etc.) or 静穏 (calm). Homogeneity numbers restart at 1 in
   every downloaded file; only within-file changes mark observation-environment
   breaks.
 
@@ -34,7 +37,7 @@ columns:
   - { name: wind_speed_ms, source: _c7, type: double }
   - { name: wind_speed_quality_flag, source: _c8, type: int, nullable: false }
   - { name: wind_direction, source: _c9, type: string }
-  - { name: wind_direction_quality_flag, source: _c10, type: int, nullable: false }
+  - { name: wind_direction_quality_flag, source: _c10, type: int }
   - { name: wind_homogeneity_no, source: _c11, type: int, nullable: false }
   - { name: sunshine_duration_h, source: _c12, type: double }
   - { name: sunshine_quality_flag, source: _c13, type: int, nullable: false }
