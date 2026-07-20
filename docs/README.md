@@ -121,7 +121,8 @@ inside the devcontainer from a host terminal (requires
 compose stack to be up):
 
 ```bash
-just refresh                             # full warehouse refresh: redownload sources, reload raw, rebuild + test dbt
+just refresh-jepx                        # JEPX refresh: redownload market data + holidays, reload raw, rebuild + test dbt
+just refresh-jma --prefecture 44         # JMA weather refresh (scoped; no args = full network, ~60 h cold)
 just python scripts/load_jepx_spot.py    # python in the devcontainer
 just python -c "import power_market_analytics"
 just dbt run                             # dbt, run from /workspace/dbt
