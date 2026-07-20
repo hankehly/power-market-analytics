@@ -59,7 +59,11 @@ sources:
               Wind direction as a 16-point compass word (北西 etc.) or 静穏
               (calm) (風向).
           - name: wind_direction_quality_flag
-            description: Quality flag for wind direction (品質情報).
+            description: >
+              Quality flag for wind direction (品質情報). Null (empty cell
+              instead of 0) at a few stations while the wind element is
+              entirely unobserved (wind_speed_quality_flag 0): a1674 through
+              2022-10-30, a1643/a1644 in Dec 2016.
           - name: wind_homogeneity_no
             description: Homogeneity number shared by wind speed and direction (均質番号).
           - name: sunshine_duration_h

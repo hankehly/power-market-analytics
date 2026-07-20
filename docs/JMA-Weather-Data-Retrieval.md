@@ -442,6 +442,12 @@ Consequences, given the 5-value-column cap:
 - Even 東京 has holes: in 2016–2026 hourly temperature, 2019 has 3 missing hours
   (flag 1), 2020 and 2024 one each, 2022 one quasi-normal hour (flag 5). Loaders must
   tolerate empty value cells wherever the quality flag is not 8/5/4.
+- The "unobserved elements still emit standard-width groups (empty value, quality 0)"
+  rule ([§7.5](#75-minimum-distinct-formats-for-ingestion)) holds for column *widths*,
+  but the quality cell itself is not always populated: at a few AMeDAS stations the
+  wind-direction 品質情報 cell is empty instead of 0 while the wind element is
+  unobserved (a1674 through 2022-10-30, a1643/a1644 in Dec 2016). Loaders must treat
+  that flag as nullable.
 - Discontinued stations appear in the station list with an end date; their files simply
   stop at that date.
 
