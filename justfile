@@ -22,6 +22,22 @@ shell:
 sql:
     @docker compose exec thriftserver /opt/spark/bin/beeline -u 'jdbc:hive2://localhost:10000/;auth=noSasl' -n admin
 
+[doc("Open a web UI in the browser: docs | mlflow | spark (thriftserver) | spark-dev (devcontainer session)")]
+open target:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case "{{ target }}" in
+        docs)      url="http://localhost:3000" ;;
+        mlflow)    url="http://localhost:5005" ;;
+        spark)     url="http://localhost:4040" ;;
+        spark-dev) url="http://localhost:4041" ;;
+        *)
+            echo "Unknown target '{{ target }}'. Expected one of: docs, mlflow, spark, spark-dev" >&2
+            exit 1
+            ;;
+    esac
+    open "$url"
+
 [doc("Refresh the warehouse: redownload all sources, reload raw, rebuild + test all dbt models")]
 refresh:
     just python scripts/download_jepx_spot.py
