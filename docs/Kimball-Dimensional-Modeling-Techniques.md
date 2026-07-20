@@ -210,9 +210,9 @@ Consolidated fact tables add burden to the ETL processing, but ease the analytic
 applications. They should be considered for cross-process metrics that are frequently analyzed
 together.
 
-## Basic DimensionTable Techniques
+## Basic Dimension Table Techniques
 
-### DimensionTable Structure
+### Dimension Table Structure
 
 Every dimension table has a single primary key column. This primary key is embedded as a foreign
 key in any associated fact table where the dimension row’s descriptive context is exactly correct for
