@@ -13,6 +13,8 @@
     mermaid.initialize({ startOnLoad: false });
     window.$docsify = {
       name: 'power-market-analytics',
+      loadSidebar: true,
+      subMaxLevel: 3,
       markdown: {
         renderer: {
           code: function (code, lang) {
