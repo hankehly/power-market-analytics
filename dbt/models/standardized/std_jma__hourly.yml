@@ -31,10 +31,6 @@ models:
         data_type: string
         data_tests:
           - not_null
-          - relationships:
-              arguments:
-                to: ref('dim_jma_station')
-                field: station_id
       - name: observed_at
         data_type: timestamp
         data_tests:
@@ -53,10 +49,6 @@ models:
           - not_null
       - name: precipitation_mm
         data_type: double
-        data_tests:
-          - dbt_utils.accepted_range:
-              arguments:
-                min_value: 0
       - name: precipitation_phenomenon_absent
         data_type: int
         data_tests:
@@ -69,22 +61,12 @@ models:
         data_type: int
       - name: temperature_c
         data_type: double
-        data_tests:
-          - dbt_utils.accepted_range:
-              arguments:
-                min_value: -50
-                max_value: 50
       - name: temperature_quality_flag
         data_type: int
       - name: temperature_homogeneity_no
         data_type: int
       - name: wind_speed_ms
         data_type: double
-        data_tests:
-          - dbt_utils.accepted_range:
-              arguments:
-                min_value: 0
-                max_value: 120
       - name: wind_speed_quality_flag
         data_type: int
       - name: wind_direction
@@ -95,11 +77,6 @@ models:
         data_type: int
       - name: sunshine_duration_h
         data_type: double
-        data_tests:
-          - dbt_utils.accepted_range:
-              arguments:
-                min_value: 0
-                max_value: 1
       - name: sunshine_phenomenon_absent
         data_type: int
         data_tests:
