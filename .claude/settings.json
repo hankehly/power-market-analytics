@@ -6,6 +6,7 @@
       "mcp__plugin_playwright_playwright__browser_close",
       "mcp__plugin_playwright_playwright__browser_navigate",
       "mcp__plugin_playwright_playwright__browser_take_screenshot",
+      "mcp__plugin_playwright_playwright__browser_hover",
       "Skill(dataviz)",
       "Skill(dataviz:*)"
     ]
