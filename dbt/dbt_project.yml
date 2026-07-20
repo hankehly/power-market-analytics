@@ -33,3 +33,18 @@ seeds:
     jepx_areas:
       +column_types:
         area_key: int
+    jma_stations:
+      +column_types:
+        prefecture_code: int
+        latitude: double
+        longitude: double
+        elevation_m: double
+        # keep as string: the mask can have leading zeros
+        kansoku: string
+        obs_precipitation: int
+        obs_wind: int
+        obs_temperature: int
+        obs_sunshine: int
+        obs_snow: int
+        obs_other: int
+        observation_ended_on: date
