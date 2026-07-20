@@ -4,13 +4,17 @@ Power market analytics.
 
 ## Curated star schema
 
-The curated layer (`dbt/models/curated/`) contains two fact tables sharing
-conformed date and delivery-period dimensions:
+The curated layer (`dbt/models/curated/`) contains three fact tables across two
+subject areas, sharing a conformed `dim_date`:
 
 - `fct_jepx_spot_market` — market-wide JEPX day-ahead auction results, one row
   per delivery period (trade date × 30-minute time code).
 - `fct_jepx_spot_area_price` — area clearing prices, one row per delivery
   period per bidding zone.
+- `fct_jma_weather_hourly` — JMA hourly weather observations, one row per
+  station and observation hour (native hourly grain; not interpolated to the
+  30-minute JEPX periods — align by joining each delivery period to the
+  weather hour that contains it).
 
 ```mermaid
 erDiagram
@@ -19,6 +23,8 @@ erDiagram
     dim_date ||--o{ fct_jepx_spot_area_price : "date_key"
     dim_delivery_period ||--o{ fct_jepx_spot_area_price : "time_code"
     dim_area ||--o{ fct_jepx_spot_area_price : "area_key"
+    dim_date ||--o{ fct_jma_weather_hourly : "date_key"
+    dim_jma_station ||--o{ fct_jma_weather_hourly : "station_id"
 
     dim_date {
         date date_key PK
@@ -79,10 +85,53 @@ erDiagram
         double area_price_jpy_kwh
     }
 
+    dim_jma_station {
+        string station_id PK
+        string station_type
+        int prefecture_code
+        string station_name
+        string station_kana
+        double latitude
+        double longitude
+        double elevation_m
+        string kansoku
+        int obs_precipitation
+        int obs_wind
+        int obs_temperature
+        int obs_sunshine
+        int obs_snow
+        int obs_other
+        date observation_ended_on
+        boolean is_active
+    }
+
+    fct_jma_weather_hourly {
+        string station_id PK, FK
+        timestamp observed_at PK
+        timestamp observed_hour_start_at
+        date date_key FK
+        double precipitation_mm
+        int precipitation_phenomenon_absent
+        int precipitation_quality_flag
+        int precipitation_homogeneity_no
+        double temperature_c
+        int temperature_quality_flag
+        int temperature_homogeneity_no
+        double wind_speed_ms
+        int wind_speed_quality_flag
+        string wind_direction
+        int wind_direction_quality_flag
+        int wind_homogeneity_no
+        double sunshine_duration_h
+        int sunshine_phenomenon_absent
+        int sunshine_quality_flag
+        int sunshine_homogeneity_no
+    }
+
     classDef dim fill:#DBEAFE,stroke:#2563EB,color:#1E3A8A
     classDef fact fill:#FEF3C7,stroke:#B45309,color:#78350F
-    class dim_date,dim_delivery_period,dim_area dim
-    class fct_jepx_spot_market,fct_jepx_spot_area_price fact
+    class dim_date,dim_delivery_period,dim_area,dim_jma_station dim
+    class fct_jepx_spot_market,fct_jepx_spot_area_price,fct_jma_weather_hourly fact
 ```
 
 Notes:
@@ -94,6 +143,14 @@ Notes:
   dimension key.
 - `dim_area` row 0 is the default "System (Nationwide)" row, so fact tables
   never carry a null area foreign key.
+- `dim_date` is conformed across both subject areas: its spine starts 2016-01-01
+  to cover JMA weather (JEPX spot begins at fiscal year 2016 = 2016-04-01).
+- `fct_jma_weather_hourly.observed_at` marks the end of the observation hour;
+  precipitation and sunshine accumulate over `[observed_hour_start_at,
+  observed_at]`, temperature and wind are instantaneous at `observed_at`.
+  `phenomenon_absent` is null for AMeDAS stations; value 0 with
+  `phenomenon_absent = 0` is a JMA "trace" reading (below measurement
+  resolution), distinct from a true zero (`phenomenon_absent = 1`).
 
 ## Development environment
 
