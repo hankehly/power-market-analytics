@@ -444,7 +444,7 @@ dimension key and updated dimension row. A minimum of three additional columns s
 to the dimension row with type 2 changes: 1) row effective date or date/time stamp; 2) row expiration
 date or date/time stamp; and 3) current row indicator.
 
-### Type 3: Add New Attribute...........................................................................
+### Type 3: Add New Attribute
 
 Slowly changing dimension _type 3_ changes add a new attribute in the dimension to preserve the old
 attribute value; the new value overwrites the main attribute as in a type 1 change. This kind of type 3
