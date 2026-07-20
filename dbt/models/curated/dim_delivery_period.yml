@@ -8,9 +8,20 @@ models:
       Japanese power market, keyed by JEPX time code (1 = 00:00-00:30,
       48 = 23:30-24:00). is_daytime marks the JEPX daytime window
       (8:00-18:00, time codes 17-36).
+
+      Deliberate deviation from the Kimball anonymous-surrogate-key rule:
+      time_code is a smart key carrying the JEPX time code. The rule's
+      rationale (type 2 SCD row versioning, incompatible keys across source
+      systems) does not apply here — the 48 half-hour periods are a fixed,
+      market-defined enumeration from a single national standard — so, like
+      the date dimension, this dimension uses a meaningful primary key.
     columns:
       - name: time_code
         data_type: int
+        description: >
+          Official JEPX time code (1-48), used directly as the primary key;
+          see the model description for why no anonymous surrogate key is
+          used.
         data_tests:
           - unique
           - not_null

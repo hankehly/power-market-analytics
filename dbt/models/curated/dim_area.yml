@@ -8,9 +8,20 @@ models:
       number (1 = Hokkaido through 9 = Kyushu). Row 0 is the default
       "System (Nationwide)" row for market-wide measures so fact tables never
       carry a null area foreign key. Maintained in the jepx_areas seed.
+
+      Deliberate deviation from the Kimball anonymous-surrogate-key rule:
+      area_key is a smart key carrying the JEPX area number. The rule's
+      rationale (type 2 SCD row versioning, incompatible keys across source
+      systems) does not apply here — the areas are a static,
+      regulation-defined enumeration from a single national standard — so,
+      like the date dimension, this dimension uses a meaningful primary key.
     columns:
       - name: area_key
         data_type: int
+        description: >
+          Official JEPX area number (1-9), used directly as the primary key
+          (0 = System row); see the model description for why no anonymous
+          surrogate key is used.
         data_tests:
           - unique
           - not_null
