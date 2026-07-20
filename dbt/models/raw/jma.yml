@@ -1,6 +1,6 @@
 sources:
   - name: jma
-    schema: raw
+    schema: pma_raw
     description: >
       JMA (Japan Meteorological Agency) historical weather observations,
       scraped from https://www.data.jma.go.jp/risk/obsdl/ by
@@ -28,7 +28,7 @@ sources:
           - name: station_id
             description: >
               JMA obsdl station id (e.g. a1133 = 府中), parsed from the file
-              name. Joinable to the station master (data/jma/stations.csv).
+              name. Joinable to dim_jma_station (jma_stations seed).
             data_tests:
               - not_null
           - name: observed_at
@@ -86,7 +86,7 @@ sources:
           - name: station_id
             description: >
               JMA obsdl station id (e.g. s47662 = 東京), parsed from the file
-              name. Joinable to the station master (data/jma/stations.csv).
+              name. Joinable to dim_jma_station (jma_stations seed).
             data_tests:
               - not_null
           - name: observed_at

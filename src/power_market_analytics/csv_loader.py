@@ -115,7 +115,7 @@ class CsvLoader:
         A CSV file, a directory (all ``*.csv`` files in it), or a glob
         pattern.
     table : str
-        Destination table, e.g. ``raw.jepx_spot``. The database is created
+        Destination table, e.g. ``pma_raw.jepx_spot``. The database is created
         if it does not exist.
     spark : pyspark.sql.SparkSession, optional
         Existing session to use. Defaults to a Hive-enabled session, which

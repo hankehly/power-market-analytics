@@ -521,7 +521,7 @@ nohup uv run python scripts/download_jma_hourly_all.py > jma_scrape.log 2>&1 &
 ### Loading into the warehouse
 
 `scripts/load_jma_hourly.py` performs a full reload of the downloaded core-set files into
-`raw.jma_hourly_amedas` / `raw.jma_hourly_staffed` — one table per format
+`pma_raw.jma_hourly_amedas` / `pma_raw.jma_hourly_staffed` — one table per format
 ([§7.5](#75-minimum-distinct-formats-for-ingestion)) — via `JmaHourlyCsvLoader`
 (`src/power_market_analytics/jma_loader.py`), a positional variant of the generic
 `CsvLoader`: because the JMA header rows repeat labels per element, columns are addressed

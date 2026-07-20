@@ -4,7 +4,7 @@ models:
       contract:
         enforced: true
     description: >
-      As-is representation of raw.jma_hourly_staffed (JMA hourly core-element
+      As-is representation of pma_raw.jma_hourly_staffed (JMA hourly core-element
       observations, staffed stations). One row per station_id and observation
       hour. Column documentation lives on the source (models/raw/jma.yml).
     data_tests:

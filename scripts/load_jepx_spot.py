@@ -31,7 +31,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--table",
-        default="raw.jepx_spot",
+        default="pma_raw.jepx_spot",
         help="Destination table (database.table).",
     )
     args = parser.parse_args()
