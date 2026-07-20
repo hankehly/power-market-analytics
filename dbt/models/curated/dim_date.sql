@@ -11,9 +11,11 @@ with
   -- seed, so refreshing the seed (scripts/update_holidays_seed.py) extends
   -- the calendar automatically and is_holiday is never silently false for
   -- dates beyond holiday coverage.
+  -- Start is the earliest date across all fact sources: JMA weather begins
+  -- 2016-01-01 (JEPX spot begins fiscal year 2016 = 2016-04-01, later).
   spine_bounds as (
   select
-    to_date('2016-04-01') as start_date,
+    to_date('2016-01-01') as start_date,
     make_date(year(max(holiday_date)), 12, 31) as end_date
   from
     holidays
