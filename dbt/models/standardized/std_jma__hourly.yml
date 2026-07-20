@@ -1,0 +1,112 @@
+models:
+  - name: std_jma__hourly
+    config:
+      contract:
+        enforced: true
+    description: >
+      Standardized JMA hourly core-element observations: the union of
+      stg_jma__hourly_staffed and stg_jma__hourly_amedas plus a typed time
+      axis. One row per station_id and observation hour. observed_at marks
+      the END of the observation hour (JMA hours run 01:00-24:00 JST, 24:00
+      stored as next-day 00:00): accumulation elements (precipitation,
+      sunshine) cover [observed_hour_start_at, observed_at], instantaneous
+      elements (temperature, wind) are the value at observed_at.
+      observed_date is the JMA observation day, i.e. the hour-start date.
+      The phenomenon_absent columns are null for all AMeDAS rows — JMA does
+      not publish 現象なし情報 there, so the trace-vs-none distinction
+      (value 0 with the phenomenon observed, ~12% of precipitation hours and
+      ~23% of sunshine hours at staffed stations) is only knowable for
+      staffed rows. Value cells are null when the quality flag is 2/1/0 —
+      and AMeDAS sunshine is also null (not 0) with flag 8 for no-sunshine
+      hours. Homogeneity numbers are only comparable within one downloaded
+      station-year file.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - station_id
+              - observed_at
+    columns:
+      - name: station_id
+        data_type: string
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_jma_station')
+                field: station_id
+      - name: observed_at
+        data_type: timestamp
+        data_tests:
+          - not_null
+      - name: observed_hour_start_at
+        data_type: timestamp
+        data_tests:
+          - not_null
+      - name: observed_date
+        data_type: date
+        data_tests:
+          - not_null
+      - name: fiscal_year
+        data_type: int
+        data_tests:
+          - not_null
+      - name: precipitation_mm
+        data_type: double
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+      - name: precipitation_phenomenon_absent
+        data_type: int
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [0, 1]
+      - name: precipitation_quality_flag
+        data_type: int
+      - name: precipitation_homogeneity_no
+        data_type: int
+      - name: temperature_c
+        data_type: double
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: -50
+                max_value: 50
+      - name: temperature_quality_flag
+        data_type: int
+      - name: temperature_homogeneity_no
+        data_type: int
+      - name: wind_speed_ms
+        data_type: double
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 120
+      - name: wind_speed_quality_flag
+        data_type: int
+      - name: wind_direction
+        data_type: string
+      - name: wind_direction_quality_flag
+        data_type: int
+      - name: wind_homogeneity_no
+        data_type: int
+      - name: sunshine_duration_h
+        data_type: double
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 1
+      - name: sunshine_phenomenon_absent
+        data_type: int
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [0, 1]
+      - name: sunshine_quality_flag
+        data_type: int
+      - name: sunshine_homogeneity_no
+        data_type: int
