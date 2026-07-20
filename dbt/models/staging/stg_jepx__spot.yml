@@ -4,7 +4,7 @@ models:
       contract:
         enforced: true
     description: >
-      As-is representation of raw.jepx_spot (JEPX day-ahead spot market
+      As-is representation of pma_raw.jepx_spot (JEPX day-ahead spot market
       results). One row per trade_date and 30-minute time_code. Column
       documentation lives on the source (models/raw/jepx.yml).
     data_tests:

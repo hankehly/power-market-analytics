@@ -23,8 +23,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 #: (schema file stem, file glob, destination table) per format.
 FORMATS = [
-    ("jma_hourly_amedas", "a*_101-201-301-401_*.csv", "raw.jma_hourly_amedas"),
-    ("jma_hourly_staffed", "s*_101-201-301-401_*.csv", "raw.jma_hourly_staffed"),
+    ("jma_hourly_amedas", "a*_101-201-301-401_*.csv", "pma_raw.jma_hourly_amedas"),
+    ("jma_hourly_staffed", "s*_101-201-301-401_*.csv", "pma_raw.jma_hourly_staffed"),
 ]
 
 

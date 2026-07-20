@@ -1,6 +1,6 @@
 sources:
   - name: jepx
-    schema: raw
+    schema: pma_raw
     description: >
       JEPX (Japan Electric Power Exchange) market data, loaded from
       https://www.jepx.jp/ CSV files by scripts/load_jepx_spot.py (full

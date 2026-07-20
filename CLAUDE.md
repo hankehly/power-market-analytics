@@ -16,11 +16,11 @@
 ## Architecture (data flow)
 
 - JEPX CSVs: `scripts/download_jepx_spot.py` → `data/jepx/spot/` (gitignored) →
-  `scripts/load_jepx_spot.py` (`CsvLoader`, load contract in `conf/schemas/jepx_spot.yaml`) → `raw.jepx_spot`.
+  `scripts/load_jepx_spot.py` (`CsvLoader`, load contract in `conf/schemas/jepx_spot.yaml`) → `pma_raw.jepx_spot`.
 - JMA weather CSVs: `scripts/download_jma_hourly_all.py` (per-station:
   `download_jma_hourly.py`) → `data/jma/hourly/` → `scripts/load_jma_hourly.py`
   (`JmaHourlyCsvLoader`, positional contracts in `conf/schemas/jma_hourly_*.yaml`, one per
-  station-class layout) → `raw.jma_hourly_amedas` / `raw.jma_hourly_staffed`.
+  station-class layout) → `pma_raw.jma_hourly_amedas` / `pma_raw.jma_hourly_staffed`.
   Station master: `scripts/update_jma_stations_seed.py` → seed `jma_stations` →
   `dim_jma_station`. Protocol + CSV format:
   [docs/JMA-Weather-Data-Retrieval.md](docs/JMA-Weather-Data-Retrieval.md).
