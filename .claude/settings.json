@@ -1,17 +1,25 @@
 {
   "permissions": {
     "allow": [
-      "Bash(uv sync *)",
-      "mcp__plugin_playwright_playwright__browser_snapshot",
-      "mcp__plugin_playwright_playwright__browser_close",
-      "mcp__plugin_playwright_playwright__browser_navigate",
-      "mcp__plugin_playwright_playwright__browser_take_screenshot",
-      "mcp__plugin_playwright_playwright__browser_hover",
+      "Bash(iconv:*)",
+      "Bash(just --list)",
+      "Bash(just open:*)",
+      "Bash(mdfind:*)",
+      "Bash(uv sync:*)",
       "Skill(dataviz)",
       "Skill(dataviz:*)",
-      "Bash(just --list)",
-      "Bash(just open *)",
-      "Bash(echo \"exit=$?\")"
+      "Skill(update-config)",
+      "Skill(update-config:*)",
+      "mcp__plugin_playwright_playwright__browser_click",
+      "mcp__plugin_playwright_playwright__browser_close",
+      "mcp__plugin_playwright_playwright__browser_evaluate",
+      "mcp__plugin_playwright_playwright__browser_hover",
+      "mcp__plugin_playwright_playwright__browser_navigate",
+      "mcp__plugin_playwright_playwright__browser_network_request",
+      "mcp__plugin_playwright_playwright__browser_network_requests",
+      "mcp__plugin_playwright_playwright__browser_select_option",
+      "mcp__plugin_playwright_playwright__browser_snapshot",
+      "mcp__plugin_playwright_playwright__browser_take_screenshot"
     ]
   }
 }
