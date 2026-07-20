@@ -38,9 +38,16 @@ open target:
     esac
     open "$url"
 
-[doc("Refresh the warehouse: redownload all sources, reload raw, rebuild + test all dbt models")]
-refresh:
+[doc("Refresh JEPX market data (+ holidays seed): redownload, reload raw, rebuild + test dbt")]
+refresh-jepx:
     just python scripts/download_jepx_spot.py
     just python scripts/update_holidays_seed.py
     just python scripts/load_jepx_spot.py
+    just dbt build
+
+[doc("Refresh JMA weather data: update station seed, download hourly files (args pass through, e.g. --prefecture 44), reload raw, rebuild + test dbt")]
+refresh-jma *args:
+    just python scripts/update_jma_stations_seed.py
+    just python scripts/download_jma_hourly_all.py {{ args }}
+    just python scripts/load_jma_hourly.py
     just dbt build

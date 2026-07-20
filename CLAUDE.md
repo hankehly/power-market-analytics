@@ -2,7 +2,10 @@
 
 ## Commands
 
-- `just refresh` — full warehouse refresh: download JEPX CSVs + holidays, reload `raw`, `dbt build` (models + tests).
+- `just refresh-jepx` — JEPX refresh: download JEPX CSVs + holidays, reload `raw`, `dbt build` (models + tests).
+- `just refresh-jma` — JMA weather refresh: regenerate the station seed (~5 min), download
+  hourly CSVs (args pass through, e.g. `--prefecture 44`; no args = full network, ~60 h
+  cold), reload `raw`, `dbt build`.
 - `just python <args>` / `just exec <cmd>` / `just shell` — run inside the devcontainer.
 - `just dbt <args>` — dbt from `/workspace/dbt` (e.g. `just dbt build`, `just dbt show --inline "select ..." --limit 5`).
 - `just sql` — beeline shell on the thriftserver.
