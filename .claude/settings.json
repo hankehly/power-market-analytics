@@ -20,7 +20,8 @@
       "mcp__plugin_playwright_playwright__browser_select_option",
       "mcp__plugin_playwright_playwright__browser_snapshot",
       "mcp__plugin_playwright_playwright__browser_take_screenshot",
-      "WebFetch(domain:www.data.jma.go.jp)"
+      "WebFetch(domain:www.data.jma.go.jp)",
+      "Bash(just dbt *)"
     ]
   }
 }
