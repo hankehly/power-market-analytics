@@ -1,0 +1,134 @@
+models:
+  - name: fct_jma_weather_hourly
+    config:
+      contract:
+        enforced: true
+    description: >
+      JMA hourly weather observations, one row per station and observation
+      hour (the native observation grain — not interpolated to the 30-minute
+      JEPX delivery period; align by joining each delivery period to the
+      weather hour that contains it). Built from std_jma__hourly. observed_at
+      marks the END of the observation hour (JMA hours run 01:00-24:00 JST,
+      24:00 stored as next-day 00:00): accumulation elements (precipitation,
+      sunshine) cover [observed_hour_start_at, observed_at], instantaneous
+      elements (temperature, wind) are the value at observed_at. date_key
+      references dim_date on the observation day. The phenomenon_absent
+      columns are null for AMeDAS stations (JMA does not publish 現象なし情報
+      there); value 0 with phenomenon_absent 0 is a JMA "trace" reading
+      (below measurement resolution), distinct from a true zero
+      (phenomenon_absent 1). Value cells are null when the quality flag is
+      2/1/0.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - station_id
+              - observed_at
+    columns:
+      - name: station_id
+        data_type: string
+        description: >
+          Station foreign key to dim_jma_station, e.g. s47662 = 東京.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_jma_station')
+                field: station_id
+      - name: observed_at
+        data_type: timestamp
+        description: End of the observation hour (JST).
+        data_tests:
+          - not_null
+      - name: observed_hour_start_at
+        data_type: timestamp
+        description: >
+          Start of the observation hour (observed_at minus one hour); the
+          accumulation window for precipitation and sunshine.
+        data_tests:
+          - not_null
+      - name: date_key
+        data_type: date
+        description: >
+          Foreign key to dim_date on the observation day (the hour-start
+          date).
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_date')
+                field: date_key
+      - name: precipitation_mm
+        data_type: double
+        description: Precipitation over the observation hour in mm.
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 200
+      - name: precipitation_phenomenon_absent
+        data_type: int
+        description: >
+          1 = no precipitation this hour (value 0 is a true zero), 0 =
+          precipitation occurred (value 0 then means a trace amount); null
+          for AMeDAS stations and missing hours.
+      - name: precipitation_quality_flag
+        data_type: int
+        description: Quality flag (8 normal, 5 quasi, 4 insufficient, 2 questionable, 1 missing, 0 not observed).
+      - name: precipitation_homogeneity_no
+        data_type: int
+        description: Observation-environment homogeneity number (comparable only within one downloaded station-year).
+      - name: temperature_c
+        data_type: double
+        description: Air temperature at observed_at in °C.
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: -50
+                max_value: 45
+      - name: temperature_quality_flag
+        data_type: int
+        description: Quality flag for temperature.
+      - name: temperature_homogeneity_no
+        data_type: int
+        description: Homogeneity number for temperature.
+      - name: wind_speed_ms
+        data_type: double
+        description: Wind speed at observed_at in m/s.
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 120
+      - name: wind_speed_quality_flag
+        data_type: int
+        description: Quality flag for wind speed.
+      - name: wind_direction
+        data_type: string
+        description: Wind direction, 16-point compass word (北西 etc.) or 静穏 (calm).
+      - name: wind_direction_quality_flag
+        data_type: int
+        description: Quality flag for wind direction.
+      - name: wind_homogeneity_no
+        data_type: int
+        description: Homogeneity number shared by wind speed and direction.
+      - name: sunshine_duration_h
+        data_type: double
+        description: Sunshine duration over the observation hour in hours (0-1).
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 1
+      - name: sunshine_phenomenon_absent
+        data_type: int
+        description: >
+          1 = no sunshine this hour (value 0 is a true zero), 0 = sunshine
+          occurred (value 0 then means a trace amount); null for AMeDAS
+          stations and missing hours.
+      - name: sunshine_quality_flag
+        data_type: int
+        description: Quality flag for sunshine duration.
+      - name: sunshine_homogeneity_no
+        data_type: int
+        description: Homogeneity number for sunshine duration.
