@@ -15,7 +15,7 @@ services:
       # thread ends up holding the lock the other needs. Disabling telemetry
       # removes the competing thread.
       MLFLOW_DISABLE_TELEMETRY: "true"
-      PYTHONPATH: /workspace/src
+      PYTHONPATH: /workspace
       AWS_SDK_LOAD_CONFIG: "1"
       SSH_AUTH_SOCK: /run/host-services/ssh-auth.sock
     volumes:

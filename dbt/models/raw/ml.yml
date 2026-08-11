@@ -3,7 +3,7 @@ sources:
     schema: pma_ml
     description: >
       Model outputs written back to the warehouse by Python tasks (see
-      src/power_market_analytics/tasks/spot_price/publish.py). Rows carry the
+      power_market_analytics/tasks/spot_price/publish.py). Rows carry the
       MLflow run_id they came from; MLflow keeps the experiment record
       (params, metrics, artifacts) while these tables keep the row-level
       outputs for SQL/BI analysis.
