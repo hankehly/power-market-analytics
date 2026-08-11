@@ -12,8 +12,8 @@ Superset REST API, so the whole thing is reproducible from the repo after a
   distribution (price-band MAE, calibration curve, error histogram), and
   runs & drilldown (run leaderboard, worst days, 30-minute detail)
 - the dashboard, with a required single-select Run filter (all charts except
-  the cross-run leaderboard) and a delivery-date range filter (detail chart
-  only; everything else always shows the full backtest window)
+  the cross-run leaderboard); the 30-minute detail chart carries its own
+  data-zoom slider for navigating the backtest window
 
 Run inside the devcontainer (needs the compose network):
 
@@ -595,8 +595,8 @@ def worst_days_params(dataset_id: int) -> dict:
 def detail_params(dataset_id: int) -> dict:
     """Params for the forecast-vs-actual line chart at the 30-minute grain.
 
-    Defaults to the last month of data; the dashboard's date filter (scoped to
-    this chart only) zooms to any day.
+    Loads the whole backtest window; the data-zoom slider (``zoomable``)
+    navigates from the full five years down to a single day.
 
     Parameters
     ----------
@@ -617,18 +617,8 @@ def detail_params(dataset_id: int) -> dict:
             avg_metric("actual_price_jpy_kwh", "Actual"),
         ],
         "groupby": [],
-        # Default window; echarts charts take the time range from a
-        # TEMPORAL_RANGE adhoc filter, not the legacy time_range field. The
-        # dashboard's date filter overrides it.
-        "adhoc_filters": [
-            {
-                "expressionType": "SIMPLE",
-                "clause": "WHERE",
-                "subject": "trade_datetime",
-                "operator": "TEMPORAL_RANGE",
-                "comparator": "Last month",
-            }
-        ],
+        "adhoc_filters": [],
+        "zoomable": True,
         "order_desc": False,
         "row_limit": 100000,
         "seriesType": "line",
@@ -650,7 +640,7 @@ def detail_params(dataset_id: int) -> dict:
         "color_scheme": "supersetColors",
         "comparison_type": "values",
         "annotation_layers": [],
-        "time_range": "Last month",
+        "time_range": "No filter",
         "extra_form_data": {},
     }
 
@@ -751,10 +741,9 @@ def build_position_json(sections: list[dict]) -> dict:
 def build_native_filters(
     dataset_id: int,
     run_excluded: list[int],
-    date_excluded: list[int],
     default_run_label: str | None,
 ) -> list[dict]:
-    """Native filter configuration: Run picker + detail date range.
+    """Native filter configuration: the Run picker.
 
     Parameters
     ----------
@@ -762,9 +751,6 @@ def build_native_filters(
         Dataset the run_label filter reads its values from.
     run_excluded : list of int
         Charts the Run filter must NOT apply to (the cross-run leaderboard).
-    date_excluded : list of int
-        Charts the date filter must NOT apply to (everything that always
-        shows the whole backtest window).
     default_run_label : str or None
         Explicit on-load default for the Run filter; None falls back to
         ``defaultToFirstItem`` (which needs one manual Apply click).
@@ -801,18 +787,6 @@ def build_native_filters(
             "scope": {"rootPath": ["ROOT_ID"], "excluded": run_excluded},
             "type": "NATIVE_FILTER",
             "description": "published_at | area | run_id prefix (newest first)",
-        },
-        {
-            "id": "NATIVE_FILTER-dates",
-            "name": "Delivery date range",
-            "filterType": "filter_time",
-            "targets": [],
-            "defaultDataMask": {"extraFormData": {}, "filterState": {}},
-            "controlValues": {},
-            "cascadeParentIds": [],
-            "scope": {"rootPath": ["ROOT_ID"], "excluded": date_excluded},
-            "type": "NATIVE_FILTER",
-            "description": "Zoom the 30-min detail chart (other charts always show all years).",
         },
     ]
 
@@ -989,7 +963,6 @@ def main() -> None:
         build_native_filters(
             dataset_id,
             run_excluded=[leaderboard],
-            date_excluded=[c for c in all_charts if c != detail],
             default_run_label=default_run,
         ),
     )
