@@ -193,7 +193,7 @@ Notes:
   `mape_excl_zero_actuals`. Beware that actuals at the post-FY2016 0.01 floor
   still make percentage errors explode — prefer MAE when a window contains
   near-zero prices.
-- `dim_date` is conformed across both subject areas: its spine starts 2016-01-01
+- `dim_date` is conformed across all subject areas: its spine starts 2016-01-01
   to cover JMA weather (JEPX spot begins at fiscal year 2016 = 2016-04-01).
 - `fct_jma_weather_hourly.observed_at` marks the end of the observation hour;
   precipitation and sunshine accumulate over `[observed_hour_start_at,
@@ -201,6 +201,23 @@ Notes:
   `phenomenon_absent` is null for AMeDAS stations; value 0 with
   `phenomenon_absent = 0` is a JMA "trace" reading (below measurement
   resolution), distinct from a true zero (`phenomenon_absent = 1`).
+
+## Forecast analysis
+
+`scripts/spot_price_backtest.py` backtests a forecasting strategy (day-ahead:
+at 9:55 JST on D-1, forecast all 48 half-hour prices for delivery day D) and
+records the results in two places, linked by the MLflow `run_id`:
+
+- **MLflow** (`just open mlflow`, experiment `spot_price`) — params, metrics,
+  SHAP plots and CSV artifacts per run; the experiment record.
+- **Warehouse** — row-level forecasts written to `pma_ml.spot_price_forecast`
+  (partitioned by `run_id`; republishing a run replaces its rows), which dbt
+  models into `fct_spot_price_forecast` and `fct_spot_price_forecast_accuracy`.
+
+Charting happens in Superset (`just open superset`) on the
+`spot_price_forecast_accuracy` dataset, which joins the accuracy mart to
+`dim_area`, `dim_delivery_period` and `dim_date` — slice error by run, hour,
+day part, holiday, area, or join weather for regime analysis.
 
 ## Development environment
 
@@ -212,6 +229,11 @@ The project runs inside a Docker Compose stack (see `docker-compose.yaml`):
 - **hive-metastore** — standalone Hive Metastore backed by Postgres
 - **thriftserver** — Spark Thrift Server (JDBC/ODBC, port 10000; Spark UI on 4040)
 - **mlflow** — experiment tracking UI on port 5005
+- **postgres-superset** — backing store for Superset metadata (host port 5434)
+- **superset** — Apache Superset BI UI on port 8088 (admin login, see `.env`;
+  the Spark Thriftserver data connection is registered in the Superset UI)
+- **superset-mcp** — Superset MCP server on port 5008, lets Claude Code manage
+  datasets/charts (no-auth dev mode; wired up in `.mcp.json`)
 - **docsify** — serves `docs/` on port 3000
 
 ### Setup
@@ -232,11 +254,13 @@ just refresh-jepx                        # JEPX refresh: redownload market data 
 just refresh-jma --prefecture 44         # JMA weather refresh (scoped; no args = full network, ~60 h cold)
 just python scripts/load_jepx_spot.py    # python in the devcontainer
 just python -c "import power_market_analytics"
+just python scripts/spot_price_backtest.py --strategy previous_day --area tokyo  # forecast backtest
 just dbt run                             # dbt, run from /workspace/dbt
 just dbt test --select stg_jepx__spot
 just exec spark-submit --version         # any command in the devcontainer
 just sql                                 # beeline SQL shell on the thriftserver
 just shell                               # interactive bash in the devcontainer
+just open superset                       # open a web UI: docsify | mlflow | spark | spark-dev | superset
 ```
 
 Run `just --list` to see all recipes. Anything creating a `SparkSession`
