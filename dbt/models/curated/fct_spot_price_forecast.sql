@@ -19,7 +19,8 @@ with
       (unix_timestamp(forecast.trade_datetime) - unix_timestamp(forecast.forecast_issued_ts)) / 3600
       as double
     ) as horizon_hours,
-    forecast.forecast_price_jpy_kwh
+    forecast.forecast_price_jpy_kwh,
+    forecast.published_at
   from
     forecast
     left join {{ ref('dim_area') }} as dim_area

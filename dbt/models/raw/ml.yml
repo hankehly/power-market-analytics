@@ -50,3 +50,10 @@ sources:
             description: Forecast area price in JPY/kWh.
             data_tests:
               - not_null
+          - name: published_at
+            description: >
+              When the run's rows were written to the warehouse (naive JST);
+              one value per run, refreshed if a run is republished. Lets BI
+              tools label runs without querying MLflow.
+            data_tests:
+              - not_null

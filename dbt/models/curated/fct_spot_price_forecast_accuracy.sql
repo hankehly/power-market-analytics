@@ -26,6 +26,7 @@ with
     forecast.trade_datetime,
     forecast.forecast_issued_ts,
     forecast.horizon_hours,
+    forecast.published_at,
     forecast.forecast_price_jpy_kwh,
     actual.area_price_jpy_kwh as actual_price_jpy_kwh,
     forecast.forecast_price_jpy_kwh - actual.area_price_jpy_kwh as error_jpy_kwh,
