@@ -1,0 +1,78 @@
+models:
+  - name: fct_spot_price_forecast
+    config:
+      contract:
+        enforced: true
+    description: >
+      Day-ahead spot price forecasts produced by backtest runs. Grain: one
+      row per MLflow run x delivery period (trade date x 30-minute time code)
+      x area. run_id is a degenerate dimension linking back to the MLflow run
+      (experiment spot_price) that holds the strategy's params, metrics and
+      artifacts; strategy is denormalized for convenient slicing. Forecast
+      values only — this fact deliberately stores no actuals, so revisions to
+      actuals never touch it; drill across to fct_jepx_spot_area_price on
+      (date_key, time_code, area_key), or use fct_spot_price_forecast_accuracy
+      which materializes that join. forecast_price_jpy_kwh is NON-ADDITIVE:
+      average, never sum. horizon_hours is the lead time from
+      forecast_issued_ts (9:55 JST on the day before delivery) to the start
+      of the delivery period, ~14-38 h for day-ahead forecasts.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - run_id
+              - date_key
+              - time_code
+              - area_key
+    columns:
+      - name: date_key
+        data_type: date
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_date')
+                field: date_key
+      - name: time_code
+        data_type: int
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_delivery_period')
+                field: time_code
+      - name: area_key
+        data_type: int
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_area')
+                field: area_key
+      - name: run_id
+        data_type: string
+        data_tests:
+          - not_null
+      - name: strategy
+        data_type: string
+        data_tests:
+          - not_null
+      - name: trade_datetime
+        data_type: timestamp
+        data_tests:
+          - not_null
+      - name: forecast_issued_ts
+        data_type: timestamp
+        data_tests:
+          - not_null
+      - name: horizon_hours
+        data_type: double
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+      - name: forecast_price_jpy_kwh
+        data_type: double
+        data_tests:
+          - not_null

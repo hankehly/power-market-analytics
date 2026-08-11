@@ -1,0 +1,52 @@
+sources:
+  - name: ml
+    schema: pma_ml
+    description: >
+      Model outputs written back to the warehouse by Python tasks (see
+      src/power_market_analytics/tasks/spot_price/publish.py). Rows carry the
+      MLflow run_id they came from; MLflow keeps the experiment record
+      (params, metrics, artifacts) while these tables keep the row-level
+      outputs for SQL/BI analysis.
+    tables:
+      - name: spot_price_forecast
+        description: >
+          Day-ahead spot price forecasts from backtest runs
+          (scripts/spot_price_backtest.py). One row per MLflow run, area and
+          30-minute delivery period; partitioned by run_id and overwritten
+          per run, so republishing a run replaces exactly its rows. Forecasts
+          only — actuals live in fct_jepx_spot_area_price and are joined
+          downstream.
+        columns:
+          - name: run_id
+            description: >
+              MLflow run id (experiment spot_price) that produced the
+              forecast; the run's tag warehouse_table points back here.
+            data_tests:
+              - not_null
+          - name: strategy
+            description: Strategy registry key, e.g. previous_day.
+            data_tests:
+              - not_null
+          - name: area_code
+            description: Bidding zone, joins to dim_area.area_code.
+            data_tests:
+              - not_null
+          - name: forecast_issued_ts
+            description: >
+              When the forecast was made: 9:55 JST on the day before
+              delivery, per the task definition (naive JST, like all
+              warehouse timestamps).
+            data_tests:
+              - not_null
+          - name: trade_date
+            description: Target delivery date.
+            data_tests:
+              - not_null
+          - name: time_code
+            description: 30-minute delivery period of the day, 1-48.
+            data_tests:
+              - not_null
+          - name: forecast_price_jpy_kwh
+            description: Forecast area price in JPY/kWh.
+            data_tests:
+              - not_null
