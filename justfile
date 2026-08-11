@@ -22,7 +22,7 @@ shell:
 sql:
     @docker compose exec thriftserver /opt/spark/bin/beeline -u 'jdbc:hive2://localhost:10000/;auth=noSasl' -n admin
 
-[doc("Open a web UI in the browser: docsify | dbt (generate + serve dbt docs) | mlflow | spark (thriftserver) | spark-dev (devcontainer session)")]
+[doc("Open a web UI in the browser: docsify | dbt (generate + serve dbt docs) | mlflow | spark (thriftserver) | spark-dev (devcontainer session) | superset")]
 open target:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -31,8 +31,9 @@ open target:
         mlflow)    url="http://localhost:5005" ;;
         spark)     url="http://localhost:4040" ;;
         spark-dev) url="http://localhost:4041" ;;
+        superset)  url="http://localhost:8088" ;;
         *)
-            echo "Unknown target '{{ target }}'. Expected one of: docsify, mlflow, spark, spark-dev" >&2
+            echo "Unknown target '{{ target }}'. Expected one of: docsify, mlflow, spark, spark-dev, superset" >&2
             exit 1
             ;;
     esac
