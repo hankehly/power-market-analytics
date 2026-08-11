@@ -1,6 +1,7 @@
 {
   "permissions": {
     "allow": [
+      "Bash(git check-ignore *)",
       "Bash(iconv:*)",
       "Bash(just --list)",
       "Bash(just dbt *)",

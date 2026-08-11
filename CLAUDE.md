@@ -40,6 +40,12 @@
   null before ~FY2022. Check `conf/schemas/jepx_spot.yaml` + model descriptions before
   tightening constraints.
 
+## Claude Code settings
+
+- Keep the `permissions.allow` array in `.claude/settings.json` sorted alphabetically (ASCII
+  order, which groups `Bash` → `Skill` → `WebFetch` → `WebSearch` → `mcp__*`). Newly approved
+  permissions get appended to the end, so move them into position whenever that file changes.
+
 ## Dimensional Modeling
 
 - For anything dimensional-modeling related (fact/dimension table design, grain declarations,
