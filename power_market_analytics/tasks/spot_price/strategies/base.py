@@ -8,7 +8,11 @@ import pandas as pd
 from mlflow.models import EvaluationResult
 
 from power_market_analytics.common.frames import DomainFrame
-from power_market_analytics.tasks.spot_price.frames import DayAheadForecast, SpotPrices
+from power_market_analytics.tasks.spot_price.frames import (
+    BacktestResult,
+    DayAheadForecast,
+    SpotPrices,
+)
 
 
 class ForecastStrategy(ABC):
@@ -46,6 +50,7 @@ class ForecastStrategy(ABC):
         prices: SpotPrices,
         start_date: pd.Timestamp,
         end_date: pd.Timestamp,
+        result: BacktestResult | None = None,
     ) -> DomainFrame:
         """Assemble the design matrix MLflow evaluates this strategy on.
 
@@ -60,6 +65,12 @@ class ForecastStrategy(ABC):
             before ``start_date``.
         start_date, end_date : pandas.Timestamp
             First and last delivery days, inclusive.
+        result : BacktestResult, optional
+            Walk-forward forecasts from ``run_backtest`` over the same
+            window. Strategies whose evaluation replays the backtest's own
+            predictions (because no single model produced them) require it
+            and raise ``ValueError`` without it; strategies whose logged
+            model reproduces its predictions exactly ignore it.
 
         Returns
         -------

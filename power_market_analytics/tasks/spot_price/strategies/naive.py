@@ -11,7 +11,12 @@ from mlflow.models import EvaluationResult
 
 from power_market_analytics.common.frames import DomainFrame
 from power_market_analytics.common.tracking import evaluate_regressor
-from power_market_analytics.tasks.spot_price.frames import DayAheadForecast, SpotPrices
+from power_market_analytics.tasks.spot_price.features import join_lag
+from power_market_analytics.tasks.spot_price.frames import (
+    BacktestResult,
+    DayAheadForecast,
+    SpotPrices,
+)
 from power_market_analytics.tasks.spot_price.strategies.base import ForecastStrategy
 
 logger = logging.getLogger(__name__)
@@ -124,6 +129,7 @@ class PreviousDayStrategy(ForecastStrategy):
         prices: SpotPrices,
         start_date: pd.Timestamp,
         end_date: pd.Timestamp,
+        result: BacktestResult | None = None,
     ) -> PreviousDayEvalSet:
         """Assemble the MLflow design matrix for a backtest window.
 
@@ -138,6 +144,10 @@ class PreviousDayStrategy(ForecastStrategy):
             Full price history; must cover ``start_date`` minus 1 day.
         start_date, end_date : pandas.Timestamp
             First and last delivery days, inclusive.
+        result : BacktestResult, optional
+            Unused: the logged pyfunc model restates this strategy's rule
+            exactly, so evaluation re-scores the model instead of replaying
+            the backtest's predictions.
 
         Returns
         -------
@@ -150,7 +160,7 @@ class PreviousDayStrategy(ForecastStrategy):
         """
         df = prices.df
         featured = df.rename(columns={"price_jpy_kwh": TARGET_COL}).pipe(
-            self._join_lag, df, days=1, name="lag_1d_price"
+            join_lag, df, days=1, name="lag_1d_price"
         )
 
         window = featured[featured["trade_date"].between(start_date, end_date)]
@@ -172,37 +182,6 @@ class PreviousDayStrategy(ForecastStrategy):
             "%s eval set: %d rows, %d features", self.name, len(complete), len(FEATURE_COLS)
         )
         return PreviousDayEvalSet.from_df(complete)
-
-    @staticmethod
-    def _join_lag(
-        left: pd.DataFrame, prices: pd.DataFrame, *, days: int, name: str
-    ) -> pd.DataFrame:
-        """Attach the price from ``days`` calendar days earlier, same time code.
-
-        Parameters
-        ----------
-        left : pandas.DataFrame
-            Frame to attach the lag to; keyed on (trade_date, time_code).
-        prices : pandas.DataFrame
-            Source price history with a ``price_jpy_kwh`` column.
-        days : int
-            Lag length in calendar days.
-        name : str
-            Name for the new column.
-
-        Returns
-        -------
-        pandas.DataFrame
-        """
-        lagged = prices[["trade_date", "time_code", "price_jpy_kwh"]].assign(
-            trade_date=prices["trade_date"] + pd.Timedelta(days=days)
-        )
-        return left.merge(
-            lagged.rename(columns={"price_jpy_kwh": name}),
-            how="left",
-            on=["trade_date", "time_code"],
-            validate="one_to_one",
-        )
 
     def evaluate(
         self,
