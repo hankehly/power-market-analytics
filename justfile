@@ -22,7 +22,7 @@ shell:
 sql:
     @docker compose exec thriftserver /opt/spark/bin/beeline -u 'jdbc:hive2://localhost:10000/;auth=noSasl' -n admin
 
-[doc("Open a web UI in the browser: docsify | dbt (generate + serve dbt docs) | mlflow | spark (thriftserver) | spark-dev (devcontainer session) | superset")]
+[doc("Open a web UI in the browser: docsify | mlflow | spark (thriftserver) | spark-dev (devcontainer session) | superset")]
 open target:
     #!/usr/bin/env bash
     set -euo pipefail
