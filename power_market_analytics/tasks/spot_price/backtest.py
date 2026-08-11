@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
-import logging
-
 import pandas as pd
+from loguru import logger
 
 from power_market_analytics.common.metrics import mae, mape
 from power_market_analytics.tasks.spot_price.frames import BacktestResult, SpotPrices
 from power_market_analytics.tasks.spot_price.strategies.base import ForecastStrategy
-
-logger = logging.getLogger(__name__)
 
 
 def run_backtest(
@@ -54,7 +51,7 @@ def run_backtest(
     if not target_days:
         raise ValueError(f"No delivery days between {start_date} and {end_date}")
     logger.info(
-        "Backtesting %s over %d days (%s..%s)",
+        "Backtesting {} over {} days ({}..{})",
         strategy.name,
         len(target_days),
         pd.Timestamp(target_days[0]).date(),

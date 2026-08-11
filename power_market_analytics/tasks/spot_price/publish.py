@@ -11,16 +11,13 @@ partition overwrite, so republishing a run replaces exactly that run's rows.
 
 from __future__ import annotations
 
-import logging
-
 import pandas as pd
+from loguru import logger
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
 
 from power_market_analytics.spark import get_spark_session
 from power_market_analytics.tasks.spot_price.frames import BacktestResult, ForecastRecords
-
-logger = logging.getLogger(__name__)
 
 FORECAST_TABLE = "pma_ml.spot_price_forecast"
 
@@ -120,7 +117,7 @@ def publish_forecast_records(records: ForecastRecords, spark: SparkSession | Non
     spark.conf.set("spark.sql.sources.partitionOverwriteMode", "dynamic")
     sdf.write.mode("overwrite").insertInto(FORECAST_TABLE)
     logger.info(
-        "Published %d rows to %s (run_id=%s)",
+        "Published {} rows to {} (run_id={})",
         len(records),
         FORECAST_TABLE,
         records.df["run_id"].iloc[0],

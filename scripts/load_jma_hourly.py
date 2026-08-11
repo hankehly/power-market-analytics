@@ -13,8 +13,9 @@ metastore from ``SPARK_CONF_DIR``:
 """
 
 import argparse
-import logging
 from pathlib import Path
+
+from loguru import logger
 
 from power_market_analytics.csv_loader import CsvTableSchema
 from power_market_analytics.jma_loader import JmaHourlyCsvLoader
@@ -44,12 +45,11 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
     for schema_stem, pattern, table in FORMATS:
         schema = CsvTableSchema.from_yaml(args.schema_dir / f"{schema_stem}.yaml")
         loader = JmaHourlyCsvLoader(schema=schema, filepath=args.data_dir / pattern, table=table)
         n_rows = loader.load()
-        print(f"Loaded {n_rows} rows into {table}")
+        logger.info("Loaded {} rows into {}", n_rows, table)
 
 
 if __name__ == "__main__":

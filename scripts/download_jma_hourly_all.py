@@ -23,15 +23,14 @@ takes roughly a day; run it detached, e.g.:
 import argparse
 import csv
 import datetime
-import logging
 from pathlib import Path
+
+from loguru import logger
 
 from power_market_analytics.jma import (
     JmaHourlyDownloader,
     JmaStationMasterDownloader,
 )
-
-logger = logging.getLogger("download_jma_hourly_all")
 
 CORE_ELEMENTS = ["temperature", "precipitation", "sunshine", "wind"]
 
@@ -100,8 +99,8 @@ def build_plan(
             last_year = min(last_year, ended.year)
         plan.extend((station["station_id"], year) for year in range(start_year, last_year + 1))
     logger.info(
-        "Planned %d station-years across %d stations (%d stations ended "
-        "before %d and were skipped)",
+        "Planned {} station-years across {} stations ({} stations ended "
+        "before {} and were skipped)",
         len(plan),
         len(stations) - skipped,
         skipped,
@@ -169,8 +168,6 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
-
     JmaStationMasterDownloader(dest=args.stations_csv).download()
     plan = build_plan(
         args.stations_csv,
@@ -190,8 +187,8 @@ def main() -> None:
     # Server response time (~10 s per file) usually dominates the request
     # interval, so the spacing-based figure is a lower bound.
     logger.info(
-        "%d of %d station-years not yet downloaded; at least %.1f h at "
-        "%.0f s spacing (~%.0f h at the observed ~15 s/request)",
+        "{} of {} station-years not yet downloaded; at least {:.1f} h at "
+        "{:.0f} s spacing (~{:.0f} h at the observed ~15 s/request)",
         to_fetch,
         len(plan),
         to_fetch * args.request_interval / 3600,
@@ -199,7 +196,7 @@ def main() -> None:
         to_fetch * 15 / 3600,
     )
     if args.dry_run:
-        print(f"Dry run: would download {to_fetch} of {len(plan)} station-years")
+        logger.info("Dry run: would download {} of {} station-years", to_fetch, len(plan))
         return
 
     failures: list[tuple[str, int, str]] = []
@@ -219,22 +216,22 @@ def main() -> None:
         except Exception as exc:
             failures.append((station_id, year, str(exc)))
             consecutive_failures += 1
-            logger.error("FAILED %s %d: %s", station_id, year, exc)
+            logger.error("FAILED {} {}: {}", station_id, year, exc)
             if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
                 logger.error(
-                    "%d consecutive failures — aborting; JMA appears to be "
+                    "{} consecutive failures — aborting; JMA appears to be "
                     "refusing requests. Re-run later to resume.",
                     consecutive_failures,
                 )
                 break
         if i % 100 == 0:
-            logger.info("Progress: %d/%d station-years", i, len(plan))
+            logger.info("Progress: {}/{} station-years", i, len(plan))
 
-    print(f"Done: {len(plan) - len(failures)}/{len(plan)} station-years ok")
+    logger.info("Done: {}/{} station-years ok", len(plan) - len(failures), len(plan))
     if failures:
-        print(f"{len(failures)} failures (re-run to retry):")
+        logger.error("{} failures (re-run to retry):", len(failures))
         for station_id, year, message in failures[:20]:
-            print(f"  {station_id} {year}: {message}")
+            logger.error("  {} {}: {}", station_id, year, message)
         raise SystemExit(1)
 
 

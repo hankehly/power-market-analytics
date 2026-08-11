@@ -30,6 +30,7 @@ import os
 import re
 
 import requests
+from loguru import logger
 
 SUPERSET_URL = os.environ.get("SUPERSET_URL", "http://superset:8088")
 ADMIN_USER = os.environ.get("SUPERSET_ADMIN_USER", "admin")
@@ -862,11 +863,11 @@ def main() -> None:
         )
 
     dataset_id = upsert_dataset(client, database_id)
-    print(f"dataset {DATASET_NAME}: id={dataset_id}")
+    logger.info("dataset {}: id={}", DATASET_NAME, dataset_id)
 
     def chart(name: str, params: dict) -> int:
         chart_id = upsert_chart(client, name, dataset_id, params)
-        print(f"chart {chart_id}: {name}")
+        logger.info("chart {}: {}", chart_id, name)
         return chart_id
 
     # KPI tiles
@@ -975,7 +976,7 @@ def main() -> None:
     ]
 
     default_run = latest_run_label(client, database_id)
-    print(f"default run: {default_run}")
+    logger.info("default run: {}", default_run)
     dashboard_id = upsert_dashboard(
         client,
         build_position_json(sections),
@@ -986,8 +987,8 @@ def main() -> None:
         ),
     )
     attach_charts(client, dashboard_id, all_charts)
-    print(f"dashboard: id={dashboard_id}")
-    print(f"open: http://localhost:8088/superset/dashboard/{DASHBOARD_SLUG}/")
+    logger.info("dashboard: id={}", dashboard_id)
+    logger.info("open: http://localhost:8088/superset/dashboard/{}/", DASHBOARD_SLUG)
 
 
 if __name__ == "__main__":

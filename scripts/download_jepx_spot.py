@@ -7,8 +7,9 @@ partial after the fiscal year rolls over).
 """
 
 import argparse
-import logging
 from pathlib import Path
+
+from loguru import logger
 
 from power_market_analytics.jepx import JepxSpotDownloader, current_fiscal_year
 
@@ -28,13 +29,12 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
     downloader = JepxSpotDownloader(data_dir=args.data_dir)
     latest = current_fiscal_year()
     for fiscal_year in range(downloader.EARLIEST_FISCAL_YEAR, latest + 1):
         force = args.force_all or fiscal_year >= latest - 1
         downloader.download(fiscal_year, force=force)
-    print(f"Downloaded fiscal years {downloader.EARLIEST_FISCAL_YEAR}..{latest}")
+    logger.info("Downloaded fiscal years {}..{}", downloader.EARLIEST_FISCAL_YEAR, latest)
 
 
 if __name__ == "__main__":

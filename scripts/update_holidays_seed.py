@@ -14,6 +14,7 @@ import io
 from pathlib import Path
 
 import requests
+from loguru import logger
 
 SOURCE_URL = "https://www8.cao.go.jp/chosei/shukujitsu/syukujitsu.csv"
 SEED_PATH = Path(__file__).resolve().parents[1] / "dbt/seeds/jpn_national_holidays.csv"
@@ -40,7 +41,7 @@ def main() -> None:
         writer.writerow(["holiday_date", "holiday_name_ja"])
         writer.writerows(sorted(rows))
 
-    print(f"Wrote {len(rows)} holidays ({rows[0][0]}..{rows[-1][0]}) to {SEED_PATH}")
+    logger.info("Wrote {} holidays ({}..{}) to {}", len(rows), rows[0][0], rows[-1][0], SEED_PATH)
 
 
 if __name__ == "__main__":

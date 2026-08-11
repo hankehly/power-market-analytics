@@ -7,10 +7,10 @@ server):
 """
 
 import argparse
-import logging
 
 import mlflow
 import pandas as pd
+from loguru import logger
 
 from power_market_analytics.common.tracking import MAPE_METRIC_NAME, log_dataframe, task_run
 from power_market_analytics.tasks.spot_price import MLFLOW_EXPERIMENT
@@ -44,8 +44,6 @@ def main() -> None:
         help="Rows sampled for the SHAP plots in the MLflow evaluation.",
     )
     args = parser.parse_args()
-
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 
     with task_run(
         MLFLOW_EXPERIMENT,
@@ -90,21 +88,26 @@ def main() -> None:
 
         run_id = run.info.run_id
 
-    print(
-        f"strategy={args.strategy} area={args.area} "
-        f"window={start_date.date()}..{end_date.date()} "
-        f"days={per_day['trade_date'].nunique()} predictions={len(result)}"
+    logger.info(
+        "strategy={} area={} window={}..{} days={} predictions={}",
+        args.strategy,
+        args.area,
+        start_date.date(),
+        end_date.date(),
+        per_day["trade_date"].nunique(),
+        len(result),
     )
-    print(
-        f"MAE={evaluation.metrics['mean_absolute_error']:.3f} JPY/kWh  "
-        f"MAPE={evaluation.metrics[MAPE_METRIC_NAME]:.2f}%"
+    logger.info(
+        "MAE={:.3f} JPY/kWh  MAPE={:.2f}%",
+        evaluation.metrics["mean_absolute_error"],
+        evaluation.metrics[MAPE_METRIC_NAME],
     )
-    print("MLflow evaluation metrics:")
+    logger.info("MLflow evaluation metrics:")
     for metric, value in sorted(evaluation.metrics.items()):
-        print(f"  {metric}={value:.4f}")
-    print(f"MLflow evaluation artifacts: {', '.join(sorted(evaluation.artifacts))}")
-    print(f"MLflow run: {run_id} (experiment: {MLFLOW_EXPERIMENT})")
-    print(f"Forecasts written to {FORECAST_TABLE} (partition run_id={run_id})")
+        logger.info("  {}={:.4f}", metric, value)
+    logger.info("MLflow evaluation artifacts: {}", ", ".join(sorted(evaluation.artifacts)))
+    logger.info("MLflow run: {} (experiment: {})", run_id, MLFLOW_EXPERIMENT)
+    logger.info("Forecasts written to {} (partition run_id={})", FORECAST_TABLE, run_id)
 
 
 if __name__ == "__main__":

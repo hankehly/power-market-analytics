@@ -9,18 +9,16 @@ and overwrites the destination table.
 from __future__ import annotations
 
 import glob
-import logging
 from functools import reduce
 from pathlib import Path
 
 import yaml
+from loguru import logger
 from pydantic import BaseModel, Field
 from pyspark.sql import Column, DataFrame, SparkSession
 from pyspark.sql import functions as F
 
 from power_market_analytics.spark import get_spark_session
-
-logger = logging.getLogger(__name__)
 
 
 class CsvColumn(BaseModel):
@@ -154,13 +152,13 @@ class CsvLoader:
             contains nulls after casting, or the grain is not unique.
         """
         files = self._resolve_files()
-        logger.info("Loading %d file(s) into %s: %s", len(files), self.table, files)
+        logger.info("Loading {} file(s) into {}: {}", len(files), self.table, files)
         df = reduce(DataFrame.unionByName, (self._read_file(f) for f in files))
         df.cache()
         try:
             n_rows = df.count()
             logger.info(
-                "Read shape=(%d, %d); schema: %s",
+                "Read shape=({}, {}); schema: {}",
                 n_rows,
                 len(df.columns),
                 ", ".join(f"{f.name}:{f.dataType.simpleString()}" for f in df.schema),
@@ -169,7 +167,7 @@ class CsvLoader:
             self._write(df)
         finally:
             df.unpersist()
-        logger.info("Loaded %d rows into %s", n_rows, self.table)
+        logger.info("Loaded {} rows into {}", n_rows, self.table)
         return n_rows
 
     def _resolve_files(self) -> list[str]:
