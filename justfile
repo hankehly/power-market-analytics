@@ -4,11 +4,11 @@ set positional-arguments
 
 [doc("Run any command inside the devcontainer (e.g. just exec ls data)")]
 exec *args:
-    @docker compose exec -e PYTHONPATH=/workspace/src devcontainer "$@"
+    @docker compose exec -e PYTHONPATH=/workspace devcontainer "$@"
 
 [doc("Run python inside the devcontainer (e.g. just python scripts/load_jepx_spot.py)")]
 python *args:
-    @docker compose exec -e PYTHONPATH=/workspace/src devcontainer python "$@"
+    @docker compose exec -e PYTHONPATH=/workspace devcontainer python "$@"
 
 [doc("Run dbt inside the devcontainer (e.g. just dbt run)")]
 dbt *args:
@@ -16,7 +16,7 @@ dbt *args:
 
 [doc("Open a shell inside the devcontainer")]
 shell:
-    @docker compose exec -e PYTHONPATH=/workspace/src devcontainer bash
+    @docker compose exec -e PYTHONPATH=/workspace devcontainer bash
 
 [doc("Open a beeline SQL shell on the thriftserver")]
 sql:
