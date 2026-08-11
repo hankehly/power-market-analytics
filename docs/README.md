@@ -214,10 +214,19 @@ records the results in two places, linked by the MLflow `run_id`:
   (partitioned by `run_id`; republishing a run replaces its rows), which dbt
   models into `fct_spot_price_forecast` and `fct_spot_price_forecast_accuracy`.
 
-Charting happens in Superset (`just open superset`) on the
-`spot_price_forecast_accuracy` dataset, which joins the accuracy mart to
-`dim_area`, `dim_delivery_period` and `dim_date` — slice error by run, hour,
-day part, holiday, area, or join weather for regime analysis.
+Charting happens in Superset (`just open superset`): the **Spot Price
+Forecast Analysis** dashboard is built by
+`scripts/create_forecast_dashboard.py`, which idempotently creates the
+`spot_price_forecast_analysis` virtual dataset (the accuracy mart joined to
+`dim_area`, `dim_delivery_period` and `dim_date`), every chart, the sectioned
+layout and the run filter — rerun it to rebuild everything after a
+`docker compose down -v`. The dashboard opens on the newest run with KPI
+tiles (MAE, bias, RMSE, RMSE/MAE, WAPE, P90), error-structure heatmaps and
+day-type slices, calibration and error-distribution views, a cross-run
+leaderboard, a worst-days drill list (click a row to cross-filter the
+dashboard to that day), and a zoomable 30-minute forecast-vs-actual detail.
+
+![Spot Price Forecast Analysis dashboard](img/superset/forecast-dashboard.png)
 
 ## Development environment
 
