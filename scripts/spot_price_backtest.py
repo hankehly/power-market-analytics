@@ -85,7 +85,9 @@ def main() -> None:
         )
         mlflow.log_figure(heatmaps, "error_heatmaps_year_time_code.html")
 
-        eval_set = strategy.build_eval_set(prices, start_date=start_date, end_date=end_date)
+        eval_set = strategy.build_eval_set(
+            prices, start_date=start_date, end_date=end_date, result=result
+        )
         evaluation = strategy.evaluate(eval_set, explainability_nsamples=args.shap_nsamples)
 
         run_id = run.info.run_id

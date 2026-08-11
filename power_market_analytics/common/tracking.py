@@ -108,6 +108,44 @@ def mape_metric() -> mlflow.models.EvaluationMetric:
     )
 
 
+def evaluate_predictions(
+    data: pd.DataFrame,
+    targets: str,
+    predictions: str,
+) -> EvaluationResult:
+    """Run MLflow's regressor evaluation over precomputed predictions.
+
+    Static-dataset mode: no model is called, so the logged metrics describe
+    exactly the supplied prediction column — the right mode when the
+    predictions come from a walk-forward process with no single underlying
+    model. The SHAP evaluator is omitted (it needs a callable model to
+    perturb); callers wanting explainability must log their own artifacts.
+
+    Parameters
+    ----------
+    data : pandas.DataFrame
+        Frame containing ``targets`` and ``predictions``; any further
+        columns are treated as features for the dataset profile only.
+    targets : str
+        Name of the observed-value column in ``data``.
+    predictions : str
+        Name of the precomputed prediction column in ``data``.
+
+    Returns
+    -------
+    mlflow.models.EvaluationResult
+        ``.metrics`` for the evaluation.
+    """
+    return mlflow.models.evaluate(
+        data=data,
+        targets=targets,
+        predictions=predictions,
+        model_type="regressor",
+        evaluators=["regressor"],
+        extra_metrics=[mape_metric()],
+    )
+
+
 def evaluate_regressor(
     model_uri: str,
     data: pd.DataFrame,
