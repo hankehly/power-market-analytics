@@ -47,20 +47,20 @@ def main() -> None:
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 
-    prices = load_area_spot_prices(area_code=args.area)
-    end_date = prices.df["trade_date"].max()
-    start_date = end_date - pd.DateOffset(days=args.days - 1)
-
-    strategy = STRATEGIES[args.strategy]()
-    result = run_backtest(strategy, prices, start_date=start_date, end_date=end_date)
-
-    per_day = daily_metrics(result)
-
     with task_run(
         MLFLOW_EXPERIMENT,
         run_name=f"{args.strategy}-{args.area}",
         tags={"strategy": args.strategy, "area": args.area},
     ) as run:
+        prices = load_area_spot_prices(area_code=args.area)
+        end_date = prices.df["trade_date"].max()
+        start_date = end_date - pd.DateOffset(days=args.days - 1)
+
+        strategy = STRATEGIES[args.strategy]()
+        result = run_backtest(strategy, prices, start_date=start_date, end_date=end_date)
+
+        per_day = daily_metrics(result)
+
         mlflow.log_params(
             {
                 "strategy": args.strategy,
