@@ -62,9 +62,7 @@ def build_forecast_records(
     return ForecastRecords.from_df(df)
 
 
-def publish_forecast_records(
-    records: ForecastRecords, spark: SparkSession | None = None
-) -> int:
+def publish_forecast_records(records: ForecastRecords, spark: SparkSession | None = None) -> int:
     """Idempotently write one run's forecasts to ``FORECAST_TABLE``.
 
     Creates the ``pma_ml`` database and the table (parquet, partitioned by

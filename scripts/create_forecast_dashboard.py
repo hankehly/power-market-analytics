@@ -204,7 +204,13 @@ def upsert_dataset(client: SupersetClient, database_id: int) -> int:
     int
     """
     columns = [
-        {"column_name": name, "type": dtype, "is_dttm": is_dttm, "groupby": True, "filterable": True}
+        {
+            "column_name": name,
+            "type": dtype,
+            "is_dttm": is_dttm,
+            "groupby": True,
+            "filterable": True,
+        }
         for name, dtype, is_dttm in DATASET_COLUMNS
     ]
     dataset_id = client.find_one("dataset", "table_name", DATASET_NAME)
@@ -316,9 +322,7 @@ RMSE_METRIC = sql_metric("sqrt(avg(power(error_jpy_kwh, 2)))", "RMSE")
 RMSE_MAE_METRIC = sql_metric(
     "sqrt(avg(power(error_jpy_kwh, 2))) / avg(abs_error_jpy_kwh)", "RMSE/MAE"
 )
-WAPE_METRIC = sql_metric(
-    "sum(abs_error_jpy_kwh) / sum(actual_price_jpy_kwh)", "WAPE"
-)
+WAPE_METRIC = sql_metric("sum(abs_error_jpy_kwh) / sum(actual_price_jpy_kwh)", "WAPE")
 P90_METRIC = sql_metric("percentile(abs_error_jpy_kwh, 0.90)", "P90 abs error")
 
 
@@ -879,9 +883,7 @@ def main() -> None:
     kpi_wape = chart(
         "WAPE", big_number_params(dataset_id, WAPE_METRIC, "Σ|error| / Σ actual", ".1%")
     )
-    kpi_p90 = chart(
-        "P90 abs error", big_number_params(dataset_id, P90_METRIC, "JPY/kWh", ",.3f")
-    )
+    kpi_p90 = chart("P90 abs error", big_number_params(dataset_id, P90_METRIC, "JPY/kWh", ",.3f"))
 
     # Error structure
     mae_year = chart("MAE by year", bar_params(dataset_id, "year"))
@@ -894,7 +896,9 @@ def main() -> None:
 
     # Calibration & distribution
     mae_band = chart("MAE by actual price band", bar_params(dataset_id, "actual_price_band"))
-    calibration = chart("Calibration: forecast vs actual price level", calibration_params(dataset_id))
+    calibration = chart(
+        "Calibration: forecast vs actual price level", calibration_params(dataset_id)
+    )
     histogram = chart("Error distribution", histogram_params(dataset_id))
 
     # Runs & drilldown
@@ -949,10 +953,25 @@ def main() -> None:
         },
     ]
     all_charts = [
-        kpi_mae, kpi_bias, kpi_rmse, kpi_ratio, kpi_wape, kpi_p90,
-        mae_year, mae_tc, heat_tc, heat_month, mae_dow, mae_daypart, mae_daytype,
-        mae_band, calibration, histogram,
-        leaderboard, worst_days, detail,
+        kpi_mae,
+        kpi_bias,
+        kpi_rmse,
+        kpi_ratio,
+        kpi_wape,
+        kpi_p90,
+        mae_year,
+        mae_tc,
+        heat_tc,
+        heat_month,
+        mae_dow,
+        mae_daypart,
+        mae_daytype,
+        mae_band,
+        calibration,
+        histogram,
+        leaderboard,
+        worst_days,
+        detail,
     ]
 
     default_run = latest_run_label(client, database_id)

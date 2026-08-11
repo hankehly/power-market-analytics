@@ -47,8 +47,7 @@ class DayAheadForecast(DomainFrame):
             )
         if len(df) != N_PERIODS or set(df["time_code"]) != set(range(1, N_PERIODS + 1)):
             raise ValueError(
-                f"{cls.__name__}: expected exactly time codes 1..{N_PERIODS}, "
-                f"got {len(df)} rows"
+                f"{cls.__name__}: expected exactly time codes 1..{N_PERIODS}, got {len(df)} rows"
             )
 
 
@@ -112,8 +111,7 @@ class MetricByYearTimeCode(DomainFrame):
         bad = df.loc[~df["time_code"].between(1, N_PERIODS), "time_code"]
         if not bad.empty:
             raise ValueError(
-                f"{cls.__name__}: time_code outside 1..{N_PERIODS}: "
-                f"{sorted(bad.unique())}"
+                f"{cls.__name__}: time_code outside 1..{N_PERIODS}: {sorted(bad.unique())}"
             )
 
     def to_matrix(self) -> pd.DataFrame:

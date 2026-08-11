@@ -24,14 +24,36 @@ from power_market_analytics.tasks.spot_price.frames import (
 )
 
 SEQUENTIAL_BLUES = [
-    "#cde2fb", "#b7d3f6", "#9ec5f4", "#86b6ef", "#6da7ec", "#5598e7",
-    "#3987e5", "#2a78d6", "#256abf", "#1c5cab", "#184f95", "#104281", "#0d366b",
+    "#cde2fb",
+    "#b7d3f6",
+    "#9ec5f4",
+    "#86b6ef",
+    "#6da7ec",
+    "#5598e7",
+    "#3987e5",
+    "#2a78d6",
+    "#256abf",
+    "#1c5cab",
+    "#184f95",
+    "#104281",
+    "#0d366b",
 ]
 # Aqua ramp: same hue family as categorical slot 2 (#1baf7a), monotone
 # lightness, light -> dark, mirroring the blue ramp's progression.
 SEQUENTIAL_AQUAS = [
-    "#d2f3e6", "#bdecda", "#a3e4cc", "#8adabd", "#6fd0ae", "#52c49e",
-    "#35b78d", "#1baf7a", "#17996b", "#12835b", "#0e6e4c", "#0a583d", "#07452f",
+    "#d2f3e6",
+    "#bdecda",
+    "#a3e4cc",
+    "#8adabd",
+    "#6fd0ae",
+    "#52c49e",
+    "#35b78d",
+    "#1baf7a",
+    "#17996b",
+    "#12835b",
+    "#0e6e4c",
+    "#0a583d",
+    "#07452f",
 ]
 SURFACE = "#fcfcfb"
 INK_PRIMARY = "#0b0b0b"

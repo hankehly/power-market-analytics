@@ -136,9 +136,7 @@ class _JmaDownloader:
         """
         for attempt in range(self.max_retries + 1):
             self._throttle()
-            response = requests.post(
-                url, data=payload, headers=self._HEADERS, timeout=self.timeout
-            )
+            response = requests.post(url, data=payload, headers=self._HEADERS, timeout=self.timeout)
             retryable = response.status_code == 429 or response.status_code >= 500
             if not retryable or attempt == self.max_retries:
                 response.raise_for_status()
@@ -199,9 +197,7 @@ class JmaHourlyDownloader(_JmaDownloader):
     #: Empirical per-request cap on value columns for a full-year period.
     MAX_VALUE_COLUMNS = 5
 
-    def __init__(
-        self, data_dir: Path | str = Path("data/jma/hourly"), **kwargs
-    ) -> None:
+    def __init__(self, data_dir: Path | str = Path("data/jma/hourly"), **kwargs) -> None:
         super().__init__(**kwargs)
         self.data_dir = Path(data_dir)
 
@@ -271,8 +267,7 @@ class JmaHourlyDownloader(_JmaDownloader):
         current_year = datetime.date.today().year
         if not self.EARLIEST_YEAR <= year <= current_year:
             raise ValueError(
-                f"Year {year} outside supported range "
-                f"{self.EARLIEST_YEAR}..{current_year}"
+                f"Year {year} outside supported range {self.EARLIEST_YEAR}..{current_year}"
             )
 
         dest = self.path_for(station_id, elements, year)
@@ -280,9 +275,7 @@ class JmaHourlyDownloader(_JmaDownloader):
             logger.info("Using cached JMA hourly file: %s", dest)
             return dest
 
-        logger.info(
-            "Downloading %s %s %d -> %s", station_id, sorted(elements), year, dest
-        )
+        logger.info("Downloading %s %s %d -> %s", station_id, sorted(elements), year, dest)
         response = self._post_with_retry(
             self.SHOW_TABLE_URL, self._payload(station_id, elements, year)
         )
@@ -321,9 +314,7 @@ class JmaHourlyDownloader(_JmaDownloader):
             raise ValueError("At least one element is required")
         unknown = sorted(set(elements) - set(HOURLY_ELEMENTS))
         if unknown:
-            raise ValueError(
-                f"Unknown elements {unknown}; expected keys of HOURLY_ELEMENTS"
-            )
+            raise ValueError(f"Unknown elements {unknown}; expected keys of HOURLY_ELEMENTS")
         if len(set(elements)) != len(elements):
             raise ValueError(f"Duplicate elements in {elements}")
         columns = sum(ELEMENT_VALUE_COLUMNS[e] for e in elements)
@@ -448,9 +439,7 @@ class JmaStationMasterDownloader(_JmaDownloader):
         r'<input type="hidden" name="kansoku" value="(\d+)">'
     )
 
-    def __init__(
-        self, dest: Path | str = Path("data/jma/stations.csv"), **kwargs
-    ) -> None:
+    def __init__(self, dest: Path | str = Path("data/jma/stations.csv"), **kwargs) -> None:
         super().__init__(**kwargs)
         self.dest = Path(dest)
 
@@ -507,9 +496,7 @@ class JmaStationMasterDownloader(_JmaDownloader):
                     )
             logger.info("Area %02d: %d stations (%d new)", code, len(rows), new)
 
-        ordered = sorted(
-            stations.values(), key=lambda r: (r["prefecture_code"], r["station_id"])
-        )
+        ordered = sorted(stations.values(), key=lambda r: (r["prefecture_code"], r["station_id"]))
         self.dest.parent.mkdir(parents=True, exist_ok=True)
         partial = self.dest.with_name(self.dest.name + ".part")
         with open(partial, "w", encoding="utf-8", newline="") as f:
@@ -533,9 +520,7 @@ class JmaStationMasterDownloader(_JmaDownloader):
         str
             The response HTML.
         """
-        response = self._post_with_retry(
-            self.STATION_URL, {"pd": f"{int(prefecture_code):02d}"}
-        )
+        response = self._post_with_retry(self.STATION_URL, {"pd": f"{int(prefecture_code):02d}"})
         return response.text
 
     def _prefecture_codes(self) -> list[int]:
@@ -553,9 +538,7 @@ class JmaStationMasterDownloader(_JmaDownloader):
             If no codes are found in the response.
         """
         html = self._fetch_area(0)
-        codes = sorted(
-            {int(m) for m in re.findall(r'<div class="prefecture" id="pr(\d+)"', html)}
-        )
+        codes = sorted({int(m) for m in re.findall(r'<div class="prefecture" id="pr(\d+)"', html)})
         if not codes:
             raise ValueError("No prefecture codes found in the pd=00 response")
         return codes

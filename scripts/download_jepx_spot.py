@@ -28,9 +28,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    logging.basicConfig(
-        level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s"
-    )
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
     downloader = JepxSpotDownloader(data_dir=args.data_dir)
     latest = current_fiscal_year()
     for fiscal_year in range(downloader.EARLIEST_FISCAL_YEAR, latest + 1):

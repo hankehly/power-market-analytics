@@ -47,8 +47,9 @@ def run_backtest(
     """
     df = prices.df
     target_days = sorted(
-        df.loc[(df["trade_date"] >= start_date) & (df["trade_date"] <= end_date), "trade_date"]
-        .unique()
+        df.loc[
+            (df["trade_date"] >= start_date) & (df["trade_date"] <= end_date), "trade_date"
+        ].unique()
     )
     if not target_days:
         raise ValueError(f"No delivery days between {start_date} and {end_date}")
@@ -74,9 +75,7 @@ def run_backtest(
     )
     n_expected = len(forecasts) * 48
     if len(result) != n_expected:
-        raise ValueError(
-            f"Forecast/actual join produced {len(result)} rows, expected {n_expected}"
-        )
+        raise ValueError(f"Forecast/actual join produced {len(result)} rows, expected {n_expected}")
     return BacktestResult.from_df(result)
 
 

@@ -242,9 +242,7 @@ class LightGbmStrategy(ForecastStrategy):
             on=["trade_date", "time_code"],
             validate="one_to_one",
         )
-        logger.info(
-            "%s eval set: %d rows, %d features", self.name, len(merged), len(FEATURE_COLS)
-        )
+        logger.info("%s eval set: %d rows, %d features", self.name, len(merged), len(FEATURE_COLS))
         return LightGbmEvalSet.from_df(merged)
 
     def evaluate(
@@ -282,8 +280,7 @@ class LightGbmStrategy(ForecastStrategy):
         """
         if self._model is None or not self._shap_records:
             raise RuntimeError(
-                f"{self.name}: no fitted model or recorded contributions; "
-                "run the backtest first"
+                f"{self.name}: no fitted model or recorded contributions; run the backtest first"
             )
         eval_frame = eval_set.to_eval_frame()
         mlflow.log_params(
