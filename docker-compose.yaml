@@ -202,8 +202,84 @@ services:
       timeout: 5s
       retries: 30
 
+  # Superset metadata backing store — psql -U admin -h localhost -p 5434 superset
+  postgres-superset:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      POSTGRES_DB: superset
+    ports:
+      - 127.0.0.1:5434:5432
+    volumes:
+      - postgres-superset:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d superset"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Query the thriftserver from the UI via SQLAlchemy URI
+  # hive://thriftserver:10000/default?auth=NOSASL (thriftserver runs NOSASL)
+  superset:
+    build:
+      context: ./docker/superset
+      dockerfile: Dockerfile
+    depends_on:
+      postgres-superset:
+        condition: service_healthy
+    environment:
+      SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY:?SUPERSET_SECRET_KEY must be set in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    command: >
+      /bin/bash -c "
+      superset db upgrade &&
+      (superset fab create-admin --username admin --firstname Superset --lastname Admin --email admin@superset.local --password ${SUPERSET_ADMIN_PASSWORD:-admin} || true) &&
+      superset init &&
+      /usr/bin/run-server.sh
+      "
+    ports:
+      - 127.0.0.1:8088:8088
+    volumes:
+      - superset-home:/app/superset_home
+      - ./conf/superset/superset_config.py:/app/pythonpath/superset_config.py:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8088/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  # MCP endpoint http://localhost:5008/mcp — no-auth dev mode, requests run as
+  # the Superset admin user (MCP_DEV_USERNAME in conf/superset/superset_config.py)
+  superset-mcp:
+    build:
+      context: ./docker/superset
+      dockerfile: Dockerfile
+    depends_on:
+      superset:
+        condition: service_healthy
+    environment:
+      SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY:?SUPERSET_SECRET_KEY must be set in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    command: ["superset", "mcp", "run", "--host", "0.0.0.0", "--port", "5008"]
+    ports:
+      - 127.0.0.1:5008:5008
+    volumes:
+      - superset-home:/app/superset_home
+      - ./conf/superset/superset_config.py:/app/pythonpath/superset_config.py:ro
+    healthcheck:
+      # bash /dev/tcp probe; the MCP endpoint only speaks JSON-RPC, no plain HTTP GET
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/5008"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 15s
+
 volumes:
   postgres-metastore:
   postgres-mlflow:
+  postgres-superset:
   spark-warehouse:
+  superset-home:
   mlartifacts:
