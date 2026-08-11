@@ -27,13 +27,16 @@
       "mcp__plugin_playwright_playwright__browser_navigate",
       "mcp__plugin_playwright_playwright__browser_network_request",
       "mcp__plugin_playwright_playwright__browser_network_requests",
+      "mcp__plugin_playwright_playwright__browser_resize",
       "mcp__plugin_playwright_playwright__browser_select_option",
       "mcp__plugin_playwright_playwright__browser_snapshot",
       "mcp__plugin_playwright_playwright__browser_take_screenshot",
       "mcp__plugin_playwright_playwright__browser_wait_for",
       "mcp__superset__call_tool",
+      "mcp__superset__get_instance_info",
       "mcp__superset__health_check",
-      "mcp__superset__search_tools"
+      "mcp__superset__search_tools",
+      "mcp__plugin_playwright_playwright__browser_run_code_unsafe"
     ]
   }
 }
