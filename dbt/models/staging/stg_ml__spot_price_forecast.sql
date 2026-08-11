@@ -13,7 +13,8 @@ with
     forecast_issued_ts,
     trade_date,
     time_code,
-    forecast_price_jpy_kwh
+    forecast_price_jpy_kwh,
+    published_at
   from
     {{ source('ml', 'spot_price_forecast') }}
   )

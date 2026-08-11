@@ -55,7 +55,10 @@ def build_forecast_records(
         strategy=strategy,
         area_code=area_code,
         forecast_issued_ts=lambda d: d["trade_date"] + _ISSUE_OFFSET,
-    )
+        # Naive JST like every other warehouse timestamp; one value per run so
+        # BI tools can label runs (a republish refreshes it).
+        published_at=pd.Timestamp.now(tz="Asia/Tokyo").tz_localize(None),
+    ).astype({"published_at": "datetime64[ns]"})
     return ForecastRecords.from_df(df)
 
 
@@ -97,6 +100,7 @@ def publish_forecast_records(
           trade_date date,
           time_code int,
           forecast_price_jpy_kwh double,
+          published_at timestamp,
           run_id string
         )
         USING parquet
@@ -110,6 +114,7 @@ def publish_forecast_records(
         F.col("trade_date").cast("date"),
         F.col("time_code").cast("int"),
         F.col("forecast_price_jpy_kwh").cast("double"),
+        F.col("published_at").cast("timestamp"),
         F.col("run_id").cast("string"),
     )
     # "dynamic" scopes the overwrite to the partitions being written; the

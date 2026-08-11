@@ -69,6 +69,10 @@ models:
         data_type: double
         data_tests:
           - not_null
+      - name: published_at
+        data_type: timestamp
+        data_tests:
+          - not_null
       - name: forecast_price_jpy_kwh
         data_type: double
         data_tests:

@@ -86,9 +86,10 @@ class ForecastRecords(DomainFrame):
         "trade_date": "datetime64[ns]",
         "time_code": "int64",
         "forecast_price_jpy_kwh": "float64",
+        "published_at": "datetime64[ns]",
     }
     keys = ["run_id", "area_code", "trade_date", "time_code"]
-    non_null_cols = ["strategy", "forecast_issued_ts", "forecast_price_jpy_kwh"]
+    non_null_cols = ["strategy", "forecast_issued_ts", "forecast_price_jpy_kwh", "published_at"]
 
 
 class MetricByYearTimeCode(DomainFrame):
