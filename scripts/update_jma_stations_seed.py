@@ -16,9 +16,7 @@ SEED_PATH = Path(__file__).resolve().parents[1] / "dbt/seeds/jma_stations.csv"
 
 
 def main() -> None:
-    logging.basicConfig(
-        level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s"
-    )
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
     downloader = JmaStationMasterDownloader(dest=SEED_PATH)
     path = downloader.download(force=True)
     print(f"Station master seed written to {path}")

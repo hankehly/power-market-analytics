@@ -5,9 +5,7 @@ from __future__ import annotations
 import pandas as pd
 
 
-def join_lag(
-    left: pd.DataFrame, prices: pd.DataFrame, *, days: int, name: str
-) -> pd.DataFrame:
+def join_lag(left: pd.DataFrame, prices: pd.DataFrame, *, days: int, name: str) -> pd.DataFrame:
     """Attach the price from ``days`` calendar days earlier, same time code.
 
     Joins on calendar date rather than row position so that gaps in the

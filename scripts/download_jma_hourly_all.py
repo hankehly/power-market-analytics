@@ -98,10 +98,7 @@ def build_plan(
                 skipped += 1
                 continue
             last_year = min(last_year, ended.year)
-        plan.extend(
-            (station["station_id"], year)
-            for year in range(start_year, last_year + 1)
-        )
+        plan.extend((station["station_id"], year) for year in range(start_year, last_year + 1))
     logger.info(
         "Planned %d station-years across %d stations (%d stations ended "
         "before %d and were skipped)",
@@ -172,9 +169,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    logging.basicConfig(
-        level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s"
-    )
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 
     JmaStationMasterDownloader(dest=args.stations_csv).download()
     plan = build_plan(
@@ -185,9 +180,7 @@ def main() -> None:
         prefectures=args.prefecture,
     )
 
-    downloader = JmaHourlyDownloader(
-        data_dir=args.data_dir, request_interval=args.request_interval
-    )
+    downloader = JmaHourlyDownloader(data_dir=args.data_dir, request_interval=args.request_interval)
     today = datetime.date.today()
     to_fetch = sum(
         1

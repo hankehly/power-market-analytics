@@ -48,9 +48,9 @@
 
 ## Claude Code settings
 
-- Keep the `permissions.allow` array in `.claude/settings.json` sorted alphabetically (ASCII
-  order, which groups `Bash` → `Skill` → `WebFetch` → `WebSearch` → `mcp__*`). Newly approved
-  permissions get appended to the end, so move them into position whenever that file changes.
+- `permissions.allow` in `.claude/settings.json` is kept ASCII-sorted automatically by the
+  SessionStart hook (`.claude/hooks/sort_permissions.py`) — no manual re-sorting needed; just
+  keep new entries sorted when editing the file by hand.
 
 ## Dimensional Modeling
 

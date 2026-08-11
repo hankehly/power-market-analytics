@@ -36,9 +36,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    logging.basicConfig(
-        level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s"
-    )
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
     schema = CsvTableSchema.from_yaml(args.schema)
     loader = CsvLoader(schema=schema, filepath=args.data, table=args.table)
     n_rows = loader.load()

@@ -57,13 +57,9 @@ class JmaHourlyCsvLoader(CsvLoader):
             )
         match = self._FILENAME_RE.search(file)
         if match is None:
-            raise ValueError(
-                f"{file}: cannot parse a station id from the file name"
-            )
+            raise ValueError(f"{file}: cannot parse a station id from the file name")
 
-        spark_schema = StructType(
-            [StructField(f"_c{i}", StringType()) for i in range(expected)]
-        )
+        spark_schema = StructType([StructField(f"_c{i}", StringType()) for i in range(expected)])
         raw = (
             self.spark.read.options(**self.schema.read_options)
             .schema(spark_schema)

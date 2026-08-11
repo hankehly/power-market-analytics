@@ -182,10 +182,7 @@ class CsvLoader:
         return files
 
     def _read_file(self, file: str) -> DataFrame:
-        raw = (
-            self.spark.read.options(header="true", **self.schema.read_options)
-            .csv(file)
-        )
+        raw = self.spark.read.options(header="true", **self.schema.read_options).csv(file)
         present = set(raw.columns)
         missing = [
             c.source_name
@@ -213,10 +210,7 @@ class CsvLoader:
         non_nullable = [c.name for c in self.schema.columns if not c.nullable]
         if non_nullable:
             null_counts = df.select(
-                [
-                    F.count(F.when(F.col(name).isNull(), True)).alias(name)
-                    for name in non_nullable
-                ]
+                [F.count(F.when(F.col(name).isNull(), True)).alias(name) for name in non_nullable]
             ).first()
             bad = {name: null_counts[name] for name in non_nullable if null_counts[name]}
             if bad:
