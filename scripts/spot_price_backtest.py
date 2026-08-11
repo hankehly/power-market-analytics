@@ -17,6 +17,11 @@ from power_market_analytics.tasks.spot_price import MLFLOW_EXPERIMENT
 from power_market_analytics.tasks.spot_price.backtest import daily_metrics, run_backtest
 from power_market_analytics.tasks.spot_price.datasets import AREA_CODES, load_area_spot_prices
 from power_market_analytics.tasks.spot_price.plots import error_heatmaps
+from power_market_analytics.tasks.spot_price.publish import (
+    FORECAST_TABLE,
+    build_forecast_records,
+    publish_forecast_records,
+)
 from power_market_analytics.tasks.spot_price.strategies import STRATEGIES
 
 
@@ -70,6 +75,11 @@ def main() -> None:
         )
         log_dataframe(per_day, "daily_errors.csv")
         log_dataframe(result.df, "predictions.csv")
+        records = build_forecast_records(
+            result, run_id=run.info.run_id, strategy=args.strategy, area_code=args.area
+        )
+        publish_forecast_records(records)
+        mlflow.set_tag("warehouse_table", FORECAST_TABLE)
         heatmaps = error_heatmaps(
             result, title=f"Error by year and time code — {args.strategy}, {args.area}"
         )
@@ -94,6 +104,7 @@ def main() -> None:
         print(f"  {metric}={value:.4f}")
     print(f"MLflow evaluation artifacts: {', '.join(sorted(evaluation.artifacts))}")
     print(f"MLflow run: {run_id} (experiment: {MLFLOW_EXPERIMENT})")
+    print(f"Forecasts written to {FORECAST_TABLE} (partition run_id={run_id})")
 
 
 if __name__ == "__main__":

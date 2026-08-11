@@ -68,6 +68,29 @@ class BacktestResult(DomainFrame):
     non_null_cols = ["actual_price_jpy_kwh", "forecast_price_jpy_kwh"]
 
 
+class ForecastRecords(DomainFrame):
+    """One backtest run's forecasts shaped for the warehouse write-back table.
+
+    Grain: (run_id, area_code, trade_date, time_code). A run currently covers
+    a single area, but the declared grain is the business grain of
+    ``pma_ml.spot_price_forecast`` — one forecast per run, area and delivery
+    period. Forecasts only; actuals stay in the JEPX fact and are joined
+    downstream by dbt.
+    """
+
+    schema = {
+        "run_id": "object",
+        "strategy": "object",
+        "area_code": "object",
+        "forecast_issued_ts": "datetime64[ns]",
+        "trade_date": "datetime64[ns]",
+        "time_code": "int64",
+        "forecast_price_jpy_kwh": "float64",
+    }
+    keys = ["run_id", "area_code", "trade_date", "time_code"]
+    non_null_cols = ["strategy", "forecast_issued_ts", "forecast_price_jpy_kwh"]
+
+
 class MetricByYearTimeCode(DomainFrame):
     """One error-metric value per calendar year and time code.
 

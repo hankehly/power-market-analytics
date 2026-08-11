@@ -4,8 +4,8 @@ Power market analytics.
 
 ## Curated star schema
 
-The curated layer (`dbt/models/curated/`) contains three fact tables across two
-subject areas, sharing a conformed `dim_date`:
+The curated layer (`dbt/models/curated/`) contains five fact tables across
+three subject areas, sharing a conformed `dim_date`:
 
 - `fct_jepx_spot_market` — market-wide JEPX day-ahead auction results, one row
   per delivery period (trade date × 30-minute time code).
@@ -15,6 +15,14 @@ subject areas, sharing a conformed `dim_date`:
   station and observation hour (native hourly grain; not interpolated to the
   30-minute JEPX periods — align by joining each delivery period to the
   weather hour that contains it).
+- `fct_spot_price_forecast` — day-ahead price forecasts written back from
+  backtest runs (`scripts/spot_price_backtest.py` →
+  `pma_ml.spot_price_forecast`), one row per MLflow run per delivery period
+  per area; `run_id` is a degenerate dimension linking to the MLflow run.
+  Forecasts only — no actuals stored.
+- `fct_spot_price_forecast_accuracy` — the forecast fact drilled across to
+  `fct_jepx_spot_area_price` actuals, adding signed/absolute/percentage error
+  columns. This is the intended BI surface for forecast analysis.
 
 ```mermaid
 erDiagram
@@ -25,6 +33,12 @@ erDiagram
     dim_area ||--o{ fct_jepx_spot_area_price : "area_key"
     dim_date ||--o{ fct_jma_weather_hourly : "date_key"
     dim_jma_station ||--o{ fct_jma_weather_hourly : "station_id"
+    dim_date ||--o{ fct_spot_price_forecast : "date_key"
+    dim_delivery_period ||--o{ fct_spot_price_forecast : "time_code"
+    dim_area ||--o{ fct_spot_price_forecast : "area_key"
+    dim_date ||--o{ fct_spot_price_forecast_accuracy : "date_key"
+    dim_delivery_period ||--o{ fct_spot_price_forecast_accuracy : "time_code"
+    dim_area ||--o{ fct_spot_price_forecast_accuracy : "area_key"
 
     dim_date {
         date date_key PK
@@ -128,10 +142,39 @@ erDiagram
         int sunshine_homogeneity_no
     }
 
+    fct_spot_price_forecast {
+        date date_key PK, FK
+        int time_code PK, FK
+        int area_key PK, FK
+        string run_id PK
+        string strategy
+        timestamp trade_datetime
+        timestamp forecast_issued_ts
+        double horizon_hours
+        double forecast_price_jpy_kwh
+    }
+
+    fct_spot_price_forecast_accuracy {
+        date date_key PK, FK
+        int time_code PK, FK
+        int area_key PK, FK
+        string run_id PK
+        string strategy
+        timestamp trade_datetime
+        timestamp forecast_issued_ts
+        double horizon_hours
+        double forecast_price_jpy_kwh
+        double actual_price_jpy_kwh
+        double error_jpy_kwh
+        double abs_error_jpy_kwh
+        double pct_error
+        double abs_pct_error
+    }
+
     classDef dim fill:#DBEAFE,stroke:#2563EB,color:#1E3A8A
     classDef fact fill:#FEF3C7,stroke:#B45309,color:#78350F
     class dim_date,dim_delivery_period,dim_area,dim_jma_station dim
-    class fct_jepx_spot_market,fct_jepx_spot_area_price,fct_jma_weather_hourly fact
+    class fct_jepx_spot_market,fct_jepx_spot_area_price,fct_jma_weather_hourly,fct_spot_price_forecast,fct_spot_price_forecast_accuracy fact
 ```
 
 Notes:
@@ -143,6 +186,13 @@ Notes:
   dimension key.
 - `dim_area` row 0 is the default "System (Nationwide)" row, so fact tables
   never carry a null area foreign key.
+- In `fct_spot_price_forecast_accuracy`, error columns are null where the
+  actual is missing (Hokkaido suspension) and percentage errors are also null
+  where the actual is 0.00 JPY/kWh, so `AVG(abs_error_jpy_kwh)` /
+  `AVG(abs_pct_error)` reproduce the MLflow run's MAE /
+  `mape_excl_zero_actuals`. Beware that actuals at the post-FY2016 0.01 floor
+  still make percentage errors explode — prefer MAE when a window contains
+  near-zero prices.
 - `dim_date` is conformed across both subject areas: its spine starts 2016-01-01
   to cover JMA weather (JEPX spot begins at fiscal year 2016 = 2016-04-01).
 - `fct_jma_weather_hourly.observed_at` marks the end of the observation hour;

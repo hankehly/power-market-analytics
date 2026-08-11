@@ -28,6 +28,12 @@
   (typed time axis) → `curated` (Kimball star: `dim_*`, `fct_*`). Schemas: `pma_<layer>`.
 - Japanese holidays: Cabinet Office CSV → `scripts/update_holidays_seed.py` → seed → `dim_date`
   (spine end derives from the seed's max year).
+- Forecast write-back: `scripts/spot_price_backtest.py` logs the run to MLflow AND publishes
+  row-level forecasts (`tasks/spot_price/publish.py`) to `pma_ml.spot_price_forecast`
+  (parquet, partitioned by `run_id`, dynamic partition overwrite = idempotent per run) →
+  `stg/std_ml__spot_price_forecast` → `fct_spot_price_forecast` →
+  `fct_spot_price_forecast_accuracy` (joins actuals; the Superset-facing surface).
+  `run_id` links warehouse rows to the MLflow run; the run's `warehouse_table` tag points back.
 
 ## Gotchas
 
