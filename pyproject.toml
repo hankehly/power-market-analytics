@@ -8,13 +8,15 @@ dependencies = [
     "dbt-core>=1.11.10",
     "plotly>=6.0",
     "dbt-spark[pyhive]>=1.10.1",
-    "mlflow>=3.12.0",
+    # Pinned to match the mlflow server image in docker-compose.yaml; move both together.
+    "mlflow==3.14.0",
     "pandas>=2.3.3",
     "pydantic>=2.13.4",
     "pydantic-settings>=2.14.1",
     "pyspark[ml,pandas-on-spark]==4.1.1",
     "pyyaml>=6.0",
     "requests>=2.32.0",
+    "shap>=0.52.0",
 ]
 
 [build-system]

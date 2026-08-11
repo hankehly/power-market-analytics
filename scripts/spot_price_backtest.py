@@ -12,11 +12,10 @@ import logging
 import mlflow
 import pandas as pd
 
-from power_market_analytics.common.metrics import mae, mape
-from power_market_analytics.common.tracking import log_dataframe, task_run
+from power_market_analytics.common.tracking import MAPE_METRIC_NAME, log_dataframe, task_run
 from power_market_analytics.tasks.spot_price import MLFLOW_EXPERIMENT
 from power_market_analytics.tasks.spot_price.backtest import daily_metrics, run_backtest
-from power_market_analytics.tasks.spot_price.datasets import load_area_spot_prices
+from power_market_analytics.tasks.spot_price.datasets import AREA_CODES, load_area_spot_prices
 from power_market_analytics.tasks.spot_price.plots import error_heatmaps
 from power_market_analytics.tasks.spot_price.strategies import STRATEGIES
 
@@ -24,12 +23,20 @@ from power_market_analytics.tasks.spot_price.strategies import STRATEGIES
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--strategy", choices=sorted(STRATEGIES), default="previous_day")
-    parser.add_argument("--area", default="tokyo", help="dim_area.area_code value.")
+    parser.add_argument(
+        "--area", choices=AREA_CODES, default="tokyo", help="dim_area.area_code value."
+    )
     parser.add_argument(
         "--days",
         type=int,
         default=1825,
         help="Backtest window length in delivery days, ending at the last day in the data.",
+    )
+    parser.add_argument(
+        "--shap-nsamples",
+        type=int,
+        default=500,
+        help="Rows sampled for the SHAP plots in the MLflow evaluation.",
     )
     args = parser.parse_args()
 
@@ -44,8 +51,6 @@ def main() -> None:
     strategy = STRATEGIES[args.strategy]()
     result = run_backtest(strategy, prices, start_date=start_date, end_date=end_date)
 
-    overall_mae = mae(result.df["actual_price_jpy_kwh"], result.df["forecast_price_jpy_kwh"])
-    overall_mape = mape(result.df["actual_price_jpy_kwh"], result.df["forecast_price_jpy_kwh"])
     per_day = daily_metrics(result)
 
     with task_run(
@@ -63,13 +68,16 @@ def main() -> None:
                 "n_predictions": len(result),
             }
         )
-        mlflow.log_metrics({"mae": overall_mae, "mape": overall_mape})
         log_dataframe(per_day, "daily_errors.csv")
         log_dataframe(result.df, "predictions.csv")
         heatmaps = error_heatmaps(
             result, title=f"Error by year and time code — {args.strategy}, {args.area}"
         )
         mlflow.log_figure(heatmaps, "error_heatmaps_year_time_code.html")
+
+        eval_set = strategy.build_eval_set(prices, start_date=start_date, end_date=end_date)
+        evaluation = strategy.evaluate(eval_set, explainability_nsamples=args.shap_nsamples)
+
         run_id = run.info.run_id
 
     print(
@@ -77,7 +85,14 @@ def main() -> None:
         f"window={start_date.date()}..{end_date.date()} "
         f"days={per_day['trade_date'].nunique()} predictions={len(result)}"
     )
-    print(f"MAE={overall_mae:.3f} JPY/kWh  MAPE={overall_mape:.2f}%")
+    print(
+        f"MAE={evaluation.metrics['mean_absolute_error']:.3f} JPY/kWh  "
+        f"MAPE={evaluation.metrics[MAPE_METRIC_NAME]:.2f}%"
+    )
+    print("MLflow evaluation metrics:")
+    for metric, value in sorted(evaluation.metrics.items()):
+        print(f"  {metric}={value:.4f}")
+    print(f"MLflow evaluation artifacts: {', '.join(sorted(evaluation.artifacts))}")
     print(f"MLflow run: {run_id} (experiment: {MLFLOW_EXPERIMENT})")
 
 

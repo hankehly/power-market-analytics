@@ -5,7 +5,9 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 
 import pandas as pd
+from mlflow.models import EvaluationResult
 
+from power_market_analytics.common.frames import DomainFrame
 from power_market_analytics.tasks.spot_price.frames import DayAheadForecast, SpotPrices
 
 
@@ -36,4 +38,53 @@ class ForecastStrategy(ABC):
         Returns
         -------
         DayAheadForecast
+        """
+
+    @abstractmethod
+    def build_eval_set(
+        self,
+        prices: SpotPrices,
+        start_date: pd.Timestamp,
+        end_date: pd.Timestamp,
+    ) -> DomainFrame:
+        """Assemble the design matrix MLflow evaluates this strategy on.
+
+        Every strategy must be evaluable: the backtest script always runs
+        MLflow's regressor evaluation, so this is part of the contract rather
+        than an optional extra.
+
+        Parameters
+        ----------
+        prices : SpotPrices
+            Full price history, including whatever lookback the features need
+            before ``start_date``.
+        start_date, end_date : pandas.Timestamp
+            First and last delivery days, inclusive.
+
+        Returns
+        -------
+        DomainFrame
+            A frame exposing ``to_eval_frame()``: numeric feature columns plus
+            the target column, with no non-numeric columns (the SHAP evaluator
+            skips otherwise).
+        """
+
+    @abstractmethod
+    def evaluate(self, eval_set: DomainFrame, **kwargs: object) -> EvaluationResult:
+        """Log this strategy as a pyfunc model and evaluate it with MLflow.
+
+        Called inside an active MLflow run; the model, metrics and SHAP plots
+        land in that run.
+
+        Parameters
+        ----------
+        eval_set : DomainFrame
+            Design matrix from :meth:`build_eval_set`.
+        **kwargs
+            Forwarded to
+            :func:`power_market_analytics.common.tracking.evaluate_regressor`.
+
+        Returns
+        -------
+        mlflow.models.EvaluationResult
         """

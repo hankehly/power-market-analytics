@@ -9,6 +9,12 @@ services:
       SPARK_DRIVER_MEMORY: ${SPARK_DRIVER_MEMORY:-20g} # set per-host in .env
       SPARK_DRIVER_MAX_RESULT_SIZE: ${SPARK_DRIVER_MAX_RESULT_SIZE:-16g} # set per-host in .env
       MLFLOW_TRACKING_URI: http://mlflow:5005
+      # The telemetry consumer thread lazily imports modules while making its
+      # first HTTP call. That deadlocks against mlflow.models.evaluate(), which
+      # holds MLflow's post-import-hook lock while importing sklearn/scipy: each
+      # thread ends up holding the lock the other needs. Disabling telemetry
+      # removes the competing thread.
+      MLFLOW_DISABLE_TELEMETRY: "true"
       PYTHONPATH: /workspace/src
       AWS_SDK_LOAD_CONFIG: "1"
       SSH_AUTH_SOCK: /run/host-services/ssh-auth.sock
@@ -166,7 +172,8 @@ services:
       start_period: 30s
 
   mlflow:
-    image: ghcr.io/mlflow/mlflow:v3.8.1
+    # Keep in lockstep with the mlflow client pin in pyproject.toml.
+    image: ghcr.io/mlflow/mlflow:v3.14.0
     depends_on:
       postgres-mlflow:
         condition: service_healthy
