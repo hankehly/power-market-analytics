@@ -3,6 +3,7 @@
     "allow": [
       "Bash(iconv:*)",
       "Bash(just --list)",
+      "Bash(just dbt *)",
       "Bash(just open:*)",
       "Bash(mdfind:*)",
       "Bash(uv sync:*)",
@@ -10,9 +11,14 @@
       "Skill(dataviz:*)",
       "Skill(update-config)",
       "Skill(update-config:*)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:superset.apache.org)",
+      "WebFetch(domain:www.data.jma.go.jp)",
+      "WebSearch",
       "mcp__plugin_playwright_playwright__browser_click",
       "mcp__plugin_playwright_playwright__browser_close",
       "mcp__plugin_playwright_playwright__browser_evaluate",
+      "mcp__plugin_playwright_playwright__browser_fill_form",
       "mcp__plugin_playwright_playwright__browser_hover",
       "mcp__plugin_playwright_playwright__browser_navigate",
       "mcp__plugin_playwright_playwright__browser_network_request",
@@ -20,8 +26,10 @@
       "mcp__plugin_playwright_playwright__browser_select_option",
       "mcp__plugin_playwright_playwright__browser_snapshot",
       "mcp__plugin_playwright_playwright__browser_take_screenshot",
-      "WebFetch(domain:www.data.jma.go.jp)",
-      "Bash(just dbt *)"
+      "mcp__plugin_playwright_playwright__browser_wait_for",
+      "mcp__superset__call_tool",
+      "mcp__superset__health_check",
+      "mcp__superset__search_tools"
     ]
   }
 }
