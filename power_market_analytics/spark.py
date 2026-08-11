@@ -2,12 +2,9 @@
 
 from __future__ import annotations
 
-import logging
-
+from loguru import logger
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pyspark.sql import SparkSession
-
-logger = logging.getLogger(__name__)
 
 
 class SparkSettings(BaseSettings):

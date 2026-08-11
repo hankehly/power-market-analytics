@@ -7,8 +7,9 @@ metastore from ``SPARK_CONF_DIR``:
 """
 
 import argparse
-import logging
 from pathlib import Path
+
+from loguru import logger
 
 from power_market_analytics.csv_loader import CsvLoader, CsvTableSchema
 
@@ -36,11 +37,10 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
     schema = CsvTableSchema.from_yaml(args.schema)
     loader = CsvLoader(schema=schema, filepath=args.data, table=args.table)
     n_rows = loader.load()
-    print(f"Loaded {n_rows} rows into {args.table}")
+    logger.info("Loaded {} rows into {}", n_rows, args.table)
 
 
 if __name__ == "__main__":

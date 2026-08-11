@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import logging
-
 import mlflow
 import numpy as np
 import pandas as pd
+from loguru import logger
 from mlflow.models import EvaluationResult
 
 from power_market_analytics.common.frames import DomainFrame
@@ -18,8 +17,6 @@ from power_market_analytics.tasks.spot_price.frames import (
     SpotPrices,
 )
 from power_market_analytics.tasks.spot_price.strategies.base import ForecastStrategy
-
-logger = logging.getLogger(__name__)
 
 FEATURE_COLS = ("lag_1d_price",)
 TARGET_COL = "actual_price_jpy_kwh"
@@ -168,7 +165,7 @@ class PreviousDayStrategy(ForecastStrategy):
         n_dropped = len(window) - len(complete)
         if n_dropped:
             logger.info(
-                "%s eval set: dropped %d of %d rows with incomplete lags",
+                "{} eval set: dropped {} of {} rows with incomplete lags",
                 self.name,
                 n_dropped,
                 len(window),
@@ -179,7 +176,7 @@ class PreviousDayStrategy(ForecastStrategy):
                 f"{start_date.date()} and {end_date.date()}"
             )
         logger.info(
-            "%s eval set: %d rows, %d features", self.name, len(complete), len(FEATURE_COLS)
+            "{} eval set: {} rows, {} features", self.name, len(complete), len(FEATURE_COLS)
         )
         return PreviousDayEvalSet.from_df(complete)
 

@@ -10,12 +10,10 @@ the system price, and the ten area prices.
 from __future__ import annotations
 
 import datetime
-import logging
 from pathlib import Path
 
 import requests
-
-logger = logging.getLogger(__name__)
+from loguru import logger
 
 
 def current_fiscal_year(today: datetime.date | None = None) -> int:
@@ -122,11 +120,11 @@ class JepxSpotDownloader:
         self._validate_fiscal_year(fiscal_year)
         dest = self.path_for(fiscal_year)
         if dest.exists() and not force:
-            logger.info("Using cached JEPX spot file: %s", dest)
+            logger.info("Using cached JEPX spot file: {}", dest)
             return dest
 
         url = self.URL_TEMPLATE.format(fiscal_year=fiscal_year)
-        logger.info("Downloading %s -> %s", url, dest)
+        logger.info("Downloading {} -> {}", url, dest)
         response = requests.get(url, timeout=self.timeout)
         response.raise_for_status()
 
@@ -136,7 +134,7 @@ class JepxSpotDownloader:
         partial = dest.with_name(dest.name + ".part")
         partial.write_bytes(response.content)
         partial.replace(dest)
-        logger.info("Saved %s (%d bytes)", dest, dest.stat().st_size)
+        logger.info("Saved {} ({} bytes)", dest, dest.stat().st_size)
         return dest
 
     def _validate_fiscal_year(self, fiscal_year: int) -> None:

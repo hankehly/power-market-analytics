@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import logging
-
 import lightgbm
 import matplotlib.pyplot as plt
 import mlflow
 import pandas as pd
 import shap
+from loguru import logger
 from mlflow.models import EvaluationResult
 
 from power_market_analytics.common.frames import DomainFrame
@@ -20,8 +19,6 @@ from power_market_analytics.tasks.spot_price.frames import (
     SpotPrices,
 )
 from power_market_analytics.tasks.spot_price.strategies.base import ForecastStrategy
-
-logger = logging.getLogger(__name__)
 
 FEATURE_COLS = ("time_code", "month", "day_of_week", "lag_1d_price")
 TARGET_COL = "actual_price_jpy_kwh"
@@ -226,7 +223,7 @@ class LightGbmStrategy(ForecastStrategy):
         n_dropped = len(window) - len(complete)
         if n_dropped:
             logger.info(
-                "%s eval set: dropped %d of %d rows with incomplete lags",
+                "{} eval set: dropped {} of {} rows with incomplete lags",
                 self.name,
                 n_dropped,
                 len(window),
@@ -242,7 +239,7 @@ class LightGbmStrategy(ForecastStrategy):
             on=["trade_date", "time_code"],
             validate="one_to_one",
         )
-        logger.info("%s eval set: %d rows, %d features", self.name, len(merged), len(FEATURE_COLS))
+        logger.info("{} eval set: {} rows, {} features", self.name, len(merged), len(FEATURE_COLS))
         return LightGbmEvalSet.from_df(merged)
 
     def evaluate(
@@ -392,7 +389,7 @@ class LightGbmStrategy(ForecastStrategy):
         self._fit_anchor = target_date
         self._n_fits += 1
         logger.info(
-            "%s: refit #%d on %d rows (%s..%s)",
+            "{}: refit #{} on {} rows ({}..{})",
             self.name,
             self._n_fits,
             len(train),

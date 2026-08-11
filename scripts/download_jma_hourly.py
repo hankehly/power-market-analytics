@@ -8,8 +8,9 @@ always re-downloaded because JMA appends new observations daily.
 
 import argparse
 import datetime
-import logging
 from pathlib import Path
+
+from loguru import logger
 
 from power_market_analytics.jma import HOURLY_ELEMENTS, JmaHourlyDownloader
 
@@ -57,13 +58,18 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
     downloader = JmaHourlyDownloader(data_dir=args.data_dir)
     current_year = datetime.date.today().year
     for year in range(args.start_year, args.end_year + 1):
         force = args.force_all or year == current_year
         downloader.download(args.station, args.elements, year, force=force)
-    print(f"Downloaded {args.station} {sorted(args.elements)} {args.start_year}..{args.end_year}")
+    logger.info(
+        "Downloaded {} {} {}..{}",
+        args.station,
+        sorted(args.elements),
+        args.start_year,
+        args.end_year,
+    )
 
 
 if __name__ == "__main__":

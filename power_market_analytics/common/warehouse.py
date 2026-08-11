@@ -2,14 +2,11 @@
 
 from __future__ import annotations
 
-import logging
-
 import pandas as pd
+from loguru import logger
 from pyspark.sql import SparkSession
 
 from power_market_analytics.spark import get_spark_session
-
-logger = logging.getLogger(__name__)
 
 
 def query_pandas(sql: str, spark: SparkSession | None = None) -> pd.DataFrame:
@@ -30,7 +27,7 @@ def query_pandas(sql: str, spark: SparkSession | None = None) -> pd.DataFrame:
     spark = spark if spark is not None else get_spark_session()
     pdf = spark.sql(sql).toPandas()
     logger.info(
-        "query_pandas: shape=%s, schema: %s",
+        "query_pandas: shape={}, schema: {}",
         pdf.shape,
         ", ".join(f"{c}:{t}" for c, t in pdf.dtypes.astype(str).items()),
     )

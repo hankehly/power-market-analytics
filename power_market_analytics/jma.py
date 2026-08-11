@@ -25,14 +25,12 @@ from __future__ import annotations
 
 import csv
 import datetime
-import logging
 import re
 import time
 from pathlib import Path
 
 import requests
-
-logger = logging.getLogger(__name__)
+from loguru import logger
 
 #: Hourly (時別値, ``aggrgPeriod=9``) element codes accepted by the
 #: ``show/table`` endpoint. Elements marked (官署のみ) only have values at
@@ -143,7 +141,7 @@ class _JmaDownloader:
                 return response
             wait = self.backoff_base * 2**attempt
             logger.warning(
-                "JMA returned HTTP %d; retrying in %.0f s (attempt %d/%d)",
+                "JMA returned HTTP {}; retrying in {:.0f} s (attempt {}/{})",
                 response.status_code,
                 wait,
                 attempt + 1,
@@ -272,10 +270,10 @@ class JmaHourlyDownloader(_JmaDownloader):
 
         dest = self.path_for(station_id, elements, year)
         if dest.exists() and not force:
-            logger.info("Using cached JMA hourly file: %s", dest)
+            logger.info("Using cached JMA hourly file: {}", dest)
             return dest
 
-        logger.info("Downloading %s %s %d -> %s", station_id, sorted(elements), year, dest)
+        logger.info("Downloading {} {} {} -> {}", station_id, sorted(elements), year, dest)
         response = self._post_with_retry(
             self.SHOW_TABLE_URL, self._payload(station_id, elements, year)
         )
@@ -293,7 +291,7 @@ class JmaHourlyDownloader(_JmaDownloader):
         partial = dest.with_name(dest.name + ".part")
         partial.write_bytes(response.content)
         partial.replace(dest)
-        logger.info("Saved %s (%d bytes)", dest, dest.stat().st_size)
+        logger.info("Saved {} ({} bytes)", dest, dest.stat().st_size)
         return dest
 
     def _validate_elements(self, elements: list[str]) -> None:
@@ -470,11 +468,11 @@ class JmaStationMasterDownloader(_JmaDownloader):
             If JMA still responds with an error status after retries.
         """
         if self.dest.exists() and not force:
-            logger.info("Using cached JMA station master: %s", self.dest)
+            logger.info("Using cached JMA station master: {}", self.dest)
             return self.dest
 
         prefecture_codes = self._prefecture_codes()
-        logger.info("Enumerating stations for %d areas", len(prefecture_codes))
+        logger.info("Enumerating stations for {} areas", len(prefecture_codes))
 
         stations: dict[str, dict] = {}
         for code in prefecture_codes:
@@ -488,13 +486,13 @@ class JmaStationMasterDownloader(_JmaDownloader):
                     new += 1
                 elif existing != row:
                     logger.warning(
-                        "Station %s appears with conflicting metadata "
-                        "(prefectures %s and %s); keeping the first",
+                        "Station {} appears with conflicting metadata "
+                        "(prefectures {} and {}); keeping the first",
                         row["station_id"],
                         existing["prefecture_code"],
                         row["prefecture_code"],
                     )
-            logger.info("Area %02d: %d stations (%d new)", code, len(rows), new)
+            logger.info("Area {:02d}: {} stations ({} new)", code, len(rows), new)
 
         ordered = sorted(stations.values(), key=lambda r: (r["prefecture_code"], r["station_id"]))
         self.dest.parent.mkdir(parents=True, exist_ok=True)
@@ -504,7 +502,7 @@ class JmaStationMasterDownloader(_JmaDownloader):
             writer.writeheader()
             writer.writerows(ordered)
         partial.replace(self.dest)
-        logger.info("Saved %s (%d stations)", self.dest, len(ordered))
+        logger.info("Saved {} ({} stations)", self.dest, len(ordered))
         return self.dest
 
     def _fetch_area(self, prefecture_code: int | str) -> str:
