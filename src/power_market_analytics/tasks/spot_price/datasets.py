@@ -8,6 +8,22 @@ from pyspark.sql import SparkSession
 from power_market_analytics.common.warehouse import query_pandas
 from power_market_analytics.tasks.spot_price.frames import SpotPrices
 
+# The nine bidding zones unpivoted by fct_jepx_spot_area_price, in the order
+# dim_area lists them. dim_area also carries 'system', which is the nationwide
+# reference price rather than an area price and has no rows in the fact, so it
+# is not forecastable here.
+AREA_CODES = (
+    "hokkaido",
+    "tohoku",
+    "tokyo",
+    "chubu",
+    "hokuriku",
+    "kansai",
+    "chugoku",
+    "shikoku",
+    "kyushu",
+)
+
 
 def load_area_spot_prices(
     area_code: str = "tokyo", spark: SparkSession | None = None
