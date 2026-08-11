@@ -5,13 +5,15 @@ Superset REST API, so the whole thing is reproducible from the repo after a
 ``docker compose down -v``:
 
 - virtual dataset ``spot_price_forecast_analysis`` — the forecast accuracy
-  mart joined to dim_area / dim_delivery_period / dim_date, plus a
-  ``run_label`` column for the run picker
-- three charts: MAE heatmaps (year x time code, year x month) and a
-  forecast-vs-actual detail line at the 30-minute grain
-- the dashboard, with a required single-select Run filter (all charts) and a
-  delivery-date range filter (detail chart only; the heatmaps always show the
-  full window)
+  mart joined to dim_area / dim_delivery_period / dim_date, plus
+  presentation columns (``run_label``, price bands, day types)
+- charts in four sections: KPI tiles (MAE, bias, RMSE, RMSE/MAE, WAPE, P90),
+  error structure (bars + heatmaps + day-type slices), calibration &
+  distribution (price-band MAE, calibration curve, error histogram), and
+  runs & drilldown (run leaderboard, worst days, 30-minute detail)
+- the dashboard, with a required single-select Run filter (all charts except
+  the cross-run leaderboard) and a delivery-date range filter (detail chart
+  only; everything else always shows the full backtest window)
 
 Run inside the devcontainer (needs the compose network):
 
@@ -25,6 +27,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 
 import requests
 
@@ -36,13 +39,6 @@ DATABASE_NAME = "Spark Thriftserver"
 DATASET_NAME = "spot_price_forecast_analysis"
 DASHBOARD_TITLE = "Spot Price Forecast Analysis"
 DASHBOARD_SLUG = "spot-price-forecast-analysis"
-
-CHART_OVERALL_MAE = "Overall MAE"
-CHART_MAE_YEAR = "MAE by year"
-CHART_MAE_TIME_CODE = "MAE by time code"
-CHART_HEAT_TIME_CODE = "MAE by year and time code"
-CHART_HEAT_MONTH = "MAE by year and month"
-CHART_DETAIL = "Forecast vs actual (30-min detail)"
 
 DATASET_SQL = """\
 select
@@ -56,6 +52,12 @@ select
   p.is_daytime,
   d.fiscal_year,
   d.day_name,
+  concat(d.day_of_week_iso, ' ', substring(d.day_name, 1, 3)) as day_of_week,
+  case
+    when d.is_holiday then 'Holiday'
+    when d.is_weekend then 'Weekend'
+    else 'Weekday'
+  end as day_type,
   d.is_weekend,
   d.is_holiday,
   d.is_business_day,
@@ -73,6 +75,17 @@ select
   f.horizon_hours,
   f.forecast_price_jpy_kwh,
   f.actual_price_jpy_kwh,
+  cast(round(f.actual_price_jpy_kwh, 0) as int) as actual_price_round_jpy,
+  case
+    when f.actual_price_jpy_kwh is null then null
+    when f.actual_price_jpy_kwh < 5 then '00-05'
+    when f.actual_price_jpy_kwh < 10 then '05-10'
+    when f.actual_price_jpy_kwh < 15 then '10-15'
+    when f.actual_price_jpy_kwh < 20 then '15-20'
+    when f.actual_price_jpy_kwh < 30 then '20-30'
+    when f.actual_price_jpy_kwh < 50 then '30-50'
+    else '50+'
+  end as actual_price_band,
   f.error_jpy_kwh,
   f.abs_error_jpy_kwh,
   f.pct_error,
@@ -96,6 +109,8 @@ DATASET_COLUMNS = [
     ("is_daytime", "BOOLEAN", False),
     ("fiscal_year", "INT", False),
     ("day_name", "STRING", False),
+    ("day_of_week", "STRING", False),
+    ("day_type", "STRING", False),
     ("is_weekend", "BOOLEAN", False),
     ("is_holiday", "BOOLEAN", False),
     ("is_business_day", "BOOLEAN", False),
@@ -109,6 +124,8 @@ DATASET_COLUMNS = [
     ("horizon_hours", "DOUBLE", False),
     ("forecast_price_jpy_kwh", "DOUBLE", False),
     ("actual_price_jpy_kwh", "DOUBLE", False),
+    ("actual_price_round_jpy", "INT", False),
+    ("actual_price_band", "STRING", False),
     ("error_jpy_kwh", "DOUBLE", False),
     ("abs_error_jpy_kwh", "DOUBLE", False),
     ("pct_error", "DOUBLE", False),
@@ -133,7 +150,6 @@ class SupersetClient:
         token = self._post_json(
             "/api/v1/security/login",
             {"username": username, "password": password, "provider": "db", "refresh": True},
-            csrf=False,
         )["access_token"]
         self.session.headers["Authorization"] = f"Bearer {token}"
         self.session.headers["Referer"] = self.base_url
@@ -145,7 +161,7 @@ class SupersetClient:
         r.raise_for_status()
         return r.json()
 
-    def _post_json(self, path: str, payload: dict, csrf: bool = True) -> dict:
+    def _post_json(self, path: str, payload: dict) -> dict:
         r = self.session.post(f"{self.base_url}{path}", json=payload)
         r.raise_for_status()
         return r.json()
@@ -245,6 +261,10 @@ limit 1
         return None
 
 
+def _slug(label: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", label.lower()).strip("_")
+
+
 def avg_metric(column: str, label: str) -> dict:
     """Ad-hoc AVG metric definition for chart params.
 
@@ -268,12 +288,52 @@ def avg_metric(column: str, label: str) -> dict:
     }
 
 
-def big_number_params(dataset_id: int) -> dict:
-    """Params for the overall-MAE stat tile.
+def sql_metric(expression: str, label: str) -> dict:
+    """Ad-hoc SQL-expression metric definition for chart params.
+
+    Parameters
+    ----------
+    expression : str
+        Aggregate Spark SQL expression, e.g. ``sqrt(avg(power(x, 2)))``.
+    label : str
+        Display label.
+
+    Returns
+    -------
+    dict
+    """
+    return {
+        "expressionType": "SQL",
+        "sqlExpression": expression,
+        "label": label,
+        "optionName": f"metric_{_slug(label)}",
+    }
+
+
+MAE_METRIC = avg_metric("abs_error_jpy_kwh", "MAE (JPY/kWh)")
+BIAS_METRIC = avg_metric("error_jpy_kwh", "Bias")
+RMSE_METRIC = sql_metric("sqrt(avg(power(error_jpy_kwh, 2)))", "RMSE")
+RMSE_MAE_METRIC = sql_metric(
+    "sqrt(avg(power(error_jpy_kwh, 2))) / avg(abs_error_jpy_kwh)", "RMSE/MAE"
+)
+WAPE_METRIC = sql_metric(
+    "sum(abs_error_jpy_kwh) / sum(actual_price_jpy_kwh)", "WAPE"
+)
+P90_METRIC = sql_metric("percentile(abs_error_jpy_kwh, 0.90)", "P90 abs error")
+
+
+def big_number_params(dataset_id: int, metric: dict, subheader: str, number_format: str) -> dict:
+    """Params for a KPI stat tile.
 
     Parameters
     ----------
     dataset_id : int
+    metric : dict
+        Ad-hoc metric definition.
+    subheader : str
+        Small caption under the number (include units).
+    number_format : str
+        d3 number format, e.g. ``,.3f`` or ``.1%``.
 
     Returns
     -------
@@ -282,12 +342,12 @@ def big_number_params(dataset_id: int) -> dict:
     return {
         "datasource": f"{dataset_id}__table",
         "viz_type": "big_number_total",
-        "metric": avg_metric("abs_error_jpy_kwh", "MAE"),
+        "metric": metric,
         "adhoc_filters": [],
-        "subheader": "JPY/kWh, all delivery periods",
-        "header_font_size": 0.4,
+        "subheader": subheader,
+        "header_font_size": 0.3,
         "subheader_font_size": 0.125,
-        "y_axis_format": ",.3f",
+        "y_axis_format": number_format,
         "time_format": "smart_date",
         "extra_form_data": {},
     }
@@ -302,7 +362,7 @@ def bar_params(dataset_id: int, x_axis: str) -> dict:
     ----------
     dataset_id : int
     x_axis : str
-        Dataset column for the x axis (``year`` or ``time_code``).
+        Dataset column for the x axis.
 
     Returns
     -------
@@ -315,7 +375,7 @@ def bar_params(dataset_id: int, x_axis: str) -> dict:
         "time_grain_sqla": None,
         "x_axis_sort": x_axis,
         "x_axis_sort_asc": True,
-        "metrics": [avg_metric("abs_error_jpy_kwh", "MAE (JPY/kWh)")],
+        "metrics": [MAE_METRIC],
         "groupby": [],
         "adhoc_filters": [],
         "order_desc": False,
@@ -335,7 +395,8 @@ def bar_params(dataset_id: int, x_axis: str) -> dict:
 def heatmap_params(dataset_id: int, x_axis: str) -> dict:
     """Params for a MAE heatmap (year on y, ``x_axis`` on x).
 
-    Sequential single-hue ramp (blues): the metric encodes magnitude only.
+    Sequential single-hue ramp ("Dark blues"): the metric encodes magnitude
+    only.
 
     Parameters
     ----------
@@ -352,7 +413,7 @@ def heatmap_params(dataset_id: int, x_axis: str) -> dict:
         "viz_type": "heatmap_v2",
         "x_axis": x_axis,
         "groupby": "year",
-        "metric": avg_metric("abs_error_jpy_kwh", "MAE (JPY/kWh)"),
+        "metric": MAE_METRIC,
         "adhoc_filters": [],
         "row_limit": 10000,
         "sort_x_axis": "alpha_asc",
@@ -360,7 +421,6 @@ def heatmap_params(dataset_id: int, x_axis: str) -> dict:
         "normalize_across": "heatmap",
         "legend_type": "continuous",
         "show_legend": True,
-        # Single-hue sequential ramp ("Dark blues"): MAE encodes magnitude only.
         "linear_color_scheme": "dark_blue",
         "xscale_interval": -1,
         "yscale_interval": -1,
@@ -370,6 +430,164 @@ def heatmap_params(dataset_id: int, x_axis: str) -> dict:
         "show_values": False,
         "show_percentage": False,
         "time_range": "No filter",
+        "extra_form_data": {},
+    }
+
+
+def calibration_params(dataset_id: int) -> dict:
+    """Params for the calibration curve: mean forecast per actual price level.
+
+    Mean actual per rounded actual price is (by construction) the y = x
+    reference, so systematic under/over-forecast at any price level shows as
+    the gap between the two series — the standard conditional-bias view.
+
+    Parameters
+    ----------
+    dataset_id : int
+
+    Returns
+    -------
+    dict
+    """
+    return {
+        "datasource": f"{dataset_id}__table",
+        "viz_type": "echarts_timeseries_scatter",
+        "x_axis": "actual_price_round_jpy",
+        "time_grain_sqla": None,
+        "x_axis_sort": "actual_price_round_jpy",
+        "x_axis_sort_asc": True,
+        "metrics": [
+            avg_metric("forecast_price_jpy_kwh", "Mean forecast"),
+            avg_metric("actual_price_jpy_kwh", "Mean actual (y = x reference)"),
+        ],
+        "groupby": [],
+        "adhoc_filters": [],
+        "order_desc": False,
+        "row_limit": 10000,
+        "markerSize": 5,
+        "show_legend": True,
+        "legendType": "scroll",
+        "legendOrientation": "top",
+        "rich_tooltip": True,
+        "tooltipTimeFormat": "smart_date",
+        "x_axis_time_format": "smart_date",
+        "x_axis_title": "Actual price (JPY/kWh, rounded)",
+        "x_axis_title_margin": 30,
+        "y_axis_format": ",.1f",
+        "y_axis_title": "Forecast (JPY/kWh)",
+        "y_axis_title_margin": 30,
+        "truncateYAxis": False,
+        "color_scheme": "supersetColors",
+        "extra_form_data": {},
+    }
+
+
+def histogram_params(dataset_id: int) -> dict:
+    """Params for the signed-error histogram.
+
+    Parameters
+    ----------
+    dataset_id : int
+
+    Returns
+    -------
+    dict
+    """
+    return {
+        "datasource": f"{dataset_id}__table",
+        "viz_type": "histogram_v2",
+        "column": "error_jpy_kwh",
+        "bins": 60,
+        "normalize": False,
+        "cumulative": False,
+        "groupby": [],
+        "adhoc_filters": [],
+        "row_limit": 100000,
+        "show_legend": False,
+        "show_value": False,
+        "x_axis_title": "Signed error (JPY/kWh; + = over-forecast)",
+        "y_axis_title": "Delivery periods",
+        "color_scheme": "supersetColors",
+        "extra_form_data": {},
+    }
+
+
+def leaderboard_params(dataset_id: int) -> dict:
+    """Params for the cross-run leaderboard table (best MAE first).
+
+    Excluded from the Run filter so all runs stay visible side by side.
+
+    Parameters
+    ----------
+    dataset_id : int
+
+    Returns
+    -------
+    dict
+    """
+    return {
+        "datasource": f"{dataset_id}__table",
+        "viz_type": "table",
+        "query_mode": "aggregate",
+        "groupby": ["run_label", "strategy"],
+        "metrics": [
+            sql_metric("count(*)", "Periods"),
+            MAE_METRIC,
+            BIAS_METRIC,
+            RMSE_METRIC,
+            WAPE_METRIC,
+        ],
+        "adhoc_filters": [],
+        "timeseries_limit_metric": MAE_METRIC,
+        "order_desc": False,
+        "row_limit": 100,
+        "server_page_length": 10,
+        "table_timestamp_format": "smart_date",
+        "column_config": {
+            "Periods": {"d3NumberFormat": ",d"},
+            "MAE (JPY/kWh)": {"d3NumberFormat": ",.3f"},
+            "Bias": {"d3NumberFormat": "+,.3f"},
+            "RMSE": {"d3NumberFormat": ",.3f"},
+            "WAPE": {"d3NumberFormat": ".1%"},
+        },
+        "extra_form_data": {},
+    }
+
+
+def worst_days_params(dataset_id: int) -> dict:
+    """Params for the worst-days drill table (highest daily MAE first).
+
+    Parameters
+    ----------
+    dataset_id : int
+
+    Returns
+    -------
+    dict
+    """
+    return {
+        "datasource": f"{dataset_id}__table",
+        "viz_type": "table",
+        "query_mode": "aggregate",
+        "groupby": ["date_key", "day_of_week", "day_type"],
+        "metrics": [
+            MAE_METRIC,
+            BIAS_METRIC,
+            sql_metric("max(abs_error_jpy_kwh)", "Max |error|"),
+            sql_metric("max(actual_price_jpy_kwh)", "Max actual"),
+        ],
+        "adhoc_filters": [],
+        "timeseries_limit_metric": MAE_METRIC,
+        "order_desc": True,
+        "row_limit": 20,
+        "server_page_length": 20,
+        "table_timestamp_format": "%Y-%m-%d",
+        "column_config": {
+            "MAE (JPY/kWh)": {"d3NumberFormat": ",.3f"},
+            "Bias": {"d3NumberFormat": "+,.3f"},
+            "Max |error|": {"d3NumberFormat": ",.2f"},
+            "Max actual": {"d3NumberFormat": ",.2f"},
+        },
         "extra_form_data": {},
     }
 
@@ -467,14 +685,15 @@ def upsert_chart(client: SupersetClient, name: str, dataset_id: int, params: dic
     return chart_id
 
 
-def build_position_json(rows: list[list[tuple[int, str, int, int]]]) -> dict:
-    """Dashboard layout: rows of charts.
+def build_position_json(sections: list[dict]) -> dict:
+    """Dashboard layout: sections of rows, each section optionally headed.
 
     Parameters
     ----------
-    rows : list of list of (chart_id, slice_name, width, height)
-        In display order; widths within a row should sum to 12; height is in
-        dashboard grid units (~8 px each).
+    sections : list of dict
+        Each ``{"header": str | None, "rows": [[(chart_id, name, width,
+        height), ...], ...]}``. Widths within a row should sum to 12; height
+        is in dashboard grid units (~8 px each).
 
     Returns
     -------
@@ -486,31 +705,54 @@ def build_position_json(rows: list[list[tuple[int, str, int, int]]]) -> dict:
         "GRID_ID": {"type": "GRID", "id": "GRID_ID", "children": [], "parents": ["ROOT_ID"]},
         "HEADER_ID": {"type": "HEADER", "id": "HEADER_ID", "meta": {"text": DASHBOARD_TITLE}},
     }
-    for i, row in enumerate(rows):
-        row_key = f"ROW-{i}"
-        position["GRID_ID"]["children"].append(row_key)
-        position[row_key] = {
-            "type": "ROW",
-            "id": row_key,
-            "children": [],
-            "parents": ["ROOT_ID", "GRID_ID"],
-            "meta": {"background": "BACKGROUND_TRANSPARENT"},
-        }
-        for chart_id, name, width, height in row:
-            chart_key = f"CHART-{chart_id}"
-            position[row_key]["children"].append(chart_key)
-            position[chart_key] = {
-                "type": "CHART",
-                "id": chart_key,
+    for s, section in enumerate(sections):
+        if section["header"]:
+            header_key = f"HEADER-{s}"
+            position["GRID_ID"]["children"].append(header_key)
+            position[header_key] = {
+                "type": "HEADER",
+                "id": header_key,
                 "children": [],
-                "parents": ["ROOT_ID", "GRID_ID", row_key],
-                "meta": {"chartId": chart_id, "width": width, "height": height, "sliceName": name},
+                "parents": ["ROOT_ID", "GRID_ID"],
+                "meta": {
+                    "text": section["header"],
+                    "headerSize": "MEDIUM_HEADER",
+                    "background": "BACKGROUND_TRANSPARENT",
+                },
             }
+        for r, row in enumerate(section["rows"]):
+            row_key = f"ROW-{s}-{r}"
+            position["GRID_ID"]["children"].append(row_key)
+            position[row_key] = {
+                "type": "ROW",
+                "id": row_key,
+                "children": [],
+                "parents": ["ROOT_ID", "GRID_ID"],
+                "meta": {"background": "BACKGROUND_TRANSPARENT"},
+            }
+            for chart_id, name, width, height in row:
+                chart_key = f"CHART-{chart_id}"
+                position[row_key]["children"].append(chart_key)
+                position[chart_key] = {
+                    "type": "CHART",
+                    "id": chart_key,
+                    "children": [],
+                    "parents": ["ROOT_ID", "GRID_ID", row_key],
+                    "meta": {
+                        "chartId": chart_id,
+                        "width": width,
+                        "height": height,
+                        "sliceName": name,
+                    },
+                }
     return position
 
 
 def build_native_filters(
-    dataset_id: int, full_window_chart_ids: list[int], default_run_label: str | None
+    dataset_id: int,
+    run_excluded: list[int],
+    date_excluded: list[int],
+    default_run_label: str | None,
 ) -> list[dict]:
     """Native filter configuration: Run picker + detail date range.
 
@@ -518,9 +760,11 @@ def build_native_filters(
     ----------
     dataset_id : int
         Dataset the run_label filter reads its values from.
-    full_window_chart_ids : list of int
-        Charts the date filter must NOT apply to (they always show the whole
-        backtest window).
+    run_excluded : list of int
+        Charts the Run filter must NOT apply to (the cross-run leaderboard).
+    date_excluded : list of int
+        Charts the date filter must NOT apply to (everything that always
+        shows the whole backtest window).
     default_run_label : str or None
         Explicit on-load default for the Run filter; None falls back to
         ``defaultToFirstItem`` (which needs one manual Apply click).
@@ -554,7 +798,7 @@ def build_native_filters(
                 "sortAscending": False,
             },
             "cascadeParentIds": [],
-            "scope": {"rootPath": ["ROOT_ID"], "excluded": []},
+            "scope": {"rootPath": ["ROOT_ID"], "excluded": run_excluded},
             "type": "NATIVE_FILTER",
             "description": "published_at | area | run_id prefix (newest first)",
         },
@@ -566,9 +810,9 @@ def build_native_filters(
             "defaultDataMask": {"extraFormData": {}, "filterState": {}},
             "controlValues": {},
             "cascadeParentIds": [],
-            "scope": {"rootPath": ["ROOT_ID"], "excluded": full_window_chart_ids},
+            "scope": {"rootPath": ["ROOT_ID"], "excluded": date_excluded},
             "type": "NATIVE_FILTER",
-            "description": "Zoom the 30-min detail chart (heatmaps always show all years).",
+            "description": "Zoom the 30-min detail chart (other charts always show all years).",
         },
     ]
 
@@ -642,43 +886,111 @@ def main() -> None:
     dataset_id = upsert_dataset(client, database_id)
     print(f"dataset {DATASET_NAME}: id={dataset_id}")
 
-    overall = upsert_chart(client, CHART_OVERALL_MAE, dataset_id, big_number_params(dataset_id))
-    mae_year = upsert_chart(client, CHART_MAE_YEAR, dataset_id, bar_params(dataset_id, "year"))
-    mae_tc = upsert_chart(
-        client, CHART_MAE_TIME_CODE, dataset_id, bar_params(dataset_id, "time_code")
+    def chart(name: str, params: dict) -> int:
+        chart_id = upsert_chart(client, name, dataset_id, params)
+        print(f"chart {chart_id}: {name}")
+        return chart_id
+
+    # KPI tiles
+    kpi_mae = chart("Overall MAE", big_number_params(dataset_id, MAE_METRIC, "JPY/kWh", ",.3f"))
+    kpi_bias = chart(
+        "Bias (mean error)",
+        big_number_params(dataset_id, BIAS_METRIC, "JPY/kWh; + = over-forecast", "+,.3f"),
     )
-    heat_tc = upsert_chart(
-        client, CHART_HEAT_TIME_CODE, dataset_id, heatmap_params(dataset_id, "time_code")
+    kpi_rmse = chart("RMSE", big_number_params(dataset_id, RMSE_METRIC, "JPY/kWh", ",.3f"))
+    kpi_ratio = chart(
+        "RMSE / MAE",
+        big_number_params(dataset_id, RMSE_MAE_METRIC, ">1.3 = spike-heavy errors", ",.2f"),
     )
-    heat_month = upsert_chart(
-        client, CHART_HEAT_MONTH, dataset_id, heatmap_params(dataset_id, "month")
+    kpi_wape = chart(
+        "WAPE", big_number_params(dataset_id, WAPE_METRIC, "Σ|error| / Σ actual", ".1%")
     )
-    detail = upsert_chart(client, CHART_DETAIL, dataset_id, detail_params(dataset_id))
-    print(
-        f"charts: overall={overall}, mae_year={mae_year}, mae_time_code={mae_tc}, "
-        f"heat_time_code={heat_tc}, heat_month={heat_month}, detail={detail}"
+    kpi_p90 = chart(
+        "P90 abs error", big_number_params(dataset_id, P90_METRIC, "JPY/kWh", ",.3f")
     )
 
-    position = build_position_json(
-        [
-            [
-                (overall, CHART_OVERALL_MAE, 3, 40),
-                (mae_year, CHART_MAE_YEAR, 4, 40),
-                (mae_tc, CHART_MAE_TIME_CODE, 5, 40),
+    # Error structure
+    mae_year = chart("MAE by year", bar_params(dataset_id, "year"))
+    mae_tc = chart("MAE by time code", bar_params(dataset_id, "time_code"))
+    heat_tc = chart("MAE by year and time code", heatmap_params(dataset_id, "time_code"))
+    heat_month = chart("MAE by year and month", heatmap_params(dataset_id, "month"))
+    mae_dow = chart("MAE by day of week", bar_params(dataset_id, "day_of_week"))
+    mae_daypart = chart("MAE by day part", bar_params(dataset_id, "day_part"))
+    mae_daytype = chart("MAE by day type", bar_params(dataset_id, "day_type"))
+
+    # Calibration & distribution
+    mae_band = chart("MAE by actual price band", bar_params(dataset_id, "actual_price_band"))
+    calibration = chart("Calibration: forecast vs actual price level", calibration_params(dataset_id))
+    histogram = chart("Error distribution", histogram_params(dataset_id))
+
+    # Runs & drilldown
+    leaderboard = chart("Run leaderboard", leaderboard_params(dataset_id))
+    worst_days = chart("Worst days", worst_days_params(dataset_id))
+    detail = chart("Forecast vs actual (30-min detail)", detail_params(dataset_id))
+
+    sections = [
+        {
+            "header": None,
+            "rows": [
+                [
+                    (kpi_mae, "Overall MAE", 2, 24),
+                    (kpi_bias, "Bias (mean error)", 2, 24),
+                    (kpi_rmse, "RMSE", 2, 24),
+                    (kpi_ratio, "RMSE / MAE", 2, 24),
+                    (kpi_wape, "WAPE", 2, 24),
+                    (kpi_p90, "P90 abs error", 2, 24),
+                ]
             ],
-            [(heat_tc, CHART_HEAT_TIME_CODE, 12, 56)],
-            [(heat_month, CHART_HEAT_MONTH, 12, 56)],
-            [(detail, CHART_DETAIL, 12, 64)],
-        ]
-    )
-    all_charts = [overall, mae_year, mae_tc, heat_tc, heat_month, detail]
+        },
+        {
+            "header": "Error structure",
+            "rows": [
+                [(mae_year, "MAE by year", 4, 36), (mae_tc, "MAE by time code", 8, 36)],
+                [(heat_tc, "MAE by year and time code", 12, 50)],
+                [(heat_month, "MAE by year and month", 12, 46)],
+                [
+                    (mae_dow, "MAE by day of week", 4, 36),
+                    (mae_daypart, "MAE by day part", 4, 36),
+                    (mae_daytype, "MAE by day type", 4, 36),
+                ],
+            ],
+        },
+        {
+            "header": "Calibration & distribution",
+            "rows": [
+                [
+                    (mae_band, "MAE by actual price band", 5, 42),
+                    (calibration, "Calibration: forecast vs actual price level", 7, 42),
+                ],
+                [(histogram, "Error distribution", 12, 38)],
+            ],
+        },
+        {
+            "header": "Runs & drilldown",
+            "rows": [
+                [(leaderboard, "Run leaderboard", 12, 26)],
+                [(worst_days, "Worst days", 12, 40)],
+                [(detail, "Forecast vs actual (30-min detail)", 12, 60)],
+            ],
+        },
+    ]
+    all_charts = [
+        kpi_mae, kpi_bias, kpi_rmse, kpi_ratio, kpi_wape, kpi_p90,
+        mae_year, mae_tc, heat_tc, heat_month, mae_dow, mae_daypart, mae_daytype,
+        mae_band, calibration, histogram,
+        leaderboard, worst_days, detail,
+    ]
+
     default_run = latest_run_label(client, database_id)
     print(f"default run: {default_run}")
     dashboard_id = upsert_dashboard(
         client,
-        position,
+        build_position_json(sections),
         build_native_filters(
-            dataset_id, [overall, mae_year, mae_tc, heat_tc, heat_month], default_run
+            dataset_id,
+            run_excluded=[leaderboard],
+            date_excluded=[c for c in all_charts if c != detail],
+            default_run_label=default_run,
         ),
     )
     attach_charts(client, dashboard_id, all_charts)
