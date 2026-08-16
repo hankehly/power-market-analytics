@@ -377,7 +377,7 @@ time) into `pma_raw.occto_demand_forecast_dad`. dbt then builds:
 | Model | Layer | What it adds |
 |---|---|---|
 | `stg_occto__demand_forecast_dad` | staging | As-is view of the raw table with an enforced contract and accepted-values test on the area names |
-| `std_occto__demand_forecast_dad` | standardized | `area_code` (snake-case, matching `dim_area`; `okinawa`, `total_9_areas`, `total_10_areas` for the rest), `is_area_total`, `forecast_horizon_days` (asserted = 2), and the `HH:00` labels parsed to `*_hour_ending` ints 1–24 |
+| `std_occto__demand_forecast_dad` | standardized | `area_code` (snake-case, matching `dim_area`; `okinawa`, `total_9_areas`, `total_10_areas` for the rest), `is_area_total`, `forecast_horizon_days` (asserted = 2), the `HH:00` labels parsed to `*_hour_ending` ints 1–24, and the published percentages converted to fractions (`usage_rate`, `reserve_rate`: 92.4 → 0.924) |
 | `fct_occto_demand_forecast_dad` | curated | Periodic snapshot at (`date_key`, `area_key`) for the **9 JEPX areas only** — the エリア計 roll-ups are excluded so the grain stays atomic (Kimball), Okinawa because it has no `dim_area` row. Both remain queryable in the standardized model. |
 
 Grain check on the first load (2026-08-16): 10,656 raw rows → 7,992 fact rows =

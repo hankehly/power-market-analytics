@@ -188,8 +188,8 @@ erDiagram
         int max_demand_hour_ending
         int max_demand_mw
         int max_supply_capacity_mw
-        double usage_rate_pct
-        double reserve_rate_pct
+        double usage_rate
+        double reserve_rate
     }
 
     classDef dim fill:#DBEAFE,stroke:#2563EB,color:#1E3A8A
@@ -223,8 +223,9 @@ Notes:
   `phenomenon_absent = 0` is a JMA "trace" reading (below measurement
   resolution), distinct from a true zero (`phenomenon_absent = 1`).
 - `fct_occto_demand_forecast_dad` MW columns are additive across areas; the
-  `*_rate_pct` columns are non-additive (average, or recompute from the MW
-  columns). `min_demand_mw` for `date_key` ≤ 2025-03-31 is the demand at the
+  `usage_rate` / `reserve_rate` columns are fractions (0.924 = 92.4%, converted
+  from OCCTO's percentages in the standardized layer) and non-additive
+  (average, or recompute from the MW columns). `min_demand_mw` for `date_key` ≤ 2025-03-31 is the demand at the
   minimum-reserve-rate hour, not the minimum demand (an OCCTO definition
   change). Hour-ending values run 1–24 (24 = the hour ending at midnight).
 
