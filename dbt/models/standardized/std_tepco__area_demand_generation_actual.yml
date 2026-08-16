@@ -1,0 +1,74 @@
+models:
+  - name: std_tepco__area_demand_generation_actual
+    config:
+      contract:
+        enforced: true
+    description: >
+      Standardized TEPCO Tokyo-area 30-minute actuals:
+      stg_tepco__area_demand_generation_actual with a typed time axis
+      (delivery_date, time_code, delivery_datetime = period start, Japanese
+      fiscal_year) and the three measures rounded to bigint kWh (raw stores
+      double because 13 April-2022 files use scientific notation). One row
+      per delivery_date and time_code. Rows where all three published values
+      are 0 — TEPCO's "not yet observed" sentinel, which survived in the
+      archive for 2025-06-14 time codes 11-48 — have all three measures set
+      to null; the row is kept so the grain stays dense. The published
+      period-label strings are dropped (dim_delivery_period carries them).
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - delivery_date
+              - time_code
+      - dbt_utils.expression_is_true:
+          name: std_tepco_area_actual_wind_solar_lte_generation
+          arguments:
+            expression: "wind_solar_generation_kwh <= generation_kwh"
+    columns:
+      - name: delivery_date
+        data_type: date
+        data_tests:
+          - not_null
+      - name: time_code
+        data_type: int
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 1
+                max_value: 48
+      - name: delivery_datetime
+        data_type: timestamp
+        description: Start of the 30-minute period (delivery_date + (time_code - 1) * 30 min).
+        data_tests:
+          - not_null
+      - name: fiscal_year
+        data_type: int
+        description: Japanese fiscal year (April-March) of delivery_date.
+        data_tests:
+          - not_null
+      - name: demand_kwh
+        data_type: bigint
+        description: Area total demand in kWh over the period; null for the unpublished sentinel rows.
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+      - name: generation_kwh
+        data_type: bigint
+        description: Area total generation in kWh over the period; null for the unpublished sentinel rows.
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+      - name: wind_solar_generation_kwh
+        data_type: bigint
+        description: Wind + solar generation in kWh over the period; null for the unpublished sentinel rows.
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+      - name: file_updated_at
+        data_type: timestamp
+        data_tests:
+          - not_null
