@@ -1,3 +1,7 @@
 - [Home](README.md)
+- Forecasting Research
+  - [Research Index](research/README.md)
+  - [Observation Log](research/observations.md)
+  - [Investigation Template](research/investigation-template.md)
 - [JMA Weather Data Retrieval](JMA-Weather-Data-Retrieval.md)
 - [Kimball Dimensional Modeling Techniques](Kimball-Dimensional-Modeling-Techniques.md)

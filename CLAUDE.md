@@ -58,6 +58,15 @@
   star schemas, SCDs, etc.), abide by the guidelines in
   [docs/Kimball-Dimensional-Modeling-Techniques.md](docs/Kimball-Dimensional-Modeling-Techniques.md).
 
+## Forecasting Research
+
+- Use [docs/research/observations.md](docs/research/observations.md) to record notable forecast
+  behavior and [docs/research/investigation-template.md](docs/research/investigation-template.md)
+  for coherent forecasting questions and their experiments.
+- Update the investigation index in [docs/research/README.md](docs/research/README.md).
+- Keep reasoning, interpretations, and decisions in the research documents; keep run-level
+  parameters, metrics, code versions, and detailed artifacts in MLflow.
+
 ## dbt
 
 - Every dbt model must have an enforced contract
