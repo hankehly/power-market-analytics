@@ -11,11 +11,18 @@
 - `just python <args>` / `just exec <cmd>` / `just shell` — run inside the devcontainer.
 - `just dbt <args>` — dbt from `/workspace/dbt` (e.g. `just dbt build`, `just dbt show --inline "select ..." --limit 5`).
 - `just sql` — beeline shell on the thriftserver.
-- `just python scripts/spot_price_backtest.py --strategy lgbm --area tokyo` — day-ahead
-  backtest (strategies: `previous_day`, `lgbm`; areas = `dim_area.area_code`). Logs to
-  MLflow (`just open mlflow`) and publishes forecasts to the warehouse. New strategies
-  subclass `ForecastStrategy` and register in `STRATEGIES`
+- `just python scripts/spot_price_backtest.py --strategy lightgbm --area tokyo` — day-ahead
+  backtest (strategies: `previous_day`, `lightgbm`, `lightgbm_occto`; areas =
+  `dim_area.area_code`). Logs to MLflow (`just open mlflow`) and publishes forecasts to the
+  warehouse. `--start-date/--end-date` pin the evaluation window and `--train-start` the
+  first training row — set all three identically for a feature experiment and its matched
+  baseline. New strategies subclass `ForecastStrategy`, register in `STRATEGIES`, and get
+  their inputs wired in `build_strategy`
   (`power_market_analytics/tasks/spot_price/strategies/__init__.py`).
+- `just python scripts/compare_spot_price_runs.py --baseline <run_id> --candidate <run_id>` —
+  matched two-run comparison (MAE overall / by day part / near the OCCTO peak hour / by
+  month / high-price days, plus bias) as markdown; needs
+  `just dbt build --select +fct_spot_price_forecast_accuracy` after the runs.
 - Host-side dbt also works: `cd dbt && DBT_THRIFT_HOST=localhost uv run dbt <cmd>`.
 - Anything that creates a SparkSession MUST run in the devcontainer (metastore/warehouse only
   resolve on the compose network); plain python and dbt work from the host too.
@@ -49,6 +56,11 @@
   `stg/std_ml__spot_price_forecast` → `fct_spot_price_forecast` →
   `fct_spot_price_forecast_accuracy` (joins actuals; the Superset-facing surface).
   `run_id` links warehouse rows to the MLflow run; the run's `warehouse_table` tag points back.
+  `tasks/spot_price/compare.py` reads the accuracy fact back for run-vs-run segment tables.
+- Exogenous features: `LightGbmOcctoStrategy` joins `OcctoDemandForecast`
+  (`datasets.load_occto_demand_forecast`, from `fct_occto_demand_forecast_dad`) to each
+  delivery day's rows via the `_join_daily_features` hook; its training set therefore
+  starts 2024-04-01, so a matched `lightgbm` baseline needs `--train-start 2024-04-01`.
 
 ## Gotchas
 

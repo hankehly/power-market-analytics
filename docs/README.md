@@ -243,6 +243,19 @@ records the results in two places, linked by the MLflow `run_id`:
   (partitioned by `run_id`; republishing a run replaces its rows), which dbt
   models into `fct_spot_price_forecast` and `fct_spot_price_forecast_accuracy`.
 
+Strategies: `previous_day` (naive), `lightgbm` (calendar + 1-day-lag features)
+and `lightgbm_occto` (the same plus the OCCTO 翌々日 peak-demand hour, peak
+demand and peak supply capacity for the delivery day — published D-2 evening,
+so inside the information cutoff). For a feature experiment, pin
+`--start-date`/`--end-date` and `--train-start` identically for candidate and
+baseline (the OCCTO history starts 2024-04-01, so `--train-start 2024-04-01`
+matches a `lightgbm` baseline to it), then
+`scripts/compare_spot_price_runs.py --baseline <run_id> --candidate <run_id>`
+prints matched MAE/bias tables by day part, near the OCCTO peak hour, by month
+and for high-price days after `just dbt build --select
++fct_spot_price_forecast_accuracy`. Experiments are written up under
+[`research/`](research/README.md).
+
 Charting happens in Superset (`just open superset`): the **Spot Price
 Forecast Analysis** dashboard is built by
 `scripts/create_forecast_dashboard.py`, which idempotently creates the
@@ -293,7 +306,8 @@ just refresh-jma --prefecture 44         # JMA weather refresh (scoped; no args 
 just refresh-occto                       # OCCTO 翌々日 demand-forecast refresh: redownload full history, reload raw, rebuild + test dbt
 just python scripts/load_jepx_spot.py    # python in the devcontainer
 just python -c "import power_market_analytics"
-just python scripts/spot_price_backtest.py --strategy previous_day --area tokyo  # forecast backtest
+just python scripts/spot_price_backtest.py --strategy lightgbm --area tokyo  # forecast backtest
+just python scripts/compare_spot_price_runs.py --baseline <run_id> --candidate <run_id>  # matched run comparison
 just dbt run                             # dbt, run from /workspace/dbt
 just dbt test --select stg_jepx__spot
 just exec spark-submit --version         # any command in the devcontainer
