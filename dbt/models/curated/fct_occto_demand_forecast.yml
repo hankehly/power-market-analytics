@@ -1,5 +1,5 @@
 models:
-  - name: fct_occto_demand_forecast_dad
+  - name: fct_occto_demand_forecast
     config:
       contract:
         enforced: true
