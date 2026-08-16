@@ -6,4 +6,5 @@
   - [Investigation Template](research/investigation-template.md)
 - [JMA Weather Data Retrieval](JMA-Weather-Data-Retrieval.md)
 - [OCCTO Demand Forecast Retrieval](OCCTO-Demand-Forecast-Retrieval.md)
+- [TEPCO Area Demand & Generation Retrieval](TEPCO-Area-Demand-Generation-Retrieval.md)
 - [Kimball Dimensional Modeling Techniques](Kimball-Dimensional-Modeling-Techniques.md)

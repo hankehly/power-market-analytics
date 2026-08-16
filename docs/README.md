@@ -4,8 +4,8 @@ Power market analytics.
 
 ## Curated star schema
 
-The curated layer (`dbt/models/curated/`) contains six fact tables across
-four subject areas, sharing a conformed `dim_date`:
+The curated layer (`dbt/models/curated/`) contains seven fact tables across
+five subject areas, sharing a conformed `dim_date`:
 
 - `fct_jepx_spot_market` — market-wide JEPX day-ahead auction results, one row
   per delivery period (trade date × 30-minute time code).
@@ -30,6 +30,12 @@ four subject areas, sharing a conformed `dim_date`:
   2024-04-01 onward: the published エリア計 roll-ups, Okinawa, and OCCTO's
   pre-FY2024 trial rows (試験データ, 2024-03-13..31) stay in
   `std_occto__demand_forecast_dad` only.
+- `fct_tepco_area_demand_generation_actual` — TEPCO Power Grid Tokyo-area
+  actuals: total demand, total generation and wind+solar generation per
+  30-minute delivery period (energy in kWh, additive), one row per delivery
+  period per area (Tokyo only today; same grain as
+  `fct_jepx_spot_area_price`). Covers 2022-04-01 onward; the archive's
+  "not yet observed" zeros for 2025-06-14 time codes 11-48 are null.
 
 ```mermaid
 erDiagram
@@ -48,6 +54,9 @@ erDiagram
     dim_area ||--o{ fct_spot_price_forecast_accuracy : "area_key"
     dim_date ||--o{ fct_occto_demand_forecast_dad : "date_key"
     dim_area ||--o{ fct_occto_demand_forecast_dad : "area_key"
+    dim_date ||--o{ fct_tepco_area_demand_generation_actual : "date_key"
+    dim_delivery_period ||--o{ fct_tepco_area_demand_generation_actual : "time_code"
+    dim_area ||--o{ fct_tepco_area_demand_generation_actual : "area_key"
 
     dim_date {
         date date_key PK
@@ -194,10 +203,20 @@ erDiagram
         double reserve_rate
     }
 
+    fct_tepco_area_demand_generation_actual {
+        date date_key PK, FK
+        int time_code PK, FK
+        int area_key PK, FK
+        timestamp delivery_datetime
+        bigint demand_kwh
+        bigint generation_kwh
+        bigint wind_solar_generation_kwh
+    }
+
     classDef dim fill:#DBEAFE,stroke:#2563EB,color:#1E3A8A
     classDef fact fill:#FEF3C7,stroke:#B45309,color:#78350F
     class dim_date,dim_delivery_period,dim_area,dim_jma_station dim
-    class fct_jepx_spot_market,fct_jepx_spot_area_price,fct_jma_weather_hourly,fct_spot_price_forecast,fct_spot_price_forecast_accuracy,fct_occto_demand_forecast_dad fact
+    class fct_jepx_spot_market,fct_jepx_spot_area_price,fct_jma_weather_hourly,fct_spot_price_forecast,fct_spot_price_forecast_accuracy,fct_occto_demand_forecast_dad,fct_tepco_area_demand_generation_actual fact
 ```
 
 Notes:
@@ -230,6 +249,11 @@ Notes:
   (average, or recompute from the MW columns). `min_demand_mw` for `date_key` ≤ 2025-03-31 is the demand at the
   minimum-reserve-rate hour, not the minimum demand (an OCCTO definition
   change). Hour-ending values run 1–24 (24 = the hour ending at midnight).
+- `fct_tepco_area_demand_generation_actual` measures are energy per 30-minute
+  period in kWh (30分kWh, as published) and additive; divide by 0.5 h for
+  average MW. `wind_solar_generation_kwh` is the wind + solar share of
+  `generation_kwh` (always ≤ it). The fact joins `fct_jepx_spot_area_price`
+  1:1 on (`date_key`, `time_code`, `area_key`).
 
 ## Forecast analysis
 
