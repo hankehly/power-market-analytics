@@ -6,6 +6,10 @@ OCCTO's public portal, programmatically and without a browser: the portal's requ
 framework, the bulk-download protocol that returns the **entire history in a single CSV**,
 the file format, the catalog of other datasets reachable through the same endpoint, and
 how to use the downloader/loader in `power_market_analytics/occto.py` (`just refresh-occto`).
+[§9](#9-広域予備率-エリア広域ブロック情報-翌々日-half-hourly-area-demand--supply) covers the
+second dataset the same code retrieves: the half-hourly 広域予備率 エリア・広域ブロック情報
+(翌々日) publication — the source of `fct_occto_demand_supply_forecast_30m` — including
+its 150,000-row download cap and the alternative 広域予備率Web公表システム portal.
 
 All protocol details were established empirically on 2026-08-16 by driving the portal in
 a browser, capturing its network traffic, and replaying the requests with plain HTTP
@@ -234,7 +238,7 @@ only `tabSntk` + the radio value (and note the 連系線 tab has its own selecti
 | `01`–`06` | 需要予想・ピーク時供給力: 長期 01, 年間 02, 月間 03, 週間 04, 翌日 05, 当日 06 | 年間 2016〜2027, 月間 2016/05〜, 週間 2016/04/09〜, 翌日・当日 2016/04/01〜 |
 | `32` | **需要予想・ピーク時供給力: 翌々日** | **2024/03/13〜** |
 | `22`–`24`, `30` | 広域予備率（広域ブロック情報）: 週間 22, 翌日 23, 当日 24, 翌々日 30 | 2025/04/01〜 |
-| `25`–`27`, `31` | 広域予備率（エリア・広域ブロック情報）: 週間 25, 翌日 26, 当日 27, 翌々日 31 | 2025/04/01〜 |
+| `25`–`27`, `31` | 広域予備率（エリア・広域ブロック情報）: 週間 25, 翌日 26, 当日 27, **翌々日 31** (loaded, see [§9](#9-広域予備率-エリア広域ブロック情報-翌々日-half-hourly-area-demand--supply)) | 2025/04/01〜 |
 | `28`, `29` | 補正料金算定インデックス: 翌日 28, 当日 29 | 当日分のみ |
 | `07` | 電力使用状況（でんき予報） | 2016/04/09〜 |
 | `08`, `09` | 周波数 50Hz系統 08 / 60Hz系統 09 | 2016/04/07〜 |
@@ -253,6 +257,12 @@ only `tabSntk` + the radio value (and note the 連系線 tab has its own selecti
 Several 実績 datasets (連系線潮流実績, 地内基幹送電線潮流実績, 広域予備率) start
 2025/04/01 — the occtonet3 system's cutover date; older history, where it exists, lives
 in the previous system's archives, not this portal.
+
+**Row cap.** A single download is limited to **150,000 rows**: `reference/ok` answers
+with `errMessage` `CF000010SW` 「ダウンロード可能な件数(150000件)を超えました。検索条件を
+見直してください。件数：241920件」 and no key/token. The 12-row/day demand-forecast file
+is decades away from it, but the half-hourly datasets (480 rows/day) exceed it after 312
+days, so they must be pulled as `areaNngpFrom`/`areaNngpTo` windows ([§9.2](#92-bulk-download-and-the-150000-row-cap)).
 
 ## 6. Interactive screens
 
@@ -344,7 +354,11 @@ handshake of [§3](#3-bulk-download-情報ダウンロード-cf01s010c): fresh a
 `reference/ok` for the key/token pair, `reference/download` for the file, then a
 header-row check so an error page can never be saved as data. It always re-downloads
 (there is no cache — the file is the whole dataset and OCCTO appends to it daily) and
-writes atomically via a `.part` rename.
+writes atomically via a `.part` rename. Datasets are declared in the `DATASETS` registry
+(`OcctoDataset`: `areaDataKnd` value, expected header, and — for datasets over the
+150,000-row cap — `history_start` + `max_days_per_download`, in which case the downloader
+issues one key/token pair per date window in the same session and concatenates the
+windows into one file; see [§9.2](#92-bulk-download-and-the-150000-row-cap)).
 
 ```python
 from power_market_analytics.occto import OcctoBulkDownloader
@@ -364,7 +378,9 @@ devcontainer; the loader needs Spark):
 ```bash
 just refresh-occto
 # = just python scripts/download_occto_demand_forecast.py
+#   just python scripts/download_occto_area_reserve_rate.py    (§9)
 #   just python scripts/load_occto_demand_forecast.py
+#   just python scripts/load_occto_area_reserve_rate.py        (§9)
 #   just dbt build
 ```
 
@@ -378,7 +394,7 @@ time) into `pma_raw.occto_demand_forecast_dad`. dbt then builds:
 |---|---|---|
 | `stg_occto__demand_forecast_dad` | staging | As-is view of the raw table with an enforced contract and accepted-values test on the area names |
 | `std_occto__demand_forecast_dad` | standardized | `area_code` (snake-case, matching `dim_area`; `okinawa`, `total_9_areas`, `total_10_areas` for the rest), `is_area_total`, `forecast_horizon_days` (asserted = 2), the `HH:00` labels parsed to `*_hour_ending` ints 1–24, and the published percentages converted to fractions (`usage_rate`, `reserve_rate`: 92.4 → 0.924) |
-| `fct_occto_demand_forecast` | curated | Periodic snapshot at (`date_key`, `area_key`) for the **9 JEPX areas only, from 2024-04-01** — the エリア計 roll-ups are excluded so the grain stays atomic (Kimball), Okinawa because it has no `dim_area` row, and the pre-FY2024 trial publication (2024-03-13..31, OCCTO's 試験データ) because the source disowns it. All of it remains queryable in the standardized model. |
+| `fct_occto_demand_supply_forecast_daily` | curated | Periodic snapshot at (`date_key`, `area_key`) for the **9 JEPX areas only, from 2024-04-01** — the エリア計 roll-ups are excluded so the grain stays atomic (Kimball), Okinawa because it has no `dim_area` row, and the pre-FY2024 trial publication (2024-03-13..31, OCCTO's 試験データ) because the source disowns it. All of it remains queryable in the standardized model. |
 
 Grain check on the first load (2026-08-16): 10,656 raw rows → 7,821 fact rows =
 869 days × 9 areas (10,656 − 228 trial rows − エリア計/沖縄 rows), all tests green.
@@ -394,3 +410,96 @@ Data-caveat handling:
   on the models but **not** filtered — the other facts are unaffected across that boundary.
   Consumers building features from the minimum-demand columns should restrict to
   `date_key >= 2025-04-01` or treat the two eras separately.
+
+## 9. 広域予備率 エリア・広域ブロック情報 (翌々日): half-hourly area demand / supply
+
+The second dataset this pipeline retrieves. OCCTO's 広域予備率 (wide-area reserve rate)
+publication gives, for every target date, 30-minute period and supply area, the area's
+forecast demand, supply capacity and reserve together with the wide-area block the area
+is grouped into for that period and the block's totals and rates. It is the half-hourly
+counterpart of the two-point demand forecast above and the source of
+`fct_occto_demand_supply_forecast_30m`. Everything below was verified 2026-08-16.
+
+### 9.1 Two portals, one dataset
+
+| | occtonet3 情報ダウンロード (**used**) | 広域予備率Web公表システム |
+|---|---|---|
+| URL | `CF01S010C`, `tabSntk=1`, **`areaDataKnd=31`** ([§3](#3-bulk-download-情報ダウンロード-cf01s010c)) | `https://web-kohyo.occto.or.jp/kks-web-public/download/downloadCsv?jhSybt=05&tgtYmdFrom=YYYY/MM/DD&tgtYmdTo=YYYY/MM/DD` |
+| Auth / handshake | session cookies + per-download key/token pair | none — a bare `GET`, no cookies |
+| Per-request limit | 150,000 rows (≈ 312 days) | **31 days** (「期間は1ヶ月以内を指定してください」) |
+| Retention | catalog says 2025/04/01〜; no window advertised | **前年度4月以降 only** (「期間は前年度4月以降を指定してください」) — a rolling window: 2025/04/01 today, FY2025 drops off on 2027-04-01 |
+| Encoding / lines | CP932, LF, no preamble | UTF-8 with BOM, CRLF, first line `"YYYY/MM/DD hh:mm UPDATE"` (latest publication time in the file) |
+| Columns | 対象年月日, 区分, 時刻, エリア, 広域予備率(%), 広域使用率(%), ブロックNo., 広域ブロック需要/供給力/予備力(MW), エリア需要/供給力/予備力(MW) | 対象年月日, 区分名, 時刻, ブロックNo, エリア名, 広域ブロック需要/供給力/予備力(MW), 広域予備率(%), 広域使用率(%), エリア需要/供給力/予備力(MW) — same fields, different order |
+| Placeholders | 区分 = `－` | 区分名 = `***` (manual: `***` for dates ≥ 2025/04/01) |
+
+**Values are identical**: 16,320 rows compared (all of July 2025 plus 2026-08-10..12) —
+0 mismatches on every measure and block number. The occtonet3 path was chosen because it
+is the code path already in place, has no rolling retention window, and needs 2 requests
+per ~300 days instead of ~17 per year. The Web公表 portal's other `jhSybt` values: `01`
+ブロック情報 週間, `02` ブロック情報 翌日・当日, `03`/`06`/`04` 連系線情報 週間/翌々日/翌日・当日,
+`07` 通知情報; its home-page CSV button returns one date as a zip of two files (block +
+連系線). Manual (column definitions, limits): [操作マニュアル 一般利用者用 2026-03](https://www.occto.or.jp/assets/various/occtosystem/manual/20260313_koikiyobiritsuwebkohyo.pdf).
+`areaDataKnd=30` (広域ブロック情報翌々日) is the block-grain variant — one row per
+(date, period, block) with 〇/－ area-membership flags and block measures only, no per-area
+demand/supply — and fits in one all-term download (9 MB); it is not loaded.
+
+### 9.2 Bulk download and the 150,000-row cap
+
+Same three-request handshake as [§3.1](#31-the-three-request-flow) with `areaDataKnd=31`.
+`areaAllTermDwld=Y` **fails** once the history passes 312 days: `reference/ok` returns
+`errMessage` `CF000010SW` (件数：241920件 as of 2026-08-16 = 504 days × 480 rows) and no
+key/token. Use `areaNngpFrom`/`areaNngpTo` windows instead:
+
+- `OcctoBulkDownloader` declares the dataset with `history_start=2025-04-01` and
+  `max_days_per_download=300`, splits [history start, today + 2 (JST)] into 300-day windows,
+  issues one `ok`/`download` pair per window in a single session, verifies each header, and
+  concatenates the windows (first header only) into
+  `data/occto/area_reserve_rate_dad/area_reserve_rate_dad.csv`. Verified: 2 windows,
+  241,920 rows, 20 MB, ~45 s.
+- Asking past the last published day is harmless — the portal returns the rows that exist,
+  and a fully-future window comes back as a header-only CSV (no error).
+- A 306-day window returned 146,880 rows in ~8 s, so 300 days leaves headroom under the cap.
+
+`curl`: the [§3.3](#33-curl-reproduction) recipe with
+`SEL='tabSntk=1&areaDataKnd=31&areaNngpFrom=2025%2F04%2F01&areaNngpTo=2026%2F01%2F25&allAreaSectDwld=11&hkd=01&…&oki=10&areaSum=11'`,
+repeated per window (`Content-Disposition` filename `<timestamp>_エリア・広域ブロック情報翌々日.csv`).
+
+### 9.3 CSV format (occtonet3, `areaDataKnd=31`)
+
+CP932, LF, one header row, oldest 対象年月日 first, sorted by date → 時刻 → area.
+
+| # | Column | Meaning | Notes |
+|---|---|---|---|
+| 1 | 対象年月日 | Target date | `YYYY/MM/DD` |
+| 2 | 区分 | 最大需要/最小予備率 label of the pre-FY2025 two-point format | `－` on every row of this series |
+| 3 | 時刻 | **Period-end** label of the 30-minute slot | `00:30`..`24:00` = JEPX time code 1..48; `24:00` is not a valid Spark time → string in raw, `time_code` int in `std` |
+| 4 | エリア | Supply area | 北海道, 東北, 東京, 中部, 北陸, 関西, 中国, 四国, 九州, 沖縄 (no エリア計 rows) |
+| 5 | 広域予備率(%) | Wide-area block reserve rate | of the block in col 7; may be negative |
+| 6 | 広域使用率(%) | Wide-area block usage rate | |
+| 7 | ブロックNo. | Wide-area block the area belongs to in this period | 1–9 observed; blocks are re-formed per period, so the same number can mean different area sets in different periods |
+| 8–10 | 広域ブロック需要 / 供給力 / 予備力(MW) | Block totals | repeated on every member area's row; the member areas' エリア需要 sum to 広域ブロック需要 exactly (verified on all 105,439 block-periods) |
+| 11–13 | エリア需要 / 供給力 / 予備力(MW) | The area's own forecast demand, supply capacity, reserve | 予備力 = 供給力 − 需要, may be negative |
+
+**Grain**: one row per (対象年月日, 時刻, エリア); 480 rows per day. **Verified
+completeness** (2026-08-16): 2025/04/01 – 2026/08/17, 504 days × 480 = 241,920 rows,
+perfectly rectangular, every cell numeric. Values carry up to three decimals (e.g.
+`2260.284`), so the raw contract stores the measures as `double`. Per the OCCTO manual a
+block in blackout is published as `***` in the measure columns; it has never occurred and
+would fail the raw load's numeric casts (fail fast rather than load nulls).
+
+**Publication timing** is the same as the two-point 翌々日 forecast ([§7.1](#71-when-the-翌々日-data-becomes-available)):
+formulated D−2, published ~17:45 JST (Web公表 preamble e.g. `2026/08/15 17:49 UPDATE` for
+target 2026/08/17), so it is available before the D−1 10:00 JEPX gate closure. History
+starts 2025-04-01 because the 48-point 翌々日 publication began with FY2025 (FY2024 had
+two points/day — the dataset of [§4](#4-the-翌々日-csv-format)).
+
+### 9.4 Warehouse models
+
+| Model | Layer | What it adds |
+|---|---|---|
+| `pma_raw.occto_area_reserve_rate_dad` | raw | Full reload via `CsvLoader`, contract `conf/schemas/occto_area_reserve_rate_dad.yaml`, grain (target_date, period_end_time, area_name_ja) enforced |
+| `stg_occto__area_reserve_rate_dad` | staging | As-is, contract + accepted area names |
+| `std_occto__area_reserve_rate_dad` | standardized | `time_code` 1–48 from the period-end label, `delivery_datetime` (period start), `area_code` (matching `dim_area`; `okinawa` has no row), rates as fractions, the constant 区分 dropped; block columns kept |
+| `fct_occto_demand_supply_forecast_30m` | curated | Grain (date_key, time_code, area_key) — conformed with `fct_jepx_spot_area_price` / `fct_tepco_area_demand_generation_actual` (verified: every row in the price fact's date range joins 1:1). 9 JEPX areas, `demand_mw` + `supply_capacity_mw` only (MW for the period; × 0.5 h for MWh). Okinawa and the block / reserve columns stay in `std`. |
+
+First load (2026-08-16): 241,920 raw rows → 217,728 fact rows = 504 days × 48 × 9.

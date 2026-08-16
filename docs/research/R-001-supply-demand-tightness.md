@@ -61,7 +61,7 @@ maximum-demand hour:
 
 ### Change
 
-Join the Tokyo row from `fct_occto_demand_forecast` to each delivery day's
+Join the Tokyo row from `fct_occto_demand_supply_forecast_daily` to each delivery day's
 48 feature rows using the forecast target date, and add the three fields above
 to the LightGBM feature set. Retain the existing model parameters, refit
 cadence, and all other features so the OCCTO fields are the experiment's only

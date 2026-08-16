@@ -1,0 +1,114 @@
+models:
+  - name: std_occto__area_reserve_rate_dad
+    config:
+      contract:
+        enforced: true
+    description: >
+      Standardized OCCTO day-after-next (翌々日) 広域予備率 エリア・広域ブロック情報:
+      stg_occto__area_reserve_rate_dad with the period-end label 時刻
+      ("00:30".."24:00") converted to the JEPX time_code (1-48) and a
+      period-start delivery_datetime, the Japanese area name mapped to a
+      snake-case area_code (matching dim_area for the JEPX bidding zones;
+      'okinawa' has no dim_area row), and the published percentages
+      (広域予備率, 広域使用率) converted to fractions (12.7 -> 0.127). The
+      constant 区分 placeholder is dropped. One row per target_date,
+      time_code and area_code; 480 rows per day from 2025-04-01. The
+      block_* columns describe the wide-area block the area belongs to in
+      that period and are repeated on every member area's row — do not sum
+      them across areas.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - target_date
+              - time_code
+              - area_code
+    columns:
+      - name: target_date
+        data_type: date
+        data_tests:
+          - not_null
+      - name: time_code
+        data_type: int
+        description: JEPX time code of the 30-minute period (1 = 00:00-00:30, 48 = 23:30-24:00).
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 1
+                max_value: 48
+      - name: delivery_datetime
+        data_type: timestamp
+        description: Period start (target_date + (time_code - 1) x 30 min), JST wall clock.
+        data_tests:
+          - not_null
+      - name: area_name_ja
+        data_type: string
+        data_tests:
+          - not_null
+      - name: area_code
+        data_type: string
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [hokkaido, tohoku, tokyo, chubu, hokuriku, kansai, chugoku, shikoku, kyushu, okinawa]
+      - name: block_no
+        data_type: int
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 1
+                max_value: 10
+      - name: block_demand_mw
+        data_type: double
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+      - name: block_supply_capacity_mw
+        data_type: double
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+      - name: block_reserve_mw
+        data_type: double
+        description: Block supply capacity minus block demand, MW; may be negative.
+        data_tests:
+          - not_null
+      - name: wide_area_reserve_rate
+        data_type: double
+        description: Wide-area block reserve rate as a fraction (0.083 = 8.3%); may be negative.
+        data_tests:
+          - not_null
+      - name: wide_area_usage_rate
+        data_type: double
+        description: Wide-area block usage rate as a fraction (block demand / block supply capacity).
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+      - name: area_demand_mw
+        data_type: double
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+      - name: area_supply_capacity_mw
+        data_type: double
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+      - name: area_reserve_mw
+        data_type: double
+        description: Area supply capacity minus area demand, MW; may be negative.
+        data_tests:
+          - not_null

@@ -4,10 +4,9 @@ sources:
     description: >
       OCCTO (電力広域的運営推進機関) public disclosure data, downloaded from
       the 情報ダウンロード bulk endpoint on https://occtonet3.occto.or.jp/ by
-      scripts/download_occto_demand_forecast.py and loaded by
-      scripts/load_occto_demand_forecast.py (full reload). The retrieval
-      protocol and CSV format are documented in
-      docs/OCCTO-Demand-Forecast-Retrieval.md.
+      scripts/download_occto_*.py and loaded by scripts/load_occto_*.py
+      (full reload, one script pair per dataset). The retrieval protocol and
+      CSV formats are documented in docs/OCCTO-Demand-Forecast-Retrieval.md.
     tables:
       - name: occto_demand_forecast_dad
         description: >
@@ -57,3 +56,60 @@ sources:
             description: >
               Forecast reserve margin in percent (予想予備率); can be negative
               in the published history.
+      - name: occto_area_reserve_rate_dad
+        description: >
+          広域予備率 エリア・広域ブロック情報（翌々日）: day-after-next wide-area
+          reserve-rate publication at half-hour resolution. One row per target
+          date, 30-minute period and supply area (10 areas, Okinawa included);
+          grain (target_date, period_end_time, area_name_ja) is enforced at
+          load time; 480 rows per day. Each row carries the area's own
+          forecast demand / supply capacity / reserve, the wide-area block the
+          area is assigned to for that period (block_no) and that block's
+          totals and rates. History starts 2025-04-01 (the 48-point 翌々日
+          series began with FY2025). Load contract:
+          conf/schemas/occto_area_reserve_rate_dad.yaml; format and quirks in
+          docs/OCCTO-Demand-Forecast-Retrieval.md §9.
+        columns:
+          - name: target_date
+            description: Forecast target date (対象年月日).
+            data_tests:
+              - not_null
+          - name: kubun
+            description: >
+              区分 as published; the placeholder "－" for the whole series (the
+              OCCTO manual reserves it for the pre-FY2025 two-point format's
+              最大需要 / 最小予備率 labels).
+          - name: period_end_time
+            description: >
+              Period-END label of the 30-minute slot (時刻), "00:30".."24:00"
+              — i.e. JEPX time code 1..48; kept as a string because 24:00 is
+              not a valid Spark time.
+            data_tests:
+              - not_null
+          - name: area_name_ja
+            description: >
+              Supply area as published (エリア): 北海道, 東北, 東京, 中部, 北陸,
+              関西, 中国, 四国, 九州, 沖縄.
+            data_tests:
+              - not_null
+          - name: wide_area_reserve_rate_pct
+            description: Wide-area block reserve rate in percent (広域予備率).
+          - name: wide_area_usage_rate_pct
+            description: Wide-area block usage rate in percent (広域使用率).
+          - name: block_no
+            description: >
+              Wide-area block number (ブロックNo.) the area belongs to in this
+              period; blocks are re-formed per period, so the same number can
+              refer to different area sets across periods.
+          - name: block_demand_mw
+            description: Wide-area block demand forecast in MW (広域ブロック需要).
+          - name: block_supply_capacity_mw
+            description: Wide-area block supply capacity forecast in MW (広域ブロック供給力).
+          - name: block_reserve_mw
+            description: Wide-area block reserve in MW (広域ブロック予備力) = supply capacity - demand.
+          - name: area_demand_mw
+            description: Area demand forecast in MW (エリア需要).
+          - name: area_supply_capacity_mw
+            description: Area supply capacity forecast in MW (エリア供給力).
+          - name: area_reserve_mw
+            description: Area reserve in MW (エリア予備力) = supply capacity - demand.

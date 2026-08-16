@@ -1,0 +1,71 @@
+models:
+  - name: stg_occto__area_reserve_rate_dad
+    config:
+      contract:
+        enforced: true
+    description: >
+      As-is representation of pma_raw.occto_area_reserve_rate_dad (OCCTO
+      day-after-next 広域予備率 エリア・広域ブロック情報, half-hourly). One row
+      per target_date, period_end_time and area_name_ja. Column documentation
+      lives on the source (models/raw/occto.yml).
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - target_date
+              - period_end_time
+              - area_name_ja
+    columns:
+      - name: target_date
+        data_type: date
+        data_tests:
+          - not_null
+      - name: kubun
+        data_type: string
+      - name: period_end_time
+        data_type: string
+        data_tests:
+          - not_null
+      - name: area_name_ja
+        data_type: string
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [北海道, 東北, 東京, 中部, 北陸, 関西, 中国, 四国, 九州, 沖縄]
+      - name: wide_area_reserve_rate_pct
+        data_type: double
+        data_tests:
+          - not_null
+      - name: wide_area_usage_rate_pct
+        data_type: double
+        data_tests:
+          - not_null
+      - name: block_no
+        data_type: int
+        data_tests:
+          - not_null
+      - name: block_demand_mw
+        data_type: double
+        data_tests:
+          - not_null
+      - name: block_supply_capacity_mw
+        data_type: double
+        data_tests:
+          - not_null
+      - name: block_reserve_mw
+        data_type: double
+        data_tests:
+          - not_null
+      - name: area_demand_mw
+        data_type: double
+        data_tests:
+          - not_null
+      - name: area_supply_capacity_mw
+        data_type: double
+        data_tests:
+          - not_null
+      - name: area_reserve_mw
+        data_type: double
+        data_tests:
+          - not_null

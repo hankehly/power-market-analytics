@@ -193,9 +193,14 @@ class CsvLoader:
 
     @staticmethod
     def _cast(raw: DataFrame, column: CsvColumn) -> Column:
-        # raw[name] instead of F.col(name): source headers contain characters
-        # F.col would try to interpret (dots, parentheses).
-        col = raw[column.source_name] if column.source_name in raw.columns else F.lit(None)
+        # Source headers contain characters Spark's name resolver would
+        # otherwise interpret — dots as nested-field paths (ブロックNo.),
+        # parentheses — so the name is backtick-quoted (a literal backtick is
+        # escaped by doubling it), which both raw[name] and F.col(name) need.
+        if column.source_name in raw.columns:
+            col = F.col("`" + column.source_name.replace("`", "``") + "`")
+        else:
+            col = F.lit(None)
         if column.type == "date" and column.format:
             col = F.to_date(col, column.format)
         elif column.type == "timestamp" and column.format:

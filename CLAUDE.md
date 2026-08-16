@@ -6,8 +6,9 @@
 - `just refresh-jma` — JMA weather refresh: regenerate the station seed (~5 min), download
   hourly CSVs (args pass through, e.g. `--prefecture 44`; no args = full network, ~60 h
   cold), reload `raw`, `dbt build`.
-- `just refresh-occto` — OCCTO 翌々日 demand-forecast refresh: redownload the full-history CSV
-  (~700 KB, 3 HTTP calls), reload `raw`, `dbt build`.
+- `just refresh-occto` — OCCTO 翌々日 refresh, two datasets: the demand-forecast CSV (~700 KB,
+  3 HTTP calls) and the half-hourly area reserve-rate CSV (~20 MB/yr, fetched in 300-day windows
+  because the portal caps a download at 150,000 rows), reload `raw`, `dbt build`.
 - `just refresh-tepco` — TEPCO Tokyo-area demand/generation actuals refresh: redownload every
   monthly archive (`AREA_YYYYMM.zip`, 2022-04 → now, ~5 MB total), reload `raw`, `dbt build`.
 - `just python <args>` / `just exec <cmd>` / `just shell` — run inside the devcontainer.
@@ -45,9 +46,21 @@
   history) → `data/occto/demand_forecast_dad/` → `scripts/load_occto_demand_forecast.py`
   (`CsvLoader`, contract `conf/schemas/occto_demand_forecast_dad.yaml`) →
   `pma_raw.occto_demand_forecast_dad` → `stg/std_occto__demand_forecast_dad` →
-  `fct_occto_demand_forecast` (9 JEPX areas; エリア計 totals + Okinawa stay in `std`).
+  `fct_occto_demand_supply_forecast_daily` (9 JEPX areas; エリア計 totals + Okinawa stay in `std`).
   Protocol + CSV format:
   [docs/OCCTO-Demand-Forecast-Retrieval.md](docs/OCCTO-Demand-Forecast-Retrieval.md).
+- OCCTO 広域予備率 エリア・広域ブロック情報 (翌々日, half-hourly area demand/supply-capacity
+  forecast, 480 rows/day from 2025-04-01): `scripts/download_occto_area_reserve_rate.py`
+  (same `OcctoBulkDownloader`, dataset `area_reserve_rate_dad` = `areaDataKnd=31`; the
+  downloader splits chunked datasets into `max_days_per_download` windows and concatenates
+  them into one CSV) → `data/occto/area_reserve_rate_dad/` →
+  `scripts/load_occto_area_reserve_rate.py` (`CsvLoader`, contract
+  `conf/schemas/occto_area_reserve_rate_dad.yaml`) → `pma_raw.occto_area_reserve_rate_dad` →
+  `stg/std_occto__area_reserve_rate_dad` (時刻 "00:30".."24:00" → JEPX `time_code` 1–48,
+  block columns kept) → `fct_occto_demand_supply_forecast_30m` (grain date × time_code × area,
+  9 JEPX areas, `demand_mw` + `supply_capacity_mw` only; joins `fct_jepx_spot_area_price` 1:1).
+  Same numbers as the 広域予備率Web公表システム (`web-kohyo.occto.or.jp`, 31-day / rolling
+  前年度4月 window) — verified identical; format + both portals in the OCCTO doc §9.
 - TEPCO エリア需要・発電情報 (Tokyo-area 30-min actuals): `scripts/download_tepco_area_demand_generation.py`
   (`TepcoAreaDownloader` in `power_market_analytics/tepco.py`, always re-downloads every monthly
   zip and extracts only the `AREA_JISEKI_*.csv` actuals) → `data/tepco/area_demand_generation/{zip,csv}/`
@@ -68,7 +81,7 @@
   `run_id` links warehouse rows to the MLflow run; the run's `warehouse_table` tag points back.
   `tasks/spot_price/compare.py` reads the accuracy fact back for run-vs-run segment tables.
 - Exogenous features: `LightGbmOcctoStrategy` joins `OcctoDemandForecast`
-  (`datasets.load_occto_demand_forecast`, from `fct_occto_demand_forecast`) to each
+  (`datasets.load_occto_demand_forecast`, from `fct_occto_demand_supply_forecast_daily`) to each
   delivery day's rows via the `_join_daily_features` hook; its training set therefore
   starts 2024-04-01, so a matched `lightgbm` baseline needs `--train-start 2024-04-01`.
 
