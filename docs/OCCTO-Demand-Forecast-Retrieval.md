@@ -378,12 +378,19 @@ time) into `pma_raw.occto_demand_forecast_dad`. dbt then builds:
 |---|---|---|
 | `stg_occto__demand_forecast_dad` | staging | As-is view of the raw table with an enforced contract and accepted-values test on the area names |
 | `std_occto__demand_forecast_dad` | standardized | `area_code` (snake-case, matching `dim_area`; `okinawa`, `total_9_areas`, `total_10_areas` for the rest), `is_area_total`, `forecast_horizon_days` (asserted = 2), the `HH:00` labels parsed to `*_hour_ending` ints 1–24, and the published percentages converted to fractions (`usage_rate`, `reserve_rate`: 92.4 → 0.924) |
-| `fct_occto_demand_forecast_dad` | curated | Periodic snapshot at (`date_key`, `area_key`) for the **9 JEPX areas only** — the エリア計 roll-ups are excluded so the grain stays atomic (Kimball), Okinawa because it has no `dim_area` row. Both remain queryable in the standardized model. |
+| `fct_occto_demand_forecast_dad` | curated | Periodic snapshot at (`date_key`, `area_key`) for the **9 JEPX areas only, from 2024-04-01** — the エリア計 roll-ups are excluded so the grain stays atomic (Kimball), Okinawa because it has no `dim_area` row, and the pre-FY2024 trial publication (2024-03-13..31, OCCTO's 試験データ) because the source disowns it. All of it remains queryable in the standardized model. |
 
-Grain check on the first load (2026-08-16): 10,656 raw rows → 7,992 fact rows =
-888 days × 9 areas, all tests green.
+Grain check on the first load (2026-08-16): 10,656 raw rows → 7,821 fact rows =
+869 days × 9 areas (10,656 − 228 trial rows − エリア計/沖縄 rows), all tests green.
 
-Data-caveat handling: the 2025/03/31 semantic break in 最小総需要予想
-([§4](#4-the-翌々日-csv-format)) is documented on the models but **not** filtered —
-consumers building features from the minimum-demand columns should restrict to
-`date_key >= 2025-04-01` or treat the two eras separately.
+Data-caveat handling:
+
+- **2024/03/31 試験データ** ([§4](#4-the-翌々日-csv-format)): filtered out of the fact
+  table. The whole row is dropped, not just the rate columns, because the rates are derived
+  from the demand/supply forecasts in the same row — a trial-run reserve rate implies a
+  trial-run demand forecast. 19 days; the fact's `date_key` carries an `accepted_range`
+  test with `min_value = 2024-04-01` so the rule is asserted, not just applied.
+- **2025/03/31 semantic break in 最小総需要予想** ([§4](#4-the-翌々日-csv-format)): documented
+  on the models but **not** filtered — the other facts are unaffected across that boundary.
+  Consumers building features from the minimum-demand columns should restrict to
+  `date_key >= 2025-04-01` or treat the two eras separately.

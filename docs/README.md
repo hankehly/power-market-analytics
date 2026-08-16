@@ -26,8 +26,10 @@ four subject areas, sharing a conformed `dim_date`:
 - `fct_occto_demand_forecast_dad` — OCCTO day-after-next (翌々日) demand and
   peak supply-capacity forecasts, one row per target date per JEPX area
   (periodic snapshot; formulated on target date − 2, so it is known before
-  the day-ahead auction and usable as a spot-price feature). The published
-  エリア計 roll-ups and Okinawa stay in `std_occto__demand_forecast_dad`.
+  the day-ahead auction and usable as a spot-price feature). Covers
+  2024-04-01 onward: the published エリア計 roll-ups, Okinawa, and OCCTO's
+  pre-FY2024 trial rows (試験データ, 2024-03-13..31) stay in
+  `std_occto__demand_forecast_dad` only.
 
 ```mermaid
 erDiagram

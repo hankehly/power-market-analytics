@@ -6,10 +6,17 @@ models:
     description: >
       OCCTO day-after-next (翌々日) demand and peak supply-capacity forecasts
       by JEPX bidding zone. Periodic snapshot: one row per target date
-      (date_key) per area — the 9 JEPX areas only. The published エリア計
-      roll-ups and Okinawa (not a JEPX zone) are excluded so the grain stays
-      atomic; they remain available in std_occto__demand_forecast_dad. The
-      forecast is formulated on formulated_date = date_key - 2 days
+      (date_key) per area — the 9 JEPX areas only, from 2024-04-01. The
+      published エリア計 roll-ups and Okinawa (not a JEPX zone) are excluded
+      so the grain stays atomic. Rows with date_key <= 2024-03-31 are also
+      excluded: the 翌々日 publication only went live with FY2024 on
+      2024-04-01, and OCCTO's own notice on the 翌々日 screen states that
+      values dated 2024-03-31 and earlier are 試験データ (trial-run output:
+      「2024年3月31日以前の数値は試験データです」). Since the reserve and
+      usage rates are derived from the same demand/supply forecasts in the
+      row, the whole row is treated as trial data rather than just the rate
+      columns — 19 days, 171 rows. Everything excluded here remains
+      available in std_occto__demand_forecast_dad. The forecast is formulated on formulated_date = date_key - 2 days
       (forecast_horizon_days = 2) and published on that day at ~17:35-18:05
       JST (rule: 17:30以降速やかに), i.e. it is known ~16 h before the JEPX
       day-ahead auction for date_key closes (D-1 10:00) and is usable as a
@@ -31,9 +38,12 @@ models:
     columns:
       - name: date_key
         data_type: date
-        description: Forecast target date (対象日付).
+        description: Forecast target date (対象日付); 2024-04-01 onward.
         data_tests:
           - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: "date '2024-04-01'"
           - relationships:
               arguments:
                 to: ref('dim_date')
