@@ -1,0 +1,33 @@
+description: >
+  TEPCO Power Grid エリア需要・発電情報 実績 — Tokyo-area 30-minute actuals of
+  total demand (エリア総需要量), total generation (エリア総発電量) and wind+solar
+  generation (エリア風力・太陽光発電量) in 30分kWh, i.e. energy per 30-minute
+  period. Source: the monthly archives AREA_YYYYMM.zip linked from
+  https://www.tepco.co.jp/forecast/html/area-download-j.html (2022-04
+  onward), one AREA_JISEKI_YYYYMMDD.csv per day; archive layout, CSV format
+  and quirks in docs/TEPCO-Area-Demand-Generation-Retrieval.md. Files are
+  read positionally (source _c0.._c6) by TepcoAreaCsvLoader because two
+  metadata lines precede the column header; file_updated_at is injected from
+  the second metadata line (ファイル更新日 + ファイル更新時間). The three
+  measures are typed double, not bigint: 13 files in April 2022 hold
+  scientific-notation values such as 1.66919e+07 that Spark's ANSI cast to
+  bigint rejects — std rounds them back to bigint. Time code 48 ends at
+  24:00, published as "0:00" in period_end_time. TEPCO writes 0 for periods
+  not yet observed; the archived 2025-06-14 file froze mid-day, so time codes
+  11-48 of that day are all-zero here (nulled in std).
+
+read_options:
+  # Java charset name for cp932 / Shift_JIS with Windows extensions
+  encoding: windows-31j
+
+grain: [target_date, time_code]
+
+columns:
+  - { name: target_date, source: _c0, type: date, format: yyyyMMdd, nullable: false }
+  - { name: time_code, source: _c1, type: int, nullable: false }
+  - { name: period_start_time, source: _c2, type: string, nullable: false }
+  - { name: period_end_time, source: _c3, type: string, nullable: false }
+  - { name: demand_kwh, source: _c4, type: double, nullable: false }
+  - { name: generation_kwh, source: _c5, type: double, nullable: false }
+  - { name: wind_solar_generation_kwh, source: _c6, type: double, nullable: false }
+  - { name: file_updated_at, source: __file_updated_at, type: timestamp, format: yyyyMMdd HH:mm:ss, nullable: false }
