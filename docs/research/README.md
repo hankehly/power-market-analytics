@@ -11,9 +11,9 @@ The working loop is:
 
 ## Conventions
 
-- Add notable forecast behavior to [the observation log](observations.md).
+- Add notable forecast behavior to [the observation log](research/observations.md).
 - Create one investigation document for each coherent forecasting question by
-  copying [the investigation template](investigation-template.md).
+  copying [the investigation template](research/investigation-template.md).
 - Give investigations stable IDs such as `R-001` and experiments IDs such as
   `E-001` within the investigation.
 - Keep multiple related experiments in the same investigation document.
@@ -21,13 +21,13 @@ The working loop is:
   an independent conclusion.
 - Link to MLflow runs instead of manually duplicating run-level configuration
   and metrics.
-- Store plots used in conclusions under [`assets/`](assets/README.md).
+- Store plots used in conclusions under [`assets/`](research/assets/README.md).
 
 ## Investigation index
 
 | ID | Investigation | Status | Current conclusion |
 |---|---|---|---|
-| — | — | — | — |
+| R-001 | [Supply and demand tightness signals](research/R-001-supply-demand-tightness.md) | Backlog | — |
 
 Suggested statuses are `Backlog`, `In progress`, `Supported`, `Not supported`,
 `Inconclusive`, and `Superseded`.
