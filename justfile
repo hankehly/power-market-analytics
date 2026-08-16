@@ -2,6 +2,11 @@
 #   just python -c "import power_market_analytics"
 set positional-arguments
 
+# First recipe = default, so bare `just` lists the available recipes.
+[private]
+default:
+    @just --list
+
 [doc("Run any command inside the devcontainer (e.g. just exec ls data)")]
 exec *args:
     @docker compose exec -e PYTHONPATH=/workspace devcontainer "$@"
