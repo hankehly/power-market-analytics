@@ -45,7 +45,7 @@
   history) → `data/occto/demand_forecast_dad/` → `scripts/load_occto_demand_forecast.py`
   (`CsvLoader`, contract `conf/schemas/occto_demand_forecast_dad.yaml`) →
   `pma_raw.occto_demand_forecast_dad` → `stg/std_occto__demand_forecast_dad` →
-  `fct_occto_demand_forecast_dad` (9 JEPX areas; エリア計 totals + Okinawa stay in `std`).
+  `fct_occto_demand_forecast` (9 JEPX areas; エリア計 totals + Okinawa stay in `std`).
   Protocol + CSV format:
   [docs/OCCTO-Demand-Forecast-Retrieval.md](docs/OCCTO-Demand-Forecast-Retrieval.md).
 - TEPCO エリア需要・発電情報 (Tokyo-area 30-min actuals): `scripts/download_tepco_area_demand_generation.py`
@@ -68,7 +68,7 @@
   `run_id` links warehouse rows to the MLflow run; the run's `warehouse_table` tag points back.
   `tasks/spot_price/compare.py` reads the accuracy fact back for run-vs-run segment tables.
 - Exogenous features: `LightGbmOcctoStrategy` joins `OcctoDemandForecast`
-  (`datasets.load_occto_demand_forecast`, from `fct_occto_demand_forecast_dad`) to each
+  (`datasets.load_occto_demand_forecast`, from `fct_occto_demand_forecast`) to each
   delivery day's rows via the `_join_daily_features` hook; its training set therefore
   starts 2024-04-01, so a matched `lightgbm` baseline needs `--train-start 2024-04-01`.
 

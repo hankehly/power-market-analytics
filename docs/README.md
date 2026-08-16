@@ -23,7 +23,7 @@ five subject areas, sharing a conformed `dim_date`:
 - `fct_spot_price_forecast_accuracy` — the forecast fact drilled across to
   `fct_jepx_spot_area_price` actuals, adding signed/absolute/percentage error
   columns. This is the intended BI surface for forecast analysis.
-- `fct_occto_demand_forecast_dad` — OCCTO day-after-next (翌々日) demand and
+- `fct_occto_demand_forecast` — OCCTO day-after-next (翌々日) demand and
   peak supply-capacity forecasts, one row per target date per JEPX area
   (periodic snapshot; formulated on target date − 2, so it is known before
   the day-ahead auction and usable as a spot-price feature). Covers
@@ -52,8 +52,8 @@ erDiagram
     dim_date ||--o{ fct_spot_price_forecast_accuracy : "date_key"
     dim_delivery_period ||--o{ fct_spot_price_forecast_accuracy : "time_code"
     dim_area ||--o{ fct_spot_price_forecast_accuracy : "area_key"
-    dim_date ||--o{ fct_occto_demand_forecast_dad : "date_key"
-    dim_area ||--o{ fct_occto_demand_forecast_dad : "area_key"
+    dim_date ||--o{ fct_occto_demand_forecast : "date_key"
+    dim_area ||--o{ fct_occto_demand_forecast : "area_key"
     dim_date ||--o{ fct_tepco_area_demand_generation_actual : "date_key"
     dim_delivery_period ||--o{ fct_tepco_area_demand_generation_actual : "time_code"
     dim_area ||--o{ fct_tepco_area_demand_generation_actual : "area_key"
@@ -189,7 +189,7 @@ erDiagram
         double abs_pct_error
     }
 
-    fct_occto_demand_forecast_dad {
+    fct_occto_demand_forecast {
         date date_key PK, FK
         int area_key PK, FK
         date formulated_date
@@ -216,7 +216,7 @@ erDiagram
     classDef dim fill:#DBEAFE,stroke:#2563EB,color:#1E3A8A
     classDef fact fill:#FEF3C7,stroke:#B45309,color:#78350F
     class dim_date,dim_delivery_period,dim_area,dim_jma_station dim
-    class fct_jepx_spot_market,fct_jepx_spot_area_price,fct_jma_weather_hourly,fct_spot_price_forecast,fct_spot_price_forecast_accuracy,fct_occto_demand_forecast_dad,fct_tepco_area_demand_generation_actual fact
+    class fct_jepx_spot_market,fct_jepx_spot_area_price,fct_jma_weather_hourly,fct_spot_price_forecast,fct_spot_price_forecast_accuracy,fct_occto_demand_forecast,fct_tepco_area_demand_generation_actual fact
 ```
 
 Notes:
@@ -243,7 +243,7 @@ Notes:
   `phenomenon_absent` is null for AMeDAS stations; value 0 with
   `phenomenon_absent = 0` is a JMA "trace" reading (below measurement
   resolution), distinct from a true zero (`phenomenon_absent = 1`).
-- `fct_occto_demand_forecast_dad` MW columns are additive across areas; the
+- `fct_occto_demand_forecast` MW columns are additive across areas; the
   `usage_rate` / `reserve_rate` columns are fractions (0.924 = 92.4%, converted
   from OCCTO's percentages in the standardized layer) and non-additive
   (average, or recompute from the MW columns). `min_demand_mw` for `date_key` ≤ 2025-03-31 is the demand at the
