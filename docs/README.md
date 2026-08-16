@@ -4,8 +4,8 @@ Power market analytics.
 
 ## Curated star schema
 
-The curated layer (`dbt/models/curated/`) contains five fact tables across
-three subject areas, sharing a conformed `dim_date`:
+The curated layer (`dbt/models/curated/`) contains six fact tables across
+four subject areas, sharing a conformed `dim_date`:
 
 - `fct_jepx_spot_market` — market-wide JEPX day-ahead auction results, one row
   per delivery period (trade date × 30-minute time code).
@@ -23,6 +23,11 @@ three subject areas, sharing a conformed `dim_date`:
 - `fct_spot_price_forecast_accuracy` — the forecast fact drilled across to
   `fct_jepx_spot_area_price` actuals, adding signed/absolute/percentage error
   columns. This is the intended BI surface for forecast analysis.
+- `fct_occto_demand_forecast_dad` — OCCTO day-after-next (翌々日) demand and
+  peak supply-capacity forecasts, one row per target date per JEPX area
+  (periodic snapshot; formulated on target date − 2, so it is known before
+  the day-ahead auction and usable as a spot-price feature). The published
+  エリア計 roll-ups and Okinawa stay in `std_occto__demand_forecast_dad`.
 
 ```mermaid
 erDiagram
@@ -39,6 +44,8 @@ erDiagram
     dim_date ||--o{ fct_spot_price_forecast_accuracy : "date_key"
     dim_delivery_period ||--o{ fct_spot_price_forecast_accuracy : "time_code"
     dim_area ||--o{ fct_spot_price_forecast_accuracy : "area_key"
+    dim_date ||--o{ fct_occto_demand_forecast_dad : "date_key"
+    dim_area ||--o{ fct_occto_demand_forecast_dad : "area_key"
 
     dim_date {
         date date_key PK
@@ -171,10 +178,24 @@ erDiagram
         double abs_pct_error
     }
 
+    fct_occto_demand_forecast_dad {
+        date date_key PK, FK
+        int area_key PK, FK
+        date formulated_date
+        int forecast_horizon_days
+        int min_demand_hour_ending
+        int min_demand_mw
+        int max_demand_hour_ending
+        int max_demand_mw
+        int max_supply_capacity_mw
+        double usage_rate_pct
+        double reserve_rate_pct
+    }
+
     classDef dim fill:#DBEAFE,stroke:#2563EB,color:#1E3A8A
     classDef fact fill:#FEF3C7,stroke:#B45309,color:#78350F
     class dim_date,dim_delivery_period,dim_area,dim_jma_station dim
-    class fct_jepx_spot_market,fct_jepx_spot_area_price,fct_jma_weather_hourly,fct_spot_price_forecast,fct_spot_price_forecast_accuracy fact
+    class fct_jepx_spot_market,fct_jepx_spot_area_price,fct_jma_weather_hourly,fct_spot_price_forecast,fct_spot_price_forecast_accuracy,fct_occto_demand_forecast_dad fact
 ```
 
 Notes:
@@ -201,6 +222,11 @@ Notes:
   `phenomenon_absent` is null for AMeDAS stations; value 0 with
   `phenomenon_absent = 0` is a JMA "trace" reading (below measurement
   resolution), distinct from a true zero (`phenomenon_absent = 1`).
+- `fct_occto_demand_forecast_dad` MW columns are additive across areas; the
+  `*_rate_pct` columns are non-additive (average, or recompute from the MW
+  columns). `min_demand_mw` for `date_key` ≤ 2025-03-31 is the demand at the
+  minimum-reserve-rate hour, not the minimum demand (an OCCTO definition
+  change). Hour-ending values run 1–24 (24 = the hour ending at midnight).
 
 ## Forecast analysis
 
@@ -261,6 +287,7 @@ compose stack to be up):
 ```bash
 just refresh-jepx                        # JEPX refresh: redownload market data + holidays, reload raw, rebuild + test dbt
 just refresh-jma --prefecture 44         # JMA weather refresh (scoped; no args = full network, ~60 h cold)
+just refresh-occto                       # OCCTO 翌々日 demand-forecast refresh: redownload full history, reload raw, rebuild + test dbt
 just python scripts/load_jepx_spot.py    # python in the devcontainer
 just python -c "import power_market_analytics"
 just python scripts/spot_price_backtest.py --strategy previous_day --area tokyo  # forecast backtest

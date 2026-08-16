@@ -1,0 +1,56 @@
+models:
+  - name: stg_occto__demand_forecast_dad
+    config:
+      contract:
+        enforced: true
+    description: >
+      As-is representation of pma_raw.occto_demand_forecast_dad (OCCTO
+      day-after-next demand / peak supply forecasts). One row per target_date
+      and area_name_ja. Column documentation lives on the source
+      (models/raw/occto.yml).
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - target_date
+              - area_name_ja
+    columns:
+      - name: formulated_date
+        data_type: date
+        data_tests:
+          - not_null
+      - name: target_date
+        data_type: date
+        data_tests:
+          - not_null
+      - name: area_name_ja
+        data_type: string
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [北海道, 東北, 東京, 中部, 北陸, 関西, 中国, 四国, 九州, 沖縄, 9エリア計, 10エリア計]
+      - name: min_demand_time
+        data_type: string
+      - name: min_demand_mw
+        data_type: int
+        data_tests:
+          - not_null
+      - name: max_demand_time
+        data_type: string
+      - name: max_demand_mw
+        data_type: int
+        data_tests:
+          - not_null
+      - name: max_supply_capacity_mw
+        data_type: int
+        data_tests:
+          - not_null
+      - name: usage_rate_pct
+        data_type: double
+        data_tests:
+          - not_null
+      - name: reserve_rate_pct
+        data_type: double
+        data_tests:
+          - not_null
