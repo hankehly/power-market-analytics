@@ -1,0 +1,33 @@
+"""Download the TEPCO エリア需要・発電情報 monthly archives and extract the actuals CSVs.
+
+Always re-downloads every month from 2022-04 to the current month (~53 zips,
+~5 MB in total): TEPCO revises past days occasionally and refreshes the current
+month's archive daily, and re-fetching everything is the simplest way to stay
+consistent with the published history.
+"""
+
+import argparse
+from pathlib import Path
+
+from loguru import logger
+
+from power_market_analytics.tepco import TepcoAreaDownloader
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--data-dir",
+        type=Path,
+        default=Path("data/tepco/area_demand_generation"),
+        help="Root directory for TEPCO area files (zip/ archives, csv/ extracted actuals).",
+    )
+    args = parser.parse_args()
+
+    downloader = TepcoAreaDownloader(data_dir=args.data_dir)
+    paths = downloader.download_all()
+    logger.info("Extracted {} actuals file(s) into {}", len(paths), downloader.csv_dir)
+
+
+if __name__ == "__main__":
+    main()
