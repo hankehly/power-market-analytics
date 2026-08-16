@@ -9,6 +9,9 @@ with
     -- Okinawa is not a JEPX bidding zone (no dim_area row).
     not is_area_total
     and area_code != 'okinawa'
+    -- OCCTO labels the pre-FY2024 翌々日 publication (2024-03-13..31) as
+    -- 試験データ (trial-run output); it stays in std but not here.
+    and target_date >= date '2024-04-01'
   ),
 
   final as (
