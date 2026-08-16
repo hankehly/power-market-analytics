@@ -1,0 +1,62 @@
+sources:
+  - name: tepco
+    schema: pma_raw
+    description: >
+      TEPCO Power Grid (東京電力パワーグリッド) public エリア需要・発電情報 for the
+      Tokyo service area, downloaded from the monthly archives linked on
+      https://www.tepco.co.jp/forecast/html/area-download-j.html by
+      scripts/download_tepco_area_demand_generation.py and loaded by
+      scripts/load_tepco_area_demand_generation.py (full reload). Archive
+      layout, CSV format and quirks are documented in
+      docs/TEPCO-Area-Demand-Generation-Retrieval.md.
+    tables:
+      - name: tepco_area_demand_generation_actual
+        description: >
+          実績 (actuals): Tokyo-area total demand, total generation and
+          wind+solar generation per 30-minute period, in 30分kWh (energy per
+          period). One row per target date and JEPX time code (1-48); grain
+          (target_date, time_code) is enforced at load time. History starts
+          2022-04-01 and runs through the last finalized day (actuals files
+          are finalized ~00:05 the next day). Load contract:
+          conf/schemas/tepco_area_demand_generation_actual.yaml.
+        columns:
+          - name: target_date
+            description: Delivery date (日付).
+            data_tests:
+              - not_null
+          - name: time_code
+            description: >
+              30-minute period (時間コマ): 1 = 0:00-0:30 .. 48 = 23:30-24:00,
+              the JEPX time code.
+            data_tests:
+              - not_null
+          - name: period_start_time
+            description: Period start as published (時間帯＿自, "H:MM").
+          - name: period_end_time
+            description: >
+              Period end as published (時間帯＿至, "H:MM"); the last period's
+              24:00 appears as "0:00".
+          - name: demand_kwh
+            description: >
+              Area total demand (エリア総需要量) in kWh over the 30-minute
+              period. Typed double because 13 files in April 2022 use
+              scientific notation (e.g. 1.66919e+07); std rounds to bigint.
+            data_tests:
+              - not_null
+          - name: generation_kwh
+            description: Area total generation (エリア総発電量) in kWh over the period.
+            data_tests:
+              - not_null
+          - name: wind_solar_generation_kwh
+            description: >
+              Wind + solar share of area generation (エリア風力・太陽光発電量) in
+              kWh over the period.
+            data_tests:
+              - not_null
+          - name: file_updated_at
+            description: >
+              File creation timestamp from the file's metadata line
+              (ファイル更新日 + ファイル更新時間); ~00:05 on target_date + 1 for
+              nearly every day, later for the few days TEPCO re-issued.
+            data_tests:
+              - not_null
