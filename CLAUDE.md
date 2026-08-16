@@ -6,6 +6,8 @@
 - `just refresh-jma` — JMA weather refresh: regenerate the station seed (~5 min), download
   hourly CSVs (args pass through, e.g. `--prefecture 44`; no args = full network, ~60 h
   cold), reload `raw`, `dbt build`.
+- `just refresh-occto` — OCCTO 翌々日 demand-forecast refresh: redownload the full-history CSV
+  (~700 KB, 3 HTTP calls), reload `raw`, `dbt build`.
 - `just python <args>` / `just exec <cmd>` / `just shell` — run inside the devcontainer.
 - `just dbt <args>` — dbt from `/workspace/dbt` (e.g. `just dbt build`, `just dbt show --inline "select ..." --limit 5`).
 - `just sql` — beeline shell on the thriftserver.
@@ -24,6 +26,14 @@
   Station master: `scripts/update_jma_stations_seed.py` → seed `jma_stations` →
   `dim_jma_station`. Protocol + CSV format:
   [docs/JMA-Weather-Data-Retrieval.md](docs/JMA-Weather-Data-Retrieval.md).
+- OCCTO 翌々日 demand forecast: `scripts/download_occto_demand_forecast.py`
+  (`OcctoBulkDownloader` in `power_market_analytics/occto.py`, always re-downloads the whole
+  history) → `data/occto/demand_forecast_dad/` → `scripts/load_occto_demand_forecast.py`
+  (`CsvLoader`, contract `conf/schemas/occto_demand_forecast_dad.yaml`) →
+  `pma_raw.occto_demand_forecast_dad` → `stg/std_occto__demand_forecast_dad` →
+  `fct_occto_demand_forecast_dad` (9 JEPX areas; エリア計 totals + Okinawa stay in `std`).
+  Protocol + CSV format:
+  [docs/OCCTO-Demand-Forecast-Retrieval.md](docs/OCCTO-Demand-Forecast-Retrieval.md).
 - dbt (`dbt/`): sources in `models/raw/<source>.yml` → `staging` (as-is) → `standardized`
   (typed time axis) → `curated` (Kimball star: `dim_*`, `fct_*`). Schemas: `pma_<layer>`.
 - Japanese holidays: Cabinet Office CSV → `scripts/update_holidays_seed.py` → seed → `dim_date`

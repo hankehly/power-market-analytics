@@ -1,0 +1,96 @@
+models:
+  - name: fct_occto_demand_forecast_dad
+    config:
+      contract:
+        enforced: true
+    description: >
+      OCCTO day-after-next (翌々日) demand and peak supply-capacity forecasts
+      by JEPX bidding zone. Periodic snapshot: one row per target date
+      (date_key) per area — the 9 JEPX areas only. The published エリア計
+      roll-ups and Okinawa (not a JEPX zone) are excluded so the grain stays
+      atomic; they remain available in std_occto__demand_forecast_dad. The
+      forecast is formulated on formulated_date = date_key - 2 days
+      (forecast_horizon_days = 2) and published on that day at ~17:35-18:05
+      JST (rule: 17:30以降速やかに), i.e. it is known ~16 h before the JEPX
+      day-ahead auction for date_key closes (D-1 10:00) and is usable as a
+      spot-price feature; see docs/OCCTO-Demand-Forecast-Retrieval.md §7. MW
+      facts are additive across areas (but the 9-area sum is not the
+      published 9エリア計 unless OCCTO sums the same way); the rate columns
+      are NON-ADDITIVE — average or recompute from the MW columns, never sum.
+      Caveats from OCCTO: min_demand_mw for date_key <= 2025-03-31 is the
+      demand at the minimum-reserve-rate hour rather than the minimum
+      demand, and hour-ending values are hour-resolution labels (24 = hour
+      ending at midnight).
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - date_key
+              - area_key
+    columns:
+      - name: date_key
+        data_type: date
+        description: Forecast target date (対象日付).
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_date')
+                field: date_key
+      - name: area_key
+        data_type: int
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_area')
+                field: area_key
+      - name: formulated_date
+        data_type: date
+        description: Forecast formulation date (策定日), always date_key - 2 days.
+        data_tests:
+          - not_null
+      - name: forecast_horizon_days
+        data_type: int
+        data_tests:
+          - not_null
+      - name: min_demand_hour_ending
+        data_type: int
+        description: Hour (1-24, hour-ending) of the forecast minimum demand.
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 1
+                max_value: 24
+      - name: min_demand_mw
+        data_type: int
+        data_tests:
+          - not_null
+      - name: max_demand_hour_ending
+        data_type: int
+        description: Hour (1-24, hour-ending) of the forecast peak demand.
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 1
+                max_value: 24
+      - name: max_demand_mw
+        data_type: int
+        data_tests:
+          - not_null
+      - name: max_supply_capacity_mw
+        data_type: int
+        data_tests:
+          - not_null
+      - name: usage_rate_pct
+        data_type: double
+        description: Forecast usage rate in percent (max demand / max supply); non-additive.
+        data_tests:
+          - not_null
+      - name: reserve_rate_pct
+        data_type: double
+        description: Forecast reserve margin in percent; non-additive, may be negative.
+        data_tests:
+          - not_null

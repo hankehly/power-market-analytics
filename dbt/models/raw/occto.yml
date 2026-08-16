@@ -1,0 +1,59 @@
+sources:
+  - name: occto
+    schema: pma_raw
+    description: >
+      OCCTO (電力広域的運営推進機関) public disclosure data, downloaded from
+      the 情報ダウンロード bulk endpoint on https://occtonet3.occto.or.jp/ by
+      scripts/download_occto_demand_forecast.py and loaded by
+      scripts/load_occto_demand_forecast.py (full reload). The retrieval
+      protocol and CSV format are documented in
+      docs/OCCTO-Demand-Forecast-Retrieval.md.
+    tables:
+      - name: occto_demand_forecast_dad
+        description: >
+          電力需要予想・ピーク時供給力（翌々日）: day-after-next forecasts of
+          minimum/maximum total demand and maximum supply capacity by area,
+          with the implied usage and reserve rates. One row per target date
+          and area; grain (target_date, area_name_ja) is enforced at load
+          time. 12 rows per day: the 10 supply areas plus the 9エリア計
+          (excluding Okinawa) and 10エリア計 total rows. History starts
+          2024-03-13. Load contract: conf/schemas/occto_demand_forecast_dad.yaml.
+        columns:
+          - name: formulated_date
+            description: >
+              Forecast formulation date (策定日); always target_date - 2 days.
+            data_tests:
+              - not_null
+          - name: target_date
+            description: Forecast target date (対象日付).
+            data_tests:
+              - not_null
+          - name: area_name_ja
+            description: >
+              Area name as published (対象エリア): 北海道, 東北, 東京, 中部,
+              北陸, 関西, 中国, 四国, 九州, 沖縄, 9エリア計, 10エリア計.
+            data_tests:
+              - not_null
+          - name: min_demand_time
+            description: >
+              Hour-ending label of the minimum-demand hour (最小総需要予想時刻),
+              "01:00".."24:00"; null for 10エリア計 rows through 2025-03-31.
+          - name: min_demand_mw
+            description: >
+              Minimum total demand forecast in MW (最小総需要予想). For
+              target dates 2025-03-31 and earlier this is the demand at the
+              minimum-reserve-rate time (最小予備率時総需要予想), per OCCTO.
+          - name: max_demand_time
+            description: >
+              Hour-ending label of the peak-demand hour (最大総需要予想時刻),
+              "01:00".."24:00"; null for 10エリア計 rows through 2025-03-31.
+          - name: max_demand_mw
+            description: Maximum (peak) total demand forecast in MW (最大総需要予想).
+          - name: max_supply_capacity_mw
+            description: Maximum supply capacity forecast in MW (最大供給力予想).
+          - name: usage_rate_pct
+            description: Forecast usage rate in percent (予想使用率), max demand / max supply.
+          - name: reserve_rate_pct
+            description: >
+              Forecast reserve margin in percent (予想予備率); can be negative
+              in the published history.

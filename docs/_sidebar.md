@@ -5,4 +5,5 @@
   - [R-001 — Supply and Demand Tightness](research/R-001-supply-demand-tightness.md)
   - [Investigation Template](research/investigation-template.md)
 - [JMA Weather Data Retrieval](JMA-Weather-Data-Retrieval.md)
+- [OCCTO Demand Forecast Retrieval](OCCTO-Demand-Forecast-Retrieval.md)
 - [Kimball Dimensional Modeling Techniques](Kimball-Dimensional-Modeling-Techniques.md)

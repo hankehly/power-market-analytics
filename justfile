@@ -57,3 +57,9 @@ refresh-jma *args:
     just python scripts/download_jma_hourly_all.py {{ args }}
     just python scripts/load_jma_hourly.py
     just dbt build
+
+[doc("Refresh OCCTO day-after-next demand forecast: redownload the full history, reload raw, rebuild + test dbt")]
+refresh-occto:
+    just python scripts/download_occto_demand_forecast.py
+    just python scripts/load_occto_demand_forecast.py
+    just dbt build

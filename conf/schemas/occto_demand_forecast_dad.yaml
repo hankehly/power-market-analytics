@@ -1,0 +1,31 @@
+description: >
+  OCCTO 電力需要予想・ピーク時供給力 (翌々日) — day-after-next demand and peak
+  supply-capacity forecasts by area, one row per target date and area (10 areas
+  plus the 9エリア計 and 10エリア計 total rows). Source: the 情報ダウンロード bulk
+  download on https://occtonet3.occto.or.jp/ (screen CF01S010C, dataset
+  areaDataKnd=32), a single Shift_JIS CSV covering the full history from
+  2024-03-13; protocol in docs/OCCTO-Demand-Forecast-Retrieval.md. The
+  formulation date (策定日) is always the target date minus 2 days. The two
+  時刻 columns are hour-ending labels "01:00".."24:00" — kept as strings here
+  because 24:00 is not a valid Spark time; they are empty for the 10エリア計
+  rows through 2025-03-31. Per OCCTO, min_demand_mw values dated 2025-03-31
+  and earlier are the demand at the minimum-reserve-rate time rather than the
+  minimum demand.
+
+read_options:
+  # Java charset name for cp932 / Shift_JIS with Windows extensions
+  encoding: windows-31j
+
+grain: [target_date, area_name_ja]
+
+columns:
+  - { name: formulated_date, source: 策定日, type: date, format: yyyy/MM/dd, nullable: false }
+  - { name: target_date, source: 対象日付, type: date, format: yyyy/MM/dd, nullable: false }
+  - { name: area_name_ja, source: 対象エリア, type: string, nullable: false }
+  - { name: min_demand_time, source: 最小総需要予想時刻, type: string }
+  - { name: min_demand_mw, source: 最小総需要予想（MW）, type: int, nullable: false }
+  - { name: max_demand_time, source: 最大総需要予想時刻, type: string }
+  - { name: max_demand_mw, source: 最大総需要予想（MW）, type: int, nullable: false }
+  - { name: max_supply_capacity_mw, source: 最大供給力予想（MW）, type: int, nullable: false }
+  - { name: usage_rate_pct, source: 予想使用率, type: double, nullable: false }
+  - { name: reserve_rate_pct, source: 予想予備率, type: double, nullable: false }
