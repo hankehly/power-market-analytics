@@ -4,6 +4,10 @@ Run inside the devcontainer (needs the Spark warehouse and the MLflow
 server):
 
     python scripts/spot_price_backtest.py --strategy previous_day --area tokyo
+
+Pin ``--start-date``/``--end-date`` (and ``--train-start`` for model
+strategies) when two runs must be compared on identical delivery days and
+training rows, e.g. a feature experiment against its matched baseline.
 """
 
 import argparse
@@ -22,7 +26,7 @@ from power_market_analytics.tasks.spot_price.publish import (
     build_forecast_records,
     publish_forecast_records,
 )
-from power_market_analytics.tasks.spot_price.strategies import STRATEGIES
+from power_market_analytics.tasks.spot_price.strategies import STRATEGIES, build_strategy
 
 
 def main() -> None:
@@ -35,7 +39,28 @@ def main() -> None:
         "--days",
         type=int,
         default=1825,
-        help="Backtest window length in delivery days, ending at the last day in the data.",
+        help="Backtest window length in delivery days, ending at --end-date.",
+    )
+    parser.add_argument(
+        "--start-date",
+        type=pd.Timestamp,
+        default=None,
+        help="First delivery day to forecast (YYYY-MM-DD); overrides --days.",
+    )
+    parser.add_argument(
+        "--end-date",
+        type=pd.Timestamp,
+        default=None,
+        help="Last delivery day to forecast (YYYY-MM-DD); default: the last day in the data.",
+    )
+    parser.add_argument(
+        "--train-start",
+        type=pd.Timestamp,
+        default=None,
+        help=(
+            "First delivery day eligible as a training row (model strategies only), e.g. "
+            "2024-04-01 to fit a baseline on exactly the rows an OCCTO-feature candidate can use."
+        ),
     )
     parser.add_argument(
         "--shap-nsamples",
@@ -51,10 +76,21 @@ def main() -> None:
         tags={"strategy": args.strategy, "area": args.area},
     ) as run:
         prices = load_area_spot_prices(area_code=args.area)
-        end_date = prices.df["trade_date"].max()
-        start_date = end_date - pd.DateOffset(days=args.days - 1)
+        last_day = prices.df["trade_date"].max()
+        end_date = last_day if args.end_date is None else args.end_date
+        if end_date > last_day:
+            parser.error(f"--end-date {end_date.date()} is after the last day in the data")
+        start_date = (
+            end_date - pd.DateOffset(days=args.days - 1)
+            if args.start_date is None
+            else args.start_date
+        )
+        if start_date > end_date:
+            parser.error(f"start date {start_date.date()} is after end date {end_date.date()}")
 
-        strategy = STRATEGIES[args.strategy]()
+        strategy = build_strategy(
+            args.strategy, area_code=args.area, train_start_date=args.train_start
+        )
         result = run_backtest(strategy, prices, start_date=start_date, end_date=end_date)
 
         per_day = daily_metrics(result)

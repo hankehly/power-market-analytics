@@ -1,6 +1,8 @@
-"""Gradient-boosted tree strategy over calendar and lag features."""
+"""Gradient-boosted tree strategies over calendar, lag and OCCTO features."""
 
 from __future__ import annotations
+
+from typing import ClassVar
 
 import lightgbm
 import matplotlib.pyplot as plt
@@ -16,17 +18,18 @@ from power_market_analytics.tasks.spot_price.features import join_lag
 from power_market_analytics.tasks.spot_price.frames import (
     BacktestResult,
     DayAheadForecast,
+    OcctoDemandForecast,
     SpotPrices,
 )
 from power_market_analytics.tasks.spot_price.strategies.base import ForecastStrategy
 
-FEATURE_COLS = ("time_code", "month", "day_of_week", "lag_1d_price")
+BASE_FEATURE_COLS = ("time_code", "month", "day_of_week", "lag_1d_price")
+OCCTO_FEATURE_COLS = ("max_demand_hour_ending", "max_demand_mw", "max_supply_capacity_mw")
 TARGET_COL = "actual_price_jpy_kwh"
 FORECAST_COL = "forecast_price_jpy_kwh"
-SHAP_COLS = tuple(f"shap_{col}" for col in FEATURE_COLS)
 
-# Modest, fixed hyperparameters: four low-cardinality features do not warrant
-# tuning machinery yet. Logged to the MLflow run in `evaluate`.
+# Modest, fixed hyperparameters: a handful of low-cardinality features does
+# not warrant tuning machinery yet. Logged to the MLflow run in `evaluate`.
 LGBM_PARAMS = {
     "n_estimators": 500,
     "learning_rate": 0.05,
@@ -47,6 +50,7 @@ class LightGbmEvalSet(DomainFrame):
     Grain: (trade_date, time_code).
     """
 
+    feature_cols: ClassVar[tuple[str, ...]] = BASE_FEATURE_COLS
     schema = {
         "trade_date": "datetime64[ns]",
         "time_code": "int64",
@@ -57,7 +61,7 @@ class LightGbmEvalSet(DomainFrame):
         FORECAST_COL: "float64",
     }
     keys = ["trade_date", "time_code"]
-    non_null_cols = [*FEATURE_COLS, TARGET_COL, FORECAST_COL]
+    non_null_cols = [*BASE_FEATURE_COLS, TARGET_COL, FORECAST_COL]
 
     def to_eval_frame(self) -> pd.DataFrame:
         """Features, target and forecast in the layout ``mlflow`` expects.
@@ -71,7 +75,30 @@ class LightGbmEvalSet(DomainFrame):
         -------
         pandas.DataFrame
         """
-        return self.df[[*FEATURE_COLS, TARGET_COL, FORECAST_COL]].astype("float64")
+        return self.df[[*self.feature_cols, TARGET_COL, FORECAST_COL]].astype("float64")
+
+
+class LightGbmOcctoEvalSet(LightGbmEvalSet):
+    """Design matrix for :class:`LightGbmOcctoStrategy`: the base features
+    plus the OCCTO 翌々日 peak-demand/supply forecast for the delivery day.
+
+    Grain: (trade_date, time_code).
+    """
+
+    feature_cols = (*BASE_FEATURE_COLS, *OCCTO_FEATURE_COLS)
+    schema = {
+        "trade_date": "datetime64[ns]",
+        "time_code": "int64",
+        "month": "int64",
+        "day_of_week": "int64",
+        "lag_1d_price": "float64",
+        "max_demand_hour_ending": "int64",
+        "max_demand_mw": "int64",
+        "max_supply_capacity_mw": "int64",
+        TARGET_COL: "float64",
+        FORECAST_COL: "float64",
+    }
+    non_null_cols = [*feature_cols, TARGET_COL, FORECAST_COL]
 
 
 class LightGbmStrategy(ForecastStrategy):
@@ -82,6 +109,12 @@ class LightGbmStrategy(ForecastStrategy):
     of it as exists), so every delivery day is scored by a model fitted only
     on data published before it. Each :meth:`predict` call also records the
     exact TreeSHAP contributions of the model that scored it.
+
+    Training and prediction rows go through the same feature builder
+    (:meth:`_features`), so a subclass that adds features — see
+    :class:`LightGbmOcctoStrategy` — only overrides
+    :meth:`_join_daily_features` plus the ``feature_cols`` / ``eval_set_cls``
+    class attributes.
 
     Evaluation replays the backtest's own forecasts through MLflow's
     static-dataset mode instead of re-scoring with any single model: with
@@ -100,18 +133,39 @@ class LightGbmStrategy(ForecastStrategy):
     refit_every_days : int, optional
         Refit cadence in calendar days, anchored to the day that triggered
         the previous refit (so data gaps cannot drift it).
+    train_start_date : pandas.Timestamp, optional
+        First delivery day eligible as a training row. Earlier prices are
+        still used for lag features (the row for this day keeps its lag),
+        they just never become targets. Lets a baseline be fitted on exactly
+        the rows a feature-limited candidate can use, e.g. from the first
+        day OCCTO forecasts exist.
     """
 
     name = "lightgbm"
+    feature_cols: ClassVar[tuple[str, ...]] = BASE_FEATURE_COLS
+    eval_set_cls: ClassVar[type[LightGbmEvalSet]] = LightGbmEvalSet
 
-    def __init__(self, train_window_days: int = 730, refit_every_days: int = 7) -> None:
+    def __init__(
+        self,
+        train_window_days: int = 730,
+        refit_every_days: int = 7,
+        train_start_date: pd.Timestamp | None = None,
+    ) -> None:
         self.train_window_days = train_window_days
         self.refit_every_days = refit_every_days
+        self.train_start_date = (
+            None if train_start_date is None else pd.Timestamp(train_start_date).as_unit("ns")
+        )
         self._model: lightgbm.LGBMRegressor | None = None
         self._trained_through: pd.Timestamp | None = None
         self._fit_anchor: pd.Timestamp | None = None
         self._n_fits = 0
         self._shap_records: dict[pd.Timestamp, pd.DataFrame] = {}
+
+    @property
+    def shap_cols(self) -> tuple[str, ...]:
+        """Per-feature SHAP contribution column names, aligned with ``feature_cols``."""
+        return tuple(f"shap_{col}" for col in self.feature_cols)
 
     def predict(self, target_date: pd.Timestamp, history: SpotPrices) -> DayAheadForecast:
         """Score the 48 periods of one delivery day, refitting first if due.
@@ -134,8 +188,9 @@ class LightGbmStrategy(ForecastStrategy):
         Raises
         ------
         ValueError
-            If the previous day is not fully present in the history, or the
-            training window contains no complete rows.
+            If the previous day is not fully present in the history, any
+            feature is unavailable for the target day, or the training
+            window contains no complete rows.
         """
         # A string-parsed Timestamp carries second resolution; normalize so
         # the assigned trade_date column is datetime64[ns] per the contract.
@@ -145,18 +200,17 @@ class LightGbmStrategy(ForecastStrategy):
         prev = history.df[history.df["trade_date"] == previous_day]
         if len(prev) == 0:
             raise ValueError(f"{self.name}: no history for previous day {previous_day.date()}")
-        features = (
-            prev[["time_code"]]
-            .assign(
-                month=target_date.month,
-                day_of_week=target_date.dayofweek,
-                lag_1d_price=prev["price_jpy_kwh"],
-            )[list(FEATURE_COLS)]
-            .astype("float64")
-        )
-        forecast = prev[["time_code"]].assign(
-            trade_date=target_date,
-            forecast_price_jpy_kwh=self._model.predict(features),
+        points = prev[["time_code"]].assign(trade_date=target_date)
+        featured = self._features(points, history.df)
+        missing = featured[list(self.feature_cols)].isna().any()
+        if missing.any():
+            raise ValueError(
+                f"{self.name}: features {list(missing[missing].index)} unavailable for "
+                f"{target_date.date()}"
+            )
+        features = featured[list(self.feature_cols)].astype("float64")
+        forecast = featured[["trade_date", "time_code"]].assign(
+            forecast_price_jpy_kwh=self._model.predict(features)
         )
         # Exact TreeSHAP from LightGBM itself: per-feature contributions
         # plus a trailing expected-value column that sum to the prediction.
@@ -167,8 +221,8 @@ class LightGbmStrategy(ForecastStrategy):
                 # time_code is already present as an int64 key column.
                 features.drop(columns=["time_code"]),
                 pd.DataFrame(
-                    contributions[:, : len(FEATURE_COLS)],
-                    columns=list(SHAP_COLS),
+                    contributions[:, : len(self.feature_cols)],
+                    columns=list(self.shap_cols),
                     index=features.index,
                 ),
             ],
@@ -187,9 +241,9 @@ class LightGbmStrategy(ForecastStrategy):
 
         Joins the backtest's walk-forward forecasts onto the feature rows;
         the frame contract then enforces that every eval point has exactly
-        one forecast. Points missing the lag — the first day of history, or
-        the day after a gap — are dropped, since MLflow needs a complete
-        numeric matrix.
+        one forecast. Points missing any feature — the first day of history,
+        the day after a gap, or a day without exogenous data — are dropped,
+        since MLflow needs a complete numeric matrix.
 
         Parameters
         ----------
@@ -205,6 +259,7 @@ class LightGbmStrategy(ForecastStrategy):
         Returns
         -------
         LightGbmEvalSet
+            An instance of ``eval_set_cls``.
 
         Raises
         ------
@@ -219,11 +274,11 @@ class LightGbmStrategy(ForecastStrategy):
             )
         featured = self._design_matrix(prices.df)
         window = featured[featured["trade_date"].between(start_date, end_date)]
-        complete = window.dropna(subset=[*FEATURE_COLS, TARGET_COL])
+        complete = window.dropna(subset=[*self.feature_cols, TARGET_COL])
         n_dropped = len(window) - len(complete)
         if n_dropped:
             logger.info(
-                "{} eval set: dropped {} of {} rows with incomplete lags",
+                "{} eval set: dropped {} of {} rows with incomplete features",
                 self.name,
                 n_dropped,
                 len(window),
@@ -233,14 +288,21 @@ class LightGbmStrategy(ForecastStrategy):
                 f"{self.name}: no complete feature rows between "
                 f"{start_date.date()} and {end_date.date()}"
             )
+        # A left-joined feature is float64 whenever any row of the full
+        # history lacked it; restore the contract dtype now that only
+        # complete rows remain.
+        schema = self.eval_set_cls.schema
+        complete = complete.astype({col: schema[col] for col in self.feature_cols})
         merged = complete.merge(
             result.df[["trade_date", "time_code", FORECAST_COL]],
             how="left",
             on=["trade_date", "time_code"],
             validate="one_to_one",
         )
-        logger.info("{} eval set: {} rows, {} features", self.name, len(merged), len(FEATURE_COLS))
-        return LightGbmEvalSet.from_df(merged)
+        logger.info(
+            "{} eval set: {} rows, {} features", self.name, len(merged), len(self.feature_cols)
+        )
+        return self.eval_set_cls.from_df(merged)
 
     def evaluate(
         self,
@@ -285,13 +347,17 @@ class LightGbmStrategy(ForecastStrategy):
                 **{f"lgbm_{key}": value for key, value in LGBM_PARAMS.items()},
                 "lgbm_train_window_days": self.train_window_days,
                 "lgbm_refit_every_days": self.refit_every_days,
+                "lgbm_train_start_date": (
+                    "none" if self.train_start_date is None else str(self.train_start_date.date())
+                ),
+                "lgbm_feature_cols": ",".join(self.feature_cols),
             }
         )
         mlflow.log_metric("n_refits", self._n_fits)
         mlflow.lightgbm.log_model(
             self._model,
             name=f"{self.name}_model",
-            input_example=eval_frame[list(FEATURE_COLS)].head(),
+            input_example=eval_frame[list(self.feature_cols)].head(),
         )
         self._log_shap_plots(eval_set, nsamples=explainability_nsamples)
         return evaluate_predictions(eval_frame, targets=TARGET_COL, predictions=FORECAST_COL)
@@ -327,15 +393,15 @@ class LightGbmStrategy(ForecastStrategy):
                 f"{self.name}: recorded contributions cover {len(aligned)} of "
                 f"{len(eval_set)} eval rows; backtest and eval windows disagree"
             )
+        feature_cols = list(self.feature_cols)
+        shap_cols = list(self.shap_cols)
         sample = aligned.sample(n=min(nsamples, len(aligned)), random_state=0)
-        shap.summary_plot(
-            sample[list(SHAP_COLS)].to_numpy(), sample[list(FEATURE_COLS)], show=False
-        )
+        shap.summary_plot(sample[shap_cols].to_numpy(), sample[feature_cols], show=False)
         mlflow.log_figure(plt.gcf(), "shap_beeswarm_plot.png")
         plt.close("all")
         shap.summary_plot(
-            aligned[list(SHAP_COLS)].to_numpy(),
-            aligned[list(FEATURE_COLS)],
+            aligned[shap_cols].to_numpy(),
+            aligned[feature_cols],
             plot_type="bar",
             show=False,
         )
@@ -348,7 +414,8 @@ class LightGbmStrategy(ForecastStrategy):
         A refit is due when there is no model yet, the refit cadence has
         elapsed since the day that triggered the last one, or the cached
         model saw data at or after ``target_date`` (i.e. reusing it would
-        leak the future).
+        leak the future). The window never reaches back before
+        ``train_start_date``.
 
         Parameters
         ----------
@@ -371,11 +438,13 @@ class LightGbmStrategy(ForecastStrategy):
         if not due:
             return
         window_start = target_date - pd.Timedelta(days=self.train_window_days)
+        if self.train_start_date is not None:
+            window_start = max(window_start, self.train_start_date)
         # One extra day of prices so the window's first day keeps its lag.
         recent = prices[prices["trade_date"] >= window_start - pd.Timedelta(days=1)]
         train = self._design_matrix(recent)
         train = train[train["trade_date"] >= window_start].dropna(
-            subset=[*FEATURE_COLS, TARGET_COL]
+            subset=[*self.feature_cols, TARGET_COL]
         )
         if train.empty:
             raise ValueError(
@@ -383,7 +452,7 @@ class LightGbmStrategy(ForecastStrategy):
                 f"{self.train_window_days} days before {target_date.date()}"
             )
         model = lightgbm.LGBMRegressor(**LGBM_PARAMS)
-        model.fit(train[list(FEATURE_COLS)].astype("float64"), train[TARGET_COL])
+        model.fit(train[list(self.feature_cols)].astype("float64"), train[TARGET_COL])
         self._model = model
         self._trained_through = train["trade_date"].max()
         self._fit_anchor = target_date
@@ -400,8 +469,8 @@ class LightGbmStrategy(ForecastStrategy):
     def _design_matrix(self, prices: pd.DataFrame) -> pd.DataFrame:
         """Features and target for every (trade_date, time_code) point.
 
-        Rows whose lag day is missing keep a NaN ``lag_1d_price``; callers
-        decide whether to drop them.
+        Rows missing a feature (no lag day, no exogenous row) keep NaN
+        there; callers decide whether to drop them.
 
         Parameters
         ----------
@@ -411,12 +480,93 @@ class LightGbmStrategy(ForecastStrategy):
         Returns
         -------
         pandas.DataFrame
-            Grain columns, ``FEATURE_COLS`` and ``TARGET_COL``.
+            Grain columns, ``feature_cols`` and ``TARGET_COL``.
         """
-        featured = prices.rename(columns={"price_jpy_kwh": TARGET_COL}).pipe(
-            join_lag, prices, days=1, name="lag_1d_price"
-        )
-        return featured.assign(
+        return self._features(prices.rename(columns={"price_jpy_kwh": TARGET_COL}), prices)
+
+    def _features(self, points: pd.DataFrame, prices: pd.DataFrame) -> pd.DataFrame:
+        """Attach every feature column to a set of (trade_date, time_code) points.
+
+        The single feature path for both training rows and the target day's
+        48 prediction rows, so the two can never disagree.
+
+        Parameters
+        ----------
+        points : pandas.DataFrame
+            Rows keyed on (trade_date, time_code); other columns pass through.
+        prices : pandas.DataFrame
+            Price history in the ``SpotPrices`` layout, used for lags.
+
+        Returns
+        -------
+        pandas.DataFrame
+            ``points`` plus ``feature_cols`` (NaN where unavailable).
+        """
+        featured = join_lag(points, prices, days=1, name="lag_1d_price")
+        featured = featured.assign(
             month=featured["trade_date"].dt.month.astype("int64"),
             day_of_week=featured["trade_date"].dt.dayofweek.astype("int64"),
         )
+        return self._join_daily_features(featured)
+
+    def _join_daily_features(self, featured: pd.DataFrame) -> pd.DataFrame:
+        """Hook for per-delivery-day exogenous features; identity here.
+
+        Parameters
+        ----------
+        featured : pandas.DataFrame
+            Rows keyed on (trade_date, time_code) with the base features.
+
+        Returns
+        -------
+        pandas.DataFrame
+        """
+        return featured
+
+
+class LightGbmOcctoStrategy(LightGbmStrategy):
+    """:class:`LightGbmStrategy` plus OCCTO 翌々日 peak-demand/supply features.
+
+    Experiment E-001 of docs/research/R-001-supply-demand-tightness.md: the
+    OCCTO forecast for delivery day D (published D-2 ~17:45 JST, before the
+    D-1 09:55 cutoff) is joined to D's 48 rows, adding
+    ``max_demand_hour_ending``, ``max_demand_mw`` and
+    ``max_supply_capacity_mw`` to the feature set. Model parameters, refit
+    cadence and the base features are unchanged.
+
+    Because rows without an OCCTO forecast are dropped from training, this
+    strategy's training set starts on the first OCCTO day (2024-04-01)
+    however long the price history is; a matched baseline must be run with
+    the same ``train_start_date`` explicitly.
+
+    Parameters
+    ----------
+    occto : OcctoDemandForecast
+        OCCTO forecasts for the same area as the prices being forecast.
+    **kwargs
+        Forwarded to :class:`LightGbmStrategy`.
+    """
+
+    name = "lightgbm_occto"
+    feature_cols = (*BASE_FEATURE_COLS, *OCCTO_FEATURE_COLS)
+    eval_set_cls = LightGbmOcctoEvalSet
+
+    def __init__(self, occto: OcctoDemandForecast, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.occto = occto
+
+    def _join_daily_features(self, featured: pd.DataFrame) -> pd.DataFrame:
+        """Left-join the delivery day's OCCTO forecast onto every row.
+
+        Parameters
+        ----------
+        featured : pandas.DataFrame
+            Rows keyed on (trade_date, time_code) with the base features.
+
+        Returns
+        -------
+        pandas.DataFrame
+            ``featured`` plus ``OCCTO_FEATURE_COLS`` (NaN on days without a
+            forecast).
+        """
+        return featured.merge(self.occto.df, how="left", on="trade_date", validate="many_to_one")

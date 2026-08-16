@@ -27,7 +27,7 @@ The working loop is:
 
 | ID | Investigation | Status | Current conclusion |
 |---|---|---|---|
-| R-001 | [Supply and demand tightness signals](research/R-001-supply-demand-tightness.md) | Backlog | — |
+| R-001 | [Supply and demand tightness signals](research/R-001-supply-demand-tightness.md) | In progress | E-001 run: OCCTO peak-demand/supply features cut overall MAE 2.2 % and daytime MAE 5.6 % on the matched window, but Overnight/Evening worsen and months are mixed (8/17 better) — provisionally inconclusive. |
 
 Suggested statuses are `Backlog`, `In progress`, `Supported`, `Not supported`,
 `Inconclusive`, and `Superseded`.
