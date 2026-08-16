@@ -97,10 +97,13 @@ Mirrors `JmaHourlyCsvLoader`:
   `__file_updated_at`.
 - `_read_file(file)`: Python-side sniff opens the file (cp932), asserts line 3
   equals `EXPECTED_HEADER` (else `ValueError` naming the file — layout drift
-  fails loudly) and parses line 2 into a `datetime` (`yyyymmdd` + `HH:MM:SS`).
-  Then Spark reads the file headerless with a 7-column string schema, keeps
-  rows where `_c0` rlike `^\d{8}$`, adds `__file_updated_at` as a literal
-  timestamp, and applies the contract casts via the inherited `_cast`.
+  fails loudly) and reads line 2 (`yyyymmdd,HH:MM:SS,yyyymmdd`) into a
+  `"yyyyMMdd HH:mm:ss"` string. Then Spark reads the file headerless with a
+  7-column string schema, keeps rows where `_c0` rlike `^\d{8}$` **and**
+  `_c1` rlike `^\d{1,2}$` (line 2 also starts with a date), adds
+  `__file_updated_at` as that string literal, and applies the contract casts
+  via the inherited `_cast` (the contract's `format: yyyyMMdd HH:mm:ss`
+  parses it to a timestamp).
 - Everything else (validation, grain check, overwrite write) is inherited.
 
 ### 4.3 `conf/schemas/tepco_area_demand_generation_actual.yaml`
@@ -116,7 +119,7 @@ Mirrors `JmaHourlyCsvLoader`:
   | demand_kwh | `_c4` | double | not null; double because of quirk 1 |
   | generation_kwh | `_c5` | double | not null |
   | wind_solar_generation_kwh | `_c6` | double | not null |
-  | file_updated_at | `__file_updated_at` | timestamp | not null |
+  | file_updated_at | `__file_updated_at` | timestamp, format `yyyyMMdd HH:mm:ss` | not null |
 - Description records the source, quirks, and why the measures are `double`.
 
 ### 4.4 Scripts and justfile
