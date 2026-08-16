@@ -11,6 +11,11 @@
 - `just python <args>` / `just exec <cmd>` / `just shell` — run inside the devcontainer.
 - `just dbt <args>` — dbt from `/workspace/dbt` (e.g. `just dbt build`, `just dbt show --inline "select ..." --limit 5`).
 - `just sql` — beeline shell on the thriftserver.
+- `just python scripts/spot_price_backtest.py --strategy lgbm --area tokyo` — day-ahead
+  backtest (strategies: `previous_day`, `lgbm`; areas = `dim_area.area_code`). Logs to
+  MLflow (`just open mlflow`) and publishes forecasts to the warehouse. New strategies
+  subclass `ForecastStrategy` and register in `STRATEGIES`
+  (`power_market_analytics/tasks/spot_price/strategies/__init__.py`).
 - Host-side dbt also works: `cd dbt && DBT_THRIFT_HOST=localhost uv run dbt <cmd>`.
 - Anything that creates a SparkSession MUST run in the devcontainer (metastore/warehouse only
   resolve on the compose network); plain python and dbt work from the host too.
@@ -55,12 +60,21 @@
   Hokkaido area prices are null 2018-09-07..26 (earthquake suspension), block/FIP columns are
   null before ~FY2022. Check `conf/schemas/jepx_spot.yaml` + model descriptions before
   tightening constraints.
+- OCCTO 翌々日: the two 時刻 columns are hour-ending labels `01:00`..`24:00` (24:00 is not a
+  valid Spark time → kept as strings in raw, ints 1–24 in `std`); `min_demand_mw` changed
+  meaning on 2025-04-01 (was demand at the min-reserve-rate hour). Details in the doc's §4/§7.
 
 ## Claude Code settings
 
 - `permissions.allow` in `.claude/settings.json` is kept ASCII-sorted automatically by the
   SessionStart hook (`.claude/hooks/sort_permissions.py`) — no manual re-sorting needed; just
   keep new entries sorted when editing the file by hand.
+- A PostToolUse hook runs `uv run ruff format` + `ruff check --fix` on every `.py` file you
+  Edit/Write — the file may change right after your edit; re-Read before the next Edit if
+  needed. Config: `pyproject.toml` (line length 100; rules E4/E7/E9/F/I only).
+- Verification: there is no pytest suite. Validate data/model changes with
+  `just dbt build` (contracts + tests) and Python changes with `uv run ruff check .`;
+  loaders/downloaders are checked by running their `scripts/` entry point.
 
 ## Dimensional Modeling
 
