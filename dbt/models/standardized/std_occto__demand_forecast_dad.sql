@@ -35,8 +35,9 @@ with
     cast(split(max_demand_time, ':')[0] as int) as max_demand_hour_ending,
     max_demand_mw,
     max_supply_capacity_mw,
-    usage_rate_pct,
-    reserve_rate_pct
+    -- Published as percentages (92.4); expose as fractions (0.924).
+    usage_rate_pct / 100 as usage_rate,
+    reserve_rate_pct / 100 as reserve_rate
   from
     staging
   )

@@ -22,8 +22,8 @@ with
     forecasts.max_demand_hour_ending,
     forecasts.max_demand_mw,
     forecasts.max_supply_capacity_mw,
-    forecasts.usage_rate_pct,
-    forecasts.reserve_rate_pct
+    forecasts.usage_rate,
+    forecasts.reserve_rate
   from
     forecasts
     inner join {{ ref('dim_area') }} as dim_area

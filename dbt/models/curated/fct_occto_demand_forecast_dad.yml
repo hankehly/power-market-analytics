@@ -16,7 +16,8 @@ models:
       spot-price feature; see docs/OCCTO-Demand-Forecast-Retrieval.md §7. MW
       facts are additive across areas (but the 9-area sum is not the
       published 9エリア計 unless OCCTO sums the same way); the rate columns
-      are NON-ADDITIVE — average or recompute from the MW columns, never sum.
+      are fractions (0.924 = 92.4%) and NON-ADDITIVE — average or recompute
+      from the MW columns, never sum.
       Caveats from OCCTO: min_demand_mw for date_key <= 2025-03-31 is the
       demand at the minimum-reserve-rate hour rather than the minimum
       demand, and hour-ending values are hour-resolution labels (24 = hour
@@ -84,13 +85,16 @@ models:
         data_type: int
         data_tests:
           - not_null
-      - name: usage_rate_pct
+      - name: usage_rate
         data_type: double
-        description: Forecast usage rate in percent (max demand / max supply); non-additive.
+        description: Forecast usage rate as a fraction (max demand / max supply; 1.0 = 100%); non-additive.
         data_tests:
           - not_null
-      - name: reserve_rate_pct
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+      - name: reserve_rate
         data_type: double
-        description: Forecast reserve margin in percent; non-additive, may be negative.
+        description: Forecast reserve margin as a fraction (0.083 = 8.3%); non-additive, may be negative.
         data_tests:
           - not_null
