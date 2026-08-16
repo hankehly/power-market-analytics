@@ -63,6 +63,8 @@
 - Use [docs/research/observations.md](docs/research/observations.md) to record notable forecast
   behavior and [docs/research/investigation-template.md](docs/research/investigation-template.md)
   for coherent forecasting questions and their experiments.
+- Do not generate hypotheses, explanations, or initial ideas for the research log unless the
+  researcher explicitly asks; record the researcher's thinking faithfully.
 - Update the investigation index in [docs/research/README.md](docs/research/README.md).
 - Keep reasoning, interpretations, and decisions in the research documents; keep run-level
   parameters, metrics, code versions, and detailed artifacts in MLflow.
