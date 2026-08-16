@@ -1,0 +1,41 @@
+description: >
+  OCCTO 広域予備率 エリア・広域ブロック情報 (翌々日) — day-after-next wide-area
+  reserve-rate publication at half-hour resolution: for every target date,
+  30-minute period and supply area, the area's forecast demand, supply
+  capacity and reserve (MW), the wide-area block it belongs to (block_no) and
+  that block's demand / supply capacity / reserve (MW) and reserve / usage
+  rates (%). 480 rows per day (48 periods × 10 areas). Source: the
+  情報ダウンロード bulk download on https://occtonet3.occto.or.jp/ (screen
+  CF01S010C, dataset areaDataKnd=31), Shift_JIS, fetched in 300-day windows
+  and concatenated (the screen caps a download at 150,000 rows); history
+  starts 2025-04-01 (the 48-point 翌々日 series began with FY2025). Protocol
+  and format in docs/OCCTO-Demand-Forecast-Retrieval.md §9. The same numbers
+  are published on the 広域予備率Web公表システム
+  (https://web-kohyo.occto.or.jp/kks-web-public/download). 時刻 is a
+  period-END label "00:30".."24:00" (JEPX time code 1..48) — kept as a string
+  because 24:00 is not a valid Spark time. 区分 is the placeholder "－" for
+  the whole series (the manual reserves it for the pre-FY2025 最大需要/最小予備率
+  two-point format). Per the OCCTO manual a block in blackout is published as
+  "***" in the measure columns; that has never occurred in the series and
+  would fail this load's numeric casts (fail fast rather than load nulls).
+
+read_options:
+  # Java charset name for cp932 / Shift_JIS with Windows extensions
+  encoding: windows-31j
+
+grain: [target_date, period_end_time, area_name_ja]
+
+columns:
+  - { name: target_date, source: 対象年月日, type: date, format: yyyy/MM/dd, nullable: false }
+  - { name: kubun, source: 区分, type: string }
+  - { name: period_end_time, source: 時刻, type: string, nullable: false }
+  - { name: area_name_ja, source: エリア, type: string, nullable: false }
+  - { name: wide_area_reserve_rate_pct, source: 広域予備率(%), type: double, nullable: false }
+  - { name: wide_area_usage_rate_pct, source: 広域使用率(%), type: double, nullable: false }
+  - { name: block_no, source: ブロックNo., type: int, nullable: false }
+  - { name: block_demand_mw, source: 広域ブロック需要(MW), type: double, nullable: false }
+  - { name: block_supply_capacity_mw, source: 広域ブロック供給力(MW), type: double, nullable: false }
+  - { name: block_reserve_mw, source: 広域ブロック予備力(MW), type: double, nullable: false }
+  - { name: area_demand_mw, source: エリア需要(MW), type: double, nullable: false }
+  - { name: area_supply_capacity_mw, source: エリア供給力(MW), type: double, nullable: false }
+  - { name: area_reserve_mw, source: エリア予備力(MW), type: double, nullable: false }

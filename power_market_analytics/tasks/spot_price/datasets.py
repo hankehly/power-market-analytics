@@ -74,7 +74,7 @@ def load_occto_demand_forecast(
 ) -> OcctoDemandForecast:
     """Load the OCCTO 翌々日 peak-demand/supply forecast for one bidding zone.
 
-    Reads ``fct_occto_demand_forecast``, which already excludes the
+    Reads ``fct_occto_demand_supply_forecast_daily``, which already excludes the
     pre-FY2024 trial rows, so the history starts on 2024-04-01.
 
     Parameters
@@ -101,7 +101,7 @@ def load_occto_demand_forecast(
           f.max_demand_hour_ending,
           f.max_demand_mw,
           f.max_supply_capacity_mw
-        from pma_curated.fct_occto_demand_forecast f
+        from pma_curated.fct_occto_demand_supply_forecast_daily f
         join pma_curated.dim_area a on f.area_key = a.area_key
         where a.area_code = '{area_code}'
         """,

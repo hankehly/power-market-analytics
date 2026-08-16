@@ -58,10 +58,12 @@ refresh-jma *args:
     just python scripts/load_jma_hourly.py
     just dbt build
 
-[doc("Refresh OCCTO day-after-next demand forecast: redownload the full history, reload raw, rebuild + test dbt")]
+[doc("Refresh OCCTO day-after-next data (demand forecast + half-hourly area reserve-rate): redownload the full histories, reload raw, rebuild + test dbt")]
 refresh-occto:
     just python scripts/download_occto_demand_forecast.py
+    just python scripts/download_occto_area_reserve_rate.py
     just python scripts/load_occto_demand_forecast.py
+    just python scripts/load_occto_area_reserve_rate.py
     just dbt build
 
 [doc("Refresh TEPCO Tokyo-area demand/generation actuals: redownload all monthly archives, reload raw, rebuild + test dbt")]

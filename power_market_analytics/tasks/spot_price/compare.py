@@ -97,7 +97,7 @@ def load_run_errors(run_ids: list[str], spark: SparkSession | None = None) -> Ru
         from pma_curated.fct_spot_price_forecast_accuracy acc
         join pma_curated.dim_delivery_period period
           on acc.time_code = period.time_code
-        left join pma_curated.fct_occto_demand_forecast occto
+        left join pma_curated.fct_occto_demand_supply_forecast_daily occto
           on acc.date_key = occto.date_key
           and acc.area_key = occto.area_key
         where acc.run_id in ({in_list})
