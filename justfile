@@ -63,3 +63,9 @@ refresh-occto:
     just python scripts/download_occto_demand_forecast.py
     just python scripts/load_occto_demand_forecast.py
     just dbt build
+
+[doc("Refresh TEPCO Tokyo-area demand/generation actuals: redownload all monthly archives, reload raw, rebuild + test dbt")]
+refresh-tepco:
+    just python scripts/download_tepco_area_demand_generation.py
+    just python scripts/load_tepco_area_demand_generation.py
+    just dbt build
