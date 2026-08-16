@@ -8,6 +8,8 @@
   cold), reload `raw`, `dbt build`.
 - `just refresh-occto` — OCCTO 翌々日 demand-forecast refresh: redownload the full-history CSV
   (~700 KB, 3 HTTP calls), reload `raw`, `dbt build`.
+- `just refresh-tepco` — TEPCO Tokyo-area demand/generation actuals refresh: redownload every
+  monthly archive (`AREA_YYYYMM.zip`, 2022-04 → now, ~5 MB total), reload `raw`, `dbt build`.
 - `just python <args>` / `just exec <cmd>` / `just shell` — run inside the devcontainer.
 - `just dbt <args>` — dbt from `/workspace/dbt` (e.g. `just dbt build`, `just dbt show --inline "select ..." --limit 5`).
 - `just sql` — beeline shell on the thriftserver.
@@ -46,6 +48,14 @@
   `fct_occto_demand_forecast_dad` (9 JEPX areas; エリア計 totals + Okinawa stay in `std`).
   Protocol + CSV format:
   [docs/OCCTO-Demand-Forecast-Retrieval.md](docs/OCCTO-Demand-Forecast-Retrieval.md).
+- TEPCO エリア需要・発電情報 (Tokyo-area 30-min actuals): `scripts/download_tepco_area_demand_generation.py`
+  (`TepcoAreaDownloader` in `power_market_analytics/tepco.py`, always re-downloads every monthly
+  zip and extracts only the `AREA_JISEKI_*.csv` actuals) → `data/tepco/area_demand_generation/{zip,csv}/`
+  → `scripts/load_tepco_area_demand_generation.py` (`TepcoAreaCsvLoader`, positional contract
+  `conf/schemas/tepco_area_demand_generation_actual.yaml`) → `pma_raw.tepco_area_demand_generation_actual`
+  → `stg/std_tepco__area_demand_generation_actual` → `fct_tepco_area_demand_generation_actual`
+  (grain date × time_code × area, Tokyo only; joins `fct_jepx_spot_area_price` 1:1). Format +
+  quirks: [docs/TEPCO-Area-Demand-Generation-Retrieval.md](docs/TEPCO-Area-Demand-Generation-Retrieval.md).
 - dbt (`dbt/`): sources in `models/raw/<source>.yml` → `staging` (as-is) → `standardized`
   (typed time axis) → `curated` (Kimball star: `dim_*`, `fct_*`). Schemas: `pma_<layer>`.
 - Japanese holidays: Cabinet Office CSV → `scripts/update_holidays_seed.py` → seed → `dim_date`
@@ -75,6 +85,11 @@
 - OCCTO 翌々日: the two 時刻 columns are hour-ending labels `01:00`..`24:00` (24:00 is not a
   valid Spark time → kept as strings in raw, ints 1–24 in `std`); `min_demand_mw` changed
   meaning on 2025-04-01 (was demand at the min-reserve-rate hour). Details in the doc's §4/§7.
+- TEPCO actuals: 13 April-2022 files hold scientific-notation values (`1.66919e+07`) that Spark's
+  ANSI `cast(... as bigint)` rejects, so the raw measures are `double` and `std` rounds to
+  `bigint`; TEPCO writes 0 for not-yet-observed periods and the archived 2025-06-14 file froze
+  mid-day (time codes 11–48 all-zero) → those measures are null from `std` onward. Past days are
+  occasionally re-issued, hence the always-re-download policy.
 
 ## Claude Code settings
 
