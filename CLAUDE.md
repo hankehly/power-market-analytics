@@ -14,8 +14,10 @@
 - `just refresh-kansai` — same for 関西電力送配電's Kansai-area actuals (`YYYYMM_jisseki.zip`,
   2022-04 → now, ~2 MB total), reload `raw`, `dbt build`.
 - `just test [pytest args]` — Python unit tests (host-side pytest; a local SparkSession fixture,
-  no metastore needed). Covers the shared area-actuals downloader/loader, the TEPCO/Kansai
-  specs, the Kansai CLI scripts and load contract.
+  no metastore needed) with a `pytest-cov` term-missing report over `power_market_analytics/`
+  + `scripts/` (config in `pyproject.toml` `[tool.coverage.*]`). Covers the shared
+  area-actuals downloader/loader, the TEPCO/Kansai specs, the Kansai CLI scripts and load
+  contract.
 - `just python <args>` / `just exec <cmd>` / `just shell` — run inside the devcontainer.
 - `just dbt <args>` — dbt from `/workspace/dbt` (e.g. `just dbt build`, `just dbt show --inline "select ..." --limit 5`).
 - `just sql` — beeline shell on the thriftserver.

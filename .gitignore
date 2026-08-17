@@ -8,6 +8,8 @@ venv/
 env/
 .python-version
 .ruff_cache/
+.coverage
+htmlcov/
 
 # Jupyter
 .ipynb_checkpoints/
