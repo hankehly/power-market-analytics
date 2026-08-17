@@ -71,3 +71,13 @@ refresh-tepco:
     just python scripts/download_tepco_area_demand_generation.py
     just python scripts/load_tepco_area_demand_generation.py
     just dbt build
+
+[doc("Refresh Kansai-area demand/generation actuals: redownload all monthly archives, reload raw, rebuild + test dbt")]
+refresh-kansai:
+    just python scripts/download_kansai_area_demand_generation.py
+    just python scripts/load_kansai_area_demand_generation.py
+    just dbt build
+
+[doc("Run the Python unit tests (pytest, host-side; uses a local SparkSession)")]
+test *args:
+    uv run pytest {{args}}

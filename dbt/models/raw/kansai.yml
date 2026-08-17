@@ -1,0 +1,62 @@
+sources:
+  - name: kansai
+    schema: pma_raw
+    description: >
+      関西電力送配電 (Kansai Transmission and Distribution) public エリア需給・発電
+      （実績） for the Kansai service area — the インバランス料金関連 「系統の需給に
+      関する情報」 disclosure (items A-1 / B-1 / B-4), downloaded from the
+      monthly archives linked on
+      https://www.kansai-td.co.jp/denkiyoho/imbalance/past.html by
+      scripts/download_kansai_area_demand_generation.py and loaded by
+      scripts/load_kansai_area_demand_generation.py (full reload). Archive
+      layout, both CSV layouts and quirks are documented in
+      docs/Kansai-Area-Demand-Generation-Retrieval.md.
+    tables:
+      - name: kansai_area_demand_generation_actual
+        description: >
+          実績 (actuals): Kansai-area total demand, total generation and
+          wind+solar generation per 30-minute period, in 30分kWh (energy per
+          period). One row per target date and JEPX time code (1-48); grain
+          (target_date, time_code) is enforced at load time. History starts
+          2022-04-01 (the first full month; the regime began 2022-04-01) and
+          runs through the last finalized day — the loader skips the running
+          day's file that Kansai includes in the current month's archive.
+          Load contract: conf/schemas/kansai_area_demand_generation_actual.yaml.
+        columns:
+          - name: target_date
+            description: Delivery date (日付 / DATE).
+            data_tests:
+              - not_null
+          - name: time_code
+            description: >
+              30-minute period (時間コマ): 1 = 0:00-0:30 .. 48 = 23:30-24:00,
+              the JEPX time code.
+            data_tests:
+              - not_null
+          - name: period_start_time
+            description: Period start as published (時間帯＿自 / 時間帯_自, "HH:MM").
+          - name: period_end_time
+            description: >
+              Period end as published (時間帯＿至 / 時間帯_至, "HH:MM"); the last
+              period ends "24:00".
+          - name: demand_kwh
+            description: >
+              Area total demand (エリア総需要量) in kWh over the 30-minute
+              period. Null where Kansai left the cell blank (22 periods on
+              2025-10-12).
+          - name: generation_kwh
+            description: >
+              Area total generation (エリア総発電量) in kWh over the period;
+              null where blank.
+          - name: wind_solar_generation_kwh
+            description: >
+              Wind + solar share of area generation (エリア風力・太陽光(発電量))
+              in kWh over the period; null where blank.
+          - name: file_updated_at
+            description: >
+              File creation timestamp from the file's metadata line
+              (ファイル更新日 + ファイル更新時間); ~00:13 on target_date + 1 for
+              nearly every day, later for re-issued days (all of April 2022
+              was re-issued on 2023-09-11).
+            data_tests:
+              - not_null

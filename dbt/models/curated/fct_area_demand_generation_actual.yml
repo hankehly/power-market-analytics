@@ -1,28 +1,33 @@
 models:
-  - name: fct_tepco_area_demand_generation_actual
+  - name: fct_area_demand_generation_actual
     config:
       contract:
         enforced: true
     description: >
-      TEPCO Power Grid エリア需要・発電情報 実績: Tokyo-area total demand, total
-      generation and wind+solar generation actuals. Grain: one row per
-      delivery period (date_key x 30-minute time_code) per area — the same
-      grain as fct_jepx_spot_area_price, so the two join on (date_key,
-      time_code, area_key). Only area_code 'tokyo' exists (TEPCO publishes
-      its own service area only); the area dimension is kept so the fact is
-      conformed and other TSOs can be added later. Covers 2022-04-01 through
-      the last finalized day (actuals are finalized ~00:05 the next day and
-      the archive is re-downloaded on every refresh, picking up TEPCO's
-      occasional revisions). Measures are energy per 30-minute period in kWh
-      (30分kWh, as published) and ADDITIVE across periods, days and — once
-      more areas exist — areas; divide by 0.5 h for average MW.
+      TSO-published area demand / generation actuals — the インバランス料金
+      「系統の需給に関する情報」 disclosure items A-1 (エリア総需要量), B-1
+      (エリア総発電量) and B-4 (エリア風力・太陽光発電量) — for every JEPX area
+      whose TSO feed is loaded: Tokyo (TEPCO Power Grid,
+      std_tepco__area_demand_generation_actual) and Kansai (関西電力送配電,
+      std_kansai__area_demand_generation_actual). Grain: one row per delivery
+      period (date_key x 30-minute time_code) per area — the same grain as
+      fct_jepx_spot_area_price and fct_occto_demand_supply_forecast_30m, so
+      the three join on (date_key, time_code, area_key). Both areas cover
+      2022-04-01 through the last finalized day (files are finalized shortly
+      after midnight of the next day; each refresh re-downloads the whole
+      archive, picking up the TSOs' occasional revisions). Measures are energy
+      per 30-minute period in kWh (30分kWh, as published) and ADDITIVE across
+      periods, days and areas; divide by 500 for average MW (x 0.5 h, /1000).
       wind_solar_generation_kwh is the wind + solar share of generation_kwh.
-      For 2025-06-14 time codes 11-48 all three measures are null: TEPCO's
-      archived file for that day froze mid-day with its "not yet observed"
-      zeros, which std_tepco__area_demand_generation_actual nulls; the rows
-      are kept so the grain stays dense. delivery_datetime is a standalone
-      period-start timestamp for time-series work, not a dimension key. Data
-      quirks and retrieval details: docs/TEPCO-Area-Demand-Generation-Retrieval.md.
+      Measures are null where the TSO published no observation and the row is
+      kept so the grain stays dense: Tokyo 2025-06-14 time codes 11-48
+      (archive froze mid-day) and Kansai 2025-10-12, 22 periods (blank cells).
+      Each TSO measures its own area with its own system, so precision differs
+      (TEPCO values are multiples of 1,000 kWh; Kansai values are exact kWh).
+      delivery_datetime is a standalone period-start timestamp for
+      time-series work, not a dimension key. Retrieval details and quirks per
+      TSO: docs/TEPCO-Area-Demand-Generation-Retrieval.md,
+      docs/Kansai-Area-Demand-Generation-Retrieval.md.
     data_tests:
       - dbt_utils.unique_combination_of_columns:
           arguments:
@@ -31,7 +36,7 @@ models:
               - time_code
               - area_key
       - dbt_utils.expression_is_true:
-          name: fct_tepco_area_actual_wind_solar_lte_generation
+          name: fct_area_actual_wind_solar_lte_generation
           arguments:
             expression: "wind_solar_generation_kwh <= generation_kwh"
     columns:
@@ -57,6 +62,7 @@ models:
                 field: time_code
       - name: area_key
         data_type: int
+        description: JEPX area (dim_area); currently 'tokyo' and 'kansai'.
         data_tests:
           - not_null
           - relationships:

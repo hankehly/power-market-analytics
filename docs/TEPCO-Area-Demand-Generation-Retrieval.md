@@ -101,6 +101,15 @@ reason the loader checks the header text of every file it reads.
 
 ## 6. Downloading and loading with `power_market_analytics.tepco`
 
+The download/extract and the positional load are the shared
+`AreaActualsDownloader` / `AreaActualsCsvLoader` in
+`power_market_analytics/area_actuals.py`, driven by a per-TSO
+`AreaActualsSource` spec; `power_market_analytics/tepco.py` supplies the
+`TEPCO` spec (URL template, 2022-04, `AREA_JISEKI_*` member regex, the one
+accepted column-header line) plus a thin `TepcoAreaDownloader`, and
+`tepco_loader.py` a thin `TepcoAreaCsvLoader`. The Kansai feed reuses the
+same classes ([Kansai doc](Kansai-Area-Demand-Generation-Retrieval.md)).
+
 ```python
 from power_market_analytics.tepco import TepcoAreaDownloader
 
@@ -111,11 +120,10 @@ downloader.download_all()                    # 2022-04 .. current month
 # csvs  -> data/tepco/area_demand_generation/csv/AREA_JISEKI_YYYYMMDD.csv
 ```
 
-The loader (`TepcoAreaCsvLoader` in `power_market_analytics/tepco_loader.py`)
-reads the CSVs positionally (`_c0`..`_c6`, contract
+The loader reads the CSVs positionally (`_c0`..`_c6`, contract
 `conf/schemas/tepco_area_demand_generation_actual.yaml`), verifies each
-file's column-header line, filters to the 48 data rows, injects
-`file_updated_at` from line 2, and full-reloads
+file's column-header line against the spec, filters to the 48 data rows,
+injects `file_updated_at` from the metadata line, and full-reloads
 `pma_raw.tepco_area_demand_generation_actual`. End to end:
 
 ```bash
@@ -128,13 +136,17 @@ just refresh-tepco
 Warehouse path: `pma_raw.tepco_area_demand_generation_actual` →
 `stg_tepco__area_demand_generation_actual` →
 `std_tepco__area_demand_generation_actual` (typed time axis, bigint kWh,
-sentinel rows nulled) → `fct_tepco_area_demand_generation_actual`
-(date_key × time_code × area_key, Tokyo).
+sentinel rows nulled) → `fct_area_demand_generation_actual`
+(date_key × time_code × area_key; Tokyo rows come from this feed, Kansai rows
+from `std_kansai__area_demand_generation_actual`).
+
+Unit tests: `tests/test_area_actuals.py` (shared classes) and
+`tests/test_tepco.py` (the TEPCO spec) — `just test`.
 
 ## 7. Extending
 
 - **予測 / BG計画**: add `AREA_YOSOKU_` / `AREA_BGKEI_` to the extraction
-  regex (`ACTUALS_MEMBER_RE`), give each its own contract (their header text
+  regex (`TEPCO.member_re`), give each its own contract (their header text
   and `HHMM` time labels differ) and raw table
   (`tepco_area_demand_generation_forecast` / `_bg_plan`), and remember the
   archived copies are last-intraday revisions.

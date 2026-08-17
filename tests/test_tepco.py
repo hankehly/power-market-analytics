@@ -11,7 +11,10 @@ from power_market_analytics.tepco_loader import TepcoAreaCsvLoader
 
 class TestTepcoSource:
     def test_zip_url(self):
-        assert TEPCO.zip_url(2025, 7) == "https://www4.tepco.co.jp/forecast/html/images/AREA_202507.zip"
+        assert (
+            TEPCO.zip_url(2025, 7)
+            == "https://www4.tepco.co.jp/forecast/html/images/AREA_202507.zip"
+        )
 
     def test_zip_name(self):
         assert TEPCO.zip_name(2022, 4) == "AREA_202204.zip"
@@ -30,7 +33,9 @@ class TestTepcoSource:
 
     def test_accepted_header_is_the_published_layout(self):
         assert TEPCO.accepted_headers == frozenset(
-            {"日付,時間コマ,時間帯＿自,時間帯＿至,エリア総需要量,エリア総発電量,エリア風力・太陽光発電量"}
+            {
+                "日付,時間コマ,時間帯＿自,時間帯＿至,エリア総需要量,エリア総発電量,エリア風力・太陽光発電量"
+            }
         )
 
 

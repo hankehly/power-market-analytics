@@ -176,11 +176,13 @@ from power_market_analytics.area_actuals import (  # noqa: E402
 )
 from power_market_analytics.csv_loader import CsvTableSchema  # noqa: E402
 
-TEPCO_HEADER = "日付,時間コマ,時間帯＿自,時間帯＿至,エリア総需要量,エリア総発電量,エリア風力・太陽光発電量"
-KANSAI_OLD_HEADER = "日付,時間コマ,時間帯＿自,時間帯＿至,エリア総需要量,エリア総発電量,エリア風力・太陽光"
-KANSAI_NEW_HEADER = (
-    "DATE,時間コマ,時間帯_自,時間帯_至,エリア総需要量(kWh),エリア総発電量(kWh),エリア風力・太陽光発電量(kWh)"
+TEPCO_HEADER = (
+    "日付,時間コマ,時間帯＿自,時間帯＿至,エリア総需要量,エリア総発電量,エリア風力・太陽光発電量"
 )
+KANSAI_OLD_HEADER = (
+    "日付,時間コマ,時間帯＿自,時間帯＿至,エリア総需要量,エリア総発電量,エリア風力・太陽光"
+)
+KANSAI_NEW_HEADER = "DATE,時間コマ,時間帯_自,時間帯_至,エリア総需要量(kWh),エリア総発電量(kWh),エリア風力・太陽光発電量(kWh)"
 HEADERS = frozenset({TEPCO_HEADER, KANSAI_OLD_HEADER, KANSAI_NEW_HEADER})
 
 TEPCO_FILE = [
@@ -264,13 +266,24 @@ CONTRACT = CsvTableSchema.model_validate(
         "read_options": {"encoding": "windows-31j"},
         "grain": ["target_date", "time_code"],
         "columns": [
-            {"name": "target_date", "source": "_c0", "type": "date", "format": "yyyyMMdd", "nullable": False},
+            {
+                "name": "target_date",
+                "source": "_c0",
+                "type": "date",
+                "format": "yyyyMMdd",
+                "nullable": False,
+            },
             {"name": "time_code", "source": "_c1", "type": "int", "nullable": False},
             {"name": "period_start_time", "source": "_c2", "type": "string", "nullable": False},
             {"name": "period_end_time", "source": "_c3", "type": "string", "nullable": False},
             {"name": "demand_kwh", "source": "_c4", "type": "bigint", "nullable": False},
             {"name": "generation_kwh", "source": "_c5", "type": "bigint", "nullable": False},
-            {"name": "wind_solar_generation_kwh", "source": "_c6", "type": "bigint", "nullable": False},
+            {
+                "name": "wind_solar_generation_kwh",
+                "source": "_c6",
+                "type": "bigint",
+                "nullable": False,
+            },
             {
                 "name": "file_updated_at",
                 "source": "__file_updated_at",
