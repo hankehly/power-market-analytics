@@ -1,0 +1,34 @@
+description: >
+  関西電力送配電 エリア需給・発電（実績） — Kansai-area 30-minute actuals of total
+  demand (エリア総需要量), total generation (エリア総発電量) and wind+solar
+  generation (エリア風力・太陽光発電量) in 30分kWh, i.e. energy per 30-minute
+  period; the インバランス料金 disclosure items A-1 / B-1 / B-4. Source: the
+  monthly archives YYYYMM_jisseki.zip linked from
+  https://www.kansai-td.co.jp/denkiyoho/imbalance/past.html (downloaded from
+  2022-04, the first full month), one CSV per day; archive layout, both CSV
+  layouts and quirks in docs/Kansai-Area-Demand-Generation-Retrieval.md.
+  Files are read positionally (source _c0.._c6) by KansaiAreaCsvLoader
+  because metadata lines precede the column header (a title line plus two
+  metadata lines until 2025-12-24, two metadata lines from 2025-12-25);
+  file_updated_at is injected from the metadata line (ファイル更新日 +
+  ファイル更新時間) and dates written yyyy/mm/dd in the newer layout are
+  normalised to yyyymmdd before parsing. Values are full-precision integer
+  kWh (no scientific notation), hence bigint. Times are "HH:MM" (a handful of
+  early rows "H:MM"); time code 48 ends at 24:00, published as "00:00" in
+  period_end_time.
+
+read_options:
+  # Java charset name for cp932 / Shift_JIS with Windows extensions
+  encoding: windows-31j
+
+grain: [target_date, time_code]
+
+columns:
+  - { name: target_date, source: _c0, type: date, format: yyyyMMdd, nullable: false }
+  - { name: time_code, source: _c1, type: int, nullable: false }
+  - { name: period_start_time, source: _c2, type: string, nullable: false }
+  - { name: period_end_time, source: _c3, type: string, nullable: false }
+  - { name: demand_kwh, source: _c4, type: bigint, nullable: false }
+  - { name: generation_kwh, source: _c5, type: bigint, nullable: false }
+  - { name: wind_solar_generation_kwh, source: _c6, type: bigint, nullable: false }
+  - { name: file_updated_at, source: __file_updated_at, type: timestamp, format: yyyyMMdd HH:mm:ss, nullable: false }
