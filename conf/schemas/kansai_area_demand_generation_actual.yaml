@@ -13,9 +13,14 @@ description: >
   file_updated_at is injected from the metadata line (ファイル更新日 +
   ファイル更新時間) and dates written yyyy/mm/dd in the newer layout are
   normalised to yyyymmdd before parsing. Values are full-precision integer
-  kWh (no scientific notation), hence bigint. Times are "HH:MM" (a handful of
-  early rows "H:MM"); time code 48 ends at 24:00, published as "00:00" in
-  period_end_time.
+  kWh (no scientific notation), hence bigint; cells Kansai could not observe
+  are blank (e.g. 22 periods on 2025-10-12, a 広域需給調整 中断 day) and load
+  as null, so the measures are nullable. The current month's archive also
+  carries the running day's file (refreshed intraday, future periods
+  blank); the loader skips files whose ファイル更新日 is not after their
+  対象年月日, so only finalized days are loaded. Times are "HH:MM" (a
+  handful of early rows "H:MM"); time code 48 ends at 24:00, published as
+  "24:00" in period_end_time.
 
 read_options:
   # Java charset name for cp932 / Shift_JIS with Windows extensions
@@ -28,7 +33,7 @@ columns:
   - { name: time_code, source: _c1, type: int, nullable: false }
   - { name: period_start_time, source: _c2, type: string, nullable: false }
   - { name: period_end_time, source: _c3, type: string, nullable: false }
-  - { name: demand_kwh, source: _c4, type: bigint, nullable: false }
-  - { name: generation_kwh, source: _c5, type: bigint, nullable: false }
-  - { name: wind_solar_generation_kwh, source: _c6, type: bigint, nullable: false }
+  - { name: demand_kwh, source: _c4, type: bigint, nullable: true }
+  - { name: generation_kwh, source: _c5, type: bigint, nullable: true }
+  - { name: wind_solar_generation_kwh, source: _c6, type: bigint, nullable: true }
   - { name: file_updated_at, source: __file_updated_at, type: timestamp, format: yyyyMMdd HH:mm:ss, nullable: false }

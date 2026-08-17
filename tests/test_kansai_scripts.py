@@ -128,4 +128,12 @@ class TestKansaiContract:
             "timestamp",
             "yyyyMMdd HH:mm:ss",
         )
-        assert all(not c.nullable for c in contract.columns)
+        # Kansai leaves cells blank for periods it could not observe (e.g. 22
+        # periods on 2025-10-12), so only the keys are non-nullable.
+        assert {c.name for c in contract.columns if not c.nullable} == {
+            "target_date",
+            "time_code",
+            "period_start_time",
+            "period_end_time",
+            "file_updated_at",
+        }

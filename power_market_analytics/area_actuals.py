@@ -18,6 +18,7 @@ import re
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
+from typing import NamedTuple
 
 import requests
 from loguru import logger
@@ -83,6 +84,11 @@ class AreaActualsSource:
         a file whose header is not in this set fails the load.
     default_data_dir : str
         Root directory for the ``zip/`` and ``csv/`` folders.
+    archive_includes_current_day : bool, default False
+        True when the current month's zip also carries the running day's file
+        (refreshed intraday, future periods blank). The loader then skips
+        files that are not yet final — those whose ファイル更新日 is not after
+        their 対象年月日 — so the warehouse holds finalized days only.
     """
 
     code: str
@@ -91,6 +97,7 @@ class AreaActualsSource:
     member_re: re.Pattern[str]
     accepted_headers: frozenset[str]
     default_data_dir: str
+    archive_includes_current_day: bool = False
 
     def zip_url(self, year: int, month: int) -> str:
         """Return the download URL of one month's archive."""
@@ -285,8 +292,34 @@ _META_LINE_RE = re.compile(rf"^{_DATE_RE},(\d{{1,2}}):(\d{{2}}):(\d{{2}}),{_DATE
 _MAX_HEADER_LINES = 4
 
 
-def sniff_metadata(file: Path | str, accepted_headers: frozenset[str]) -> str:
-    """Check a daily actuals file's header lines and return its update timestamp.
+class ActualsFileMetadata(NamedTuple):
+    """Update timestamp and target date read from a daily actuals file.
+
+    Attributes
+    ----------
+    file_updated_at : str
+        ``"yyyyMMdd HH:mm:ss"`` — ファイル更新日 and ファイル更新時間, date slashes
+        removed and the hour zero-padded, for the load contract to parse.
+    target_date : str
+        ``"yyyyMMdd"`` — 対象年月日, slashes removed.
+    """
+
+    file_updated_at: str
+    target_date: str
+
+    @property
+    def is_final(self) -> bool:
+        """Whether the file was written after its target day ended.
+
+        A day's file cannot be complete before 24:00 of that day, so a file
+        updated on (or before) its own target date is a running, partial
+        snapshot; every finalized file is stamped the next day or later.
+        """
+        return self.file_updated_at[:8] > self.target_date
+
+
+def sniff_metadata(file: Path | str, accepted_headers: frozenset[str]) -> ActualsFileMetadata:
+    """Check a daily actuals file's header lines and return its metadata.
 
     Parameters
     ----------
@@ -297,10 +330,9 @@ def sniff_metadata(file: Path | str, accepted_headers: frozenset[str]) -> str:
 
     Returns
     -------
-    str
-        ``"yyyyMMdd HH:mm:ss"`` — ファイル更新日 and ファイル更新時間 from the
-        metadata line preceding the column header, date slashes removed and
-        the hour zero-padded, for the load contract to parse.
+    ActualsFileMetadata
+        Update timestamp and target date from the metadata line preceding
+        the column header.
 
     Raises
     ------
@@ -321,8 +353,11 @@ def sniff_metadata(file: Path | str, accepted_headers: frozenset[str]) -> str:
     match = _META_LINE_RE.match(meta)
     if match is None:
         raise ValueError(f"{file}: cannot parse the update timestamp from {meta!r}")
-    date, hour, minute, second, _target = match.groups()
-    return f"{date.replace('/', '')} {int(hour):02d}:{minute}:{second}"
+    date, hour, minute, second, target = match.groups()
+    return ActualsFileMetadata(
+        file_updated_at=f"{date.replace('/', '')} {int(hour):02d}:{minute}:{second}",
+        target_date=target.replace("/", ""),
+    )
 
 
 class AreaActualsCsvLoader(CsvLoader):
@@ -336,7 +371,10 @@ class AreaActualsCsvLoader(CsvLoader):
     timestamp taken from the metadata line. Only data rows (a date followed
     by a numeric time code) are kept, and ``yyyy/mm/dd`` dates are normalised
     to ``yyyymmdd`` so one contract format serves every layout. Each file's
-    column-header line must be one of the source's ``accepted_headers``.
+    column-header line must be one of the source's ``accepted_headers``, and
+    when the source's archive carries the running day
+    (``archive_includes_current_day``) files that are not yet final are
+    skipped.
 
     Parameters
     ----------
@@ -364,8 +402,23 @@ class AreaActualsCsvLoader(CsvLoader):
         self.source = resolved
         super().__init__(schema=schema, filepath=filepath, table=table, spark=spark)
 
+    def _resolve_files(self) -> list[str]:
+        files = super()._resolve_files()
+        if not self.source.archive_includes_current_day:
+            return files
+        final, skipped = [], []
+        for file in files:
+            (
+                final if sniff_metadata(file, self.source.accepted_headers).is_final else skipped
+            ).append(file)
+        if skipped:
+            logger.info("Skipping {} not-yet-final file(s): {}", len(skipped), skipped)
+        if not final:
+            raise FileNotFoundError(f"No finalized CSV files found at {self.filepath}")
+        return final
+
     def _read_file(self, file: str) -> DataFrame:
-        file_updated_at = sniff_metadata(file, self.source.accepted_headers)
+        file_updated_at = sniff_metadata(file, self.source.accepted_headers).file_updated_at
         spark_schema = StructType(
             [StructField(f"_c{i}", StringType()) for i in range(COLUMN_COUNT)]
         )
