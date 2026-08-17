@@ -37,12 +37,15 @@ five subject areas, sharing a conformed `dim_date`:
   2025-04-01 onward — the 48-point 翌々日 series began with FY2025; before
   that only the daily peak/min points above exist. Okinawa and the wide-area
   block / reserve columns stay in `std_occto__area_reserve_rate_dad`.
-- `fct_tepco_area_demand_generation_actual` — TEPCO Power Grid Tokyo-area
-  actuals: total demand, total generation and wind+solar generation per
-  30-minute delivery period (energy in kWh, additive), one row per delivery
-  period per area (Tokyo only today; same grain as
-  `fct_jepx_spot_area_price`). Covers 2022-04-01 onward; the archive's
-  "not yet observed" zeros for 2025-06-14 time codes 11-48 are null.
+- `fct_area_demand_generation_actual` — TSO-published area actuals (the
+  インバランス料金 「系統の需給に関する情報」 items A-1/B-1/B-4): total demand,
+  total generation and wind+solar generation per 30-minute delivery period
+  (energy in kWh, additive), one row per delivery period per area — Tokyo
+  (TEPCO Power Grid) and Kansai (関西電力送配電) today, one `std_<tso>__…`
+  model per TSO unioned underneath (same grain as
+  `fct_jepx_spot_area_price`). Covers 2022-04-01 onward through the last
+  finalized day; measures are null where the TSO published no observation
+  (Tokyo 2025-06-14 time codes 11-48, Kansai 2025-10-12 × 22 periods).
 
 ```mermaid
 erDiagram
@@ -64,9 +67,9 @@ erDiagram
     dim_date ||--o{ fct_occto_demand_supply_forecast_30m : "date_key"
     dim_delivery_period ||--o{ fct_occto_demand_supply_forecast_30m : "time_code"
     dim_area ||--o{ fct_occto_demand_supply_forecast_30m : "area_key"
-    dim_date ||--o{ fct_tepco_area_demand_generation_actual : "date_key"
-    dim_delivery_period ||--o{ fct_tepco_area_demand_generation_actual : "time_code"
-    dim_area ||--o{ fct_tepco_area_demand_generation_actual : "area_key"
+    dim_date ||--o{ fct_area_demand_generation_actual : "date_key"
+    dim_delivery_period ||--o{ fct_area_demand_generation_actual : "time_code"
+    dim_area ||--o{ fct_area_demand_generation_actual : "area_key"
 
     dim_date {
         date date_key PK
@@ -222,7 +225,7 @@ erDiagram
         double supply_capacity_mw
     }
 
-    fct_tepco_area_demand_generation_actual {
+    fct_area_demand_generation_actual {
         date date_key PK, FK
         int time_code PK, FK
         int area_key PK, FK
@@ -235,7 +238,7 @@ erDiagram
     classDef dim fill:#DBEAFE,stroke:#2563EB,color:#1E3A8A
     classDef fact fill:#FEF3C7,stroke:#B45309,color:#78350F
     class dim_date,dim_delivery_period,dim_area,dim_jma_station dim
-    class fct_jepx_spot_market,fct_jepx_spot_area_price,fct_jma_weather_hourly,fct_spot_price_forecast,fct_spot_price_forecast_accuracy,fct_occto_demand_supply_forecast_daily,fct_occto_demand_supply_forecast_30m,fct_tepco_area_demand_generation_actual fact
+    class fct_jepx_spot_market,fct_jepx_spot_area_price,fct_jma_weather_hourly,fct_spot_price_forecast,fct_spot_price_forecast_accuracy,fct_occto_demand_supply_forecast_daily,fct_occto_demand_supply_forecast_30m,fct_area_demand_generation_actual fact
 ```
 
 Notes:
@@ -271,13 +274,15 @@ Notes:
 - `fct_occto_demand_supply_forecast_30m` measures are power in MW for the
   30-minute period: additive across areas (they sum to OCCTO's wide-area
   block demand), not across periods — × 0.5 h for MWh, × 500 for the kWh
-  unit of the TEPCO actuals fact. `supply_capacity_mw` is available supply
+  unit of `fct_area_demand_generation_actual`. `supply_capacity_mw` is available supply
   capacity (供給力), not a generation forecast; minus `demand_mw` it is the
   published area reserve and can be negative.
-- `fct_tepco_area_demand_generation_actual` measures are energy per 30-minute
-  period in kWh (30分kWh, as published) and additive; divide by 0.5 h for
-  average MW. `wind_solar_generation_kwh` is the wind + solar share of
-  `generation_kwh` (always ≤ it). The fact joins `fct_jepx_spot_area_price`
+- `fct_area_demand_generation_actual` measures are energy per 30-minute
+  period in kWh (30分kWh, as published) and additive across periods, days
+  and areas; divide by 500 for average MW. `wind_solar_generation_kwh` is
+  the wind + solar share of `generation_kwh` (always ≤ it). Each TSO
+  measures its own area with its own system (TEPCO values are multiples of
+  1,000 kWh, Kansai's exact kWh). The fact joins `fct_jepx_spot_area_price`
   1:1 on (`date_key`, `time_code`, `area_key`).
 
 ## Forecast analysis
