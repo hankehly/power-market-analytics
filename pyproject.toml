@@ -31,6 +31,7 @@ packages = ["power_market_analytics"]
 [dependency-groups]
 dev = [
     "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
     "ruff>=0.16.2",
 ]
 
@@ -44,3 +45,14 @@ select = ["E4", "E7", "E9", "F", "I"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+# Coverage is switched on by `just test` (`--cov --cov-report=term-missing`); a bare
+# `uv run pytest` stays uninstrumented. `scripts/` is measured too because the CLI
+# entry points are exercised directly (see tests/test_kansai_scripts.py).
+[tool.coverage.run]
+source = ["power_market_analytics", "scripts"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true
