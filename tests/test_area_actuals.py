@@ -47,12 +47,16 @@ class TestAreaActualsSource:
         assert SOURCE.is_actuals_member("nested/DEMO_JISEKI_20250701.csv")
         assert not SOURCE.is_actuals_member("DEMO_YOSOKU_20250701.csv")
 
+    def test_archive_includes_current_day_defaults_to_false(self):
+        assert SOURCE.archive_includes_current_day is False
+
     def test_source_is_immutable(self):
         with pytest.raises(AttributeError):
             SOURCE.code = "other"  # type: ignore[misc]
 
 
 # --------------------------------------------------------------------------- downloader
+import dataclasses  # noqa: E402
 import datetime  # noqa: E402
 import io  # noqa: E402
 import zipfile  # noqa: E402
@@ -211,22 +215,34 @@ def write_cp932(path: Path, lines: list[str]) -> Path:
 class TestSniffMetadata:
     def test_tepco_layout(self, tmp_path):
         f = write_cp932(tmp_path / "AREA_JISEKI_20250715.csv", TEPCO_FILE)
-        assert sniff_metadata(f, HEADERS) == "20250716 00:05:04"
+        meta = sniff_metadata(f, HEADERS)
+        assert meta.file_updated_at == "20250716 00:05:04"
+        assert meta.target_date == "20250715"
 
     def test_kansai_old_layout_with_title_line(self, tmp_path):
         f = write_cp932(tmp_path / "20250701_jisseki.csv", KANSAI_OLD_FILE)
-        assert sniff_metadata(f, HEADERS) == "20250702 00:13:11"
+        assert sniff_metadata(f, HEADERS).file_updated_at == "20250702 00:13:11"
 
     def test_kansai_new_layout_with_slashed_dates(self, tmp_path):
         f = write_cp932(tmp_path / "jukyu_jisseki_20251225_06.csv", KANSAI_NEW_FILE)
-        assert sniff_metadata(f, HEADERS) == "20251226 00:13:12"
+        meta = sniff_metadata(f, HEADERS)
+        assert meta.file_updated_at == "20251226 00:13:12"
+        assert meta.target_date == "20251225"
 
     def test_unpadded_hour_and_trailing_commas_are_normalised(self, tmp_path):
         lines = list(KANSAI_OLD_FILE)
         lines[0] = "実績値（Ａ－１・Ｂ－１・Ｂ－４）,,,,,,"
         lines[2] = "20220328,0:13:11,20220327,,,,"
         f = write_cp932(tmp_path / "20220327_jisseki.csv", lines)
-        assert sniff_metadata(f, HEADERS) == "20220328 00:13:11"
+        assert sniff_metadata(f, HEADERS).file_updated_at == "20220328 00:13:11"
+
+    def test_is_final_only_when_updated_after_the_target_day(self, tmp_path):
+        final = write_cp932(tmp_path / "final.csv", TEPCO_FILE)
+        assert sniff_metadata(final, HEADERS).is_final
+        lines = list(KANSAI_NEW_FILE)
+        lines[1] = "2025/12/25,06:43:12,2025/12/25"  # refreshed during the target day
+        running = write_cp932(tmp_path / "running.csv", lines)
+        assert not sniff_metadata(running, HEADERS).is_final
 
     def test_unknown_header_raises(self, tmp_path):
         lines = list(TEPCO_FILE)
@@ -263,6 +279,15 @@ CONTRACT = CsvTableSchema.model_validate(
                 "nullable": False,
             },
         ],
+    }
+)
+
+NULLABLE_CONTRACT = CONTRACT.model_copy(
+    update={
+        "columns": [
+            c.model_copy(update={"nullable": c.name not in ("target_date", "time_code")})
+            for c in CONTRACT.columns
+        ]
     }
 )
 
@@ -316,6 +341,36 @@ class TestAreaActualsCsvLoader:
         assert new.demand_kwh == 6565396
         assert new.file_updated_at.isoformat() == "2025-12-26T00:13:12"
         assert rows[("2025-07-15", 1)].period_start_time == "0:00"
+
+    def test_running_day_file_is_skipped_when_source_archives_current_day(self, spark, tmp_path):
+        write_cp932(tmp_path / "jukyu_jisseki_20251225_06.csv", KANSAI_NEW_FILE)
+        running = list(KANSAI_NEW_FILE)
+        running[1] = "2025/12/26,06:43:12,2025/12/26"
+        running[3] = "2025/12/26,1,00:00,00:30,6786128,7066384,13060"
+        running[4] = "2025/12/26,2,00:30,01:00,,,"  # not yet observed → blank cells
+        write_cp932(tmp_path / "jukyu_jisseki_20251226_06.csv", running)
+        source = dataclasses.replace(LOADER_SOURCE, archive_includes_current_day=True)
+        loader = AreaActualsCsvLoader(
+            NULLABLE_CONTRACT, tmp_path, "test_area.skip", spark=spark, source=source
+        )
+
+        assert loader.load() == 2
+        dates = {r.target_date.isoformat() for r in spark.table("test_area.skip").collect()}
+        assert dates == {"2025-12-25"}
+
+    def test_running_day_file_is_loaded_by_default(self, spark, tmp_path):
+        running = list(KANSAI_NEW_FILE)
+        running[1] = "2025/12/25,06:43:12,2025/12/25"
+        running[4] = "2025/12/25,2,00:30,01:00,,,"
+        write_cp932(tmp_path / "jukyu_jisseki_20251225_06.csv", running)
+        loader = AreaActualsCsvLoader(
+            NULLABLE_CONTRACT, tmp_path, "test_area.keep", spark=spark, source=LOADER_SOURCE
+        )
+
+        assert loader.load() == 2
+        rows = {r.time_code: r for r in spark.table("test_area.keep").collect()}
+        assert rows[1].demand_kwh == 6786128
+        assert rows[2].demand_kwh is None
 
     def test_unknown_header_fails_the_load(self, spark, tmp_path):
         lines = list(TEPCO_FILE)

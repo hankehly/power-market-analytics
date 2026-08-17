@@ -51,6 +51,9 @@ KANSAI = AreaActualsSource(
         }
     ),
     default_data_dir="data/kansai/area_demand_generation",
+    #: The current month's zip also carries today's file, refreshed intraday
+    #: with blank cells for periods not yet observed.
+    archive_includes_current_day=True,
 )
 
 

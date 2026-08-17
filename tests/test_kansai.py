@@ -29,6 +29,11 @@ class TestKansaiSource:
         assert not KANSAI.is_actuals_member("20250701_bgkeikaku.csv")
         assert not KANSAI.is_actuals_member("jukyu_yosoku_20251225_06.csv")
 
+    def test_archive_carries_the_running_day(self):
+        # The current month's zip includes today's file, refreshed intraday with
+        # blank cells for future periods; the loader must skip it.
+        assert KANSAI.archive_includes_current_day is True
+
     def test_accepts_both_header_layouts(self):
         assert KANSAI.accepted_headers == frozenset(
             {
