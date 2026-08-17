@@ -9,7 +9,7 @@ models:
       情報 publication (std_occto__area_reserve_rate_dad). Grain: one row per
       delivery period (date_key x 30-minute time_code) per area — the same
       grain as fct_jepx_spot_area_price and
-      fct_tepco_area_demand_generation_actual, so the three join on
+      fct_area_demand_generation_actual, so the three join on
       (date_key, time_code, area_key). The 9 JEPX areas only, from
       2025-04-01 (the 48-point 翌々日 series began with FY2025); Okinawa and
       the wide-area block / reserve columns are excluded here but remain in
@@ -22,7 +22,7 @@ models:
       power in MW for the 30-minute period and ADDITIVE across areas (an
       area's demand_mw values sum to the wide-area block demand OCCTO
       publishes); they are not additive across periods — multiply by 0.5 h
-      for MWh (x 500 for the kWh unit of the TEPCO actuals fact).
+      for MWh (x 500 for the kWh unit of fct_area_demand_generation_actual).
       supply_capacity_mw is available supply capacity (供給力), not a
       generation forecast; supply_capacity_mw - demand_mw is the published
       area reserve (エリア予備力) and can be negative. delivery_datetime is a

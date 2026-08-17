@@ -11,6 +11,11 @@
   because the portal caps a download at 150,000 rows), reload `raw`, `dbt build`.
 - `just refresh-tepco` — TEPCO Tokyo-area demand/generation actuals refresh: redownload every
   monthly archive (`AREA_YYYYMM.zip`, 2022-04 → now, ~5 MB total), reload `raw`, `dbt build`.
+- `just refresh-kansai` — same for 関西電力送配電's Kansai-area actuals (`YYYYMM_jisseki.zip`,
+  2022-04 → now, ~2 MB total), reload `raw`, `dbt build`.
+- `just test [pytest args]` — Python unit tests (host-side pytest; a local SparkSession fixture,
+  no metastore needed). Covers the shared area-actuals downloader/loader, the TEPCO/Kansai
+  specs, the Kansai CLI scripts and load contract.
 - `just python <args>` / `just exec <cmd>` / `just shell` — run inside the devcontainer.
 - `just dbt <args>` — dbt from `/workspace/dbt` (e.g. `just dbt build`, `just dbt show --inline "select ..." --limit 5`).
 - `just sql` — beeline shell on the thriftserver.
@@ -61,14 +66,29 @@
   9 JEPX areas, `demand_mw` + `supply_capacity_mw` only; joins `fct_jepx_spot_area_price` 1:1).
   Same numbers as the 広域予備率Web公表システム (`web-kohyo.occto.or.jp`, 31-day / rolling
   前年度4月 window) — verified identical; format + both portals in the OCCTO doc §9.
-- TEPCO エリア需要・発電情報 (Tokyo-area 30-min actuals): `scripts/download_tepco_area_demand_generation.py`
-  (`TepcoAreaDownloader` in `power_market_analytics/tepco.py`, always re-downloads every monthly
-  zip and extracts only the `AREA_JISEKI_*.csv` actuals) → `data/tepco/area_demand_generation/{zip,csv}/`
-  → `scripts/load_tepco_area_demand_generation.py` (`TepcoAreaCsvLoader`, positional contract
-  `conf/schemas/tepco_area_demand_generation_actual.yaml`) → `pma_raw.tepco_area_demand_generation_actual`
-  → `stg/std_tepco__area_demand_generation_actual` → `fct_tepco_area_demand_generation_actual`
-  (grain date × time_code × area, Tokyo only; joins `fct_jepx_spot_area_price` 1:1). Format +
-  quirks: [docs/TEPCO-Area-Demand-Generation-Retrieval.md](docs/TEPCO-Area-Demand-Generation-Retrieval.md).
+- TSO エリア需要・発電情報 実績 (30-min area demand / generation actuals; the インバランス料金
+  「系統の需給に関する情報」 items A-1/B-1/B-4, one feed per TSO): shared
+  `AreaActualsDownloader` / `AreaActualsCsvLoader` in `power_market_analytics/area_actuals.py`,
+  driven by a per-TSO `AreaActualsSource` spec (URL template, earliest month, member regex,
+  accepted header lines, `archive_includes_current_day`) — always re-downloads every monthly zip
+  and extracts only the daily 実績 members; the loader reads positionally, sniffs the metadata
+  line for `file_updated_at`, normalises `yyyy/mm/dd` dates and skips not-yet-final files.
+  - TEPCO / Tokyo: `power_market_analytics/tepco.py` (`TEPCO`, `TepcoAreaDownloader`) →
+    `scripts/download_tepco_area_demand_generation.py` → `data/tepco/area_demand_generation/{zip,csv}/`
+    → `scripts/load_tepco_area_demand_generation.py` (`TepcoAreaCsvLoader`, contract
+    `conf/schemas/tepco_area_demand_generation_actual.yaml`) → `pma_raw.tepco_area_demand_generation_actual`
+    → `stg/std_tepco__area_demand_generation_actual`. Format + quirks:
+    [docs/TEPCO-Area-Demand-Generation-Retrieval.md](docs/TEPCO-Area-Demand-Generation-Retrieval.md).
+  - 関西電力送配電 / Kansai: `power_market_analytics/kansai.py` (`KANSAI`, `KansaiAreaDownloader`) →
+    `scripts/download_kansai_area_demand_generation.py` → `data/kansai/area_demand_generation/{zip,csv}/`
+    → `scripts/load_kansai_area_demand_generation.py` (`KansaiAreaCsvLoader`, contract
+    `conf/schemas/kansai_area_demand_generation_actual.yaml`, nullable bigint measures) →
+    `pma_raw.kansai_area_demand_generation_actual` → `stg/std_kansai__area_demand_generation_actual`.
+    Format (two layouts, switch 2025-12-25) + quirks:
+    [docs/Kansai-Area-Demand-Generation-Retrieval.md](docs/Kansai-Area-Demand-Generation-Retrieval.md).
+  - Curated: `fct_area_demand_generation_actual` = `union all` of the `std_<tso>__…` models joined
+    to `dim_area` (grain date × time_code × area; joins `fct_jepx_spot_area_price` 1:1). Adding a
+    TSO = new spec + contract + stg/std models + one union branch.
 - dbt (`dbt/`): sources in `models/raw/<source>.yml` → `staging` (as-is) → `standardized`
   (typed time axis) → `curated` (Kimball star: `dim_*`, `fct_*`). Schemas: `pma_<layer>`.
 - Japanese holidays: Cabinet Office CSV → `scripts/update_holidays_seed.py` → seed → `dim_date`
@@ -103,6 +123,11 @@
   `bigint`; TEPCO writes 0 for not-yet-observed periods and the archived 2025-06-14 file froze
   mid-day (time codes 11–48 all-zero) → those measures are null from `std` onward. Past days are
   occasionally re-issued, hence the always-re-download policy.
+- Kansai actuals: the current month's zip includes the *running day* (blank cells for future
+  periods) — the loader drops files whose ファイル更新日 is not after their 対象年月日; a finalized
+  day can also have blank cells (2025-10-12, 22 periods) → null measures; two CSV layouts
+  (title line + `yyyymmdd` until 2025-12-24, TEPCO-shaped `yyyy/mm/dd` from 2025-12-25) and two
+  member-name generations (`YYYYMMDD_jisseki.csv` → `jukyu_jisseki_YYYYMMDD_06.csv` from 2025-12).
 
 ## Claude Code settings
 
@@ -112,9 +137,10 @@
 - A PostToolUse hook runs `uv run ruff format` + `ruff check --fix` on every `.py` file you
   Edit/Write — the file may change right after your edit; re-Read before the next Edit if
   needed. Config: `pyproject.toml` (line length 100; rules E4/E7/E9/F/I only).
-- Verification: there is no pytest suite. Validate data/model changes with
-  `just dbt build` (contracts + tests) and Python changes with `uv run ruff check .`;
-  loaders/downloaders are checked by running their `scripts/` entry point.
+- Verification: `just test` runs the pytest suite (`tests/`; a local-Spark fixture, host-side —
+  new Python should come with tests). Validate data/model changes with `just dbt build`
+  (contracts + tests) and Python changes with `uv run ruff check .`; loaders/downloaders are
+  also checked end-to-end by running their `scripts/` entry point in the devcontainer.
 
 ## Dimensional Modeling
 
