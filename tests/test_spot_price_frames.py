@@ -8,13 +8,12 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from power_market_analytics.forecasting.frames import N_PERIODS
 from power_market_analytics.tasks.spot_price.frames import (
-    N_PERIODS,
-    BacktestResult,
-    DayAheadForecast,
-    ForecastRecords,
-    MetricByYearTimeCode,
     OcctoDemandForecast,
+    SpotPriceBacktestResult,
+    SpotPriceForecast,
+    SpotPriceForecastRecords,
     SpotPrices,
 )
 
@@ -111,7 +110,7 @@ class TestOcctoDemandForecast:
             OcctoDemandForecast.from_df(occto_df([12]).drop(columns=["max_supply_capacity_mw"]))
 
 
-# --------------------------------------------------------------------------- DayAheadForecast
+# --------------------------------------------------------------------------- SpotPriceForecast
 def forecast_df(day: pd.Timestamp, time_codes: list[int]) -> pd.DataFrame:
     return pd.DataFrame(
         {
@@ -122,9 +121,9 @@ def forecast_df(day: pd.Timestamp, time_codes: list[int]) -> pd.DataFrame:
     )
 
 
-class TestDayAheadForecast:
+class TestSpotPriceForecast:
     def test_exactly_time_codes_1_to_48_accepted(self):
-        frame = DayAheadForecast.from_df(forecast_df(D2, list(range(1, 49))))
+        frame = SpotPriceForecast.from_df(forecast_df(D2, list(range(1, 49))))
         assert len(frame) == 48
 
     def test_two_target_days_rejected(self):
@@ -133,24 +132,24 @@ class TestDayAheadForecast:
             ignore_index=True,
         )
         with pytest.raises(ValueError, match="expected a single target day"):
-            DayAheadForecast.from_df(df)
+            SpotPriceForecast.from_df(df)
 
     def test_47_rows_rejected(self):
         with pytest.raises(ValueError, match="expected exactly time codes 1..48, got 47 rows"):
-            DayAheadForecast.from_df(forecast_df(D2, list(range(1, 48))))
+            SpotPriceForecast.from_df(forecast_df(D2, list(range(1, 48))))
 
     def test_wrong_time_codes_with_48_rows_rejected(self):
         with pytest.raises(ValueError, match="expected exactly time codes 1..48, got 48 rows"):
-            DayAheadForecast.from_df(forecast_df(D2, list(range(0, 48))))
+            SpotPriceForecast.from_df(forecast_df(D2, list(range(0, 48))))
 
     def test_null_forecast_rejected(self):
         df = forecast_df(D2, list(range(1, 49)))
         df.loc[5, "forecast_price_jpy_kwh"] = np.nan
         with pytest.raises(ValueError, match="column 'forecast_price_jpy_kwh' has 1 null values"):
-            DayAheadForecast.from_df(df)
+            SpotPriceForecast.from_df(df)
 
 
-# --------------------------------------------------------------------------- BacktestResult
+# --------------------------------------------------------------------------- SpotPriceBacktestResult
 def result_df() -> pd.DataFrame:
     return pd.DataFrame(
         {
@@ -162,9 +161,9 @@ def result_df() -> pd.DataFrame:
     )
 
 
-class TestBacktestResult:
+class TestSpotPriceBacktestResult:
     def test_accepts_joined_rows(self):
-        frame = BacktestResult.from_df(result_df())
+        frame = SpotPriceBacktestResult.from_df(result_df())
         assert frame.grain == ("trade_date", "time_code")
         assert list(frame.df.columns) == [
             "trade_date",
@@ -178,15 +177,15 @@ class TestBacktestResult:
         df = result_df()
         df.loc[2, col] = np.nan
         with pytest.raises(ValueError, match=f"column '{col}' has 1 null values"):
-            BacktestResult.from_df(df)
+            SpotPriceBacktestResult.from_df(df)
 
     def test_duplicate_grain_rejected(self):
         df = pd.concat([result_df(), result_df().iloc[[2]]], ignore_index=True)
         with pytest.raises(ValueError, match="not unique \\(1 duplicate rows\\)"):
-            BacktestResult.from_df(df)
+            SpotPriceBacktestResult.from_df(df)
 
 
-# --------------------------------------------------------------------------- ForecastRecords
+# --------------------------------------------------------------------------- SpotPriceForecastRecords
 TS = pd.Timestamp("2024-01-01 09:55:00")
 
 
@@ -205,79 +204,35 @@ def records_df() -> pd.DataFrame:
     )
 
 
-class TestForecastRecords:
+class TestSpotPriceForecastRecords:
     def test_grain_is_run_area_date_time_code(self):
         # Same (area, date, time_code) under two runs, and two areas under one
         # run, are distinct rows.
-        frame = ForecastRecords.from_df(records_df())
+        frame = SpotPriceForecastRecords.from_df(records_df())
         assert frame.grain == ("run_id", "area_code", "trade_date", "time_code")
         assert len(frame) == 3
 
     def test_same_run_area_date_time_code_twice_rejected(self):
         df = pd.concat([records_df(), records_df().iloc[[0]]], ignore_index=True)
         with pytest.raises(ValueError, match="not unique \\(1 duplicate rows\\)"):
-            ForecastRecords.from_df(df)
+            SpotPriceForecastRecords.from_df(df)
 
     @pytest.mark.parametrize("col", ["run_id", "area_code", "strategy"])
     def test_null_string_column_rejected(self, col):
         df = records_df()
         df.loc[0, col] = None
         with pytest.raises(ValueError, match=f"column '{col}' has 1 null values"):
-            ForecastRecords.from_df(df)
+            SpotPriceForecastRecords.from_df(df)
 
     @pytest.mark.parametrize("col", ["forecast_issued_ts", "trade_date", "published_at"])
     def test_null_timestamp_column_rejected(self, col):
         df = records_df()
         df.loc[1, col] = pd.NaT
         with pytest.raises(ValueError, match=f"column '{col}' has 1 null values"):
-            ForecastRecords.from_df(df)
+            SpotPriceForecastRecords.from_df(df)
 
     def test_null_forecast_rejected(self):
         df = records_df()
         df.loc[2, "forecast_price_jpy_kwh"] = np.nan
         with pytest.raises(ValueError, match="column 'forecast_price_jpy_kwh' has 1 null values"):
-            ForecastRecords.from_df(df)
-
-
-# --------------------------------------------------------------------------- MetricByYearTimeCode
-def metric_df(rows: list[tuple[int, int, float]]) -> pd.DataFrame:
-    return pd.DataFrame(rows, columns=["year", "time_code", "value"]).astype(
-        {"year": "int64", "time_code": "int64", "value": "float64"}
-    )
-
-
-class TestMetricByYearTimeCode:
-    def test_time_code_bounds_1_and_48_accepted(self):
-        frame = MetricByYearTimeCode.from_df(metric_df([(2024, 1, 0.5), (2024, 48, 1.5)]))
-        assert frame.grain == ("year", "time_code")
-
-    @pytest.mark.parametrize("bad", [0, 49])
-    def test_time_code_outside_1_48_rejected(self, bad):
-        with pytest.raises(
-            ValueError, match=rf"time_code outside 1\.\.48: \[[^\]]*\b{bad}\b[^\]]*\]$"
-        ):
-            MetricByYearTimeCode.from_df(metric_df([(2024, 1, 0.5), (2024, bad, 1.5)]))
-
-    def test_nan_value_allowed(self):
-        frame = MetricByYearTimeCode.from_df(metric_df([(2024, 1, np.nan)]))
-        assert np.isnan(frame.df.loc[0, "value"])
-
-    def test_duplicate_year_time_code_rejected(self):
-        with pytest.raises(ValueError, match="grain \\['year', 'time_code'\\] not unique"):
-            MetricByYearTimeCode.from_df(metric_df([(2024, 1, 0.5), (2024, 1, 0.6)]))
-
-    def test_to_matrix_sorts_years_and_time_codes(self):
-        # Rows deliberately out of order; 2023/2 is missing entirely and
-        # 2024/1 is a NaN cell.
-        frame = MetricByYearTimeCode.from_df(
-            metric_df([(2024, 2, 4.0), (2023, 1, 1.0), (2024, 1, np.nan), (2023, 3, 3.0)])
-        )
-        matrix = frame.to_matrix()
-        assert list(matrix.index) == [2023, 2024]
-        assert list(matrix.columns) == [1, 2, 3]
-        assert matrix.loc[2023, 1] == 1.0
-        assert np.isnan(matrix.loc[2023, 2])  # missing combination
-        assert matrix.loc[2023, 3] == 3.0
-        assert np.isnan(matrix.loc[2024, 1])  # NaN cell preserved
-        assert matrix.loc[2024, 2] == 4.0
-        assert np.isnan(matrix.loc[2024, 3])
+            SpotPriceForecastRecords.from_df(df)

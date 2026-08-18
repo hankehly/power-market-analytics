@@ -13,7 +13,7 @@ ARG POSTGRES_JDBC_VERSION=42.7.13
 
 # Postgres JDBC driver for the metastore's JDO connection; drop the ancient
 # bundled driver so classpath order can't select it over ours
-COPY --from=jdbc --chmod=644 /tmp/postgresql.jar /opt/hive/lib/postgresql-${POSTGRES_JDBC_VERSION}.jar
+COPY --from=jdbc --chown=root:root --chmod=644 /tmp/postgresql.jar /opt/hive/lib/postgresql-${POSTGRES_JDBC_VERSION}.jar
 
 USER root
 RUN rm /opt/hive/lib/postgresql-9.4.1208.jre7.jar

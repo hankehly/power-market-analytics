@@ -10,16 +10,14 @@ from mlflow.models import EvaluationResult
 
 from power_market_analytics.common.frames import DomainFrame
 from power_market_analytics.common.tracking import evaluate_regressor
-from power_market_analytics.tasks.spot_price.features import join_lag
-from power_market_analytics.tasks.spot_price.frames import (
-    BacktestResult,
-    DayAheadForecast,
-    SpotPrices,
-)
-from power_market_analytics.tasks.spot_price.strategies.base import ForecastStrategy
+from power_market_analytics.forecasting.backtest import BacktestRun
+from power_market_analytics.forecasting.features import join_lag
+from power_market_analytics.forecasting.strategy import ForecastStrategy, ForecastUnavailableError
+from power_market_analytics.tasks.spot_price import TASK
+from power_market_analytics.tasks.spot_price.frames import SpotPriceForecast, SpotPrices
 
 FEATURE_COLS = ("lag_1d_price",)
-TARGET_COL = "actual_price_jpy_kwh"
+TARGET_COL = TASK.actual_col
 
 
 class PreviousDayEvalSet(DomainFrame):
@@ -92,8 +90,9 @@ class PreviousDayStrategy(ForecastStrategy):
     """Forecast each time code with the same time code's price from D-1."""
 
     name = "previous_day"
+    task = TASK
 
-    def predict(self, target_date: pd.Timestamp, history: SpotPrices) -> DayAheadForecast:
+    def predict(self, target_date: pd.Timestamp, history: SpotPrices) -> SpotPriceForecast:
         """Copy the previous delivery day's 48 prices onto the target day.
 
         Parameters
@@ -105,11 +104,11 @@ class PreviousDayStrategy(ForecastStrategy):
 
         Returns
         -------
-        DayAheadForecast
+        SpotPriceForecast
 
         Raises
         ------
-        ValueError
+        ForecastUnavailableError
             If the previous day is not fully present in the history.
         """
         # A string-parsed Timestamp carries second resolution; normalize so
@@ -118,18 +117,20 @@ class PreviousDayStrategy(ForecastStrategy):
         previous_day = target_date - pd.Timedelta(days=1)
         prev = history.df[history.df["trade_date"] == previous_day]
         if len(prev) == 0:
-            raise ValueError(f"{self.name}: no history for previous day {previous_day.date()}")
+            raise ForecastUnavailableError(
+                f"{self.name}: no history for previous day {previous_day.date()}"
+            )
         forecast = prev.assign(trade_date=target_date).rename(
-            columns={"price_jpy_kwh": "forecast_price_jpy_kwh"}
+            columns={TASK.value_col: TASK.forecast_col}
         )
-        return DayAheadForecast.from_df(forecast)
+        return SpotPriceForecast.from_df(forecast)
 
     def build_eval_set(
         self,
-        prices: SpotPrices,
+        history: SpotPrices,
         start_date: pd.Timestamp,
         end_date: pd.Timestamp,
-        result: BacktestResult | None = None,
+        run: BacktestRun | None = None,
     ) -> PreviousDayEvalSet:
         """Assemble the MLflow design matrix for a backtest window.
 
@@ -140,11 +141,11 @@ class PreviousDayStrategy(ForecastStrategy):
 
         Parameters
         ----------
-        prices : SpotPrices
+        history : SpotPrices
             Full price history; must cover ``start_date`` minus 1 day.
         start_date, end_date : pandas.Timestamp
             First and last delivery days, inclusive.
-        result : BacktestResult, optional
+        run : BacktestRun, optional
             Unused: the logged pyfunc model restates this strategy's rule
             exactly, so evaluation re-scores the model instead of replaying
             the backtest's predictions.
@@ -158,9 +159,9 @@ class PreviousDayStrategy(ForecastStrategy):
         ValueError
             If no complete rows remain in the window.
         """
-        df = prices.df
-        featured = df.rename(columns={"price_jpy_kwh": TARGET_COL}).pipe(
-            join_lag, df, days=1, name="lag_1d_price"
+        df = history.df
+        featured = df.rename(columns={TASK.value_col: TARGET_COL}).pipe(
+            join_lag, df, value_col=TASK.value_col, days=1, name="lag_1d_price"
         )
 
         window = featured[featured["trade_date"].between(start_date, end_date)]

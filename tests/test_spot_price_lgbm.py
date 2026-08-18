@@ -18,11 +18,12 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from power_market_analytics.tasks.spot_price.backtest import run_backtest
+from power_market_analytics.forecasting.backtest import BacktestRun, run_backtest
+from power_market_analytics.forecasting.strategy import ForecastUnavailableError
 from power_market_analytics.tasks.spot_price.frames import (
-    BacktestResult,
-    DayAheadForecast,
     OcctoDemandForecast,
+    SpotPriceBacktestResult,
+    SpotPriceForecast,
     SpotPrices,
 )
 from power_market_analytics.tasks.spot_price.strategies.lgbm import (
@@ -238,7 +239,7 @@ class TestInit:
 
 
 @pytest.fixture(scope="module")
-def fitted(prices: SpotPrices) -> tuple[LightGbmStrategy, DayAheadForecast]:
+def fitted(prices: SpotPrices) -> tuple[LightGbmStrategy, SpotPriceForecast]:
     """One strategy after a single ``predict`` for ``D``, shared by the read-only checks."""
     strategy = LightGbmStrategy(train_window_days=30, refit_every_days=7)
     forecast = strategy.predict(D, history_before(prices, D))
@@ -248,7 +249,7 @@ def fitted(prices: SpotPrices) -> tuple[LightGbmStrategy, DayAheadForecast]:
 class TestPredict:
     def test_returns_48_finite_prices_for_the_target_day(self, fitted):
         _, forecast = fitted
-        assert isinstance(forecast, DayAheadForecast)
+        assert isinstance(forecast, SpotPriceForecast)
         assert len(forecast) == 48
         assert forecast.df["trade_date"].dtype == "datetime64[ns]"
         assert forecast.df["trade_date"].eq(D).all()
@@ -307,11 +308,14 @@ class TestPredict:
         (recorded,) = strategy._shap_records
         assert recorded.unit == "ns"
 
-    def test_missing_previous_day_raises(self, prices):
+    def test_missing_previous_day_is_unforecastable(self, prices):
         strategy = LightGbmStrategy(train_window_days=30)
         # History stops two days before the target: enough to fit, but D-1 is absent.
         history = history_before(prices, D - pd.Timedelta(days=1))
-        with pytest.raises(ValueError, match="lightgbm: no history for previous day 2024-04-09"):
+        with pytest.raises(
+            ForecastUnavailableError,
+            match=r"lightgbm: features \['lag_1d_price'\] unavailable for 2024-04-10",
+        ):
             strategy.predict(D, history)
 
     def test_feature_unavailable_for_target_day_raises(self, prices):
@@ -319,7 +323,7 @@ class TestPredict:
         occto = make_occto(pd.date_range(HISTORY_START, D - pd.Timedelta(days=1)))
         strategy = LightGbmOcctoStrategy(occto, train_window_days=30)
         with pytest.raises(
-            ValueError,
+            ForecastUnavailableError,
             match=(
                 r"lightgbm_occto: features \['max_demand_hour_ending', 'max_demand_mw', "
                 r"'max_supply_capacity_mw'\] unavailable for 2024-04-10"
@@ -390,7 +394,7 @@ class TestEnsureFitted:
     def test_train_start_date_after_the_history_raises(self, prices):
         strategy = LightGbmStrategy(train_window_days=30, train_start_date=D)
         with pytest.raises(
-            ValueError,
+            ForecastUnavailableError,
             match="lightgbm: no complete training rows in the 30 days before 2024-04-10",
         ):
             strategy.predict(D, history_before(prices, D))
@@ -400,7 +404,7 @@ class TestEnsureFitted:
         only_previous_day = SpotPrices.from_df(
             prices.df[prices.df["trade_date"] == D - pd.Timedelta(days=1)]
         )
-        with pytest.raises(ValueError, match="no complete training rows"):
+        with pytest.raises(ForecastUnavailableError, match="no complete training rows"):
             strategy.predict(D, only_previous_day)
 
 
@@ -410,9 +414,9 @@ WINDOW_START = pd.Timestamp("2024-04-01")
 WINDOW_END = pd.Timestamp("2024-04-14")
 
 
-def hand_backtest_result() -> BacktestResult:
-    """A minimal, valid BacktestResult for tests that only need *some* result."""
-    return BacktestResult.from_df(
+def hand_backtest_run() -> BacktestRun:
+    """A minimal, valid BacktestRun for tests that only need *some* run."""
+    result = SpotPriceBacktestResult.from_df(
         pd.DataFrame(
             {
                 "trade_date": pd.to_datetime(["2024-04-01"]),
@@ -422,24 +426,26 @@ def hand_backtest_result() -> BacktestResult:
             }
         )
     )
+    return BacktestRun(result=result, skipped_days=())
 
 
 @pytest.fixture(scope="module")
-def backtested(prices: SpotPrices) -> tuple[LightGbmStrategy, BacktestResult]:
+def backtested(prices: SpotPrices) -> tuple[LightGbmStrategy, BacktestRun]:
     """One strategy backtested over ``WINDOW_START..WINDOW_END`` (two refits)."""
     strategy = LightGbmStrategy(train_window_days=30, refit_every_days=7)
-    result = run_backtest(strategy, prices, WINDOW_START, WINDOW_END)
-    return strategy, result
+    run = run_backtest(strategy, prices, WINDOW_START, WINDOW_END)
+    return strategy, run
 
 
 class TestBuildEvalSet:
     def test_requires_the_backtest_result(self, prices):
-        with pytest.raises(ValueError, match="lightgbm: build_eval_set requires the backtest"):
+        with pytest.raises(ValueError, match="lightgbm: build_eval_set requires the backtest run"):
             LightGbmStrategy().build_eval_set(prices, WINDOW_START, WINDOW_END)
 
     def test_replays_the_backtest_forecasts_onto_the_feature_rows(self, backtested, prices):
-        strategy, result = backtested
-        eval_set = strategy.build_eval_set(prices, WINDOW_START, WINDOW_END, result=result)
+        strategy, run = backtested
+        eval_set = strategy.build_eval_set(prices, WINDOW_START, WINDOW_END, run=run)
+        result = run.result
         assert type(eval_set) is LightGbmEvalSet
         assert len(eval_set) == 14 * 48
         assert eval_set.df.dtypes.astype(str).to_dict() == {
@@ -474,14 +480,12 @@ class TestBuildEvalSet:
         # 2024-03-01 has no lag and is dropped; 2024-03-02 has complete
         # features but was never backtested, so it has no forecast to replay.
         strategy = LightGbmStrategy(train_window_days=30)
-        result = run_backtest(
-            strategy, prices, pd.Timestamp("2024-03-03"), pd.Timestamp("2024-03-04")
-        )
+        run = run_backtest(strategy, prices, pd.Timestamp("2024-03-03"), pd.Timestamp("2024-03-04"))
         with pytest.raises(
             ValueError, match="LightGbmEvalSet: column 'forecast_price_jpy_kwh' has 48 null values"
         ):
             strategy.build_eval_set(
-                prices, pd.Timestamp("2024-03-01"), pd.Timestamp("2024-03-04"), result=result
+                prices, pd.Timestamp("2024-03-01"), pd.Timestamp("2024-03-04"), run=run
             )
 
     def test_window_with_only_incomplete_rows_raises(self, prices):
@@ -490,7 +494,7 @@ class TestBuildEvalSet:
             match="lightgbm: no complete feature rows between 2024-03-01 and 2024-03-01",
         ):
             LightGbmStrategy().build_eval_set(
-                prices, HISTORY_START, HISTORY_START, result=hand_backtest_result()
+                prices, HISTORY_START, HISTORY_START, run=hand_backtest_run()
             )
 
     def test_window_outside_the_history_raises(self, prices):
@@ -499,8 +503,23 @@ class TestBuildEvalSet:
                 prices,
                 pd.Timestamp("2025-01-01"),
                 pd.Timestamp("2025-01-31"),
-                result=hand_backtest_result(),
+                run=hand_backtest_run(),
             )
+
+    def test_skipped_days_are_dropped_from_the_eval_set(self, prices):
+        strategy = LightGbmStrategy(train_window_days=30)
+        run = run_backtest(strategy, prices, WINDOW_START, pd.Timestamp("2024-04-03"))
+        skipped = BacktestRun(
+            result=SpotPriceBacktestResult.from_df(
+                run.result.df[run.result.df["trade_date"] != pd.Timestamp("2024-04-02")]
+            ),
+            skipped_days=(pd.Timestamp("2024-04-02"),),
+        )
+        eval_set = strategy.build_eval_set(
+            prices, WINDOW_START, pd.Timestamp("2024-04-03"), run=skipped
+        )
+        assert len(eval_set) == 2 * 48
+        assert pd.Timestamp("2024-04-02") not in set(eval_set.df["trade_date"])
 
 
 # --------------------------------------------------------------------------- evaluate
@@ -532,8 +551,8 @@ class TestEvaluate:
 
     def test_logs_backtest_metrics_params_plots_and_model(self, prices):
         strategy = LightGbmStrategy(train_window_days=30, refit_every_days=7)
-        result = run_backtest(strategy, prices, WINDOW_START, WINDOW_END)
-        eval_set = strategy.build_eval_set(prices, WINDOW_START, WINDOW_END, result=result)
+        run = run_backtest(strategy, prices, WINDOW_START, WINDOW_END)
+        eval_set = strategy.build_eval_set(prices, WINDOW_START, WINDOW_END, run=run)
         with mlflow.start_run() as run:
             evaluation = strategy.evaluate(eval_set)
 
@@ -574,8 +593,8 @@ class TestEvaluate:
         strategy = LightGbmStrategy(
             train_window_days=30, refit_every_days=7, train_start_date="2024-03-20"
         )
-        result = run_backtest(strategy, prices, WINDOW_START, WINDOW_END)
-        eval_set = strategy.build_eval_set(prices, WINDOW_START, WINDOW_END, result=result)
+        run = run_backtest(strategy, prices, WINDOW_START, WINDOW_END)
+        eval_set = strategy.build_eval_set(prices, WINDOW_START, WINDOW_END, run=run)
         with mlflow.start_run() as run:
             strategy.evaluate(eval_set, explainability_nsamples=50)
         params = mlflow.MlflowClient().get_run(run.info.run_id).data.params
@@ -584,8 +603,8 @@ class TestEvaluate:
     def test_contributions_must_cover_every_eval_row(self, prices):
         # `other` only backtested (and so only explained) the first 10 days.
         full = LightGbmStrategy(train_window_days=30, refit_every_days=7)
-        result = run_backtest(full, prices, WINDOW_START, WINDOW_END)
-        eval_set = full.build_eval_set(prices, WINDOW_START, WINDOW_END, result=result)
+        run = run_backtest(full, prices, WINDOW_START, WINDOW_END)
+        eval_set = full.build_eval_set(prices, WINDOW_START, WINDOW_END, run=run)
         other = LightGbmStrategy(train_window_days=30, refit_every_days=7)
         run_backtest(other, prices, WINDOW_START, pd.Timestamp("2024-04-10"))
         with mlflow.start_run():
@@ -628,10 +647,10 @@ class TestLightGbmOcctoStrategy:
     def test_backtest_eval_set_and_evaluation_use_the_occto_features(self, prices):
         occto = make_occto(pd.date_range("2024-03-15", "2024-04-14"))
         strategy = LightGbmOcctoStrategy(occto, train_window_days=30, refit_every_days=7)
-        result = run_backtest(strategy, prices, WINDOW_START, WINDOW_END)
+        run = run_backtest(strategy, prices, WINDOW_START, WINDOW_END)
         # OCCTO rows start 03-15, so the 04-01 fit sees 03-15..03-31 only.
         assert training_rows(strategy) == 24 * 48  # last refit (04-08): 03-15..04-07
-        eval_set = strategy.build_eval_set(prices, WINDOW_START, WINDOW_END, result=result)
+        eval_set = strategy.build_eval_set(prices, WINDOW_START, WINDOW_END, run=run)
         assert type(eval_set) is LightGbmOcctoEvalSet
         assert len(eval_set) == 14 * 48
         assert eval_set.df.dtypes.astype(str).to_dict() == {
@@ -691,9 +710,14 @@ class TestLightGbmOcctoStrategy:
         second = run_backtest(
             strategy, prices, pd.Timestamp("2024-04-07"), pd.Timestamp("2024-04-10")
         )
-        result = BacktestResult.from_df(pd.concat([first.df, second.df], ignore_index=True))
+        run = BacktestRun(
+            result=SpotPriceBacktestResult.from_df(
+                pd.concat([first.result.df, second.result.df], ignore_index=True)
+            ),
+            skipped_days=(),
+        )
         eval_set = strategy.build_eval_set(
-            prices, WINDOW_START, pd.Timestamp("2024-04-10"), result=result
+            prices, WINDOW_START, pd.Timestamp("2024-04-10"), run=run
         )
         assert len(eval_set) == 9 * 48
         assert pd.Timestamp("2024-04-06") not in set(eval_set.df["trade_date"])

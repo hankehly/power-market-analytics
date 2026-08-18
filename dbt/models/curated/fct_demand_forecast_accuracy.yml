@@ -1,0 +1,99 @@
+models:
+  - name: fct_demand_forecast_accuracy
+    config:
+      contract:
+        enforced: true
+    description: >
+      Forecast accuracy mart: fct_demand_forecast drilled across to
+      fct_area_demand_generation_actual on (date_key, time_code, area_key).
+      Grain: one row per MLflow run x delivery period x area, same as the
+      forecast fact. This is the intended BI surface — slice error by
+      dim_date (holidays, fiscal year), dim_delivery_period (day parts) or
+      weather. Periods whose actual was unpublished when the run was scored
+      (the TSO holes: Tokyo 2025-06-14 time codes 11-48, Kansai 2025-10-12)
+      are not in the forecast fact at all — the backtest publishes scored
+      periods only — so error columns are null only if an actual is later
+      revised away; the percentage errors are additionally null when the
+      actual is 0, so AVG(abs_pct_error) reproduces the run's mape_excl_zero_actuals metric
+      and AVG(abs_error_kwh) its MAE. error_kwh is signed (forecast -
+      actual, positive = over-forecast). Error measures are NON-ADDITIVE:
+      average, never sum.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - run_id
+              - date_key
+              - time_code
+              - area_key
+    columns:
+      - name: date_key
+        data_type: date
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_date')
+                field: date_key
+      - name: time_code
+        data_type: int
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_delivery_period')
+                field: time_code
+      - name: area_key
+        data_type: int
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_area')
+                field: area_key
+      - name: run_id
+        data_type: string
+        data_tests:
+          - not_null
+      - name: strategy
+        data_type: string
+        data_tests:
+          - not_null
+      - name: trade_datetime
+        data_type: timestamp
+        data_tests:
+          - not_null
+      - name: forecast_issued_ts
+        data_type: timestamp
+        data_tests:
+          - not_null
+      - name: horizon_hours
+        data_type: double
+        data_tests:
+          - not_null
+      - name: published_at
+        data_type: timestamp
+        data_tests:
+          - not_null
+      - name: forecast_demand_kwh
+        data_type: double
+        data_tests:
+          - not_null
+      - name: actual_demand_kwh
+        data_type: bigint
+      - name: error_kwh
+        data_type: double
+      - name: abs_error_kwh
+        data_type: double
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+      - name: pct_error
+        data_type: double
+      - name: abs_pct_error
+        data_type: double
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0

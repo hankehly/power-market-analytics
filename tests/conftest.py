@@ -5,8 +5,8 @@ warehouse and catalog rooted in a temporary directory, so loader tests can
 ``saveAsTable`` without touching the devcontainer warehouse.
 
 ``curated_warehouse`` populates a small synthetic ``pma_curated`` star (the
-tables the spot-price task reads) in that same temp warehouse, and
-``mlflow_store`` points MLflow at a temp file store so nothing lands in
+tables the spot-price and demand tasks read) in that same temp warehouse,
+and ``mlflow_store`` points MLflow at a temp file store so nothing lands in
 ``./mlruns``.
 """
 
@@ -91,7 +91,17 @@ def mlflow_store(tmp_path_factory: pytest.TempPathFactory) -> str:
 # Synthetic stand-in for the dbt curated layer, shaped like the real models
 # (same column names and Spark types) but tiny and deterministic.
 
-AREAS = pd.DataFrame({"area_key": [1, 2], "area_code": ["tokyo", "kansai"]})
+#: Representative JMA stations written to dim_area; only tokyo's has weather rows.
+TOKYO_STATION_ID = "s47662"
+KANSAI_STATION_ID = "s47772"
+
+AREAS = pd.DataFrame(
+    {
+        "area_key": [1, 2],
+        "area_code": ["tokyo", "kansai"],
+        "representative_jma_station_id": [TOKYO_STATION_ID, KANSAI_STATION_ID],
+    }
+)
 TOKYO_AREA_KEY = 1
 
 #: Delivery days with spot prices (tokyo only).
@@ -106,6 +116,13 @@ CANDIDATE_RUN_ID = "run-candidate"
 #: A third run scored on a different window (for "not matched" errors).
 UNMATCHED_RUN_ID = "run-unmatched"
 UNMATCHED_DAYS = pd.date_range("2024-04-15", "2024-04-20", freq="D")
+#: Delivery days with demand actuals (tokyo only) — the same span as the prices.
+DEMAND_DAYS = PRICE_DAYS
+#: One partial-day hole like Tokyo 2025-06-14: time codes 11..48 have null demand.
+DEMAND_HOLE_DAY = pd.Timestamp("2024-04-20")
+DEMAND_HOLE_TIME_CODES = range(11, 49)
+#: (observation day, hour_ending) pairs whose temperature is null.
+TEMPERATURE_MISSING_HOURS = {(pd.Timestamp("2024-04-25"), 13), (pd.Timestamp("2024-04-25"), 14)}
 
 
 def synthetic_price(day: pd.Timestamp, time_code: int) -> float:
@@ -128,6 +145,23 @@ def day_part(time_code: int) -> str:
     return "Evening"
 
 
+def synthetic_demand(day: pd.Timestamp, time_code: int) -> int:
+    """Deterministic 30-minute demand in kWh: daily shape, weekend dip, slow drift.
+
+    Multiples of 1,000 like TEPCO's published values.
+    """
+    day_index = (day - PRICE_DAYS[0]).days
+    shape = 15_000_000 - 4_000_000 * math.cos(2 * math.pi * (time_code - 1) / 48)
+    weekend = -1_000_000 if day.dayofweek >= 5 else 0
+    return int(round((shape + weekend + 5_000 * day_index) / 1000) * 1000)
+
+
+def synthetic_temperature(day: pd.Timestamp, hour_ending: int) -> float:
+    """Deterministic hourly temperature in °C: diurnal cycle plus slow warming."""
+    day_index = (day - PRICE_DAYS[0]).days
+    return round(8.0 + 0.15 * day_index + 5.0 * math.sin(2 * math.pi * (hour_ending - 9) / 24), 1)
+
+
 @dataclasses.dataclass(frozen=True)
 class CuratedWarehouse:
     """What ``curated_warehouse`` created, as the pandas frames it wrote.
@@ -139,6 +173,12 @@ class CuratedWarehouse:
         ``fct_occto_demand_supply_forecast_daily``, ``dim_delivery_period``
         and ``fct_spot_price_forecast_accuracy`` (tokyo rows only, except the
         area dimension).
+    demand : pandas.DataFrame
+        Contents of ``fct_area_demand_generation_actual`` (tokyo,
+        ``demand_kwh`` NaN in the hole).
+    weather : pandas.DataFrame
+        Contents of ``fct_jma_weather_hourly`` (s47662, hourly,
+        ``temperature_c`` NaN for the missing hours).
     """
 
     areas: pd.DataFrame
@@ -146,6 +186,8 @@ class CuratedWarehouse:
     occto: pd.DataFrame
     delivery_periods: pd.DataFrame
     accuracy: pd.DataFrame
+    demand: pd.DataFrame
+    weather: pd.DataFrame
 
 
 @pytest.fixture(scope="session")
@@ -208,10 +250,64 @@ def curated_warehouse(spark: SparkSession) -> CuratedWarehouse:
                 )
     accuracy = pd.DataFrame(accuracy_rows)
 
+    demand_rows: list[tuple] = []
+    demand_records: list[dict] = []
+    for day in DEMAND_DAYS:
+        for tc in range(1, 49):
+            in_hole = day == DEMAND_HOLE_DAY and tc in DEMAND_HOLE_TIME_CODES
+            demand_kwh = None if in_hole else synthetic_demand(day, tc)
+            demand_rows.append(
+                (
+                    day.date(),
+                    tc,
+                    TOKYO_AREA_KEY,
+                    (day + pd.Timedelta(minutes=30 * (tc - 1))).to_pydatetime(),
+                    demand_kwh,
+                    synthetic_demand(day, tc) + 500_000,
+                    1_000_000,
+                )
+            )
+            demand_records.append(
+                {
+                    "date_key": day.date(),
+                    "time_code": tc,
+                    "area_key": TOKYO_AREA_KEY,
+                    "demand_kwh": demand_kwh,
+                }
+            )
+    demand = pd.DataFrame(demand_records).astype({"demand_kwh": "float64"})
+    weather_rows: list[tuple] = []
+    weather_records: list[dict] = []
+    for day in DEMAND_DAYS:
+        for hour in range(1, 25):
+            temperature = (
+                None
+                if (day, hour) in TEMPERATURE_MISSING_HOURS
+                else synthetic_temperature(day, hour)
+            )
+            weather_rows.append(
+                (
+                    TOKYO_STATION_ID,
+                    (day + pd.Timedelta(hours=hour)).to_pydatetime(),
+                    (day + pd.Timedelta(hours=hour - 1)).to_pydatetime(),
+                    day.date(),
+                    temperature,
+                )
+            )
+            weather_records.append(
+                {
+                    "station_id": TOKYO_STATION_ID,
+                    "date_key": day.date(),
+                    "hour_ending": hour,
+                    "temperature_c": temperature,
+                }
+            )
+    weather = pd.DataFrame(weather_records).astype({"temperature_c": "float64"})
+
     spark.sql("CREATE DATABASE IF NOT EXISTS pma_curated")
-    spark.createDataFrame(AREAS, "area_key int, area_code string").write.mode(
-        "overwrite"
-    ).saveAsTable("pma_curated.dim_area")
+    spark.createDataFrame(
+        AREAS, "area_key int, area_code string, representative_jma_station_id string"
+    ).write.mode("overwrite").saveAsTable("pma_curated.dim_area")
     spark.createDataFrame(
         prices,
         "date_key date, time_code int, area_key int, trade_datetime timestamp, "
@@ -230,10 +326,22 @@ def curated_warehouse(spark: SparkSession) -> CuratedWarehouse:
         "date_key date, time_code int, area_key int, run_id string, "
         "actual_price_jpy_kwh double, forecast_price_jpy_kwh double",
     ).write.mode("overwrite").saveAsTable("pma_curated.fct_spot_price_forecast_accuracy")
+    spark.createDataFrame(
+        demand_rows,
+        "date_key date, time_code int, area_key int, delivery_datetime timestamp, "
+        "demand_kwh bigint, generation_kwh bigint, wind_solar_generation_kwh bigint",
+    ).write.mode("overwrite").saveAsTable("pma_curated.fct_area_demand_generation_actual")
+    spark.createDataFrame(
+        weather_rows,
+        "station_id string, observed_at timestamp, observed_hour_start_at timestamp, "
+        "date_key date, temperature_c double",
+    ).write.mode("overwrite").saveAsTable("pma_curated.fct_jma_weather_hourly")
     return CuratedWarehouse(
         areas=AREAS,
         prices=prices,
         occto=occto,
         delivery_periods=delivery_periods,
         accuracy=accuracy,
+        demand=demand,
+        weather=weather,
     )

@@ -1,4 +1,4 @@
-"""Tests for the forecast write-back to ``pma_ml.spot_price_forecast``.
+"""Tests for the forecast write-back, exercised through the spot task (``pma_ml.spot_price_forecast``).
 
 The publish tests write real parquet partitions into the session's temp Spark
 warehouse. Run ids are unique to this module so the assertions filter on them
@@ -7,19 +7,28 @@ and never depend on what else the session published to the same table.
 
 from __future__ import annotations
 
+import dataclasses
+
 import pandas as pd
 
-from power_market_analytics.tasks.spot_price.frames import BacktestResult, ForecastRecords
-from power_market_analytics.tasks.spot_price.publish import (
-    FORECAST_TABLE,
+from power_market_analytics.forecasting.publish import (
     build_forecast_records,
     publish_forecast_records,
 )
+from power_market_analytics.tasks.spot_price import TASK
+from power_market_analytics.tasks.spot_price.frames import (
+    SpotPriceBacktestResult,
+    SpotPriceForecastRecords,
+)
+
+FORECAST_TABLE = TASK.forecast_table
 
 
-def make_result(days: list[str], time_codes: list[int], base: float = 10.0) -> BacktestResult:
+def make_result(
+    days: list[str], time_codes: list[int], base: float = 10.0
+) -> SpotPriceBacktestResult:
     """A small BacktestResult; forecast = base + time_code / 10, actual = base."""
-    return BacktestResult.from_df(
+    return SpotPriceBacktestResult.from_df(
         pd.DataFrame(
             [
                 {
@@ -38,12 +47,13 @@ def make_result(days: list[str], time_codes: list[int], base: float = 10.0) -> B
 class TestBuildForecastRecords:
     def test_stamps_run_strategy_area_and_issue_time(self):
         records = build_forecast_records(
+            TASK,
             make_result(["2024-04-10", "2024-04-11"], [1, 2, 48]),
             run_id="run-123",
             strategy="previous_day",
             area_code="tokyo",
         )
-        assert isinstance(records, ForecastRecords)
+        assert isinstance(records, SpotPriceForecastRecords)
         assert len(records) == 6
         assert list(records.df.columns) == [
             "run_id",
@@ -77,7 +87,7 @@ class TestBuildForecastRecords:
     def test_published_at_is_one_naive_jst_instant_per_run(self):
         before = pd.Timestamp.now(tz="Asia/Tokyo").tz_localize(None)
         records = build_forecast_records(
-            make_result(["2024-04-10"], [1, 2]), run_id="r", strategy="s", area_code="tokyo"
+            TASK, make_result(["2024-04-10"], [1, 2]), run_id="r", strategy="s", area_code="tokyo"
         )
         after = pd.Timestamp.now(tz="Asia/Tokyo").tz_localize(None)
         published_at = records.df["published_at"]
@@ -86,6 +96,14 @@ class TestBuildForecastRecords:
         assert published_at.nunique() == 1
         # JST wall-clock, not UTC (which would be 9 h behind).
         assert before <= published_at.iloc[0] <= after
+
+    def test_issue_time_comes_from_the_task_spec(self):
+        # A task issuing at 09:30 two days ahead stamps that instead of spot's 09:55.
+        other = dataclasses.replace(TASK, issue_offset=pd.Timedelta(days=-2, hours=9, minutes=30))
+        records = build_forecast_records(
+            other, make_result(["2024-04-10"], [1]), run_id="r", strategy="s", area_code="tokyo"
+        )
+        assert records.df["forecast_issued_ts"].iloc[0] == pd.Timestamp("2024-04-08 09:30")
 
 
 def published_rows(spark, run_id: str) -> pd.DataFrame:
@@ -113,12 +131,13 @@ def published_rows(spark, run_id: str) -> pd.DataFrame:
 class TestPublishForecastRecords:
     def test_creates_the_partitioned_table_and_writes_the_rows(self, spark):
         records = build_forecast_records(
+            TASK,
             make_result(["2024-04-10", "2024-04-11"], [1, 2]),
             run_id="pub-create",
             strategy="lightgbm",
             area_code="tokyo",
         )
-        assert publish_forecast_records(records, spark=spark) == 4
+        assert publish_forecast_records(TASK, records, spark=spark) == 4
 
         assert spark.catalog.tableExists(FORECAST_TABLE)
         columns = {c.name: c for c in spark.catalog.listColumns(FORECAST_TABLE)}
@@ -151,28 +170,31 @@ class TestPublishForecastRecords:
 
     def test_republishing_a_run_replaces_only_that_runs_partition(self, spark):
         keep = build_forecast_records(
+            TASK,
             make_result(["2024-04-10"], [1, 2], base=20.0),
             run_id="pub-keep",
             strategy="previous_day",
             area_code="tokyo",
         )
         first = build_forecast_records(
+            TASK,
             make_result(["2024-04-10", "2024-04-11"], [1, 2], base=10.0),
             run_id="pub-replace",
             strategy="lightgbm",
             area_code="tokyo",
         )
-        publish_forecast_records(keep, spark=spark)
-        assert publish_forecast_records(first, spark=spark) == 4
+        publish_forecast_records(TASK, keep, spark=spark)
+        assert publish_forecast_records(TASK, first, spark=spark) == 4
 
         # Same run id, different window and values: the old four rows must go.
         second = build_forecast_records(
+            TASK,
             make_result(["2024-04-12"], [1], base=30.0),
             run_id="pub-replace",
             strategy="lightgbm",
             area_code="tokyo",
         )
-        assert publish_forecast_records(second, spark=spark) == 1
+        assert publish_forecast_records(TASK, second, spark=spark) == 1
 
         replaced = published_rows(spark, "pub-replace")
         assert replaced[["trade_date", "time_code", "forecast_price_jpy_kwh"]].values.tolist() == [
@@ -186,12 +208,13 @@ class TestPublishForecastRecords:
 
     def test_defaults_to_the_active_spark_session(self, spark):
         records = build_forecast_records(
+            TASK,
             make_result(["2024-04-10"], [7]),
             run_id="pub-default-session",
             strategy="s",
             area_code="kansai",
         )
-        assert publish_forecast_records(records) == 1
+        assert publish_forecast_records(TASK, records) == 1
         rows = published_rows(spark, "pub-default-session")
         assert rows[
             ["area_code", "trade_date", "time_code", "forecast_price_jpy_kwh"]

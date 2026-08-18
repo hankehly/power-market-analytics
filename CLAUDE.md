@@ -42,6 +42,15 @@
   matched two-run comparison (MAE overall / by day part / near the OCCTO peak hour / by
   month / high-price days, plus bias) as markdown; needs
   `just dbt build --select +fct_spot_price_forecast_accuracy` after the runs.
+- `just python scripts/demand_backtest.py --strategy lightgbm --area tokyo` — day-ahead area
+  demand backtest (strategies: `lightgbm`; areas: `tokyo`, `kansai` = the TSO feeds loaded into
+  `fct_area_demand_generation_actual`); each area also needs its representative JMA station's
+  hourly weather loaded and current (`dim_area.representative_jma_station_id`: 東京 s47662,
+  大阪 s47772 — as of 2026-08-18 s47772 is not loaded and s47662 ends 2026-07-19, so `--area
+  kansai` fails at strategy construction and a Tokyo window's last ~3 weeks are skipped for
+  lack of a temperature window; `just refresh-jma` fixes both). Same flags as the spot script
+  (`--days` defaults to 365); logs to the MLflow experiment `demand`, publishes to
+  `pma_ml.demand_forecast`, then `just dbt build --select +fct_demand_forecast_accuracy`.
 - Host-side dbt also works: `cd dbt && DBT_THRIFT_HOST=localhost uv run dbt <cmd>`.
 - Anything that creates a SparkSession MUST run in the devcontainer (metastore/warehouse only
   resolve on the compose network); plain python and dbt work from the host too.
@@ -105,7 +114,7 @@
 - Japanese holidays: Cabinet Office CSV → `scripts/update_holidays_seed.py` → seed → `dim_date`
   (spine end derives from the seed's max year).
 - Forecast write-back: `scripts/spot_price_backtest.py` logs the run to MLflow AND publishes
-  row-level forecasts (`tasks/spot_price/publish.py`) to `pma_ml.spot_price_forecast`
+  row-level forecasts (`forecasting/publish.py`) to `pma_ml.spot_price_forecast`
   (parquet, partitioned by `run_id`, dynamic partition overwrite = idempotent per run) →
   `stg/std_ml__spot_price_forecast` → `fct_spot_price_forecast` →
   `fct_spot_price_forecast_accuracy` (joins actuals; the Superset-facing surface).
@@ -115,6 +124,29 @@
   (`datasets.load_occto_demand_forecast`, from `fct_occto_demand_supply_forecast_daily`) to each
   delivery day's rows via the `_join_daily_features` hook; its training set therefore
   starts 2024-04-01, so a matched `lightgbm` baseline needs `--train-start 2024-04-01`.
+- Modeling tasks live under `power_market_analytics/tasks/<task>/` (`spot_price`, `demand`),
+  each a thin configuration of the shared framework `power_market_analytics/forecasting/`:
+  a frozen `TaskSpec` in the task's `__init__.py` (name = MLflow experiment, unit,
+  `history_lead_days`, `issue_offset`, `forecast_table`, the task's four frame classes),
+  frames as two-line subclasses of `forecasting.frames` (`HalfHourlySeries` / `DayAheadForecast`
+  / `BacktestResult` / `ForecastRecords`, schema assembled from `value_col` /
+  `forecast_col` / `actual_col`), `forecasting.backtest.run_backtest` (history the strategy
+  sees = days ≤ `task.history_cutoff(D)`; a `ForecastUnavailableError` skips the day and is
+  reported on `BacktestRun.skipped_days`; forecast points without an actual are dropped),
+  `forecasting.lgbm.SlidingWindowLightGbmStrategy` (subclass sets `task`, `feature_cols`,
+  `eval_set_cls`, `lookback_days`, implements `_add_features`), `forecasting.publish`
+  and `forecasting.plots`. Adding a task = TaskSpec + frames + datasets + strategies +
+  script + `pma_ml.<task>_forecast` dbt models.
+- Demand task (`tasks/demand/`): at 09:30 JST on D-1 forecast the 48 half-hourly `demand_kwh`
+  of `fct_area_demand_generation_actual` for D; usable history = days ≤ D-2
+  (`history_lead_days = 2`, TSO files finalise after midnight). `lightgbm` features =
+  `time_code, month, day_of_week, wavg_temperature_c, lag_7d_demand_kwh`;
+  `wavg_temperature_c` = same-hour temperature at the area's representative JMA station
+  (`dim_area.representative_jma_station_id`, seed `jepx_areas`; hour containing the period =
+  `(time_code + 1) // 2`) over D-8..D-2, weights halving per day back (`demand/features.py`).
+  Null-demand rows (TSO holes) are dropped at load; a target day whose D-7 lag falls in a hole
+  is skipped. Write-back: `pma_ml.demand_forecast` → `stg/std_ml__demand_forecast` →
+  `fct_demand_forecast` → `fct_demand_forecast_accuracy`.
 
 ## Gotchas
 
@@ -134,6 +166,10 @@
   `bigint`; TEPCO writes 0 for not-yet-observed periods and the archived 2025-06-14 file froze
   mid-day (time codes 11–48 all-zero) → those measures are null from `std` onward. Past days are
   occasionally re-issued, hence the always-re-download policy.
+- Timestamps in tests: PySpark's `collect()` renders `TimestampType` as a naive datetime in the
+  *process's* local time zone, while the `spark` fixture parses CSV strings in
+  `spark.sql.session.timeZone=Asia/Tokyo`; `tests/conftest.py` therefore pins `TZ=Asia/Tokyo`
+  for the test process (CI runners are UTC). Don't assume the host TZ in new tests.
 - Kansai actuals: the current month's zip includes the *running day* (blank cells for future
   periods) — the loader drops files whose ファイル更新日 is not after their 対象年月日; a finalized
   day can also have blank cells (2025-10-12, 22 periods) → null measures; two CSV layouts
