@@ -8,8 +8,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from power_market_analytics.forecasting.frames import N_PERIODS
 from power_market_analytics.tasks.spot_price.frames import (
-    N_PERIODS,
     OcctoDemandForecast,
     SpotPriceBacktestResult,
     SpotPriceForecast,

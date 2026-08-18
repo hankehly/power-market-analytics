@@ -1,4 +1,4 @@
-"""Interactive visualizations for spot price backtests.
+"""Interactive visualizations for backtests (any task).
 
 Figures are Plotly objects meant to be logged to MLflow as HTML artifacts
 (``mlflow.log_figure(fig, "name.html")``), which the MLflow UI renders
@@ -17,11 +17,12 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from power_market_analytics.common.metrics import mae, mape
-from power_market_analytics.tasks.spot_price.frames import (
+from power_market_analytics.forecasting.frames import (
     N_PERIODS,
     BacktestResult,
     MetricByYearTimeCode,
 )
+from power_market_analytics.forecasting.task import TaskSpec
 
 SEQUENTIAL_BLUES = [
     "#cde2fb",
@@ -70,6 +71,8 @@ def metric_by_year_time_code(
     Parameters
     ----------
     result : BacktestResult
+        Any task's backtest result; the actual/forecast columns are read off
+        its class.
     metric : callable
         Error metric taking (actual, forecast) Series, e.g.
         :func:`power_market_analytics.common.metrics.mae`.
@@ -78,11 +81,12 @@ def metric_by_year_time_code(
     -------
     MetricByYearTimeCode
     """
+    actual_col, forecast_col = type(result).actual_col, type(result).forecast_col
     df = result.df.assign(year=result.df["trade_date"].dt.year)
     long = (
         df.groupby(["year", "time_code"])
         .apply(
-            lambda g: metric(g["actual_price_jpy_kwh"], g["forecast_price_jpy_kwh"]),
+            lambda g: metric(g[actual_col], g[forecast_col]),
             include_groups=False,
         )
         .rename("value")
@@ -102,11 +106,13 @@ def _colorscale(ramp: list[str]) -> list[list]:
     return [[i / (len(ramp) - 1), color] for i, color in enumerate(ramp)]
 
 
-def error_heatmaps(result: BacktestResult, title: str) -> go.Figure:
+def error_heatmaps(task: TaskSpec, result: BacktestResult, title: str) -> go.Figure:
     """Build stacked interactive year x time_code heatmaps for MAE and MAPE.
 
     Parameters
     ----------
+    task : TaskSpec
+        Task the result belongs to; labels the MAE panel with ``task.unit``.
     result : BacktestResult
     title : str
         Figure title, e.g. the strategy and area under test.
@@ -116,7 +122,7 @@ def error_heatmaps(result: BacktestResult, title: str) -> go.Figure:
     plotly.graph_objects.Figure
     """
     panels = [
-        ("MAE", "JPY/kWh", mae, SEQUENTIAL_BLUES),
+        ("MAE", task.unit, mae, SEQUENTIAL_BLUES),
         ("MAPE", "%", mape, SEQUENTIAL_AQUAS),
     ]
     fig = make_subplots(
