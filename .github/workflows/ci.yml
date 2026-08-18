@@ -34,7 +34,7 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - uses: astral-sh/setup-uv@v10
+      - uses: astral-sh/setup-uv@v10.0.1  # no moving major tag past v7; pin the full version
         with:
           enable-cache: true
           python-version: "3.13"
@@ -54,7 +54,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: astral-sh/setup-uv@v10
+      - uses: astral-sh/setup-uv@v10.0.1  # no moving major tag past v7; pin the full version
 
       # Same command as `just checkov`; frameworks, skip paths and output
       # options come from .checkov.yaml. Version pinned here and in the
