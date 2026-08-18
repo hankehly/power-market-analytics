@@ -18,14 +18,13 @@ from loguru import logger
 
 from power_market_analytics.common.tracking import MAPE_METRIC_NAME, log_dataframe, task_run
 from power_market_analytics.forecasting.backtest import daily_metrics, run_backtest
-from power_market_analytics.tasks.spot_price import MLFLOW_EXPERIMENT
-from power_market_analytics.tasks.spot_price.datasets import AREA_CODES, load_area_spot_prices
-from power_market_analytics.tasks.spot_price.plots import error_heatmaps
-from power_market_analytics.tasks.spot_price.publish import (
-    FORECAST_TABLE,
+from power_market_analytics.forecasting.publish import (
     build_forecast_records,
     publish_forecast_records,
 )
+from power_market_analytics.tasks.spot_price import MLFLOW_EXPERIMENT, TASK
+from power_market_analytics.tasks.spot_price.datasets import AREA_CODES, load_area_spot_prices
+from power_market_analytics.tasks.spot_price.plots import error_heatmaps
 from power_market_analytics.tasks.spot_price.strategies import STRATEGIES, build_strategy
 
 
@@ -110,10 +109,14 @@ def main(argv: list[str] | None = None) -> None:
         log_dataframe(per_day, "daily_errors.csv")
         log_dataframe(result.df, "predictions.csv")
         records = build_forecast_records(
-            result, run_id=mlflow_run.info.run_id, strategy=args.strategy, area_code=args.area
+            TASK,
+            result,
+            run_id=mlflow_run.info.run_id,
+            strategy=args.strategy,
+            area_code=args.area,
         )
-        publish_forecast_records(records)
-        mlflow.set_tag("warehouse_table", FORECAST_TABLE)
+        publish_forecast_records(TASK, records)
+        mlflow.set_tag("warehouse_table", TASK.forecast_table)
         heatmaps = error_heatmaps(
             result, title=f"Error by year and time code — {args.strategy}, {args.area}"
         )
@@ -145,7 +148,7 @@ def main(argv: list[str] | None = None) -> None:
         logger.info("  {}={:.4f}", metric, value)
     logger.info("MLflow evaluation artifacts: {}", ", ".join(sorted(evaluation.artifacts)))
     logger.info("MLflow run: {} (experiment: {})", run_id, MLFLOW_EXPERIMENT)
-    logger.info("Forecasts written to {} (partition run_id={})", FORECAST_TABLE, run_id)
+    logger.info("Forecasts written to {} (partition run_id={})", TASK.forecast_table, run_id)
 
 
 if __name__ == "__main__":
