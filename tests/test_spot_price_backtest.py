@@ -8,13 +8,13 @@ import pytest
 from mlflow.models import EvaluationResult
 
 from power_market_analytics.common.frames import DomainFrame
+from power_market_analytics.forecasting.strategy import ForecastStrategy
 from power_market_analytics.tasks.spot_price.backtest import daily_metrics, run_backtest
 from power_market_analytics.tasks.spot_price.frames import (
     BacktestResult,
     DayAheadForecast,
     SpotPrices,
 )
-from power_market_analytics.tasks.spot_price.strategies.base import ForecastStrategy
 from power_market_analytics.tasks.spot_price.strategies.naive import PreviousDayStrategy
 
 D1, D2, D3, D4, D5, D6 = pd.date_range("2024-01-01", periods=6, freq="D", unit="ns")

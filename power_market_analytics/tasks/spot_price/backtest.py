@@ -6,8 +6,8 @@ import pandas as pd
 from loguru import logger
 
 from power_market_analytics.common.metrics import mae, mape
+from power_market_analytics.forecasting.strategy import ForecastStrategy
 from power_market_analytics.tasks.spot_price.frames import BacktestResult, SpotPrices
-from power_market_analytics.tasks.spot_price.strategies.base import ForecastStrategy
 
 
 def run_backtest(

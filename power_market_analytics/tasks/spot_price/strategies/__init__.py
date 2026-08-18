@@ -5,8 +5,8 @@ from __future__ import annotations
 import pandas as pd
 from pyspark.sql import SparkSession
 
+from power_market_analytics.forecasting.strategy import ForecastStrategy
 from power_market_analytics.tasks.spot_price.datasets import load_occto_demand_forecast
-from power_market_analytics.tasks.spot_price.strategies.base import ForecastStrategy
 from power_market_analytics.tasks.spot_price.strategies.lgbm import (
     LightGbmOcctoStrategy,
     LightGbmStrategy,
