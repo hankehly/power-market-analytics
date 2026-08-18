@@ -44,9 +44,13 @@
   `just dbt build --select +fct_spot_price_forecast_accuracy` after the runs.
 - `just python scripts/demand_backtest.py --strategy lightgbm --area tokyo` — day-ahead area
   demand backtest (strategies: `lightgbm`; areas: `tokyo`, `kansai` = the TSO feeds loaded into
-  `fct_area_demand_generation_actual`). Same flags as the spot script (`--days` defaults to
-  365); logs to the MLflow experiment `demand`, publishes to `pma_ml.demand_forecast`, then
-  `just dbt build --select +fct_demand_forecast_accuracy`.
+  `fct_area_demand_generation_actual`); each area also needs its representative JMA station's
+  hourly weather loaded and current (`dim_area.representative_jma_station_id`: 東京 s47662,
+  大阪 s47772 — as of 2026-08-18 s47772 is not loaded and s47662 ends 2026-07-19, so `--area
+  kansai` fails at strategy construction and a Tokyo window's last ~3 weeks are skipped for
+  lack of a temperature window; `just refresh-jma` fixes both). Same flags as the spot script
+  (`--days` defaults to 365); logs to the MLflow experiment `demand`, publishes to
+  `pma_ml.demand_forecast`, then `just dbt build --select +fct_demand_forecast_accuracy`.
 - Host-side dbt also works: `cd dbt && DBT_THRIFT_HOST=localhost uv run dbt <cmd>`.
 - Anything that creates a SparkSession MUST run in the devcontainer (metastore/warehouse only
   resolve on the compose network); plain python and dbt work from the host too.

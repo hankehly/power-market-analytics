@@ -9,10 +9,12 @@ models:
       Grain: one row per MLflow run x delivery period x area, same as the
       forecast fact. This is the intended BI surface — slice error by
       dim_date (holidays, fiscal year), dim_delivery_period (day parts) or
-      weather. Error columns are null when the actual is missing (the TSO
-      holes: Tokyo 2025-06-14 time codes 11-48, Kansai 2025-10-12); the
-      percentage errors are additionally null when the actual is 0, so
-      AVG(abs_pct_error) reproduces the run's mape_excl_zero_actuals metric
+      weather. Periods whose actual was unpublished when the run was scored
+      (the TSO holes: Tokyo 2025-06-14 time codes 11-48, Kansai 2025-10-12)
+      are not in the forecast fact at all — the backtest publishes scored
+      periods only — so error columns are null only if an actual is later
+      revised away; the percentage errors are additionally null when the
+      actual is 0, so AVG(abs_pct_error) reproduces the run's mape_excl_zero_actuals metric
       and AVG(abs_error_kwh) its MAE. error_kwh is signed (forecast -
       actual, positive = over-forecast). Error measures are NON-ADDITIVE:
       average, never sum.
