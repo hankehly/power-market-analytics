@@ -162,8 +162,7 @@ class MetricByYearTimeCode(DomainFrame):
         bad = df.loc[~df["time_code"].between(1, N_PERIODS), "time_code"]
         if not bad.empty:
             raise ValueError(
-                f"{cls.__name__}: time_code outside 1..{N_PERIODS}: "
-                f"{[int(x) for x in sorted(bad.unique())]}"
+                f"{cls.__name__}: time_code outside 1..{N_PERIODS}: {sorted(bad.unique())}"
             )
 
     def to_matrix(self) -> pd.DataFrame:
