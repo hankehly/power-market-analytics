@@ -1,8 +1,10 @@
 name: ci
 
-# Unit tests + coverage gate on every push (and on demand). The 100% threshold
-# lives in pyproject.toml ([tool.coverage.report] fail_under), so `just test`
-# locally and this job fail on exactly the same condition.
+# On every push (and on demand): the unit tests with their coverage gate, and a
+# checkov scan of the IaC. The 100% coverage threshold lives in pyproject.toml
+# ([tool.coverage.report] fail_under) and the checkov config in .checkov.yaml,
+# so `just test` / `just checkov` locally and these jobs fail on exactly the
+# same conditions.
 on:
   push:
   workflow_dispatch:
@@ -44,3 +46,18 @@ jobs:
       # fail_under = 100) comes from pyproject.toml.
       - name: Run tests with coverage
         run: uv run pytest --cov --cov-report=term-missing
+
+  checkov:
+    name: checkov (IaC + secrets)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v10
+
+      # Same command as `just checkov`; frameworks, skip paths and output
+      # options come from .checkov.yaml. Version pinned here and in the
+      # justfile — bump both together.
+      - name: Run checkov
+        run: uvx checkov@3.3.11
