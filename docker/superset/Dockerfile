@@ -8,3 +8,8 @@ FROM apache/superset:6.1.0
 USER root
 RUN uv pip install --no-cache "pyhive[hive_pure_sasl]" psycopg2-binary "fastmcp>=3.1.0,<4.0"
 USER superset
+
+# The image serves the web app on 8088 (docker-compose.yaml; the superset-mcp
+# service overrides this with a probe of its own port).
+HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=30 \
+    CMD ["curl", "-f", "http://localhost:8088/health"]

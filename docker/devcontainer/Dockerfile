@@ -74,5 +74,15 @@ COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     UV_LINK_MODE=copy uv sync --locked --no-install-project
 
+# A long-lived dev shell (`sleep infinity` in docker-compose.yaml) exposes no
+# service to probe, so no health check applies.
+HEALTHCHECK NONE
+
+# The dev shell runs as root by design: it shares the root-owned spark-warehouse
+# and mlartifacts volumes with the thriftserver, and docker-compose.yaml mounts
+# the host's ~/.aws, ~/.ssh and agent config dirs into /root. Moving it to a
+# non-root user is a cross-service permissions change, tracked separately.
+# checkov:skip=CKV_DOCKER_3: dev container runs as root by design (shared root-owned volumes, /root mounts)
+
 ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["bash"]
