@@ -51,6 +51,11 @@
   lack of a temperature window; `just refresh-jma` fixes both). Same flags as the spot script
   (`--days` defaults to 365); logs to the MLflow experiment `demand`, publishes to
   `pma_ml.demand_forecast`, then `just dbt build --select +fct_demand_forecast_accuracy`.
+- `just python scripts/create_forecast_dashboard.py [--task spot_price|demand]` — (re)build the
+  Superset forecast-analysis dashboards from the repo (idempotent; no `--task` = all): per task a
+  `DashboardSpec` (dataset SQL, unit, formats, band/calibration columns) drives one shared set of
+  chart/layout builders; charts are matched by name *within their dataset*, so both dashboards
+  share chart names. Rerun after `docker compose down -v` or after editing a spec.
 - Host-side dbt also works: `cd dbt && DBT_THRIFT_HOST=localhost uv run dbt <cmd>`.
 - Anything that creates a SparkSession MUST run in the devcontainer (metastore/warehouse only
   resolve on the compose network); plain python and dbt work from the host too.
@@ -117,7 +122,8 @@
   row-level forecasts (`forecasting/publish.py`) to `pma_ml.spot_price_forecast`
   (parquet, partitioned by `run_id`, dynamic partition overwrite = idempotent per run) →
   `stg/std_ml__spot_price_forecast` → `fct_spot_price_forecast` →
-  `fct_spot_price_forecast_accuracy` (joins actuals; the Superset-facing surface).
+  `fct_spot_price_forecast_accuracy` (joins actuals; the Superset-facing surface, read by the
+  **Spot Price Forecast Analysis** dashboard via the `spot_price_forecast_analysis` dataset).
   `run_id` links warehouse rows to the MLflow run; the run's `warehouse_table` tag points back.
   `tasks/spot_price/compare.py` reads the accuracy fact back for run-vs-run segment tables.
 - Exogenous features: `LightGbmOcctoStrategy` joins `OcctoDemandForecast`
@@ -146,7 +152,9 @@
   `(time_code + 1) // 2`) over D-8..D-2, weights halving per day back (`demand/features.py`).
   Null-demand rows (TSO holes) are dropped at load; a target day whose D-7 lag falls in a hole
   is skipped. Write-back: `pma_ml.demand_forecast` → `stg/std_ml__demand_forecast` →
-  `fct_demand_forecast` → `fct_demand_forecast_accuracy`.
+  `fct_demand_forecast` → `fct_demand_forecast_accuracy` → Superset **Demand Forecast Analysis**
+  dashboard (dataset `demand_forecast_analysis`; kWh with SI number formats, 2-GWh actual-demand
+  bands, calibration x = actual rounded to 1 GWh).
 
 ## Gotchas
 
