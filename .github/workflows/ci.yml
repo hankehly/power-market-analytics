@@ -1,0 +1,46 @@
+name: ci
+
+# Unit tests + coverage gate on every push (and on demand). The 100% threshold
+# lives in pyproject.toml ([tool.coverage.report] fail_under), so `just test`
+# locally and this job fail on exactly the same condition.
+on:
+  push:
+  workflow_dispatch:
+
+# A newer push to the same branch supersedes a run still in progress.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: pytest + coverage (100%)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # The suite starts a local SparkSession (PySpark 4 → JDK 17+); pin the
+      # bind address so the JVM never has to resolve the runner's hostname.
+      SPARK_LOCAL_IP: 127.0.0.1
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: astral-sh/setup-uv@v10
+        with:
+          enable-cache: true
+          python-version: "3.13"
+
+      - name: Install dependencies (locked)
+        run: uv sync --locked
+
+      # Same command as `just test`; coverage config (sources, branch mode,
+      # fail_under = 100) comes from pyproject.toml.
+      - name: Run tests with coverage
+        run: uv run pytest --cov --cov-report=term-missing
