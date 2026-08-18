@@ -7,7 +7,8 @@ with
     area_name_ja,
     tso_name_en,
     grid_frequency,
-    grid_region
+    grid_region,
+    representative_jma_station_id
   from
     {{ ref('jepx_areas') }}
   )
