@@ -120,7 +120,7 @@ def main(argv: list[str] | None = None) -> None:
         mlflow.log_figure(heatmaps, "error_heatmaps_year_time_code.html")
 
         eval_set = strategy.build_eval_set(
-            prices, start_date=start_date, end_date=end_date, result=result
+            prices, start_date=start_date, end_date=end_date, run=run
         )
         evaluation = strategy.evaluate(eval_set, explainability_nsamples=args.shap_nsamples)
 
