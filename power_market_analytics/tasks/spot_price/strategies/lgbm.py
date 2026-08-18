@@ -15,13 +15,14 @@ from mlflow.models import EvaluationResult
 from power_market_analytics.common.frames import DomainFrame
 from power_market_analytics.common.tracking import evaluate_predictions
 from power_market_analytics.forecasting.features import join_lag
+from power_market_analytics.forecasting.strategy import ForecastStrategy
+from power_market_analytics.tasks.spot_price import TASK
 from power_market_analytics.tasks.spot_price.frames import (
     BacktestResult,
     DayAheadForecast,
     OcctoDemandForecast,
     SpotPrices,
 )
-from power_market_analytics.tasks.spot_price.strategies.base import ForecastStrategy
 
 BASE_FEATURE_COLS = ("time_code", "month", "day_of_week", "lag_1d_price")
 OCCTO_FEATURE_COLS = ("max_demand_hour_ending", "max_demand_mw", "max_supply_capacity_mw")
@@ -142,6 +143,7 @@ class LightGbmStrategy(ForecastStrategy):
     """
 
     name = "lightgbm"
+    task = TASK
     feature_cols: ClassVar[tuple[str, ...]] = BASE_FEATURE_COLS
     eval_set_cls: ClassVar[type[LightGbmEvalSet]] = LightGbmEvalSet
 

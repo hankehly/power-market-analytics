@@ -11,12 +11,13 @@ from mlflow.models import EvaluationResult
 from power_market_analytics.common.frames import DomainFrame
 from power_market_analytics.common.tracking import evaluate_regressor
 from power_market_analytics.forecasting.features import join_lag
+from power_market_analytics.forecasting.strategy import ForecastStrategy
+from power_market_analytics.tasks.spot_price import TASK
 from power_market_analytics.tasks.spot_price.frames import (
     BacktestResult,
     DayAheadForecast,
     SpotPrices,
 )
-from power_market_analytics.tasks.spot_price.strategies.base import ForecastStrategy
 
 FEATURE_COLS = ("lag_1d_price",)
 TARGET_COL = "actual_price_jpy_kwh"
@@ -92,6 +93,7 @@ class PreviousDayStrategy(ForecastStrategy):
     """Forecast each time code with the same time code's price from D-1."""
 
     name = "previous_day"
+    task = TASK
 
     def predict(self, target_date: pd.Timestamp, history: SpotPrices) -> DayAheadForecast:
         """Copy the previous delivery day's 48 prices onto the target day.

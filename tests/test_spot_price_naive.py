@@ -7,8 +7,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from power_market_analytics.forecasting.strategy import ForecastStrategy
 from power_market_analytics.tasks.spot_price.frames import DayAheadForecast, SpotPrices
-from power_market_analytics.tasks.spot_price.strategies.base import ForecastStrategy
 from power_market_analytics.tasks.spot_price.strategies.naive import (
     FEATURE_COLS,
     TARGET_COL,
