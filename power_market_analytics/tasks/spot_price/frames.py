@@ -5,25 +5,12 @@ from __future__ import annotations
 import pandas as pd
 
 from power_market_analytics.common.frames import DomainFrame
-from power_market_analytics.forecasting import frames as generic
-from power_market_analytics.forecasting.frames import HalfHourlySeries, MetricByYearTimeCode
-
-# N_PERIODS and MetricByYearTimeCode are re-exported for the not-yet-migrated
-# spot_price.plots and its tests; Task 9 removes them together with the aliases.
-N_PERIODS = generic.N_PERIODS
-
-__all__ = [
-    "N_PERIODS",
-    "MetricByYearTimeCode",
-    "SpotPrices",
-    "OcctoDemandForecast",
-    "SpotPriceForecast",
-    "SpotPriceBacktestResult",
-    "SpotPriceForecastRecords",
-    "DayAheadForecast",
-    "BacktestResult",
-    "ForecastRecords",
-]
+from power_market_analytics.forecasting.frames import (
+    BacktestResult,
+    DayAheadForecast,
+    ForecastRecords,
+    HalfHourlySeries,
+)
 
 
 class SpotPrices(HalfHourlySeries):
@@ -67,7 +54,7 @@ class OcctoDemandForecast(DomainFrame):
             )
 
 
-class SpotPriceForecast(generic.DayAheadForecast):
+class SpotPriceForecast(DayAheadForecast):
     """Forecast for one delivery day: exactly 48 half-hour prices.
 
     Grain: (trade_date, time_code); trade_date is the target delivery day.
@@ -76,7 +63,7 @@ class SpotPriceForecast(generic.DayAheadForecast):
     forecast_col = "forecast_price_jpy_kwh"
 
 
-class SpotPriceBacktestResult(generic.BacktestResult):
+class SpotPriceBacktestResult(BacktestResult):
     """Forecasts joined to actual prices over a backtest window.
 
     Grain: (trade_date, time_code).
@@ -86,17 +73,10 @@ class SpotPriceBacktestResult(generic.BacktestResult):
     forecast_col = "forecast_price_jpy_kwh"
 
 
-class SpotPriceForecastRecords(generic.ForecastRecords):
+class SpotPriceForecastRecords(ForecastRecords):
     """One backtest run's price forecasts shaped for ``pma_ml.spot_price_forecast``.
 
     Grain: (run_id, area_code, trade_date, time_code).
     """
 
     forecast_col = "forecast_price_jpy_kwh"
-
-
-# Transitional aliases: the remaining spot_price modules and tests still import
-# these names; Tasks 4-9 migrate them and Task 9 deletes the aliases.
-DayAheadForecast = SpotPriceForecast
-BacktestResult = SpotPriceBacktestResult
-ForecastRecords = SpotPriceForecastRecords

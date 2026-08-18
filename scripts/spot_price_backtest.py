@@ -18,13 +18,13 @@ from loguru import logger
 
 from power_market_analytics.common.tracking import MAPE_METRIC_NAME, log_dataframe, task_run
 from power_market_analytics.forecasting.backtest import daily_metrics, run_backtest
+from power_market_analytics.forecasting.plots import error_heatmaps
 from power_market_analytics.forecasting.publish import (
     build_forecast_records,
     publish_forecast_records,
 )
 from power_market_analytics.tasks.spot_price import MLFLOW_EXPERIMENT, TASK
 from power_market_analytics.tasks.spot_price.datasets import AREA_CODES, load_area_spot_prices
-from power_market_analytics.tasks.spot_price.plots import error_heatmaps
 from power_market_analytics.tasks.spot_price.strategies import STRATEGIES, build_strategy
 
 
@@ -118,7 +118,7 @@ def main(argv: list[str] | None = None) -> None:
         publish_forecast_records(TASK, records)
         mlflow.set_tag("warehouse_table", TASK.forecast_table)
         heatmaps = error_heatmaps(
-            result, title=f"Error by year and time code — {args.strategy}, {args.area}"
+            TASK, result, title=f"Error by year and time code — {args.strategy}, {args.area}"
         )
         mlflow.log_figure(heatmaps, "error_heatmaps_year_time_code.html")
 

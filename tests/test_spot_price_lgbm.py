@@ -21,9 +21,9 @@ import pytest
 from power_market_analytics.forecasting.backtest import BacktestRun, run_backtest
 from power_market_analytics.forecasting.strategy import ForecastUnavailableError
 from power_market_analytics.tasks.spot_price.frames import (
-    BacktestResult,
-    DayAheadForecast,
     OcctoDemandForecast,
+    SpotPriceBacktestResult,
+    SpotPriceForecast,
     SpotPrices,
 )
 from power_market_analytics.tasks.spot_price.strategies.lgbm import (
@@ -239,7 +239,7 @@ class TestInit:
 
 
 @pytest.fixture(scope="module")
-def fitted(prices: SpotPrices) -> tuple[LightGbmStrategy, DayAheadForecast]:
+def fitted(prices: SpotPrices) -> tuple[LightGbmStrategy, SpotPriceForecast]:
     """One strategy after a single ``predict`` for ``D``, shared by the read-only checks."""
     strategy = LightGbmStrategy(train_window_days=30, refit_every_days=7)
     forecast = strategy.predict(D, history_before(prices, D))
@@ -249,7 +249,7 @@ def fitted(prices: SpotPrices) -> tuple[LightGbmStrategy, DayAheadForecast]:
 class TestPredict:
     def test_returns_48_finite_prices_for_the_target_day(self, fitted):
         _, forecast = fitted
-        assert isinstance(forecast, DayAheadForecast)
+        assert isinstance(forecast, SpotPriceForecast)
         assert len(forecast) == 48
         assert forecast.df["trade_date"].dtype == "datetime64[ns]"
         assert forecast.df["trade_date"].eq(D).all()
@@ -416,7 +416,7 @@ WINDOW_END = pd.Timestamp("2024-04-14")
 
 def hand_backtest_run() -> BacktestRun:
     """A minimal, valid BacktestRun for tests that only need *some* run."""
-    result = BacktestResult.from_df(
+    result = SpotPriceBacktestResult.from_df(
         pd.DataFrame(
             {
                 "trade_date": pd.to_datetime(["2024-04-01"]),
@@ -510,7 +510,7 @@ class TestBuildEvalSet:
         strategy = LightGbmStrategy(train_window_days=30)
         run = run_backtest(strategy, prices, WINDOW_START, pd.Timestamp("2024-04-03"))
         skipped = BacktestRun(
-            result=BacktestResult.from_df(
+            result=SpotPriceBacktestResult.from_df(
                 run.result.df[run.result.df["trade_date"] != pd.Timestamp("2024-04-02")]
             ),
             skipped_days=(pd.Timestamp("2024-04-02"),),
@@ -711,7 +711,7 @@ class TestLightGbmOcctoStrategy:
             strategy, prices, pd.Timestamp("2024-04-07"), pd.Timestamp("2024-04-10")
         )
         run = BacktestRun(
-            result=BacktestResult.from_df(
+            result=SpotPriceBacktestResult.from_df(
                 pd.concat([first.result.df, second.result.df], ignore_index=True)
             ),
             skipped_days=(),
