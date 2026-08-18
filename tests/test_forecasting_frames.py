@@ -227,7 +227,9 @@ class TestMetricByYearTimeCode:
 
     @pytest.mark.parametrize("bad", [0, 49])
     def test_time_code_outside_1_48_rejected(self, bad):
-        with pytest.raises(ValueError, match=f"time_code outside 1..48: \\[{bad}\\]"):
+        with pytest.raises(
+            ValueError, match=rf"time_code outside 1\.\.48: \[[^\]]*\b{bad}\b[^\]]*\]$"
+        ):
             MetricByYearTimeCode.from_df(self.make([2024], [bad], [1.0]))
 
     def test_nan_value_allowed(self):
