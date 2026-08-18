@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import pytest
+
 from power_market_analytics.forecasting.features import join_lag
 
 D1 = pd.Timestamp("2024-01-01")
