@@ -23,6 +23,10 @@
   downloaders take an injectable `session` (`session_factory` for OCCTO) and scripts are driven
   through `main(argv)` with their downloader/loader class swapped in the module namespace
   (`tests/support.import_script`).
+- `just checkov [checkov args]` — checkov scan (Dockerfiles, GitHub Actions workflows, secrets
+  in any committed file; config in `.checkov.yaml`, version pinned in the justfile and
+  `.github/workflows/ci.yml`). Exits 1 on any failed check; the `ci` workflow runs it as a
+  second job on every push.
 - `just python <args>` / `just exec <cmd>` / `just shell` — run inside the devcontainer.
 - `just dbt <args>` — dbt from `/workspace/dbt` (e.g. `just dbt build`, `just dbt show --inline "select ..." --limit 5`).
 - `just sql` — beeline shell on the thriftserver.

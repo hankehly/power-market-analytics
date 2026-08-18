@@ -1,0 +1,30 @@
+# Checkov (IaC + secrets scanner) configuration — auto-loaded from the repo
+# root, so `just checkov` and the CI job both run a bare `checkov`.
+# Docs: https://www.checkov.io/2.Basics/CLI%20Command%20Reference.html
+
+directory: [.]
+
+# The only IaC this repo carries: docker/*/Dockerfile, .github/workflows/*,
+# and committed config (secrets). Checkov has no docker-compose framework.
+framework: [dockerfile, github_actions, secrets]
+
+# By default the secrets scanner only reads IaC file types; scan everything
+# (Python, YAML, shell, ...) so a committed key is caught wherever it lands.
+enable-secret-scan-all-files: true
+
+# Regexes matched against the file path (unanchored). Skip the virtualenv,
+# downloaded data, MLflow runs, dbt vendored packages / build output, and
+# `.env` files (gitignored local secrets — never present in a CI checkout,
+# but always present, and always flagged, on a dev machine).
+skip-path:
+  - .venv/
+  - data/
+  - mlruns/
+  - dbt/dbt_packages/
+  - dbt/target/
+  - dbt/logs/
+  - /\.env$
+
+# Failures only, no source excerpts. Exit code 1 on any failed check.
+compact: true
+quiet: true
