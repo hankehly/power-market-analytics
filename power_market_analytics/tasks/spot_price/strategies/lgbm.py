@@ -14,7 +14,7 @@ from mlflow.models import EvaluationResult
 
 from power_market_analytics.common.frames import DomainFrame
 from power_market_analytics.common.tracking import evaluate_predictions
-from power_market_analytics.tasks.spot_price.features import join_lag
+from power_market_analytics.forecasting.features import join_lag
 from power_market_analytics.tasks.spot_price.frames import (
     BacktestResult,
     DayAheadForecast,
@@ -502,7 +502,7 @@ class LightGbmStrategy(ForecastStrategy):
         pandas.DataFrame
             ``points`` plus ``feature_cols`` (NaN where unavailable).
         """
-        featured = join_lag(points, prices, days=1, name="lag_1d_price")
+        featured = join_lag(points, prices, value_col="price_jpy_kwh", days=1, name="lag_1d_price")
         featured = featured.assign(
             month=featured["trade_date"].dt.month.astype("int64"),
             day_of_week=featured["trade_date"].dt.dayofweek.astype("int64"),
