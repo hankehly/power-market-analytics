@@ -56,6 +56,10 @@ branch = true
 [tool.coverage.report]
 show_missing = true
 skip_empty = true
+# The suite is gated at full coverage — locally (`just test`) and in CI
+# (.github/workflows/ci.yml) alike; pytest-cov reads this as its
+# --cov-fail-under default.
+fail_under = 100
 # The `if __name__ == "__main__": main()` guard is the one line a test cannot
 # reach by importing a script; every main() is exercised directly instead.
 exclude_also = ['if __name__ == "__main__":']
