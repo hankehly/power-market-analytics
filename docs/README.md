@@ -360,19 +360,28 @@ and for high-price days after `just dbt build --select
 +fct_spot_price_forecast_accuracy`. Experiments are written up under
 [`research/`](research/README.md).
 
-Charting happens in Superset (`just open superset`): the **Spot Price
-Forecast Analysis** dashboard is built by
-`scripts/create_forecast_dashboard.py`, which idempotently creates the
-`spot_price_forecast_analysis` virtual dataset (the accuracy mart joined to
-`dim_area`, `dim_delivery_period` and `dim_date`), every chart, the sectioned
-layout and the run filter — rerun it to rebuild everything after a
-`docker compose down -v`. The dashboard opens on the newest run with KPI
-tiles (MAE, bias, RMSE, RMSE/MAE, WAPE, P90), error-structure heatmaps and
-day-type slices, calibration and error-distribution views, a cross-run
-leaderboard, a worst-days drill list (click a row to cross-filter the
-dashboard to that day), and a zoomable 30-minute forecast-vs-actual detail.
+Charting happens in Superset (`just open superset`): one forecast-analysis
+dashboard per task — **Spot Price Forecast Analysis** and **Demand Forecast
+Analysis** — both built by `scripts/create_forecast_dashboard.py` (no
+arguments = every dashboard, `--task spot_price` / `--task demand` = one),
+which idempotently creates each task's virtual dataset
+(`spot_price_forecast_analysis` / `demand_forecast_analysis`: the accuracy
+mart joined to `dim_area`, `dim_delivery_period` and `dim_date`), every
+chart, the sectioned layout and the run filter — rerun it to rebuild
+everything after a `docker compose down -v`. Each dashboard opens on the
+newest run with KPI tiles (MAE, bias, RMSE, RMSE/MAE, WAPE, P90),
+error-structure heatmaps and day-type slices, calibration and
+error-distribution views, a cross-run leaderboard, a worst-days drill list
+(click a row to cross-filter the dashboard to that day), and a zoomable
+30-minute forecast-vs-actual detail. The two are the same layout with the
+same chart names; only the quantity shows through — JPY/kWh vs kWh (demand
+values are SI-formatted, `1.098M`), and "MAE by actual price band" /
+"Calibration: forecast vs actual price level" become "… actual demand band"
+(fixed 2-GWh bins) / "… actual demand level" (rounded to 1 GWh).
 
 ![Spot Price Forecast Analysis dashboard](img/superset/forecast-dashboard.png)
+
+![Demand Forecast Analysis dashboard](img/superset/demand-forecast-dashboard.png)
 
 ## Development environment
 

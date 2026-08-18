@@ -1,23 +1,30 @@
-"""Create or update the "Spot Price Forecast Analysis" Superset dashboard.
+"""Create or update the forecast-analysis Superset dashboards.
 
-Builds (idempotently, matched by name) everything the dashboard needs via the
-Superset REST API, so the whole thing is reproducible from the repo after a
+One dashboard per forecasting task — "Spot Price Forecast Analysis" and
+"Demand Forecast Analysis" — each described by a :class:`DashboardSpec` in
+``DASHBOARDS`` and built (idempotently, matched by name) via the Superset
+REST API, so everything is reproducible from the repo after a
 ``docker compose down -v``:
 
-- virtual dataset ``spot_price_forecast_analysis`` — the forecast accuracy
-  mart joined to dim_area / dim_delivery_period / dim_date, plus
-  presentation columns (``run_label``, price bands, day types)
+- a virtual dataset ``<task>_forecast_analysis`` — the task's forecast
+  accuracy mart joined to dim_area / dim_delivery_period / dim_date, plus
+  presentation columns (``run_label``, actual-value bands, day types)
 - charts in four sections: KPI tiles (MAE, bias, RMSE, RMSE/MAE, WAPE, P90),
   error structure (bars + heatmaps + day-type slices), calibration &
-  distribution (price-band MAE, calibration curve, error histogram), and
-  runs & drilldown (run leaderboard, worst days, 30-minute detail)
+  distribution (actual-value-band MAE, calibration curve, error histogram),
+  and runs & drilldown (run leaderboard, worst days, 30-minute detail)
 - the dashboard, with a required single-select Run filter (all charts except
   the cross-run leaderboard); the 30-minute detail chart carries its own
   data-zoom slider for navigating the backtest window
 
+The two dashboards share chart names (a chart is identified by its name
+*within its dataset*), differing only where the quantity shows through: the
+unit, number formats, and the two actual-value-level charts.
+
 Run inside the devcontainer (needs the compose network):
 
-    python scripts/create_forecast_dashboard.py
+    python scripts/create_forecast_dashboard.py                 # every dashboard
+    python scripts/create_forecast_dashboard.py --task demand   # one of them
 
 Environment: ``SUPERSET_URL`` (default ``http://superset:8088``),
 ``SUPERSET_ADMIN_USER`` (``admin``), ``SUPERSET_ADMIN_PASSWORD`` (``admin``).
@@ -29,6 +36,7 @@ import argparse
 import json
 import os
 import re
+from dataclasses import dataclass
 
 import requests
 from loguru import logger
@@ -38,11 +46,10 @@ ADMIN_USER = os.environ.get("SUPERSET_ADMIN_USER", "admin")
 ADMIN_PASSWORD = os.environ.get("SUPERSET_ADMIN_PASSWORD", "admin")
 
 DATABASE_NAME = "Spark Thriftserver"
-DATASET_NAME = "spot_price_forecast_analysis"
-DASHBOARD_TITLE = "Spot Price Forecast Analysis"
-DASHBOARD_SLUG = "spot-price-forecast-analysis"
 
-DATASET_SQL = """\
+# Shared skeleton of every task's virtual dataset: calendar / delivery-period
+# / area context, the run label, then the task's value columns and errors.
+DATASET_SQL_TEMPLATE = """\
 select
   f.date_key,
   f.trade_datetime,
@@ -75,32 +82,21 @@ select
   f.published_at,
   f.forecast_issued_ts,
   f.horizon_hours,
-  f.forecast_price_jpy_kwh,
-  f.actual_price_jpy_kwh,
-  cast(round(f.actual_price_jpy_kwh, 0) as int) as actual_price_round_jpy,
-  case
-    when f.actual_price_jpy_kwh is null then null
-    when f.actual_price_jpy_kwh < 5 then '00-05'
-    when f.actual_price_jpy_kwh < 10 then '05-10'
-    when f.actual_price_jpy_kwh < 15 then '10-15'
-    when f.actual_price_jpy_kwh < 20 then '15-20'
-    when f.actual_price_jpy_kwh < 30 then '20-30'
-    when f.actual_price_jpy_kwh < 50 then '30-50'
-    else '50+'
-  end as actual_price_band,
-  f.error_jpy_kwh,
-  f.abs_error_jpy_kwh,
+{value_columns_sql}
+  f.{error_col},
+  f.{abs_error_col},
   f.pct_error,
   f.abs_pct_error
-from pma_curated.fct_spot_price_forecast_accuracy f
+from {accuracy_table} f
 join pma_curated.dim_area a on f.area_key = a.area_key
 join pma_curated.dim_delivery_period p on f.time_code = p.time_code
 join pma_curated.dim_date d on f.date_key = d.date_key
 """
 
-# (column_name, generic type, is temporal) — kept in sync with DATASET_SQL so
-# reruns can override stale column metadata after a SQL change.
-DATASET_COLUMNS = [
+# (column_name, generic type, is temporal) for the shared head of the select
+# list — kept in sync with DATASET_SQL_TEMPLATE so reruns can override stale
+# column metadata after a SQL change.
+COMMON_DATASET_COLUMNS = (
     ("date_key", "DATE", True),
     ("trade_datetime", "TIMESTAMP", True),
     ("year", "BIGINT", False),
@@ -124,158 +120,7 @@ DATASET_COLUMNS = [
     ("published_at", "TIMESTAMP", True),
     ("forecast_issued_ts", "TIMESTAMP", True),
     ("horizon_hours", "DOUBLE", False),
-    ("forecast_price_jpy_kwh", "DOUBLE", False),
-    ("actual_price_jpy_kwh", "DOUBLE", False),
-    ("actual_price_round_jpy", "INT", False),
-    ("actual_price_band", "STRING", False),
-    ("error_jpy_kwh", "DOUBLE", False),
-    ("abs_error_jpy_kwh", "DOUBLE", False),
-    ("pct_error", "DOUBLE", False),
-    ("abs_pct_error", "DOUBLE", False),
-]
-
-
-class SupersetClient:
-    """Thin authenticated wrapper over the Superset REST API.
-
-    Parameters
-    ----------
-    base_url : str
-        Superset root URL, e.g. ``http://superset:8088``.
-    username, password : str
-        Credentials for the ``db`` auth provider.
-    session : requests.Session, optional
-        HTTP session to issue every request through (the login included);
-        a fresh ``requests.Session()`` when omitted. Injectable for tests.
-    """
-
-    def __init__(
-        self,
-        base_url: str,
-        username: str,
-        password: str,
-        session: requests.Session | None = None,
-    ) -> None:
-        self.base_url = base_url.rstrip("/")
-        self.session = session if session is not None else requests.Session()
-        token = self._post_json(
-            "/api/v1/security/login",
-            {"username": username, "password": password, "provider": "db", "refresh": True},
-        )["access_token"]
-        self.session.headers["Authorization"] = f"Bearer {token}"
-        self.session.headers["Referer"] = self.base_url
-        csrf = self._get_json("/api/v1/security/csrf_token/")["result"]
-        self.session.headers["X-CSRFToken"] = csrf
-
-    def _get_json(self, path: str, params: dict | None = None) -> dict:
-        r = self.session.get(f"{self.base_url}{path}", params=params)
-        r.raise_for_status()
-        return r.json()
-
-    def _post_json(self, path: str, payload: dict) -> dict:
-        r = self.session.post(f"{self.base_url}{path}", json=payload)
-        r.raise_for_status()
-        return r.json()
-
-    def _put_json(self, path: str, payload: dict, params: dict | None = None) -> dict:
-        r = self.session.put(f"{self.base_url}{path}", json=payload, params=params)
-        r.raise_for_status()
-        return r.json()
-
-    def find_one(self, resource: str, column: str, value: str) -> int | None:
-        """Return the id of the first ``resource`` row where column == value.
-
-        Parameters
-        ----------
-        resource : str
-            API resource, e.g. ``dataset``, ``chart``, ``dashboard``.
-        column, value : str
-            Equality filter, e.g. ``table_name`` / ``slice_name`` / a title.
-
-        Returns
-        -------
-        int or None
-        """
-        q = f"(filters:!((col:{column},opr:eq,value:'{value}')),page_size:100)"
-        result = self._get_json(f"/api/v1/{resource}/", params={"q": q})["result"]
-        return result[0]["id"] if result else None
-
-
-def upsert_dataset(client: SupersetClient, database_id: int) -> int:
-    """Create or update the virtual dataset and return its id.
-
-    Parameters
-    ----------
-    client : SupersetClient
-    database_id : int
-        Superset id of the Spark Thriftserver connection.
-
-    Returns
-    -------
-    int
-    """
-    columns = [
-        {
-            "column_name": name,
-            "type": dtype,
-            "is_dttm": is_dttm,
-            "groupby": True,
-            "filterable": True,
-        }
-        for name, dtype, is_dttm in DATASET_COLUMNS
-    ]
-    dataset_id = client.find_one("dataset", "table_name", DATASET_NAME)
-    if dataset_id is None:
-        dataset_id = client._post_json(
-            "/api/v1/dataset/",
-            {"database": database_id, "table_name": DATASET_NAME, "sql": DATASET_SQL},
-        )["id"]
-    client._put_json(
-        f"/api/v1/dataset/{dataset_id}",
-        {"sql": DATASET_SQL, "main_dttm_col": "trade_datetime", "columns": columns},
-        params={"override_columns": "true"},
-    )
-    return dataset_id
-
-
-def latest_run_label(client: SupersetClient, database_id: int) -> str | None:
-    """Newest run's label, for the Run filter's on-load default.
-
-    ``defaultToFirstItem`` only stages the value (charts render unfiltered,
-    mixing runs, until Apply is clicked); an explicit default applies on page
-    load. Must build the label exactly like the dataset's ``run_label``.
-
-    Parameters
-    ----------
-    client : SupersetClient
-    database_id : int
-
-    Returns
-    -------
-    str or None
-        None when the query fails or the mart is empty (falls back to
-        ``defaultToFirstItem``).
-    """
-    sql = """\
-select
-  concat(
-    date_format(f.published_at, 'yyyy-MM-dd HH:mm'),
-    ' | ', a.area_code,
-    ' | ', substring(f.run_id, 1, 8)
-  ) as run_label
-from pma_curated.fct_spot_price_forecast_accuracy f
-join pma_curated.dim_area a on f.area_key = a.area_key
-order by f.published_at desc
-limit 1
-"""
-    try:
-        result = client._post_json(
-            "/api/v1/sqllab/execute/",
-            {"database_id": database_id, "sql": sql, "runAsync": False},
-        )
-        return result["data"][0]["run_label"]
-    except (requests.HTTPError, KeyError, IndexError):
-        return None
+)
 
 
 def _slug(label: str) -> str:
@@ -327,14 +172,366 @@ def sql_metric(expression: str, label: str) -> dict:
     }
 
 
-MAE_METRIC = avg_metric("abs_error_jpy_kwh", "MAE (JPY/kWh)")
-BIAS_METRIC = avg_metric("error_jpy_kwh", "Bias")
-RMSE_METRIC = sql_metric("sqrt(avg(power(error_jpy_kwh, 2)))", "RMSE")
-RMSE_MAE_METRIC = sql_metric(
-    "sqrt(avg(power(error_jpy_kwh, 2))) / avg(abs_error_jpy_kwh)", "RMSE/MAE"
+@dataclass(frozen=True)
+class DashboardSpec:
+    """Everything that distinguishes one task's forecast-analysis dashboard.
+
+    Parameters
+    ----------
+    task : str
+        Registry key and ``--task`` value (the forecasting task name).
+    dataset_name, dashboard_title, dashboard_slug : str
+        Superset names; charts are matched by name *within* the dataset.
+    accuracy_table : str
+        Fully qualified forecast accuracy mart the dataset reads.
+    unit : str
+        Display unit of the forecast quantity (labels, subheaders, axes).
+    forecast_col, actual_col, error_col, abs_error_col : str
+        Mart columns for the forecast, the actual, the signed error and the
+        absolute error.
+    value_columns_sql : str
+        Task-specific block of the dataset select list (the forecast, the
+        actual, the rounded actual for the calibration curve and the actual
+        band), already indented two spaces, every line comma-terminated.
+    value_columns : tuple of (str, str, bool)
+        Column metadata for that block, in select order.
+    band_col, band_chart_title : str
+        Actual-value band column and the title of its MAE bar chart.
+    calibration_x_col, calibration_chart_title, calibration_x_title : str
+        Rounded-actual column, chart title and x-axis title of the
+        calibration curve.
+    number_format : str
+        d3 format for precise values (KPI tiles, table MAE/RMSE/bias).
+    axis_format : str
+        d3 format for MAE bar-chart y axes.
+    calibration_x_format, calibration_y_format : str
+        d3 formats for the calibration curve's axes (``~g`` is Superset's
+        x-axis default; large values need ``SMART_NUMBER`` to avoid ``1e+7``).
+    worst_days_max_format : str
+        d3 format for the worst-days table's ``Max |error|`` / ``Max actual``.
+    """
+
+    task: str
+    dataset_name: str
+    dashboard_title: str
+    dashboard_slug: str
+    accuracy_table: str
+    unit: str
+    forecast_col: str
+    actual_col: str
+    error_col: str
+    abs_error_col: str
+    value_columns_sql: str
+    value_columns: tuple[tuple[str, str, bool], ...]
+    band_col: str
+    band_chart_title: str
+    calibration_x_col: str
+    calibration_chart_title: str
+    calibration_x_title: str
+    number_format: str
+    axis_format: str
+    calibration_x_format: str
+    calibration_y_format: str
+    worst_days_max_format: str
+
+    @property
+    def dataset_sql(self) -> str:
+        """The virtual dataset's SQL: the shared template around this task's columns."""
+        return DATASET_SQL_TEMPLATE.format(
+            value_columns_sql=self.value_columns_sql,
+            error_col=self.error_col,
+            abs_error_col=self.abs_error_col,
+            accuracy_table=self.accuracy_table,
+        )
+
+    @property
+    def dataset_columns(self) -> list[tuple[str, str, bool]]:
+        """(column_name, generic type, is temporal) for every dataset column, in select order."""
+        return [
+            *COMMON_DATASET_COLUMNS,
+            *self.value_columns,
+            (self.error_col, "DOUBLE", False),
+            (self.abs_error_col, "DOUBLE", False),
+            ("pct_error", "DOUBLE", False),
+            ("abs_pct_error", "DOUBLE", False),
+        ]
+
+    @property
+    def signed_number_format(self) -> str:
+        """``number_format`` with an explicit sign (bias)."""
+        return "+" + self.number_format
+
+    @property
+    def mae_metric(self) -> dict:
+        return avg_metric(self.abs_error_col, f"MAE ({self.unit})")
+
+    @property
+    def bias_metric(self) -> dict:
+        return avg_metric(self.error_col, "Bias")
+
+    @property
+    def rmse_metric(self) -> dict:
+        return sql_metric(f"sqrt(avg(power({self.error_col}, 2)))", "RMSE")
+
+    @property
+    def rmse_mae_metric(self) -> dict:
+        return sql_metric(
+            f"sqrt(avg(power({self.error_col}, 2))) / avg({self.abs_error_col})", "RMSE/MAE"
+        )
+
+    @property
+    def wape_metric(self) -> dict:
+        return sql_metric(f"sum({self.abs_error_col}) / sum({self.actual_col})", "WAPE")
+
+    @property
+    def p90_metric(self) -> dict:
+        return sql_metric(f"percentile({self.abs_error_col}, 0.90)", "P90 abs error")
+
+
+SPOT_PRICE = DashboardSpec(
+    task="spot_price",
+    dataset_name="spot_price_forecast_analysis",
+    dashboard_title="Spot Price Forecast Analysis",
+    dashboard_slug="spot-price-forecast-analysis",
+    accuracy_table="pma_curated.fct_spot_price_forecast_accuracy",
+    unit="JPY/kWh",
+    forecast_col="forecast_price_jpy_kwh",
+    actual_col="actual_price_jpy_kwh",
+    error_col="error_jpy_kwh",
+    abs_error_col="abs_error_jpy_kwh",
+    value_columns_sql="""\
+  f.forecast_price_jpy_kwh,
+  f.actual_price_jpy_kwh,
+  cast(round(f.actual_price_jpy_kwh, 0) as int) as actual_price_round_jpy,
+  case
+    when f.actual_price_jpy_kwh is null then null
+    when f.actual_price_jpy_kwh < 5 then '00-05'
+    when f.actual_price_jpy_kwh < 10 then '05-10'
+    when f.actual_price_jpy_kwh < 15 then '10-15'
+    when f.actual_price_jpy_kwh < 20 then '15-20'
+    when f.actual_price_jpy_kwh < 30 then '20-30'
+    when f.actual_price_jpy_kwh < 50 then '30-50'
+    else '50+'
+  end as actual_price_band,""",
+    value_columns=(
+        ("forecast_price_jpy_kwh", "DOUBLE", False),
+        ("actual_price_jpy_kwh", "DOUBLE", False),
+        ("actual_price_round_jpy", "INT", False),
+        ("actual_price_band", "STRING", False),
+    ),
+    band_col="actual_price_band",
+    band_chart_title="MAE by actual price band",
+    calibration_x_col="actual_price_round_jpy",
+    calibration_chart_title="Calibration: forecast vs actual price level",
+    calibration_x_title="Actual price (JPY/kWh, rounded)",
+    number_format=",.3f",
+    axis_format=",.2f",
+    calibration_x_format="~g",
+    calibration_y_format=",.1f",
+    worst_days_max_format=",.2f",
 )
-WAPE_METRIC = sql_metric("sum(abs_error_jpy_kwh) / sum(actual_price_jpy_kwh)", "WAPE")
-P90_METRIC = sql_metric("percentile(abs_error_jpy_kwh, 0.90)", "P90 abs error")
+
+# Demand is 30分kWh as the TSOs publish it (Tokyo ≈ 9–30 GWh per half hour,
+# Kansai ≈ 5–14 GWh), so values are formatted with SI prefixes (``.4s`` →
+# ``1.098M``) and the actual is banded in fixed 2-GWh bins (``10-12`` …),
+# which suit any area; the calibration curve rounds the actual to 1 GWh.
+DEMAND = DashboardSpec(
+    task="demand",
+    dataset_name="demand_forecast_analysis",
+    dashboard_title="Demand Forecast Analysis",
+    dashboard_slug="demand-forecast-analysis",
+    accuracy_table="pma_curated.fct_demand_forecast_accuracy",
+    unit="kWh",
+    forecast_col="forecast_demand_kwh",
+    actual_col="actual_demand_kwh",
+    error_col="error_kwh",
+    abs_error_col="abs_error_kwh",
+    value_columns_sql="""\
+  f.forecast_demand_kwh,
+  f.actual_demand_kwh,
+  cast(round(f.actual_demand_kwh, -6) as bigint) as actual_demand_round_kwh,
+  case
+    when f.actual_demand_kwh is null then null
+    else concat(
+      lpad(cast(cast(floor(f.actual_demand_kwh / 2000000) * 2 as int) as string), 2, '0'),
+      '-',
+      lpad(cast(cast(floor(f.actual_demand_kwh / 2000000) * 2 + 2 as int) as string), 2, '0')
+    )
+  end as actual_demand_band,""",
+    value_columns=(
+        ("forecast_demand_kwh", "DOUBLE", False),
+        ("actual_demand_kwh", "BIGINT", False),
+        ("actual_demand_round_kwh", "BIGINT", False),
+        ("actual_demand_band", "STRING", False),
+    ),
+    band_col="actual_demand_band",
+    band_chart_title="MAE by actual demand band",
+    calibration_x_col="actual_demand_round_kwh",
+    calibration_chart_title="Calibration: forecast vs actual demand level",
+    calibration_x_title="Actual demand (kWh, rounded to 1 GWh)",
+    number_format=".4s",
+    axis_format="SMART_NUMBER",
+    calibration_x_format="SMART_NUMBER",
+    calibration_y_format="SMART_NUMBER",
+    worst_days_max_format=".4s",
+)
+
+DASHBOARDS: dict[str, DashboardSpec] = {spec.task: spec for spec in (SPOT_PRICE, DEMAND)}
+
+
+def _rison_value(value: str | int) -> str:
+    """Rison literal for an equality-filter value: ints bare, strings single-quoted."""
+    return str(value) if isinstance(value, int) else f"'{value}'"
+
+
+class SupersetClient:
+    """Thin authenticated wrapper over the Superset REST API.
+
+    Parameters
+    ----------
+    base_url : str
+        Superset root URL, e.g. ``http://superset:8088``.
+    username, password : str
+        Credentials for the ``db`` auth provider.
+    session : requests.Session, optional
+        HTTP session to issue every request through (the login included);
+        a fresh ``requests.Session()`` when omitted. Injectable for tests.
+    """
+
+    def __init__(
+        self,
+        base_url: str,
+        username: str,
+        password: str,
+        session: requests.Session | None = None,
+    ) -> None:
+        self.base_url = base_url.rstrip("/")
+        self.session = session if session is not None else requests.Session()
+        token = self._post_json(
+            "/api/v1/security/login",
+            {"username": username, "password": password, "provider": "db", "refresh": True},
+        )["access_token"]
+        self.session.headers["Authorization"] = f"Bearer {token}"
+        self.session.headers["Referer"] = self.base_url
+        csrf = self._get_json("/api/v1/security/csrf_token/")["result"]
+        self.session.headers["X-CSRFToken"] = csrf
+
+    def _get_json(self, path: str, params: dict | None = None) -> dict:
+        r = self.session.get(f"{self.base_url}{path}", params=params)
+        r.raise_for_status()
+        return r.json()
+
+    def _post_json(self, path: str, payload: dict) -> dict:
+        r = self.session.post(f"{self.base_url}{path}", json=payload)
+        r.raise_for_status()
+        return r.json()
+
+    def _put_json(self, path: str, payload: dict, params: dict | None = None) -> dict:
+        r = self.session.put(f"{self.base_url}{path}", json=payload, params=params)
+        r.raise_for_status()
+        return r.json()
+
+    def find_one(self, resource: str, **filters: str | int) -> int | None:
+        """Return the id of the first ``resource`` row matching every filter.
+
+        Parameters
+        ----------
+        resource : str
+            API resource, e.g. ``dataset``, ``chart``, ``dashboard``.
+        **filters : str or int
+            Equality filters, e.g. ``table_name="x"`` or
+            ``slice_name="MAE by year", datasource_id=3`` (ANDed).
+
+        Returns
+        -------
+        int or None
+        """
+        rison_filters = ",".join(
+            f"(col:{column},opr:eq,value:{_rison_value(value)})"
+            for column, value in filters.items()
+        )
+        q = f"(filters:!({rison_filters}),page_size:100)"
+        result = self._get_json(f"/api/v1/{resource}/", params={"q": q})["result"]
+        return result[0]["id"] if result else None
+
+
+def upsert_dataset(client: SupersetClient, database_id: int, spec: DashboardSpec) -> int:
+    """Create or update the task's virtual dataset and return its id.
+
+    Parameters
+    ----------
+    client : SupersetClient
+    database_id : int
+        Superset id of the Spark Thriftserver connection.
+    spec : DashboardSpec
+
+    Returns
+    -------
+    int
+    """
+    columns = [
+        {
+            "column_name": name,
+            "type": dtype,
+            "is_dttm": is_dttm,
+            "groupby": True,
+            "filterable": True,
+        }
+        for name, dtype, is_dttm in spec.dataset_columns
+    ]
+    dataset_id = client.find_one("dataset", table_name=spec.dataset_name)
+    if dataset_id is None:
+        dataset_id = client._post_json(
+            "/api/v1/dataset/",
+            {"database": database_id, "table_name": spec.dataset_name, "sql": spec.dataset_sql},
+        )["id"]
+    client._put_json(
+        f"/api/v1/dataset/{dataset_id}",
+        {"sql": spec.dataset_sql, "main_dttm_col": "trade_datetime", "columns": columns},
+        params={"override_columns": "true"},
+    )
+    return dataset_id
+
+
+def latest_run_label(client: SupersetClient, database_id: int, spec: DashboardSpec) -> str | None:
+    """Newest run's label, for the Run filter's on-load default.
+
+    ``defaultToFirstItem`` only stages the value (charts render unfiltered,
+    mixing runs, until Apply is clicked); an explicit default applies on page
+    load. Must build the label exactly like the dataset's ``run_label``.
+
+    Parameters
+    ----------
+    client : SupersetClient
+    database_id : int
+    spec : DashboardSpec
+
+    Returns
+    -------
+    str or None
+        None when the query fails or the mart is empty (falls back to
+        ``defaultToFirstItem``).
+    """
+    sql = f"""\
+select
+  concat(
+    date_format(f.published_at, 'yyyy-MM-dd HH:mm'),
+    ' | ', a.area_code,
+    ' | ', substring(f.run_id, 1, 8)
+  ) as run_label
+from {spec.accuracy_table} f
+join pma_curated.dim_area a on f.area_key = a.area_key
+order by f.published_at desc
+limit 1
+"""
+    try:
+        result = client._post_json(
+            "/api/v1/sqllab/execute/",
+            {"database_id": database_id, "sql": sql, "runAsync": False},
+        )
+        return result["data"][0]["run_label"]
+    except (requests.HTTPError, KeyError, IndexError):
+        return None
 
 
 def big_number_params(dataset_id: int, metric: dict, subheader: str, number_format: str) -> dict:
@@ -368,13 +565,14 @@ def big_number_params(dataset_id: int, metric: dict, subheader: str, number_form
     }
 
 
-def bar_params(dataset_id: int, x_axis: str) -> dict:
+def bar_params(spec: DashboardSpec, dataset_id: int, x_axis: str) -> dict:
     """Params for a single-series MAE bar chart over ``x_axis``.
 
     One series, so no legend (the title names it).
 
     Parameters
     ----------
+    spec : DashboardSpec
     dataset_id : int
     x_axis : str
         Dataset column for the x axis.
@@ -390,15 +588,15 @@ def bar_params(dataset_id: int, x_axis: str) -> dict:
         "time_grain_sqla": None,
         "x_axis_sort": x_axis,
         "x_axis_sort_asc": True,
-        "metrics": [MAE_METRIC],
+        "metrics": [spec.mae_metric],
         "groupby": [],
         "adhoc_filters": [],
         "order_desc": False,
         "row_limit": 1000,
         "show_legend": False,
         "rich_tooltip": True,
-        "y_axis_format": ",.2f",
-        "y_axis_title": "JPY/kWh",
+        "y_axis_format": spec.axis_format,
+        "y_axis_title": spec.unit,
         "y_axis_title_margin": 30,
         "truncateYAxis": False,
         "color_scheme": "supersetColors",
@@ -407,7 +605,7 @@ def bar_params(dataset_id: int, x_axis: str) -> dict:
     }
 
 
-def heatmap_params(dataset_id: int, x_axis: str) -> dict:
+def heatmap_params(spec: DashboardSpec, dataset_id: int, x_axis: str) -> dict:
     """Params for a MAE heatmap (year on y, ``x_axis`` on x).
 
     Sequential single-hue ramp ("Dark blues"): the metric encodes magnitude
@@ -415,6 +613,7 @@ def heatmap_params(dataset_id: int, x_axis: str) -> dict:
 
     Parameters
     ----------
+    spec : DashboardSpec
     dataset_id : int
     x_axis : str
         Dataset column for the x axis (``time_code`` or ``month``).
@@ -428,7 +627,7 @@ def heatmap_params(dataset_id: int, x_axis: str) -> dict:
         "viz_type": "heatmap_v2",
         "x_axis": x_axis,
         "groupby": "year",
-        "metric": MAE_METRIC,
+        "metric": spec.mae_metric,
         "adhoc_filters": [],
         "row_limit": 10000,
         "sort_x_axis": "alpha_asc",
@@ -449,15 +648,16 @@ def heatmap_params(dataset_id: int, x_axis: str) -> dict:
     }
 
 
-def calibration_params(dataset_id: int) -> dict:
-    """Params for the calibration curve: mean forecast per actual price level.
+def calibration_params(spec: DashboardSpec, dataset_id: int) -> dict:
+    """Params for the calibration curve: mean forecast per actual level.
 
-    Mean actual per rounded actual price is (by construction) the y = x
-    reference, so systematic under/over-forecast at any price level shows as
-    the gap between the two series — the standard conditional-bias view.
+    Mean actual per rounded actual is (by construction) the y = x reference,
+    so systematic under/over-forecast at any level shows as the gap between
+    the two series — the standard conditional-bias view.
 
     Parameters
     ----------
+    spec : DashboardSpec
     dataset_id : int
 
     Returns
@@ -467,13 +667,13 @@ def calibration_params(dataset_id: int) -> dict:
     return {
         "datasource": f"{dataset_id}__table",
         "viz_type": "echarts_timeseries_scatter",
-        "x_axis": "actual_price_round_jpy",
+        "x_axis": spec.calibration_x_col,
         "time_grain_sqla": None,
-        "x_axis_sort": "actual_price_round_jpy",
+        "x_axis_sort": spec.calibration_x_col,
         "x_axis_sort_asc": True,
         "metrics": [
-            avg_metric("forecast_price_jpy_kwh", "Mean forecast"),
-            avg_metric("actual_price_jpy_kwh", "Mean actual (y = x reference)"),
+            avg_metric(spec.forecast_col, "Mean forecast"),
+            avg_metric(spec.actual_col, "Mean actual (y = x reference)"),
         ],
         "groupby": [],
         "adhoc_filters": [],
@@ -486,10 +686,11 @@ def calibration_params(dataset_id: int) -> dict:
         "rich_tooltip": True,
         "tooltipTimeFormat": "smart_date",
         "x_axis_time_format": "smart_date",
-        "x_axis_title": "Actual price (JPY/kWh, rounded)",
+        "x_axis_title": spec.calibration_x_title,
         "x_axis_title_margin": 30,
-        "y_axis_format": ",.1f",
-        "y_axis_title": "Forecast (JPY/kWh)",
+        "x_axis_number_format": spec.calibration_x_format,
+        "y_axis_format": spec.calibration_y_format,
+        "y_axis_title": f"Forecast ({spec.unit})",
         "y_axis_title_margin": 30,
         "truncateYAxis": False,
         "color_scheme": "supersetColors",
@@ -497,11 +698,12 @@ def calibration_params(dataset_id: int) -> dict:
     }
 
 
-def histogram_params(dataset_id: int) -> dict:
+def histogram_params(spec: DashboardSpec, dataset_id: int) -> dict:
     """Params for the signed-error histogram.
 
     Parameters
     ----------
+    spec : DashboardSpec
     dataset_id : int
 
     Returns
@@ -511,7 +713,7 @@ def histogram_params(dataset_id: int) -> dict:
     return {
         "datasource": f"{dataset_id}__table",
         "viz_type": "histogram_v2",
-        "column": "error_jpy_kwh",
+        "column": spec.error_col,
         "bins": 60,
         "normalize": False,
         "cumulative": False,
@@ -520,26 +722,28 @@ def histogram_params(dataset_id: int) -> dict:
         "row_limit": 100000,
         "show_legend": False,
         "show_value": False,
-        "x_axis_title": "Signed error (JPY/kWh; + = over-forecast)",
+        "x_axis_title": f"Signed error ({spec.unit}; + = over-forecast)",
         "y_axis_title": "Delivery periods",
         "color_scheme": "supersetColors",
         "extra_form_data": {},
     }
 
 
-def leaderboard_params(dataset_id: int) -> dict:
+def leaderboard_params(spec: DashboardSpec, dataset_id: int) -> dict:
     """Params for the cross-run leaderboard table (best MAE first).
 
     Excluded from the Run filter so all runs stay visible side by side.
 
     Parameters
     ----------
+    spec : DashboardSpec
     dataset_id : int
 
     Returns
     -------
     dict
     """
+    mae = spec.mae_metric
     return {
         "datasource": f"{dataset_id}__table",
         "viz_type": "table",
@@ -547,74 +751,77 @@ def leaderboard_params(dataset_id: int) -> dict:
         "groupby": ["run_label", "strategy"],
         "metrics": [
             sql_metric("count(*)", "Periods"),
-            MAE_METRIC,
-            BIAS_METRIC,
-            RMSE_METRIC,
-            WAPE_METRIC,
+            mae,
+            spec.bias_metric,
+            spec.rmse_metric,
+            spec.wape_metric,
         ],
         "adhoc_filters": [],
-        "timeseries_limit_metric": MAE_METRIC,
+        "timeseries_limit_metric": mae,
         "order_desc": False,
         "row_limit": 100,
         "server_page_length": 10,
         "table_timestamp_format": "smart_date",
         "column_config": {
             "Periods": {"d3NumberFormat": ",d"},
-            "MAE (JPY/kWh)": {"d3NumberFormat": ",.3f"},
-            "Bias": {"d3NumberFormat": "+,.3f"},
-            "RMSE": {"d3NumberFormat": ",.3f"},
+            mae["label"]: {"d3NumberFormat": spec.number_format},
+            "Bias": {"d3NumberFormat": spec.signed_number_format},
+            "RMSE": {"d3NumberFormat": spec.number_format},
             "WAPE": {"d3NumberFormat": ".1%"},
         },
         "extra_form_data": {},
     }
 
 
-def worst_days_params(dataset_id: int) -> dict:
+def worst_days_params(spec: DashboardSpec, dataset_id: int) -> dict:
     """Params for the worst-days drill table (highest daily MAE first).
 
     Parameters
     ----------
+    spec : DashboardSpec
     dataset_id : int
 
     Returns
     -------
     dict
     """
+    mae = spec.mae_metric
     return {
         "datasource": f"{dataset_id}__table",
         "viz_type": "table",
         "query_mode": "aggregate",
         "groupby": ["date_key", "day_of_week", "day_type"],
         "metrics": [
-            MAE_METRIC,
-            BIAS_METRIC,
-            sql_metric("max(abs_error_jpy_kwh)", "Max |error|"),
-            sql_metric("max(actual_price_jpy_kwh)", "Max actual"),
+            mae,
+            spec.bias_metric,
+            sql_metric(f"max({spec.abs_error_col})", "Max |error|"),
+            sql_metric(f"max({spec.actual_col})", "Max actual"),
         ],
         "adhoc_filters": [],
-        "timeseries_limit_metric": MAE_METRIC,
+        "timeseries_limit_metric": mae,
         "order_desc": True,
         "row_limit": 20,
         "server_page_length": 20,
         "table_timestamp_format": "%Y-%m-%d",
         "column_config": {
-            "MAE (JPY/kWh)": {"d3NumberFormat": ",.3f"},
-            "Bias": {"d3NumberFormat": "+,.3f"},
-            "Max |error|": {"d3NumberFormat": ",.2f"},
-            "Max actual": {"d3NumberFormat": ",.2f"},
+            mae["label"]: {"d3NumberFormat": spec.number_format},
+            "Bias": {"d3NumberFormat": spec.signed_number_format},
+            "Max |error|": {"d3NumberFormat": spec.worst_days_max_format},
+            "Max actual": {"d3NumberFormat": spec.worst_days_max_format},
         },
         "extra_form_data": {},
     }
 
 
-def detail_params(dataset_id: int) -> dict:
+def detail_params(spec: DashboardSpec, dataset_id: int) -> dict:
     """Params for the forecast-vs-actual line chart at the 30-minute grain.
 
     Loads the whole backtest window; the data-zoom slider (``zoomable``)
-    navigates from the full five years down to a single day.
+    navigates from the full window down to a single day.
 
     Parameters
     ----------
+    spec : DashboardSpec
     dataset_id : int
 
     Returns
@@ -628,8 +835,8 @@ def detail_params(dataset_id: int) -> dict:
         "time_grain_sqla": None,
         "x_axis_sort_asc": True,
         "metrics": [
-            avg_metric("forecast_price_jpy_kwh", "Forecast"),
-            avg_metric("actual_price_jpy_kwh", "Actual"),
+            avg_metric(spec.forecast_col, "Forecast"),
+            avg_metric(spec.actual_col, "Actual"),
         ],
         "groupby": [],
         "adhoc_filters": [],
@@ -649,7 +856,7 @@ def detail_params(dataset_id: int) -> dict:
         "tooltipTimeFormat": "smart_date",
         "x_axis_time_format": "smart_date",
         "y_axis_format": "SMART_NUMBER",
-        "y_axis_title": "JPY/kWh",
+        "y_axis_title": spec.unit,
         "y_axis_title_margin": 30,
         "truncateYAxis": False,
         "color_scheme": "supersetColors",
@@ -661,13 +868,14 @@ def detail_params(dataset_id: int) -> dict:
 
 
 def upsert_chart(client: SupersetClient, name: str, dataset_id: int, params: dict) -> int:
-    """Create or update a chart by name and return its id.
+    """Create or update a chart (matched by name within its dataset) and return its id.
 
     Parameters
     ----------
     client : SupersetClient
     name : str
-        ``slice_name`` to match on.
+        ``slice_name`` to match on — together with ``dataset_id``, since the
+        dashboards share chart names.
     dataset_id : int
     params : dict
         Chart form data; serialized into the saved chart.
@@ -683,18 +891,20 @@ def upsert_chart(client: SupersetClient, name: str, dataset_id: int, params: dic
         "viz_type": params["viz_type"],
         "params": json.dumps(params),
     }
-    chart_id = client.find_one("chart", "slice_name", name)
+    chart_id = client.find_one("chart", slice_name=name, datasource_id=dataset_id)
     if chart_id is None:
         return client._post_json("/api/v1/chart/", payload)["id"]
     client._put_json(f"/api/v1/chart/{chart_id}", payload)
     return chart_id
 
 
-def build_position_json(sections: list[dict]) -> dict:
+def build_position_json(spec: DashboardSpec, sections: list[dict]) -> dict:
     """Dashboard layout: sections of rows, each section optionally headed.
 
     Parameters
     ----------
+    spec : DashboardSpec
+        Supplies the dashboard header text.
     sections : list of dict
         Each ``{"header": str | None, "rows": [[(chart_id, name, width,
         height), ...], ...]}``. Widths within a row should sum to 12; height
@@ -708,7 +918,7 @@ def build_position_json(sections: list[dict]) -> dict:
         "DASHBOARD_VERSION_KEY": "v2",
         "ROOT_ID": {"type": "ROOT", "id": "ROOT_ID", "children": ["GRID_ID"]},
         "GRID_ID": {"type": "GRID", "id": "GRID_ID", "children": [], "parents": ["ROOT_ID"]},
-        "HEADER_ID": {"type": "HEADER", "id": "HEADER_ID", "meta": {"text": DASHBOARD_TITLE}},
+        "HEADER_ID": {"type": "HEADER", "id": "HEADER_ID", "meta": {"text": spec.dashboard_title}},
     }
     for s, section in enumerate(sections):
         if section["header"]:
@@ -806,12 +1016,16 @@ def build_native_filters(
     ]
 
 
-def upsert_dashboard(client: SupersetClient, position: dict, native_filters: list[dict]) -> int:
+def upsert_dashboard(
+    client: SupersetClient, spec: DashboardSpec, position: dict, native_filters: list[dict]
+) -> int:
     """Create or update the dashboard and return its id.
 
     Parameters
     ----------
     client : SupersetClient
+    spec : DashboardSpec
+        Supplies the title and slug.
     position : dict
         ``position_json`` layout from :func:`build_position_json`.
     native_filters : list of dict
@@ -821,10 +1035,11 @@ def upsert_dashboard(client: SupersetClient, position: dict, native_filters: lis
     -------
     int
     """
-    dashboard_id = client.find_one("dashboard", "dashboard_title", DASHBOARD_TITLE)
+    dashboard_id = client.find_one("dashboard", dashboard_title=spec.dashboard_title)
     if dashboard_id is None:
         dashboard_id = client._post_json(
-            "/api/v1/dashboard/", {"dashboard_title": DASHBOARD_TITLE, "slug": DASHBOARD_SLUG}
+            "/api/v1/dashboard/",
+            {"dashboard_title": spec.dashboard_title, "slug": spec.dashboard_slug},
         )["id"]
     json_metadata = {
         "native_filter_configuration": native_filters,
@@ -839,8 +1054,8 @@ def upsert_dashboard(client: SupersetClient, position: dict, native_filters: lis
     client._put_json(
         f"/api/v1/dashboard/{dashboard_id}",
         {
-            "dashboard_title": DASHBOARD_TITLE,
-            "slug": DASHBOARD_SLUG,
+            "dashboard_title": spec.dashboard_title,
+            "slug": spec.dashboard_slug,
             "position_json": json.dumps(position),
             "json_metadata": json.dumps(json_metadata),
             "published": True,
@@ -862,75 +1077,66 @@ def attach_charts(client: SupersetClient, dashboard_id: int, chart_ids: list[int
         client._put_json(f"/api/v1/chart/{chart_id}", {"dashboards": [dashboard_id]})
 
 
-def main(argv: list[str] | None = None) -> None:
-    """Build or refresh the dashboard end to end.
+def build_dashboard(client: SupersetClient, database_id: int, spec: DashboardSpec) -> int:
+    """Build or refresh one task's dashboard end to end and return its id.
 
     Parameters
     ----------
-    argv : list of str, optional
-        Command-line arguments (``--url``, ``--user``, ``--password``; each
-        defaults to the corresponding ``SUPERSET_*`` environment value).
-        ``None`` reads ``sys.argv``.
+    client : SupersetClient
+    database_id : int
+        Superset id of the Spark Thriftserver connection.
+    spec : DashboardSpec
+
+    Returns
+    -------
+    int
     """
-    parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
-    parser.add_argument("--url", default=SUPERSET_URL, help="Superset root URL")
-    parser.add_argument("--user", default=ADMIN_USER, help="Superset admin username")
-    parser.add_argument("--password", default=ADMIN_PASSWORD, help="Superset admin password")
-    args = parser.parse_args(argv)
-
-    client = SupersetClient(args.url, args.user, args.password)
-
-    database_id = client.find_one("database", "database_name", DATABASE_NAME)
-    if database_id is None:
-        raise SystemExit(
-            f"Database connection {DATABASE_NAME!r} not found — register the "
-            "Spark Thriftserver connection in the Superset UI first."
-        )
-
-    dataset_id = upsert_dataset(client, database_id)
-    logger.info("dataset {}: id={}", DATASET_NAME, dataset_id)
+    dataset_id = upsert_dataset(client, database_id, spec)
+    logger.info("dataset {}: id={}", spec.dataset_name, dataset_id)
 
     def chart(name: str, params: dict) -> int:
         chart_id = upsert_chart(client, name, dataset_id, params)
         logger.info("chart {}: {}", chart_id, name)
         return chart_id
 
+    unit, fmt = spec.unit, spec.number_format
+
     # KPI tiles
-    kpi_mae = chart("Overall MAE", big_number_params(dataset_id, MAE_METRIC, "JPY/kWh", ",.3f"))
+    kpi_mae = chart("Overall MAE", big_number_params(dataset_id, spec.mae_metric, unit, fmt))
     kpi_bias = chart(
         "Bias (mean error)",
-        big_number_params(dataset_id, BIAS_METRIC, "JPY/kWh; + = over-forecast", "+,.3f"),
+        big_number_params(
+            dataset_id, spec.bias_metric, f"{unit}; + = over-forecast", spec.signed_number_format
+        ),
     )
-    kpi_rmse = chart("RMSE", big_number_params(dataset_id, RMSE_METRIC, "JPY/kWh", ",.3f"))
+    kpi_rmse = chart("RMSE", big_number_params(dataset_id, spec.rmse_metric, unit, fmt))
     kpi_ratio = chart(
         "RMSE / MAE",
-        big_number_params(dataset_id, RMSE_MAE_METRIC, ">1.3 = spike-heavy errors", ",.2f"),
+        big_number_params(dataset_id, spec.rmse_mae_metric, ">1.3 = spike-heavy errors", ",.2f"),
     )
     kpi_wape = chart(
-        "WAPE", big_number_params(dataset_id, WAPE_METRIC, "Σ|error| / Σ actual", ".1%")
+        "WAPE", big_number_params(dataset_id, spec.wape_metric, "Σ|error| / Σ actual", ".1%")
     )
-    kpi_p90 = chart("P90 abs error", big_number_params(dataset_id, P90_METRIC, "JPY/kWh", ",.3f"))
+    kpi_p90 = chart("P90 abs error", big_number_params(dataset_id, spec.p90_metric, unit, fmt))
 
     # Error structure
-    mae_year = chart("MAE by year", bar_params(dataset_id, "year"))
-    mae_tc = chart("MAE by time code", bar_params(dataset_id, "time_code"))
-    heat_tc = chart("MAE by year and time code", heatmap_params(dataset_id, "time_code"))
-    heat_month = chart("MAE by year and month", heatmap_params(dataset_id, "month"))
-    mae_dow = chart("MAE by day of week", bar_params(dataset_id, "day_of_week"))
-    mae_daypart = chart("MAE by day part", bar_params(dataset_id, "day_part"))
-    mae_daytype = chart("MAE by day type", bar_params(dataset_id, "day_type"))
+    mae_year = chart("MAE by year", bar_params(spec, dataset_id, "year"))
+    mae_tc = chart("MAE by time code", bar_params(spec, dataset_id, "time_code"))
+    heat_tc = chart("MAE by year and time code", heatmap_params(spec, dataset_id, "time_code"))
+    heat_month = chart("MAE by year and month", heatmap_params(spec, dataset_id, "month"))
+    mae_dow = chart("MAE by day of week", bar_params(spec, dataset_id, "day_of_week"))
+    mae_daypart = chart("MAE by day part", bar_params(spec, dataset_id, "day_part"))
+    mae_daytype = chart("MAE by day type", bar_params(spec, dataset_id, "day_type"))
 
     # Calibration & distribution
-    mae_band = chart("MAE by actual price band", bar_params(dataset_id, "actual_price_band"))
-    calibration = chart(
-        "Calibration: forecast vs actual price level", calibration_params(dataset_id)
-    )
-    histogram = chart("Error distribution", histogram_params(dataset_id))
+    mae_band = chart(spec.band_chart_title, bar_params(spec, dataset_id, spec.band_col))
+    calibration = chart(spec.calibration_chart_title, calibration_params(spec, dataset_id))
+    histogram = chart("Error distribution", histogram_params(spec, dataset_id))
 
     # Runs & drilldown
-    leaderboard = chart("Run leaderboard", leaderboard_params(dataset_id))
-    worst_days = chart("Worst days", worst_days_params(dataset_id))
-    detail = chart("Forecast vs actual (30-min detail)", detail_params(dataset_id))
+    leaderboard = chart("Run leaderboard", leaderboard_params(spec, dataset_id))
+    worst_days = chart("Worst days", worst_days_params(spec, dataset_id))
+    detail = chart("Forecast vs actual (30-min detail)", detail_params(spec, dataset_id))
 
     sections = [
         {
@@ -963,8 +1169,8 @@ def main(argv: list[str] | None = None) -> None:
             "header": "Calibration & distribution",
             "rows": [
                 [
-                    (mae_band, "MAE by actual price band", 5, 42),
-                    (calibration, "Calibration: forecast vs actual price level", 7, 42),
+                    (mae_band, spec.band_chart_title, 5, 42),
+                    (calibration, spec.calibration_chart_title, 7, 42),
                 ],
                 [(histogram, "Error distribution", 12, 38)],
             ],
@@ -1000,11 +1206,12 @@ def main(argv: list[str] | None = None) -> None:
         detail,
     ]
 
-    default_run = latest_run_label(client, database_id)
+    default_run = latest_run_label(client, database_id, spec)
     logger.info("default run: {}", default_run)
     dashboard_id = upsert_dashboard(
         client,
-        build_position_json(sections),
+        spec,
+        build_position_json(spec, sections),
         build_native_filters(
             dataset_id,
             run_excluded=[leaderboard],
@@ -1013,7 +1220,44 @@ def main(argv: list[str] | None = None) -> None:
     )
     attach_charts(client, dashboard_id, all_charts)
     logger.info("dashboard: id={}", dashboard_id)
-    logger.info("open: http://localhost:8088/superset/dashboard/{}/", DASHBOARD_SLUG)
+    logger.info("open: http://localhost:8088/superset/dashboard/{}/", spec.dashboard_slug)
+    return dashboard_id
+
+
+def main(argv: list[str] | None = None) -> None:
+    """Build or refresh the selected dashboards end to end.
+
+    Parameters
+    ----------
+    argv : list of str, optional
+        Command-line arguments (``--url``, ``--user``, ``--password``, each
+        defaulting to the corresponding ``SUPERSET_*`` environment value;
+        ``--task``, repeatable, one of ``DASHBOARDS`` — every dashboard when
+        omitted). ``None`` reads ``sys.argv``.
+    """
+    parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
+    parser.add_argument("--url", default=SUPERSET_URL, help="Superset root URL")
+    parser.add_argument("--user", default=ADMIN_USER, help="Superset admin username")
+    parser.add_argument("--password", default=ADMIN_PASSWORD, help="Superset admin password")
+    parser.add_argument(
+        "--task",
+        action="append",
+        choices=list(DASHBOARDS),
+        help="dashboard to build (repeatable); default: all of them",
+    )
+    args = parser.parse_args(argv)
+
+    client = SupersetClient(args.url, args.user, args.password)
+
+    database_id = client.find_one("database", database_name=DATABASE_NAME)
+    if database_id is None:
+        raise SystemExit(
+            f"Database connection {DATABASE_NAME!r} not found — register the "
+            "Spark Thriftserver connection in the Superset UI first."
+        )
+
+    for task in args.task or list(DASHBOARDS):
+        build_dashboard(client, database_id, DASHBOARDS[task])
 
 
 if __name__ == "__main__":
