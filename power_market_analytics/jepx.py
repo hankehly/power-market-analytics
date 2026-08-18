@@ -52,6 +52,9 @@ class JepxSpotDownloader:
         download if it does not exist.
     timeout : float, default 60.0
         HTTP request timeout in seconds.
+    session : requests.Session, optional
+        HTTP session to issue ``get`` calls with; defaults to a fresh
+        :class:`requests.Session`. Injected mainly for tests.
 
     Examples
     --------
@@ -73,9 +76,11 @@ class JepxSpotDownloader:
         self,
         data_dir: Path | str = Path("data/jepx/spot"),
         timeout: float = 60.0,
+        session: requests.Session | None = None,
     ) -> None:
         self.data_dir = Path(data_dir)
         self.timeout = timeout
+        self.session = session if session is not None else requests.Session()
 
     def path_for(self, fiscal_year: int) -> Path:
         """Return the local path where the fiscal year's CSV is stored.
@@ -125,7 +130,7 @@ class JepxSpotDownloader:
 
         url = self.URL_TEMPLATE.format(fiscal_year=fiscal_year)
         logger.info("Downloading {} -> {}", url, dest)
-        response = requests.get(url, timeout=self.timeout)
+        response = self.session.get(url, timeout=self.timeout)
         response.raise_for_status()
 
         self.data_dir.mkdir(parents=True, exist_ok=True)

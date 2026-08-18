@@ -17,7 +17,7 @@ from power_market_analytics.tepco_loader import TepcoAreaCsvLoader
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--schema",
@@ -36,7 +36,7 @@ def main() -> None:
         default="pma_raw.tepco_area_demand_generation_actual",
         help="Destination table (database.table).",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     schema = CsvTableSchema.from_yaml(args.schema)
     loader = TepcoAreaCsvLoader(schema=schema, filepath=args.data, table=args.table)

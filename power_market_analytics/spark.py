@@ -23,29 +23,32 @@ class SparkSettings(BaseSettings):
     SPARK_DRIVER_MAX_RESULT_SIZE: str = ""
 
 
-def get_spark_session(
+def spark_session_builder(
     app_name: str = "PMA",
     extra_configs: dict[str, str] | None = None,
-) -> SparkSession:
-    """Return a SparkSession sharing the thriftserver's Hive metastore.
+    settings: SparkSettings | None = None,
+) -> SparkSession.Builder:
+    """Build the configured (not yet started) session builder.
 
-    Reads ``conf/spark`` settings via ``SPARK_CONF_DIR`` so tables written
-    here land in the same metastore/warehouse the thriftserver (and dbt)
-    serve. ``spark.driver.memory`` must be set before the JVM starts —
-    restart the kernel to apply a new value if a session already exists.
+    Split out of :func:`get_spark_session` so the configuration can be
+    inspected without starting a Hive-enabled JVM.
 
     Parameters
     ----------
     app_name : str, default "PMA"
         Spark application name.
     extra_configs : dict of str to str, optional
-        Additional ``builder.config`` key/value pairs, applied last.
+        Additional ``builder.config`` key/value pairs, applied last (so they
+        override the defaults below).
+    settings : SparkSettings, optional
+        Per-JVM memory settings. Defaults to ``SparkSettings()``, i.e. the
+        environment / ``.env``.
 
     Returns
     -------
-    pyspark.sql.SparkSession
+    pyspark.sql.SparkSession.Builder
     """
-    spark_settings = SparkSettings()
+    spark_settings = settings if settings is not None else SparkSettings()
 
     if not spark_settings.SPARK_CONF_DIR:
         logger.warning(
@@ -80,4 +83,29 @@ def get_spark_session(
         for key, value in extra_configs.items():
             builder = builder.config(key, value)
 
-    return builder.enableHiveSupport().getOrCreate()
+    return builder
+
+
+def get_spark_session(
+    app_name: str = "PMA",
+    extra_configs: dict[str, str] | None = None,
+) -> SparkSession:
+    """Return a SparkSession sharing the thriftserver's Hive metastore.
+
+    Reads ``conf/spark`` settings via ``SPARK_CONF_DIR`` so tables written
+    here land in the same metastore/warehouse the thriftserver (and dbt)
+    serve. ``spark.driver.memory`` must be set before the JVM starts —
+    restart the kernel to apply a new value if a session already exists.
+
+    Parameters
+    ----------
+    app_name : str, default "PMA"
+        Spark application name.
+    extra_configs : dict of str to str, optional
+        Additional ``builder.config`` key/value pairs, applied last.
+
+    Returns
+    -------
+    pyspark.sql.SparkSession
+    """
+    return spark_session_builder(app_name, extra_configs).enableHiveSupport().getOrCreate()

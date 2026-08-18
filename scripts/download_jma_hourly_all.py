@@ -109,7 +109,7 @@ def build_plan(
     return plan
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--stations-csv",
@@ -166,7 +166,7 @@ def main() -> None:
         default=5.0,
         help="Minimum seconds between consecutive HTTP requests.",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     JmaStationMasterDownloader(dest=args.stations_csv).download()
     plan = build_plan(

@@ -29,7 +29,7 @@ FORMATS = [
 ]
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--data-dir",
@@ -43,7 +43,7 @@ def main() -> None:
         default=REPO_ROOT / "conf/schemas",
         help="Directory containing the YAML schema definitions.",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     for schema_stem, pattern, table in FORMATS:
         schema = CsvTableSchema.from_yaml(args.schema_dir / f"{schema_stem}.yaml")

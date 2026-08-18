@@ -15,7 +15,7 @@ from loguru import logger
 from power_market_analytics.jma import HOURLY_ELEMENTS, JmaHourlyDownloader
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--station",
@@ -56,7 +56,7 @@ def main() -> None:
         action="store_true",
         help="Re-download every year, ignoring the cache.",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     downloader = JmaHourlyDownloader(data_dir=args.data_dir)
     current_year = datetime.date.today().year

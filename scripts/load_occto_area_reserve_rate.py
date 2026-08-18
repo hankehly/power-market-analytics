@@ -16,7 +16,7 @@ from power_market_analytics.csv_loader import CsvLoader, CsvTableSchema
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--schema",
@@ -35,7 +35,7 @@ def main() -> None:
         default="pma_raw.occto_area_reserve_rate_dad",
         help="Destination table (database.table).",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     schema = CsvTableSchema.from_yaml(args.schema)
     loader = CsvLoader(schema=schema, filepath=args.data, table=args.table)

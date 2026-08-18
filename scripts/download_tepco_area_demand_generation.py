@@ -14,7 +14,7 @@ from loguru import logger
 from power_market_analytics.tepco import TepcoAreaDownloader
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--data-dir",
@@ -22,7 +22,7 @@ def main() -> None:
         default=Path("data/tepco/area_demand_generation"),
         help="Root directory for TEPCO area files (zip/ archives, csv/ extracted actuals).",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     downloader = TepcoAreaDownloader(data_dir=args.data_dir)
     paths = downloader.download_all()
