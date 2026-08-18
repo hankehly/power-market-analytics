@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import dataclasses
 import datetime
+from collections.abc import Callable
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -144,6 +145,9 @@ class OcctoBulkDownloader:
     timeout : float, default 120.0
         HTTP request timeout in seconds. The download step assembles the CSV
         server-side and can take a while for large windows.
+    session_factory : callable, default :class:`requests.Session`
+        Zero-argument callable returning a fresh session (used as a context
+        manager) for each :meth:`download` call. Injected mainly for tests.
 
     Examples
     --------
@@ -160,9 +164,11 @@ class OcctoBulkDownloader:
         self,
         data_dir: Path | str = Path("data/occto"),
         timeout: float = 120.0,
+        session_factory: Callable[[], requests.Session] = requests.Session,
     ) -> None:
         self.data_dir = Path(data_dir)
         self.timeout = timeout
+        self.session_factory = session_factory
 
     def path_for(self, dataset: str) -> Path:
         """Return the local path where the dataset's CSV is stored.
@@ -231,7 +237,7 @@ class OcctoBulkDownloader:
         logger.info("Downloading OCCTO {} in {} window(s) -> {}", dataset, len(windows), dest)
 
         chunks: list[bytes] = []
-        with requests.Session() as session:
+        with self.session_factory() as session:
             self._open_session(session)
             for window_from, window_to in windows:
                 selection = self._selection(spec, window_from, window_to)
@@ -293,8 +299,9 @@ class OcctoBulkDownloader:
         for i, chunk in enumerate(chunks):
             if i > 0:
                 # Every chunk has passed _verify_csv, so the header is the
-                # first line; the files are LF-terminated.
-                chunk = chunk[chunk.index(b"\n") + 1 :]
+                # first line (a header-only window may lack the trailing LF).
+                newline = chunk.find(b"\n")
+                chunk = chunk[newline + 1 :] if newline >= 0 else b""
             if chunk and not chunk.endswith(b"\n"):
                 chunk += b"\n"
             parts.append(chunk)

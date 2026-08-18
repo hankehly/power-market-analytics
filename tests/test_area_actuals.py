@@ -168,6 +168,23 @@ class TestAreaActualsDownloader:
         assert calls == [(2022, 4), (2022, 5), (2022, 6)]
         assert result == [tmp_path / "202204.csv", tmp_path / "202205.csv", tmp_path / "202206.csv"]
 
+    def test_download_all_defaults_to_the_current_month(self, tmp_path):
+        dl = AreaActualsDownloader(SOURCE, data_dir=tmp_path)
+        calls: list[tuple[int, int]] = []
+
+        def fake_download(year: int, month: int) -> list[Path]:
+            calls.append((year, month))
+            return []
+
+        dl.download = fake_download  # type: ignore[method-assign]
+        today = datetime.date.today()
+
+        assert dl.download_all() == []
+
+        assert calls == month_range(SOURCE.earliest_month, (today.year, today.month))
+        assert calls[0] == (2022, 4)
+        assert calls[-1] == (today.year, today.month)
+
 
 # --------------------------------------------------------------------------- loader
 from power_market_analytics.area_actuals import (  # noqa: E402
@@ -394,3 +411,28 @@ class TestAreaActualsCsvLoader:
         )
         with pytest.raises(ValueError, match="column header"):
             loader.load()
+
+    def test_all_final_files_load_when_source_archives_current_day(self, spark, tmp_path):
+        write_cp932(tmp_path / "jukyu_jisseki_20251225_06.csv", KANSAI_NEW_FILE)
+        write_cp932(tmp_path / "20250701_jisseki.csv", KANSAI_OLD_FILE)
+        source = dataclasses.replace(LOADER_SOURCE, archive_includes_current_day=True)
+        loader = AreaActualsCsvLoader(
+            CONTRACT, tmp_path, "test_area.all_final", spark=spark, source=source
+        )
+
+        assert loader.load() == 4
+        dates = {r.target_date.isoformat() for r in spark.table("test_area.all_final").collect()}
+        assert dates == {"2025-07-01", "2025-12-25"}
+
+    def test_only_running_day_files_raises_when_source_archives_current_day(self, spark, tmp_path):
+        running = list(KANSAI_NEW_FILE)
+        running[1] = "2025/12/25,06:43:12,2025/12/25"  # updated on the target day itself
+        write_cp932(tmp_path / "jukyu_jisseki_20251225_06.csv", running)
+        source = dataclasses.replace(LOADER_SOURCE, archive_includes_current_day=True)
+        loader = AreaActualsCsvLoader(
+            NULLABLE_CONTRACT, tmp_path, "test_area.only_running", spark=spark, source=source
+        )
+
+        with pytest.raises(FileNotFoundError, match="No finalized CSV files"):
+            loader.load()
+        assert not spark.catalog.tableExists("test_area.only_running")

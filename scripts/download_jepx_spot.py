@@ -14,7 +14,7 @@ from loguru import logger
 from power_market_analytics.jepx import JepxSpotDownloader, current_fiscal_year
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--data-dir",
@@ -27,7 +27,7 @@ def main() -> None:
         action="store_true",
         help="Re-download every fiscal year, ignoring the cache.",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     downloader = JepxSpotDownloader(data_dir=args.data_dir)
     latest = current_fiscal_year()

@@ -112,6 +112,9 @@ class PreviousDayStrategy(ForecastStrategy):
         ValueError
             If the previous day is not fully present in the history.
         """
+        # A string-parsed Timestamp carries second resolution; normalize so
+        # the assigned trade_date column is datetime64[ns] per the contract.
+        target_date = pd.Timestamp(target_date).as_unit("ns")
         previous_day = target_date - pd.Timedelta(days=1)
         prev = history.df[history.df["trade_date"] == previous_day]
         if len(prev) == 0:

@@ -14,7 +14,7 @@ from loguru import logger
 from power_market_analytics.occto import OcctoBulkDownloader
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--data-dir",
@@ -22,7 +22,7 @@ def main() -> None:
         default=Path("data/occto"),
         help="Root directory where OCCTO CSV files are stored (one subdirectory per dataset).",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     downloader = OcctoBulkDownloader(data_dir=args.data_dir)
     path = downloader.download("area_reserve_rate_dad")

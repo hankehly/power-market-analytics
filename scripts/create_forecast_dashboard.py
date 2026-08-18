@@ -25,6 +25,7 @@ Environment: ``SUPERSET_URL`` (default ``http://superset:8088``),
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import re
@@ -143,11 +144,20 @@ class SupersetClient:
         Superset root URL, e.g. ``http://superset:8088``.
     username, password : str
         Credentials for the ``db`` auth provider.
+    session : requests.Session, optional
+        HTTP session to issue every request through (the login included);
+        a fresh ``requests.Session()`` when omitted. Injectable for tests.
     """
 
-    def __init__(self, base_url: str, username: str, password: str) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        username: str,
+        password: str,
+        session: requests.Session | None = None,
+    ) -> None:
         self.base_url = base_url.rstrip("/")
-        self.session = requests.Session()
+        self.session = session if session is not None else requests.Session()
         token = self._post_json(
             "/api/v1/security/login",
             {"username": username, "password": password, "provider": "db", "refresh": True},
@@ -852,8 +862,23 @@ def attach_charts(client: SupersetClient, dashboard_id: int, chart_ids: list[int
         client._put_json(f"/api/v1/chart/{chart_id}", {"dashboards": [dashboard_id]})
 
 
-def main() -> None:
-    client = SupersetClient(SUPERSET_URL, ADMIN_USER, ADMIN_PASSWORD)
+def main(argv: list[str] | None = None) -> None:
+    """Build or refresh the dashboard end to end.
+
+    Parameters
+    ----------
+    argv : list of str, optional
+        Command-line arguments (``--url``, ``--user``, ``--password``; each
+        defaults to the corresponding ``SUPERSET_*`` environment value).
+        ``None`` reads ``sys.argv``.
+    """
+    parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
+    parser.add_argument("--url", default=SUPERSET_URL, help="Superset root URL")
+    parser.add_argument("--user", default=ADMIN_USER, help="Superset admin username")
+    parser.add_argument("--password", default=ADMIN_PASSWORD, help="Superset admin password")
+    args = parser.parse_args(argv)
+
+    client = SupersetClient(args.url, args.user, args.password)
 
     database_id = client.find_one("database", "database_name", DATABASE_NAME)
     if database_id is None:

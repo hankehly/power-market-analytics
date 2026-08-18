@@ -88,6 +88,9 @@ class _JmaDownloader:
         ``backoff_base * 2**n`` seconds.
     backoff_base : float, default 30.0
         Base wait in seconds for the exponential backoff.
+    session : requests.Session, optional
+        HTTP session to issue ``post`` calls with; defaults to a fresh
+        :class:`requests.Session`. Injected mainly for tests.
     """
 
     _HEADERS = {
@@ -105,11 +108,13 @@ class _JmaDownloader:
         request_interval: float = 5.0,
         max_retries: int = 4,
         backoff_base: float = 30.0,
+        session: requests.Session | None = None,
     ) -> None:
         self.timeout = timeout
         self.request_interval = request_interval
         self.max_retries = max_retries
         self.backoff_base = backoff_base
+        self.session = session if session is not None else requests.Session()
         self._last_request_at = 0.0
 
     def _post_with_retry(self, url: str, payload: dict) -> requests.Response:
@@ -132,11 +137,14 @@ class _JmaDownloader:
         requests.HTTPError
             If the final attempt still returns an error status.
         """
-        for attempt in range(self.max_retries + 1):
+        attempt = 0
+        while True:
             self._throttle()
-            response = requests.post(url, data=payload, headers=self._HEADERS, timeout=self.timeout)
+            response = self.session.post(
+                url, data=payload, headers=self._HEADERS, timeout=self.timeout
+            )
             retryable = response.status_code == 429 or response.status_code >= 500
-            if not retryable or attempt == self.max_retries:
+            if not retryable or attempt >= self.max_retries:
                 response.raise_for_status()
                 return response
             wait = self.backoff_base * 2**attempt
@@ -148,7 +156,7 @@ class _JmaDownloader:
                 self.max_retries,
             )
             time.sleep(wait)
-        raise AssertionError("unreachable")
+            attempt += 1
 
     def _throttle(self) -> None:
         """Sleep so consecutive HTTP requests are ``request_interval`` apart."""
@@ -174,7 +182,7 @@ class JmaHourlyDownloader(_JmaDownloader):
     **kwargs
         HTTP behavior options passed through to ``_JmaDownloader``
         (``timeout``, ``request_interval``, ``max_retries``,
-        ``backoff_base``).
+        ``backoff_base``, ``session``).
 
     Examples
     --------
@@ -229,6 +237,7 @@ class JmaHourlyDownloader(_JmaDownloader):
         elements: list[str],
         year: int,
         force: bool = False,
+        today: datetime.date | None = None,
     ) -> Path:
         """Download one station/element-set/year of hourly values.
 
@@ -245,6 +254,10 @@ class JmaHourlyDownloader(_JmaDownloader):
             clamped to yesterday for the current year).
         force : bool, default False
             Re-download even if the file already exists locally.
+        today : datetime.date, optional
+            The current date; defaults to ``datetime.date.today()``. Bounds
+            the supported year range and clamps the current year's period
+            to yesterday. Injected mainly for tests.
 
         Returns
         -------
@@ -262,7 +275,9 @@ class JmaHourlyDownloader(_JmaDownloader):
             If JMA still responds with an error status after retries.
         """
         self._validate_elements(elements)
-        current_year = datetime.date.today().year
+        if today is None:
+            today = datetime.date.today()
+        current_year = today.year
         if not self.EARLIEST_YEAR <= year <= current_year:
             raise ValueError(
                 f"Year {year} outside supported range {self.EARLIEST_YEAR}..{current_year}"
@@ -275,7 +290,7 @@ class JmaHourlyDownloader(_JmaDownloader):
 
         logger.info("Downloading {} {} {} -> {}", station_id, sorted(elements), year, dest)
         response = self._post_with_retry(
-            self.SHOW_TABLE_URL, self._payload(station_id, elements, year)
+            self.SHOW_TABLE_URL, self._payload(station_id, elements, year, today=today)
         )
 
         head = response.content[:64].decode(self.ENCODING, errors="replace")
@@ -338,7 +353,13 @@ class JmaHourlyDownloader(_JmaDownloader):
         """
         return sorted((HOURLY_ELEMENTS[e] for e in elements), key=int)
 
-    def _payload(self, station_id: str, elements: list[str], year: int) -> dict:
+    def _payload(
+        self,
+        station_id: str,
+        elements: list[str],
+        year: int,
+        today: datetime.date | None = None,
+    ) -> dict:
         """Build the ``show/table`` form payload for one station-elements-year.
 
         Parameters
@@ -349,6 +370,9 @@ class JmaHourlyDownloader(_JmaDownloader):
             Element names; keys of ``HOURLY_ELEMENTS``.
         year : int
             Calendar year.
+        today : datetime.date, optional
+            The current date; defaults to ``datetime.date.today()``. The
+            period ends at the earlier of December 31 and yesterday.
 
         Returns
         -------
@@ -357,7 +381,9 @@ class JmaHourlyDownloader(_JmaDownloader):
         """
         # An end date later than yesterday makes the endpoint return an HTML
         # error page, so the current year's period must stop at yesterday.
-        yesterday = datetime.date.today() - datetime.timedelta(days=1)
+        if today is None:
+            today = datetime.date.today()
+        yesterday = today - datetime.timedelta(days=1)
         end = min(datetime.date(year, 12, 31), yesterday)
         element_num_list = (
             "[" + ",".join(f'["{c}",""]' for c in self._element_codes(elements)) + "]"
@@ -404,7 +430,7 @@ class JmaStationMasterDownloader(_JmaDownloader):
     **kwargs
         HTTP behavior options passed through to ``_JmaDownloader``
         (``timeout``, ``request_interval``, ``max_retries``,
-        ``backoff_base``).
+        ``backoff_base``, ``session``).
 
     Examples
     --------

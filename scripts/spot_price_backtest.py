@@ -29,7 +29,7 @@ from power_market_analytics.tasks.spot_price.publish import (
 from power_market_analytics.tasks.spot_price.strategies import STRATEGIES, build_strategy
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--strategy", choices=sorted(STRATEGIES), default="previous_day")
     parser.add_argument(
@@ -68,7 +68,7 @@ def main() -> None:
         default=500,
         help="Rows sampled for the SHAP plots in the MLflow evaluation.",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     with task_run(
         MLFLOW_EXPERIMENT,

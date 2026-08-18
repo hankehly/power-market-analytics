@@ -13,11 +13,15 @@
   monthly archive (`AREA_YYYYMM.zip`, 2022-04 → now, ~5 MB total), reload `raw`, `dbt build`.
 - `just refresh-kansai` — same for 関西電力送配電's Kansai-area actuals (`YYYYMM_jisseki.zip`,
   2022-04 → now, ~2 MB total), reload `raw`, `dbt build`.
-- `just test [pytest args]` — Python unit tests (host-side pytest; a local SparkSession fixture,
-  no metastore needed) with a `pytest-cov` term-missing report over `power_market_analytics/`
-  + `scripts/` (config in `pyproject.toml` `[tool.coverage.*]`). Covers the shared
-  area-actuals downloader/loader, the TEPCO/Kansai specs, the Kansai CLI scripts and load
-  contract.
+- `just test [pytest args]` — Python unit tests (host-side pytest, ~1 min) with a `pytest-cov`
+  term-missing report over `power_market_analytics/` + `scripts/` (config in `pyproject.toml`
+  `[tool.coverage.*]`; 100% statements + branches — keep it there). Shared fixtures in
+  `tests/conftest.py`: `spark` (local session, temp warehouse, no metastore),
+  `curated_warehouse` (synthetic `pma_curated` star for the spot-price task), an autouse temp
+  MLflow file store, and a session-wide single-thread LightGBM cap. HTTP is never real: the
+  downloaders take an injectable `session` (`session_factory` for OCCTO) and scripts are driven
+  through `main(argv)` with their downloader/loader class swapped in the module namespace
+  (`tests/support.import_script`).
 - `just python <args>` / `just exec <cmd>` / `just shell` — run inside the devcontainer.
 - `just dbt <args>` — dbt from `/workspace/dbt` (e.g. `just dbt build`, `just dbt show --inline "select ..." --limit 5`).
 - `just sql` — beeline shell on the thriftserver.
@@ -140,7 +144,8 @@
   Edit/Write — the file may change right after your edit; re-Read before the next Edit if
   needed. Config: `pyproject.toml` (line length 100; rules E4/E7/E9/F/I only).
 - Verification: `just test` runs the pytest suite (`tests/`; a local-Spark fixture, host-side —
-  new Python should come with tests). Validate data/model changes with `just dbt build`
+  new Python should come with tests, and the coverage total must stay at 100%; the
+  `if __name__ == "__main__":` guard is the only excluded line). Validate data/model changes with `just dbt build`
   (contracts + tests) and Python changes with `uv run ruff check .`; loaders/downloaders are
   also checked end-to-end by running their `scripts/` entry point in the devcontainer.
 

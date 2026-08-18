@@ -30,7 +30,7 @@ SECTIONS = {
 }
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--baseline", required=True, help="MLflow run id of the baseline.")
     parser.add_argument("--candidate", required=True, help="MLflow run id of the candidate.")
@@ -46,7 +46,7 @@ def main() -> None:
         default=0.9,
         help="Daily-mean-price quantile above which a delivery day counts as high-price.",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     errors = load_run_errors([args.baseline, args.candidate])
     tables = compare_runs(
