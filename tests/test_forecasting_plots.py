@@ -8,8 +8,8 @@ import plotly.graph_objects as go
 import pytest
 
 from power_market_analytics.common.metrics import mae, mape
-from power_market_analytics.tasks.spot_price.frames import BacktestResult, MetricByYearTimeCode
-from power_market_analytics.tasks.spot_price.plots import (
+from power_market_analytics.forecasting.frames import MetricByYearTimeCode
+from power_market_analytics.forecasting.plots import (
     SEQUENTIAL_AQUAS,
     SEQUENTIAL_BLUES,
     _colorscale,
@@ -17,6 +17,8 @@ from power_market_analytics.tasks.spot_price.plots import (
     error_heatmaps,
     metric_by_year_time_code,
 )
+from power_market_analytics.tasks.spot_price import TASK
+from power_market_analytics.tasks.spot_price.frames import SpotPriceBacktestResult
 
 Y2023 = pd.Timestamp("2023-12-31").as_unit("ns")
 Y2024A = pd.Timestamp("2024-01-01").as_unit("ns")
@@ -50,9 +52,9 @@ class TestColorscale:
             assert scale[-1] == [1.0, ramp[-1]]
 
 
-def two_year_result() -> BacktestResult:
+def two_year_result() -> SpotPriceBacktestResult:
     """Two time codes; 2023 has one day, 2024 has two days per time code."""
-    return BacktestResult.from_df(
+    return SpotPriceBacktestResult.from_df(
         pd.DataFrame(
             {
                 "trade_date": [Y2023, Y2023, Y2024A, Y2024B, Y2024A, Y2024B],
@@ -97,7 +99,7 @@ class TestMetricByYearTimeCode:
         assert out.df.loc[0, "value"] == -1.0  # 2023/1: 2 - 3
 
 
-def full_day_result(days: list[pd.Timestamp]) -> BacktestResult:
+def full_day_result(days: list[pd.Timestamp]) -> SpotPriceBacktestResult:
     """48 periods per day; forecast error scales with the time code.
 
     2023-12-31: actual 20, forecast 20 + tc/10 -> MAE tc/10, MAPE tc/2 %.
@@ -116,12 +118,12 @@ def full_day_result(days: list[pd.Timestamp]) -> BacktestResult:
             }
             for tc in tcs
         )
-    return BacktestResult.from_df(pd.DataFrame(rows).astype({"time_code": "int64"}))
+    return SpotPriceBacktestResult.from_df(pd.DataFrame(rows).astype({"time_code": "int64"}))
 
 
 @pytest.fixture(scope="module")
 def fig() -> go.Figure:
-    return error_heatmaps(full_day_result([Y2023, Y2024A]), "naive · tokyo")
+    return error_heatmaps(TASK, full_day_result([Y2023, Y2024A]), "naive · tokyo")
 
 
 class TestErrorHeatmaps:
@@ -180,8 +182,9 @@ class TestErrorHeatmaps:
         assert all(a.font.color == "#0b0b0b" and a.font.size == 13 for a in annotations)
 
     def test_height_grows_36_px_per_year_per_panel(self):
-        one_year = error_heatmaps(full_day_result([Y2024A]), "t")
+        one_year = error_heatmaps(TASK, full_day_result([Y2024A]), "t")
         three_years = error_heatmaps(
+            TASK,
             full_day_result([Y2023, Y2024A, pd.Timestamp("2025-01-01").as_unit("ns")]),
             "t",
         )
@@ -189,3 +192,12 @@ class TestErrorHeatmaps:
         assert three_years.layout.height == 170 + 2 * (108 + 60)  # 506
         assert np.asarray(three_years.data[0].z).shape == (3, 48)
         assert list(three_years.data[0].y) == ["2023", "2024", "2025"]
+
+    def test_mae_unit_comes_from_the_task(self):
+        import dataclasses
+
+        kwh = dataclasses.replace(TASK, unit="kWh")
+        fig = error_heatmaps(kwh, full_day_result([Y2024A]), "t")
+        assert fig.data[0].colorbar.title.text == "kWh"
+        assert "MAE: %{z:.2f} kWh" in fig.data[0].hovertemplate
+        assert [a.text for a in fig.layout.annotations] == ["MAE (kWh)", "MAPE (%)"]

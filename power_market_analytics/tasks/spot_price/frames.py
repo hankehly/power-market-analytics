@@ -5,23 +5,21 @@ from __future__ import annotations
 import pandas as pd
 
 from power_market_analytics.common.frames import DomainFrame
+from power_market_analytics.forecasting.frames import (
+    BacktestResult,
+    DayAheadForecast,
+    ForecastRecords,
+    HalfHourlySeries,
+)
 
-N_PERIODS = 48
 
-
-class SpotPrices(DomainFrame):
+class SpotPrices(HalfHourlySeries):
     """Half-hourly spot price history for one area.
 
     Grain: (trade_date, time_code).
     """
 
-    schema = {
-        "trade_date": "datetime64[ns]",
-        "time_code": "int64",
-        "price_jpy_kwh": "float64",
-    }
-    keys = ["trade_date", "time_code"]
-    non_null_cols = ["price_jpy_kwh"]
+    value_col = "price_jpy_kwh"
 
 
 class OcctoDemandForecast(DomainFrame):
@@ -56,107 +54,29 @@ class OcctoDemandForecast(DomainFrame):
             )
 
 
-class DayAheadForecast(DomainFrame):
+class SpotPriceForecast(DayAheadForecast):
     """Forecast for one delivery day: exactly 48 half-hour prices.
 
     Grain: (trade_date, time_code); trade_date is the target delivery day.
     """
 
-    schema = {
-        "trade_date": "datetime64[ns]",
-        "time_code": "int64",
-        "forecast_price_jpy_kwh": "float64",
-    }
-    keys = ["trade_date", "time_code"]
-    non_null_cols = ["forecast_price_jpy_kwh"]
-
-    @classmethod
-    def _validate_extra(cls, df: pd.DataFrame) -> None:
-        if df["trade_date"].nunique() != 1:
-            raise ValueError(
-                f"{cls.__name__}: expected a single target day, got "
-                f"{sorted(df['trade_date'].unique())}"
-            )
-        if len(df) != N_PERIODS or set(df["time_code"]) != set(range(1, N_PERIODS + 1)):
-            raise ValueError(
-                f"{cls.__name__}: expected exactly time codes 1..{N_PERIODS}, got {len(df)} rows"
-            )
+    forecast_col = "forecast_price_jpy_kwh"
 
 
-class BacktestResult(DomainFrame):
-    """Forecasts joined to actuals over a backtest window.
+class SpotPriceBacktestResult(BacktestResult):
+    """Forecasts joined to actual prices over a backtest window.
 
     Grain: (trade_date, time_code).
     """
 
-    schema = {
-        "trade_date": "datetime64[ns]",
-        "time_code": "int64",
-        "actual_price_jpy_kwh": "float64",
-        "forecast_price_jpy_kwh": "float64",
-    }
-    keys = ["trade_date", "time_code"]
-    non_null_cols = ["actual_price_jpy_kwh", "forecast_price_jpy_kwh"]
+    actual_col = "actual_price_jpy_kwh"
+    forecast_col = "forecast_price_jpy_kwh"
 
 
-class ForecastRecords(DomainFrame):
-    """One backtest run's forecasts shaped for the warehouse write-back table.
+class SpotPriceForecastRecords(ForecastRecords):
+    """One backtest run's price forecasts shaped for ``pma_ml.spot_price_forecast``.
 
-    Grain: (run_id, area_code, trade_date, time_code). A run currently covers
-    a single area, but the declared grain is the business grain of
-    ``pma_ml.spot_price_forecast`` — one forecast per run, area and delivery
-    period. Forecasts only; actuals stay in the JEPX fact and are joined
-    downstream by dbt.
+    Grain: (run_id, area_code, trade_date, time_code).
     """
 
-    schema = {
-        "run_id": "object",
-        "strategy": "object",
-        "area_code": "object",
-        "forecast_issued_ts": "datetime64[ns]",
-        "trade_date": "datetime64[ns]",
-        "time_code": "int64",
-        "forecast_price_jpy_kwh": "float64",
-        "published_at": "datetime64[ns]",
-    }
-    keys = ["run_id", "area_code", "trade_date", "time_code"]
-    non_null_cols = ["strategy", "forecast_issued_ts", "forecast_price_jpy_kwh", "published_at"]
-
-
-class MetricByYearTimeCode(DomainFrame):
-    """One error-metric value per calendar year and time code.
-
-    Grain: (year, time_code). ``value`` may be NaN where the metric is
-    undefined for a cell (e.g. MAPE over all-zero actuals), so it is not a
-    non-null column.
-    """
-
-    schema = {
-        "year": "int64",
-        "time_code": "int64",
-        "value": "float64",
-    }
-    keys = ["year", "time_code"]
-
-    @classmethod
-    def _validate_extra(cls, df: pd.DataFrame) -> None:
-        bad = df.loc[~df["time_code"].between(1, N_PERIODS), "time_code"]
-        if not bad.empty:
-            raise ValueError(
-                f"{cls.__name__}: time_code outside 1..{N_PERIODS}: {sorted(bad.unique())}"
-            )
-
-    def to_matrix(self) -> pd.DataFrame:
-        """Pivot to a wide year x time_code matrix for rendering.
-
-        Returns
-        -------
-        pandas.DataFrame
-            Index: year (ascending). Columns: time_code (ascending).
-            Values: the metric.
-        """
-        return (
-            self.df.pivot(index="year", columns="time_code", values="value")
-            .sort_index()
-            .sort_index(axis="columns")
-        )
+    forecast_col = "forecast_price_jpy_kwh"

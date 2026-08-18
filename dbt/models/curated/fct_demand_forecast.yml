@@ -1,0 +1,86 @@
+models:
+  - name: fct_demand_forecast
+    config:
+      contract:
+        enforced: true
+    description: >
+      Day-ahead area demand forecasts produced by backtest runs
+      (scripts/demand_backtest.py). Grain: one row per MLflow run x delivery
+      period (trade date x 30-minute time code) x area. run_id is a
+      degenerate dimension linking back to the MLflow run (experiment
+      demand) that holds the strategy's params, metrics and artifacts;
+      strategy is denormalized for convenient slicing. Forecast values only
+      — actuals stay in fct_area_demand_generation_actual; drill across on
+      (date_key, time_code, area_key) or use fct_demand_forecast_accuracy,
+      which materializes that join. forecast_demand_kwh is energy per
+      30-minute period (kWh) like the actual and is additive across periods
+      within one run; never sum across runs. horizon_hours is the lead time
+      from forecast_issued_ts (09:30 JST on the day before delivery) to the
+      start of the delivery period, ~14.5-38 h.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - run_id
+              - date_key
+              - time_code
+              - area_key
+    columns:
+      - name: date_key
+        data_type: date
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_date')
+                field: date_key
+      - name: time_code
+        data_type: int
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_delivery_period')
+                field: time_code
+      - name: area_key
+        data_type: int
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_area')
+                field: area_key
+      - name: run_id
+        data_type: string
+        data_tests:
+          - not_null
+      - name: strategy
+        data_type: string
+        data_tests:
+          - not_null
+      - name: trade_datetime
+        data_type: timestamp
+        data_tests:
+          - not_null
+      - name: forecast_issued_ts
+        data_type: timestamp
+        data_tests:
+          - not_null
+      - name: horizon_hours
+        data_type: double
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+      - name: forecast_demand_kwh
+        data_type: double
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+      - name: published_at
+        data_type: timestamp
+        data_tests:
+          - not_null
