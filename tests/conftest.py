@@ -15,6 +15,15 @@ from __future__ import annotations
 import dataclasses
 import math
 import os
+import time
+
+# The Spark fixture pins spark.sql.session.timeZone to Asia/Tokyo, but PySpark's
+# collect() renders TimestampType as a naive datetime in the *process's* local
+# time zone, so the tests' JST wall-clock literals only match when that is JST
+# too. Pin it here, before the JVM starts (it inherits TZ), so the suite is
+# host-independent (CI runners are UTC).
+os.environ["TZ"] = "Asia/Tokyo"
+time.tzset()
 
 # Headless matplotlib for the SHAP plots MLflow evaluation renders.
 os.environ.setdefault("MPLBACKEND", "Agg")
