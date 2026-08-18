@@ -17,8 +17,8 @@ import pandas as pd
 from loguru import logger
 
 from power_market_analytics.common.tracking import MAPE_METRIC_NAME, log_dataframe, task_run
+from power_market_analytics.forecasting.backtest import daily_metrics, run_backtest
 from power_market_analytics.tasks.spot_price import MLFLOW_EXPERIMENT
-from power_market_analytics.tasks.spot_price.backtest import daily_metrics, run_backtest
 from power_market_analytics.tasks.spot_price.datasets import AREA_CODES, load_area_spot_prices
 from power_market_analytics.tasks.spot_price.plots import error_heatmaps
 from power_market_analytics.tasks.spot_price.publish import (
@@ -74,7 +74,7 @@ def main(argv: list[str] | None = None) -> None:
         MLFLOW_EXPERIMENT,
         run_name=f"{args.strategy}-{args.area}",
         tags={"strategy": args.strategy, "area": args.area},
-    ) as run:
+    ) as mlflow_run:
         prices = load_area_spot_prices(area_code=args.area)
         last_day = prices.df["trade_date"].max()
         end_date = last_day if args.end_date is None else args.end_date
@@ -91,7 +91,8 @@ def main(argv: list[str] | None = None) -> None:
         strategy = build_strategy(
             args.strategy, area_code=args.area, train_start_date=args.train_start
         )
-        result = run_backtest(strategy, prices, start_date=start_date, end_date=end_date)
+        run = run_backtest(strategy, prices, start_date=start_date, end_date=end_date)
+        result = run.result
 
         per_day = daily_metrics(result)
 
@@ -103,12 +104,13 @@ def main(argv: list[str] | None = None) -> None:
                 "end_date": str(end_date.date()),
                 "n_days": per_day["trade_date"].nunique(),
                 "n_predictions": len(result),
+                "n_days_skipped": len(run.skipped_days),
             }
         )
         log_dataframe(per_day, "daily_errors.csv")
         log_dataframe(result.df, "predictions.csv")
         records = build_forecast_records(
-            result, run_id=run.info.run_id, strategy=args.strategy, area_code=args.area
+            result, run_id=mlflow_run.info.run_id, strategy=args.strategy, area_code=args.area
         )
         publish_forecast_records(records)
         mlflow.set_tag("warehouse_table", FORECAST_TABLE)
@@ -122,7 +124,7 @@ def main(argv: list[str] | None = None) -> None:
         )
         evaluation = strategy.evaluate(eval_set, explainability_nsamples=args.shap_nsamples)
 
-        run_id = run.info.run_id
+        run_id = mlflow_run.info.run_id
 
     logger.info(
         "strategy={} area={} window={}..{} days={} predictions={}",

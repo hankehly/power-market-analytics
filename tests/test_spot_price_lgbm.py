@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from power_market_analytics.tasks.spot_price.backtest import run_backtest
+from power_market_analytics.forecasting.backtest import run_backtest
 from power_market_analytics.tasks.spot_price.frames import (
     BacktestResult,
     DayAheadForecast,
@@ -428,8 +428,8 @@ def hand_backtest_result() -> BacktestResult:
 def backtested(prices: SpotPrices) -> tuple[LightGbmStrategy, BacktestResult]:
     """One strategy backtested over ``WINDOW_START..WINDOW_END`` (two refits)."""
     strategy = LightGbmStrategy(train_window_days=30, refit_every_days=7)
-    result = run_backtest(strategy, prices, WINDOW_START, WINDOW_END)
-    return strategy, result
+    run = run_backtest(strategy, prices, WINDOW_START, WINDOW_END)
+    return strategy, run.result
 
 
 class TestBuildEvalSet:
@@ -476,7 +476,7 @@ class TestBuildEvalSet:
         strategy = LightGbmStrategy(train_window_days=30)
         result = run_backtest(
             strategy, prices, pd.Timestamp("2024-03-03"), pd.Timestamp("2024-03-04")
-        )
+        ).result
         with pytest.raises(
             ValueError, match="LightGbmEvalSet: column 'forecast_price_jpy_kwh' has 48 null values"
         ):
@@ -532,7 +532,7 @@ class TestEvaluate:
 
     def test_logs_backtest_metrics_params_plots_and_model(self, prices):
         strategy = LightGbmStrategy(train_window_days=30, refit_every_days=7)
-        result = run_backtest(strategy, prices, WINDOW_START, WINDOW_END)
+        result = run_backtest(strategy, prices, WINDOW_START, WINDOW_END).result
         eval_set = strategy.build_eval_set(prices, WINDOW_START, WINDOW_END, result=result)
         with mlflow.start_run() as run:
             evaluation = strategy.evaluate(eval_set)
@@ -574,7 +574,7 @@ class TestEvaluate:
         strategy = LightGbmStrategy(
             train_window_days=30, refit_every_days=7, train_start_date="2024-03-20"
         )
-        result = run_backtest(strategy, prices, WINDOW_START, WINDOW_END)
+        result = run_backtest(strategy, prices, WINDOW_START, WINDOW_END).result
         eval_set = strategy.build_eval_set(prices, WINDOW_START, WINDOW_END, result=result)
         with mlflow.start_run() as run:
             strategy.evaluate(eval_set, explainability_nsamples=50)
@@ -584,7 +584,7 @@ class TestEvaluate:
     def test_contributions_must_cover_every_eval_row(self, prices):
         # `other` only backtested (and so only explained) the first 10 days.
         full = LightGbmStrategy(train_window_days=30, refit_every_days=7)
-        result = run_backtest(full, prices, WINDOW_START, WINDOW_END)
+        result = run_backtest(full, prices, WINDOW_START, WINDOW_END).result
         eval_set = full.build_eval_set(prices, WINDOW_START, WINDOW_END, result=result)
         other = LightGbmStrategy(train_window_days=30, refit_every_days=7)
         run_backtest(other, prices, WINDOW_START, pd.Timestamp("2024-04-10"))
@@ -628,7 +628,7 @@ class TestLightGbmOcctoStrategy:
     def test_backtest_eval_set_and_evaluation_use_the_occto_features(self, prices):
         occto = make_occto(pd.date_range("2024-03-15", "2024-04-14"))
         strategy = LightGbmOcctoStrategy(occto, train_window_days=30, refit_every_days=7)
-        result = run_backtest(strategy, prices, WINDOW_START, WINDOW_END)
+        result = run_backtest(strategy, prices, WINDOW_START, WINDOW_END).result
         # OCCTO rows start 03-15, so the 04-01 fit sees 03-15..03-31 only.
         assert training_rows(strategy) == 24 * 48  # last refit (04-08): 03-15..04-07
         eval_set = strategy.build_eval_set(prices, WINDOW_START, WINDOW_END, result=result)
@@ -687,10 +687,10 @@ class TestLightGbmOcctoStrategy:
         # forecast, so the backtest skips it and the eval set drops its rows.
         days = pd.date_range("2024-03-15", "2024-04-14").drop(pd.Timestamp("2024-04-06"))
         strategy = LightGbmOcctoStrategy(make_occto(days), train_window_days=30, refit_every_days=7)
-        first = run_backtest(strategy, prices, WINDOW_START, pd.Timestamp("2024-04-05"))
+        first = run_backtest(strategy, prices, WINDOW_START, pd.Timestamp("2024-04-05")).result
         second = run_backtest(
             strategy, prices, pd.Timestamp("2024-04-07"), pd.Timestamp("2024-04-10")
-        )
+        ).result
         result = BacktestResult.from_df(pd.concat([first.df, second.df], ignore_index=True))
         eval_set = strategy.build_eval_set(
             prices, WINDOW_START, pd.Timestamp("2024-04-10"), result=result

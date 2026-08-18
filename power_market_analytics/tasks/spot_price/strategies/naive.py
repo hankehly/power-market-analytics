@@ -11,7 +11,7 @@ from mlflow.models import EvaluationResult
 from power_market_analytics.common.frames import DomainFrame
 from power_market_analytics.common.tracking import evaluate_regressor
 from power_market_analytics.forecasting.features import join_lag
-from power_market_analytics.forecasting.strategy import ForecastStrategy
+from power_market_analytics.forecasting.strategy import ForecastStrategy, ForecastUnavailableError
 from power_market_analytics.tasks.spot_price import TASK
 from power_market_analytics.tasks.spot_price.frames import (
     BacktestResult,
@@ -111,7 +111,7 @@ class PreviousDayStrategy(ForecastStrategy):
 
         Raises
         ------
-        ValueError
+        ForecastUnavailableError
             If the previous day is not fully present in the history.
         """
         # A string-parsed Timestamp carries second resolution; normalize so
@@ -120,7 +120,9 @@ class PreviousDayStrategy(ForecastStrategy):
         previous_day = target_date - pd.Timedelta(days=1)
         prev = history.df[history.df["trade_date"] == previous_day]
         if len(prev) == 0:
-            raise ValueError(f"{self.name}: no history for previous day {previous_day.date()}")
+            raise ForecastUnavailableError(
+                f"{self.name}: no history for previous day {previous_day.date()}"
+            )
         forecast = prev.assign(trade_date=target_date).rename(
             columns={"price_jpy_kwh": "forecast_price_jpy_kwh"}
         )
