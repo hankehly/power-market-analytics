@@ -73,7 +73,7 @@ Derived properties (no duplication): `value_col = history_cls.value_col`,
 `__post_init__` checks that `forecast_cls`, `result_cls` and `records_cls` agree
 on `forecast_col`.
 Methods: `history_cutoff(target_date) -> Timestamp` (= D − lead days; history
-rows must satisfy `trade_date <= cutoff`), `issued_at(trade_date)`.
+rows must satisfy `trade_date <= cutoff`).
 
 ### 4.2 `frames.py` — generic frame bases
 
@@ -96,10 +96,11 @@ set the ClassVar raises `TypeError` at class-definition time.
 
 `ForecastStrategy(ABC)`: `name: str`, `task: ClassVar[TaskSpec]`,
 `predict(target_date, history) -> DayAheadForecast`,
-`build_eval_set(history, start_date, end_date, result=None) -> DomainFrame`,
+`build_eval_set(history, start_date, end_date, run: BacktestRun | None = None) -> DomainFrame`,
 `evaluate(eval_set, **kwargs) -> EvaluationResult` — the current spot_price
-interface with generic types. `FeaturesUnavailableError(ValueError)`: raised by
-`predict` when the target day's features cannot be built.
+interface with generic types. `ForecastUnavailableError(ValueError)`: raised by
+`predict` when the target day's features cannot be built or the visible
+history holds no complete training rows.
 
 ### 4.4 `backtest.py` — engine and gaps policy
 
@@ -111,14 +112,13 @@ tuple[Timestamp, ...])`.
   (a day absent from history is not forecast); empty → `ValueError`.
 - For each D the strategy receives
   `history_cls.from_df(df[df.trade_date <= task.history_cutoff(D)])`.
-- `FeaturesUnavailableError` from `predict` → the day is skipped with a
+- `ForecastUnavailableError` from `predict` → the day is skipped with a
   WARNING log and appended to `skipped_days`. If every day is skipped →
   `ValueError` listing them.
 - Result = inner join of actuals (value renamed to `actual_col`) and forecasts on
   `(trade_date, time_code)`. Forecast points without an actual (a null-demand
-  hole) are dropped and their count logged. Every actual row of a forecast day
-  must have exactly one forecast, else `ValueError` (unchanged strictness for
-  the forecast side).
+  hole) are dropped and their count logged. (An actual without a forecast
+  cannot occur: every forecast carries all 48 time codes.)
 - `daily_metrics(result)` — one row per day with `mae`, `mape`; column names
   read from `type(result)`.
 
@@ -146,7 +146,7 @@ The current `LightGbmStrategy` with the spot-specific parts factored out:
   (abstract hook: lags/exogenous). `_design_matrix` renames
   `task.value_col → eval_set_cls.target_col`.
 - `predict`: rows = all 48 time codes of D (the D-1 template is dropped);
-  any NaN feature → `FeaturesUnavailableError`; TreeSHAP recording, forecast
+  any NaN feature → `ForecastUnavailableError`; TreeSHAP recording, forecast
   frame via `task.forecast_cls`.
 - `_ensure_fitted`, `build_eval_set`, `evaluate`, `_log_shap_plots`: as today,
   reading target/forecast columns from `eval_set_cls`; `evaluate` logs the
@@ -180,7 +180,7 @@ title)` (MAE panel labelled with `task.unit`); palette constants move with it.
 - Deleted (replaced by `forecasting/`): `backtest.py`, `features.py`,
   `publish.py`, `plots.py`, `strategies/base.py`.
 - `strategies/naive.py`: `PreviousDayStrategy` on the generic base
-  (`task = TASK`, `join_lag(value_col=...)`, raises `FeaturesUnavailableError`
+  (`task = TASK`, `join_lag(value_col=...)`, raises `ForecastUnavailableError`
   when D-1 is missing).
 - `strategies/lgbm.py`: `LightGbmStrategy(SlidingWindowLightGbmStrategy)` with
   `lookback_days = 1`, `_add_features` = 1-day lag then the existing

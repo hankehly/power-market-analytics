@@ -130,6 +130,7 @@ class TestBacktestScript:
         assert params["end_date"] == "2024-05-03"
         assert params["n_days"] == "3"
         assert params["n_predictions"] == "144"
+        assert params["n_days_skipped"] == "0"
         assert run.data.tags["strategy"] == "previous_day"
         assert run.data.tags["area"] == "tokyo"
         assert run.data.tags["warehouse_table"] == "pma_ml.spot_price_forecast"

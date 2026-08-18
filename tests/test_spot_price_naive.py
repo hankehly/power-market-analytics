@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from power_market_analytics.forecasting.strategy import ForecastStrategy
+from power_market_analytics.forecasting.strategy import ForecastStrategy, ForecastUnavailableError
 from power_market_analytics.tasks.spot_price.frames import DayAheadForecast, SpotPrices
 from power_market_analytics.tasks.spot_price.strategies.naive import (
     FEATURE_COLS,
@@ -80,7 +80,7 @@ class TestPreviousDayStrategyPredict:
 
     def test_missing_previous_day_raises(self):
         with pytest.raises(
-            ValueError, match="previous_day: no history for previous day 2024-01-03"
+            ForecastUnavailableError, match="previous_day: no history for previous day 2024-01-03"
         ):
             PreviousDayStrategy().predict(D4, history([D1, D2]))
 
