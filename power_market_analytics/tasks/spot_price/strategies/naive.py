@@ -10,7 +10,7 @@ from mlflow.models import EvaluationResult
 
 from power_market_analytics.common.frames import DomainFrame
 from power_market_analytics.common.tracking import evaluate_regressor
-from power_market_analytics.tasks.spot_price.features import join_lag
+from power_market_analytics.forecasting.features import join_lag
 from power_market_analytics.tasks.spot_price.frames import (
     BacktestResult,
     DayAheadForecast,
@@ -160,7 +160,7 @@ class PreviousDayStrategy(ForecastStrategy):
         """
         df = prices.df
         featured = df.rename(columns={"price_jpy_kwh": TARGET_COL}).pipe(
-            join_lag, df, days=1, name="lag_1d_price"
+            join_lag, df, value_col="price_jpy_kwh", days=1, name="lag_1d_price"
         )
 
         window = featured[featured["trade_date"].between(start_date, end_date)]
