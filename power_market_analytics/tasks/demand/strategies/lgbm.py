@@ -73,7 +73,8 @@ class LightGbmStrategy(SlidingWindowLightGbmStrategy):
     task = TASK
     feature_cols = FEATURE_COLS
     eval_set_cls = DemandLightGbmEvalSet
-    # The longest lag any feature reaches back: the temperature window's D-8.
+    # Extra demand history the training window's first row needs: >= the 7-day lag (8 is a
+    # safe superset; the temperature frame is not sliced by this).
     lookback_days = 8
 
     def __init__(self, temperature: AreaTemperature, **kwargs) -> None:

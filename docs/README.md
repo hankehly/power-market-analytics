@@ -23,6 +23,13 @@ five subject areas, sharing a conformed `dim_date`:
 - `fct_spot_price_forecast_accuracy` — the forecast fact drilled across to
   `fct_jepx_spot_area_price` actuals, adding signed/absolute/percentage error
   columns. This is the intended BI surface for forecast analysis.
+- `fct_demand_forecast` — day-ahead area demand forecasts written back from
+  `scripts/demand_backtest.py` (MLflow experiment `demand`); grain run ×
+  delivery period × area; forecast values only.
+- `fct_demand_forecast_accuracy` — the demand forecast fact drilled across to
+  `fct_area_demand_generation_actual` on (date_key, time_code, area_key):
+  `actual_demand_kwh`, signed `error_kwh`, `abs_error_kwh`, `pct_error`,
+  `abs_pct_error`; the BI surface for demand runs.
 - `fct_occto_demand_supply_forecast_daily` — OCCTO day-after-next (翌々日) demand and
   peak supply-capacity forecasts, one row per target date per JEPX area
   (periodic snapshot; formulated on target date − 2, so it is known before
@@ -62,6 +69,12 @@ erDiagram
     dim_date ||--o{ fct_spot_price_forecast_accuracy : "date_key"
     dim_delivery_period ||--o{ fct_spot_price_forecast_accuracy : "time_code"
     dim_area ||--o{ fct_spot_price_forecast_accuracy : "area_key"
+    dim_date ||--o{ fct_demand_forecast : "date_key"
+    dim_delivery_period ||--o{ fct_demand_forecast : "time_code"
+    dim_area ||--o{ fct_demand_forecast : "area_key"
+    dim_date ||--o{ fct_demand_forecast_accuracy : "date_key"
+    dim_delivery_period ||--o{ fct_demand_forecast_accuracy : "time_code"
+    dim_area ||--o{ fct_demand_forecast_accuracy : "area_key"
     dim_date ||--o{ fct_occto_demand_supply_forecast_daily : "date_key"
     dim_area ||--o{ fct_occto_demand_supply_forecast_daily : "area_key"
     dim_date ||--o{ fct_occto_demand_supply_forecast_30m : "date_key"
@@ -106,6 +119,7 @@ erDiagram
         string tso_name_en
         string grid_frequency
         string grid_region
+        string representative_jma_station_id
     }
 
     fct_jepx_spot_market {
@@ -202,6 +216,36 @@ erDiagram
         double abs_pct_error
     }
 
+    fct_demand_forecast {
+        date date_key PK, FK
+        int time_code PK, FK
+        int area_key PK, FK
+        string run_id PK
+        string strategy
+        timestamp trade_datetime
+        timestamp forecast_issued_ts
+        double horizon_hours
+        double forecast_demand_kwh
+        timestamp published_at
+    }
+
+    fct_demand_forecast_accuracy {
+        date date_key PK, FK
+        int time_code PK, FK
+        int area_key PK, FK
+        string run_id PK
+        string strategy
+        timestamp trade_datetime
+        timestamp forecast_issued_ts
+        double horizon_hours
+        double forecast_demand_kwh
+        bigint actual_demand_kwh
+        double error_kwh
+        double abs_error_kwh
+        double pct_error
+        double abs_pct_error
+    }
+
     fct_occto_demand_supply_forecast_daily {
         date date_key PK, FK
         int area_key PK, FK
@@ -238,7 +282,7 @@ erDiagram
     classDef dim fill:#DBEAFE,stroke:#2563EB,color:#1E3A8A
     classDef fact fill:#FEF3C7,stroke:#B45309,color:#78350F
     class dim_date,dim_delivery_period,dim_area,dim_jma_station dim
-    class fct_jepx_spot_market,fct_jepx_spot_area_price,fct_jma_weather_hourly,fct_spot_price_forecast,fct_spot_price_forecast_accuracy,fct_occto_demand_supply_forecast_daily,fct_occto_demand_supply_forecast_30m,fct_area_demand_generation_actual fact
+    class fct_jepx_spot_market,fct_jepx_spot_area_price,fct_jma_weather_hourly,fct_spot_price_forecast,fct_spot_price_forecast_accuracy,fct_demand_forecast,fct_demand_forecast_accuracy,fct_occto_demand_supply_forecast_daily,fct_occto_demand_supply_forecast_30m,fct_area_demand_generation_actual fact
 ```
 
 Notes:
@@ -296,6 +340,10 @@ records the results in two places, linked by the MLflow `run_id`:
 - **Warehouse** — row-level forecasts written to `pma_ml.spot_price_forecast`
   (partitioned by `run_id`; republishing a run replaces its rows), which dbt
   models into `fct_spot_price_forecast` and `fct_spot_price_forecast_accuracy`.
+
+`scripts/demand_backtest.py` follows the same pattern for area demand
+(MLflow experiment `demand`), writing to `fct_demand_forecast` and
+`fct_demand_forecast_accuracy`.
 
 Strategies: `previous_day` (naive), `lightgbm` (calendar + 1-day-lag features)
 and `lightgbm_occto` (the same plus the OCCTO 翌々日 peak-demand hour, peak

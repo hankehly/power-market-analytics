@@ -158,7 +158,7 @@ The current `LightGbmStrategy` with the spot-specific parts factored out:
 ### 4.7 `publish.py`
 
 `build_forecast_records(task, result, *, run_id, strategy, area_code) ->
-ForecastRecords` (issue timestamp = `task.issued_at`) and
+ForecastRecords` (issue timestamp = `trade_date + task.issue_offset`) and
 `publish_forecast_records(task, records, spark=None) -> int` (DDL and table from
 the spec; parquet partitioned by `run_id`, dynamic partition overwrite).
 
