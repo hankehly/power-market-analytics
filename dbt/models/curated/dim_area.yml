@@ -15,6 +15,10 @@ models:
       systems) does not apply here — the areas are a static,
       regulation-defined enumeration from a single national standard — so,
       like the date dimension, this dimension uses a meaningful primary key.
+
+      representative_jma_station_id names the JMA 気象官署 whose observations
+      stand in for the area's weather in the modeling tasks (the prefectural
+      capital's staffed station; null for the system row).
     columns:
       - name: area_key
         data_type: int
@@ -61,3 +65,14 @@ models:
           - accepted_values:
               arguments:
                 values: [East, West, Not Applicable]
+      - name: representative_jma_station_id
+        data_type: string
+        description: >
+          JMA station id (dim_jma_station.station_id) used as the area's
+          representative weather station by the modeling tasks, e.g. s47662
+          = 東京 for tokyo, s47772 = 大阪 for kansai. Null for the system row.
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_jma_station')
+                field: station_id
