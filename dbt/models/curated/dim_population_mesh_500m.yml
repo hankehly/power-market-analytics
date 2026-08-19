@@ -1,0 +1,75 @@
+models:
+  - name: dim_population_mesh_500m
+    config:
+      contract:
+        enforced: true
+    description: >
+      Dimension of the 500 m census meshes (4次メッシュ, JIS X 0410): one row per
+      nine-digit mesh_code appearing in any loaded census vintage of
+      fct_census_population_mesh, with its primary mesh, geodetic datum and the
+      bounding box / centroid decoded from the code (decimal degrees; a mesh is
+      15" of latitude by 22.5" of longitude, ~460 m x ~570 m at 35°N). Built as
+      the distinct attribute set across vintages, so the mesh_code uniqueness
+      test doubles as the assertion that no mesh code ever carries conflicting
+      geographic attributes. Type-1: rebuilt from the loaded vintages, no
+      history. Meshes are geometry-free here (no boundary polygons); the
+      later weather-grid crosswalk and population weights are out of scope
+      of this dimension.
+    columns:
+      - name: mesh_code
+        data_type: string
+        description: Nine-digit 500 m mesh code and natural key, e.g. 533946114 (東京駅).
+        data_tests:
+          - unique
+          - not_null
+      - name: primary_mesh_code
+        data_type: string
+        description: Four-digit 第１次地域区画 (first four digits of mesh_code).
+        data_tests:
+          - not_null
+      - name: geodetic_datum
+        data_type: string
+        description: Datum of the coordinates (JGD2000 for the loaded vintages).
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [JGD2000]
+      - name: south_latitude
+        data_type: double
+        description: Southern edge, decimal degrees north.
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 20
+                max_value: 46
+      - name: north_latitude
+        data_type: double
+        description: Northern edge (south_latitude + 1/240°).
+        data_tests:
+          - not_null
+      - name: west_longitude
+        data_type: double
+        description: Western edge, decimal degrees east.
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 122
+                max_value: 155
+      - name: east_longitude
+        data_type: double
+        description: Eastern edge (west_longitude + 1/160°).
+        data_tests:
+          - not_null
+      - name: centroid_latitude
+        data_type: double
+        description: Midpoint latitude.
+        data_tests:
+          - not_null
+      - name: centroid_longitude
+        data_type: double
+        description: Midpoint longitude.
+        data_tests:
+          - not_null

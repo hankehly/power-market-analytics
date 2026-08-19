@@ -1,0 +1,64 @@
+models:
+  - name: stg_estat__census_population_mesh
+    config:
+      contract:
+        enforced: true
+    description: >
+      As-is representation of pma_raw.estat_census_population_mesh (census
+      500 m population mesh, every loaded vintage). One row per census_year
+      and mesh_code. Column documentation lives on the source
+      (models/raw/estat.yml).
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - census_year
+              - mesh_code
+    columns:
+      - name: census_year
+        data_type: int
+        data_tests:
+          - not_null
+      - name: census_date
+        data_type: date
+        data_tests:
+          - not_null
+      - name: geodetic_datum
+        data_type: string
+        data_tests:
+          - not_null
+      - name: stats_id
+        data_type: string
+        data_tests:
+          - not_null
+      - name: primary_mesh_code
+        data_type: string
+        data_tests:
+          - not_null
+      - name: mesh_code
+        data_type: string
+        data_tests:
+          - not_null
+      - name: privacy_processing_code
+        data_type: int
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [0, 1, 2]
+                quote: false
+      - name: aggregation_destination_mesh_code
+        data_type: string
+      - name: aggregation_source_mesh_codes
+        data_type: string
+      - name: population_total
+        data_type: bigint
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+      - name: source_file
+        data_type: string
+        data_tests:
+          - not_null

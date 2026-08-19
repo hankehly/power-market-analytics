@@ -1,0 +1,57 @@
+models:
+  - name: fct_census_population_mesh
+    config:
+      contract:
+        enforced: true
+    description: >
+      Census total population per 500 m mesh — a periodic snapshot fact at the
+      census date (October 1 of each census year), one row per (census_year,
+      mesh_code), for every loaded vintage: 2015 (e-Stat T000847) and 2020
+      (T001101, JGD2000). population_total is the value the Statistics Bureau
+      published for the mesh, including privacy-processed meshes (the 秘匿処理
+      suppresses only detail columns, never the total), so it is ADDITIVE
+      across geography — sum over meshes for a prefecture, a service area or a
+      weather-grid cell — but NOT across census years (each vintage is a
+      separate snapshot; summing 2015 and 2020 counts people twice). No
+      population_weight is published here: a weight's denominator depends on
+      the target geography or weather grid chosen later, and interpolating
+      between census years is likewise out of scope. Mesh geography (bounding
+      box, centroid) is on dim_population_mesh_500m; the raw privacy metadata
+      (HTKSYORI / HTKSAKI / GASSAN) stays in std_estat__census_population_mesh.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - census_year
+              - mesh_code
+    columns:
+      - name: census_year
+        data_type: int
+        description: Census year of the snapshot (degenerate dimension).
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 2015
+      - name: census_date
+        data_type: date
+        description: Census reference date, October 1 of census_year.
+        data_tests:
+          - not_null
+      - name: mesh_code
+        data_type: string
+        description: Nine-digit 500 m mesh code (FK to dim_population_mesh_500m).
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_population_mesh_500m')
+                field: mesh_code
+      - name: population_total
+        data_type: bigint
+        description: Total population of the mesh at census_date (persons); additive across meshes only.
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0

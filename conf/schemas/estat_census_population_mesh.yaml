@@ -1,0 +1,42 @@
+description: >
+  e-Stat 統計GIS 国勢調査 4次メッシュ (500 m grid) population tables — one row
+  per census vintage and nine-digit mesh code with the total population.
+  Source: the 第１次地域区画 (primary mesh) archives listed on
+  https://www.e-stat.go.jp/gis/statmap-search (statsId T000847 = 2015,
+  T001101 = 2020 JGD2000), one tbl{statsId}H{primary}.txt per archive,
+  downloaded by scripts/download_estat_census_population_mesh.py and loaded
+  by EstatCensusMeshCsvLoader (scripts/load_estat_census_population_mesh.py).
+  Protocol, format and privacy rules: docs/eStat-Census-Population-Mesh-Retrieval.md.
+  Files are CP932 with two header rows (source codes, then Japanese labels);
+  the loader drops the label row and, per file, injects the vintage
+  attributes from power_market_analytics.estat.VINTAGES (__census_year,
+  __census_date, __geodetic_datum, __stats_id), the primary mesh code and
+  source file name parsed from the file name (__primary_mesh_code,
+  __source_file) and the vintage's total-population column
+  (__population_total = T000847001 / T001101001). Only the four privacy
+  columns (KEY_CODE, HTKSYORI, HTKSAKI, GASSAN) are addressed by their
+  physical header. Total population is never suppressed ('*'); the load
+  fails if it is not a non-negative integer, if a mesh code is malformed or
+  outside its file's primary mesh, or if HTKSYORI is not 0/1/2. Population
+  is kept as published for every mesh — HTKSAKI / GASSAN describe how the
+  '*'-suppressed detail columns were folded and must not be used to move
+  population between meshes.
+
+read_options:
+  # Java charset name for cp932 / Shift_JIS with Windows extensions
+  encoding: windows-31j
+
+grain: [census_year, mesh_code]
+
+columns:
+  - { name: census_year, source: __census_year, type: int, nullable: false }
+  - { name: census_date, source: __census_date, type: date, nullable: false }
+  - { name: geodetic_datum, source: __geodetic_datum, type: string, nullable: false }
+  - { name: stats_id, source: __stats_id, type: string, nullable: false }
+  - { name: primary_mesh_code, source: __primary_mesh_code, type: string, nullable: false }
+  - { name: mesh_code, source: KEY_CODE, type: string, nullable: false }
+  - { name: privacy_processing_code, source: HTKSYORI, type: int, nullable: false }
+  - { name: aggregation_destination_mesh_code, source: HTKSAKI, type: string }
+  - { name: aggregation_source_mesh_codes, source: GASSAN, type: string }
+  - { name: population_total, source: __population_total, type: bigint, nullable: false }
+  - { name: source_file, source: __source_file, type: string, nullable: false }
