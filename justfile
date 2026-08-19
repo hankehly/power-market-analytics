@@ -78,6 +78,12 @@ refresh-kansai:
     just python scripts/load_kansai_area_demand_generation.py
     just dbt build
 
+[doc("Refresh e-Stat census 500 m population mesh: download every configured census vintage (cached; args pass through, e.g. --years 2020 --force), reload raw, rebuild + test dbt")]
+refresh-estat *args:
+    just python scripts/download_estat_census_population_mesh.py {{ args }}
+    just python scripts/load_estat_census_population_mesh.py
+    just dbt build
+
 [doc("Run the Python unit tests with a coverage report (pytest, host-side; uses a local SparkSession)")]
 test *args:
     uv run pytest --cov --cov-report=term-missing {{args}}

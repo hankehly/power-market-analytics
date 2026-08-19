@@ -68,6 +68,13 @@ GENERIC_SCRIPTS = [
         "data/tepco/area_demand_generation/csv",
         "pma_raw.tepco_area_demand_generation_actual",
     ),
+    (
+        "load_estat_census_population_mesh",
+        "EstatCensusMeshCsvLoader",
+        "conf/schemas/estat_census_population_mesh.yaml",
+        "data/estat/census_population_mesh",
+        "pma_raw.estat_census_population_mesh",
+    ),
 ]
 
 #: The grain of each default contract, proving the script read the right file.
@@ -80,6 +87,7 @@ CONTRACT_GRAINS = {
     ],
     "conf/schemas/occto_demand_forecast_dad.yaml": ["target_date", "area_name_ja"],
     "conf/schemas/tepco_area_demand_generation_actual.yaml": ["target_date", "time_code"],
+    "conf/schemas/estat_census_population_mesh.yaml": ["census_year", "mesh_code"],
 }
 
 
