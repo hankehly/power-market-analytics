@@ -6,8 +6,9 @@ Power market analytics.
 
 ## Curated star schema
 
-The curated layer (`dbt/models/curated/`) contains eight fact tables across
-five subject areas, sharing a conformed `dim_date`:
+The curated layer (`dbt/models/curated/`) contains eleven fact tables across
+six subject areas, sharing a conformed `dim_date` (the census fact, a
+once-per-census snapshot, joins its own mesh dimension instead):
 
 - `fct_jepx_spot_market` — market-wide JEPX day-ahead auction results, one row
   per delivery period (trade date × 30-minute time code).
@@ -55,6 +56,14 @@ five subject areas, sharing a conformed `dim_date`:
   `fct_jepx_spot_area_price`). Covers 2022-04-01 onward through the last
   finalized day; measures are null where the TSO published no observation
   (Tokyo 2025-06-14 time codes 11-48, Kansai 2025-10-12 × 22 periods).
+- `fct_census_population_mesh` — Population Census total population per
+  500 m mesh (e-Stat 統計GIS 4次メッシュ), one row per census vintage (2015,
+  2020 — JGD2000 products) per nine-digit `mesh_code`; a periodic snapshot at
+  the census date, additive across meshes (population as published at every
+  mesh, privacy processing untouched) but not across census years. Joins
+  `dim_population_mesh_500m` (one row per mesh: primary mesh, datum, bounding
+  box and centroid decoded from the code). Intended for population-weighted
+  weather aggregation later; no weights or weather-grid crosswalk are stored.
 
 ```mermaid
 erDiagram
@@ -85,6 +94,7 @@ erDiagram
     dim_date ||--o{ fct_area_demand_generation_actual : "date_key"
     dim_delivery_period ||--o{ fct_area_demand_generation_actual : "time_code"
     dim_area ||--o{ fct_area_demand_generation_actual : "area_key"
+    dim_population_mesh_500m ||--o{ fct_census_population_mesh : "mesh_code"
 
     dim_date {
         date date_key PK
@@ -281,10 +291,29 @@ erDiagram
         bigint wind_solar_generation_kwh
     }
 
+    dim_population_mesh_500m {
+        string mesh_code PK
+        string primary_mesh_code
+        string geodetic_datum
+        double south_latitude
+        double north_latitude
+        double west_longitude
+        double east_longitude
+        double centroid_latitude
+        double centroid_longitude
+    }
+
+    fct_census_population_mesh {
+        int census_year PK
+        date census_date
+        string mesh_code PK, FK
+        bigint population_total
+    }
+
     classDef dim fill:#DBEAFE,stroke:#2563EB,color:#1E3A8A
     classDef fact fill:#FEF3C7,stroke:#B45309,color:#78350F
-    class dim_date,dim_delivery_period,dim_area,dim_jma_station dim
-    class fct_jepx_spot_market,fct_jepx_spot_area_price,fct_jma_weather_hourly,fct_spot_price_forecast,fct_spot_price_forecast_accuracy,fct_demand_forecast,fct_demand_forecast_accuracy,fct_occto_demand_supply_forecast_daily,fct_occto_demand_supply_forecast_30m,fct_area_demand_generation_actual fact
+    class dim_date,dim_delivery_period,dim_area,dim_jma_station,dim_population_mesh_500m dim
+    class fct_jepx_spot_market,fct_jepx_spot_area_price,fct_jma_weather_hourly,fct_spot_price_forecast,fct_spot_price_forecast_accuracy,fct_demand_forecast,fct_demand_forecast_accuracy,fct_occto_demand_supply_forecast_daily,fct_occto_demand_supply_forecast_30m,fct_area_demand_generation_actual,fct_census_population_mesh fact
 ```
 
 Notes:
@@ -330,6 +359,14 @@ Notes:
   measures its own area with its own system (TEPCO values are multiples of
   1,000 kWh, Kansai's exact kWh). The fact joins `fct_jepx_spot_area_price`
   1:1 on (`date_key`, `time_code`, `area_key`).
+- `fct_census_population_mesh.population_total` is additive across meshes
+  (sum for any geography) but not across `census_year` — each vintage is a
+  separate snapshot. It is the published headcount at every mesh, privacy
+  processing included (the 秘匿処理 folds only the suppressed detail columns
+  into neighbouring meshes, never the total), so nothing is reallocated. The
+  census date (October 1) predates `dim_date`'s spine and is carried as a
+  plain `census_date`; mesh geography lives on `dim_population_mesh_500m`
+  (bounding box / centroid decoded from the JIS X 0410 code, JGD2000).
 
 ## Forecast analysis
 

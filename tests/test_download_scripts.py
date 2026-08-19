@@ -1,4 +1,4 @@
-"""CLI entry points of the JEPX / OCCTO / TEPCO download scripts (scripts/).
+"""CLI entry points of the JEPX / OCCTO / TEPCO / e-Stat download scripts (scripts/).
 
 Each script builds one downloader and drives it; the downloader class is swapped
 for a recording fake in the script's namespace, so what is asserted is the
@@ -140,3 +140,47 @@ class TestDownloadTepcoAreaDemandGeneration:
         module, seen = fake
         module.main([])
         assert seen == {"data_dir": Path("data/tepco/area_demand_generation"), "download_all": True}
+
+
+class TestDownloadEstatCensusPopulationMesh:
+    @pytest.fixture
+    def fake(self, monkeypatch):
+        module = import_script("download_estat_census_population_mesh")
+        seen: dict = {}
+
+        class FakeDownloader:
+            def __init__(self, data_dir):
+                seen["data_dir"] = data_dir
+
+            def download_all(self, years=None, force=False):
+                seen["years"] = years
+                seen["force"] = force
+                return [Path(seen["data_dir"]) / "2015/txt/tblT000847H5339.txt"]
+
+        monkeypatch.setattr(module, "EstatCensusMeshDownloader", FakeDownloader)
+        return module, seen
+
+    def test_defaults_to_every_configured_vintage_without_force(self, fake):
+        module, seen = fake
+        module.main([])
+        assert seen == {
+            "data_dir": Path("data/estat/census_population_mesh"),
+            "years": [2015, 2020],
+            "force": False,
+        }
+
+    def test_years_data_dir_and_force_overrides(self, fake, tmp_path):
+        module, seen = fake
+        module.main(["--years", "2020", "--data-dir", str(tmp_path), "--force"])
+        assert seen == {"data_dir": tmp_path, "years": [2020], "force": True}
+
+    def test_several_years(self, fake):
+        module, seen = fake
+        module.main(["--years", "2020", "2015"])
+        assert seen["years"] == [2020, 2015]
+
+    def test_unconfigured_year_is_rejected_by_the_parser(self, fake):
+        module, seen = fake
+        with pytest.raises(SystemExit):
+            module.main(["--years", "2010"])
+        assert seen == {}
