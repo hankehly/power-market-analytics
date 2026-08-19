@@ -13,6 +13,10 @@
   monthly archive (`AREA_YYYYMM.zip`, 2022-04 → now, ~5 MB total), reload `raw`, `dbt build`.
 - `just refresh-kansai` — same for 関西電力送配電's Kansai-area actuals (`YYYYMM_jisseki.zip`,
   2022-04 → now, ~2 MB total), reload `raw`, `dbt build`.
+- `just refresh-estat [args]` — e-Stat census 500 m population mesh: download every configured
+  census vintage (2015 `T000847`, 2020 `T001101` JGD2000; 151 primary-mesh zips each, cached —
+  args pass through, e.g. `--years 2020`, `--force`; a cold run is ~50 min because e-Stat generates
+  each archive in ~10 s), reload `raw`, `dbt build`.
 - `just test [pytest args]` — Python unit tests (host-side pytest, ~1 min) with a `pytest-cov`
   term-missing report over `power_market_analytics/` + `scripts/` (config in `pyproject.toml`
   `[tool.coverage.*]`; gated at 100% via `fail_under`, so a partial suite fails locally and in
@@ -114,6 +118,23 @@
   - Curated: `fct_area_demand_generation_actual` = `union all` of the `std_<tso>__…` models joined
     to `dim_area` (grain date × time_code × area; joins `fct_jepx_spot_area_price` 1:1). Adding a
     TSO = new spec + contract + stg/std models + one union branch.
+- e-Stat census 500 m population mesh (国勢調査 4次メッシュ, one CP932 text file per 第１次地域区画):
+  `scripts/download_estat_census_population_mesh.py` (`EstatCensusMeshDownloader` in
+  `power_market_analytics/estat.py`; per-vintage `CensusVintage` config in `VINTAGES` — stats id,
+  population column, census date, datum, listing URL, expected file count; the listing rows come
+  from the `search_detail` JSON endpoint, not the HTML page; zips validated before caching, member
+  extracted byte-for-byte) → `data/estat/census_population_mesh/{year}/{zip,txt}/` →
+  `scripts/load_estat_census_population_mesh.py` (`EstatCensusMeshCsvLoader` in `estat_loader.py`:
+  vintage from the file name, selects that vintage's population column, injects vintage attributes,
+  validates mesh codes / population / HTKSYORI before casting; contract
+  `conf/schemas/estat_census_population_mesh.yaml`) → `pma_raw.estat_census_population_mesh` →
+  `stg_estat__census_population_mesh` → `std_estat__census_population_mesh` (+ bounding box /
+  centroid decoded from the mesh code; Python reference `estat.decode_mesh_code`) →
+  `dim_population_mesh_500m` (one row per mesh across vintages) + `fct_census_population_mesh`
+  (`census_year × mesh_code`, `population_total` as published at every mesh — the 秘匿処理 folds only
+  the `*`-suppressed detail columns, never the total; additive across meshes, not across years; no
+  weights). Adding a census = one `VINTAGES` entry + fixtures + the singular dbt test's year list.
+  Protocol + format: [docs/eStat-Census-Population-Mesh-Retrieval.md](docs/eStat-Census-Population-Mesh-Retrieval.md).
 - dbt (`dbt/`): sources in `models/raw/<source>.yml` → `staging` (as-is) → `standardized`
   (typed time axis) → `curated` (Kimball star: `dim_*`, `fct_*`). Schemas: `pma_<layer>`.
 - Japanese holidays: Cabinet Office CSV → `scripts/update_holidays_seed.py` → seed → `dim_date`
@@ -161,6 +182,9 @@
 - dbt 1.11 generic tests: put test args under `arguments:` (e.g. `dbt_utils.accepted_range`),
   else deprecation warnings.
 - Spark SQL `div` returns `bigint` — cast to `int` where the model contract says `int`.
+- Spark SQL numeric literals with a decimal point are `decimal`, not `double`: `1.0 / 240` is
+  decimal division truncated to 6 places (0.004167). For double arithmetic (mesh coordinates,
+  tolerances) write `cast(1 as double) / 240`, as the estat models and their tests do.
 - `dbt show --inline`: use the `--limit` flag; a `limit` clause inside the SQL breaks dbt's wrapper.
 - JEPX data history constrains tests: FY2016 has genuine 0.00 area prices (no 0.01 floor yet),
   Hokkaido area prices are null 2018-09-07..26 (earthquake suspension), block/FIP columns are

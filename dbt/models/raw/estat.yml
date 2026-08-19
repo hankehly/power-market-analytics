@@ -1,0 +1,84 @@
+sources:
+  - name: estat
+    schema: pma_raw
+    description: >
+      e-Stat 統計GIS (Statistics Bureau of Japan, https://www.e-stat.go.jp/gis)
+      census 4次メッシュ (500 m grid) population tables, downloaded per
+      第１次地域区画 (primary mesh) archive by
+      scripts/download_estat_census_population_mesh.py and loaded by
+      scripts/load_estat_census_population_mesh.py (full reload, one raw table
+      for every configured census vintage). Listing protocol, file format,
+      privacy rules and how to add a census vintage are documented in
+      docs/eStat-Census-Population-Mesh-Retrieval.md.
+    tables:
+      - name: estat_census_population_mesh
+        description: >
+          Total population per nine-digit 500 m mesh for each loaded census
+          vintage — 2015 (statsId T000847, table その１ 人口等基本集計に関する事項)
+          and 2020 (T001101, JGD2000 product; the JGD2011 duplicate is not
+          used so mesh geography stays consistent across vintages). One row per
+          (census_year, mesh_code); grain enforced at load time. Population is
+          the published value at every mesh, including the privacy-processed
+          ones (HTKSYORI 1/2): the 秘匿処理 folds only the '*'-suppressed
+          detail columns into other meshes, never the total population, so
+          nothing is added, subtracted or reallocated here. Load contract:
+          conf/schemas/estat_census_population_mesh.yaml.
+        columns:
+          - name: census_year
+            description: Census year (2015, 2020, ...), from the vintage configuration.
+            data_tests:
+              - not_null
+          - name: census_date
+            description: Census reference date, October 1 of census_year.
+            data_tests:
+              - not_null
+          - name: geodetic_datum
+            description: Datum of the mesh product ("JGD2000" for both initial vintages).
+            data_tests:
+              - not_null
+          - name: stats_id
+            description: e-Stat statistics table id the file came from (T000847, T001101).
+            data_tests:
+              - not_null
+          - name: primary_mesh_code
+            description: >
+              Four-digit 第１次地域区画 code of the source archive; every mesh_code
+              in the file starts with it (checked at load).
+            data_tests:
+              - not_null
+          - name: mesh_code
+            description: >
+              Nine-digit 4次メッシュ code (KEY_CODE): primary mesh (4) + second-level
+              row/column (2) + third-level row/column (2) + quadrant 1-4.
+            data_tests:
+              - not_null
+          - name: privacy_processing_code
+            description: >
+              HTKSYORI 秘匿処理: 0 = none, 1 = this mesh absorbed another mesh's
+              suppressed detail statistics (see aggregation_source_mesh_codes),
+              2 = this mesh's detail statistics were folded into another mesh
+              (see aggregation_destination_mesh_code). Total population is
+              reported for every value.
+            data_tests:
+              - not_null
+              - accepted_values:
+                  arguments:
+                    values: [0, 1, 2]
+                    quote: false
+          - name: aggregation_destination_mesh_code
+            description: HTKSAKI 秘匿先情報 — mesh that received this mesh's suppressed detail statistics; null unless privacy_processing_code = 2.
+          - name: aggregation_source_mesh_codes
+            description: >
+              GASSAN 合算情報 — semicolon-delimited mesh codes whose suppressed
+              detail statistics were folded into this mesh, kept as the source
+              string; null unless privacy_processing_code = 1.
+          - name: population_total
+            description: >
+              Total population (2015: T000847001 人口総数; 2020: T001101001 人口（総数）)
+              as published — never suppressed, non-negative.
+            data_tests:
+              - not_null
+          - name: source_file
+            description: Archive member the row came from, e.g. tblT000847H5339.txt.
+            data_tests:
+              - not_null
