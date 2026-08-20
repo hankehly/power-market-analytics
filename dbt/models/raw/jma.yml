@@ -6,86 +6,37 @@ sources:
       scraped from https://www.data.jma.go.jp/risk/obsdl/ by
       scripts/download_jma_hourly.py and loaded by scripts/load_jma_hourly.py
       (full reload). The retrieval protocol and CSV formats are documented in
-      docs/JMA-Weather-Data-Retrieval.md. The core element set (precipitation,
-      temperature, wind, sunshine) arrives in two fixed layouts — AMeDAS
-      stations and staffed stations (extra 現象なし情報 columns) — each with
-      its own load contract in conf/schemas/ and its own raw table. Hours run
-      01:00-24:00 JST with 24:00 stored as 00:00 of the next day. Quality
-      flags: 8 normal, 5 quasi-normal, 4 insufficient, 2 questionable,
-      1 missing, 0 not observed; value cells are empty when the flag is
-      2/1/0. Homogeneity numbers restart at 1 per downloaded file, so only
-      within-file changes mark observation-environment breaks.
+      docs/JMA-Weather-Data-Retrieval.md. Staffed stations only since the
+      2026-08 re-scope (気象官署, s-prefixed station ids): a single
+      7-element set (precipitation, temperature, wind, sunshine, snow depth,
+      humidity, solar radiation) in one 27-column layout, with files stitched
+      from two half-year requests per station-year. Hours run 01:00-24:00
+      JST with 24:00 stored as 00:00 of the next day. Quality flags: 8
+      normal, 5 quasi-normal, 4 insufficient, 2 questionable, 1 missing,
+      0 not observed; value cells are empty when the flag is 2/1/0.
+      Homogeneity numbers restart at 1 per REQUEST WINDOW (half-year), so in
+      a stitched year file the numbering resets at the window boundary —
+      only within-window changes mark observation-environment breaks, and a
+      real break exactly on the boundary is invisible in the CSV alone.
     tables:
-      - name: jma_hourly_amedas
-        description: >
-          Hourly core-element observations from AMeDAS stations (a-prefixed
-          station ids). One row per station and hour; grain
-          (station_id, observed_at) is enforced at load time. AMeDAS sunshine
-          stores an empty cell (not 0) with quality flag 8 for no-sunshine
-          hours, so sunshine values must be read together with their flag.
-          Load contract: conf/schemas/jma_hourly_amedas.yaml.
-        columns:
-          - name: station_id
-            description: >
-              JMA obsdl station id (e.g. a1133 = 府中), parsed from the file
-              name. Joinable to dim_jma_station (jma_stations seed).
-            data_tests:
-              - not_null
-          - name: observed_at
-            description: >
-              Observation hour (JST). Hour 24:00 is stored as 00:00 of the
-              next day, so a calendar-year file spans Jan 1 01:00 through
-              next Jan 1 00:00.
-            data_tests:
-              - not_null
-          - name: precipitation_mm
-            description: Precipitation in the past hour in mm (降水量(前1時間)).
-          - name: precipitation_quality_flag
-            description: Quality flag for precipitation (品質情報).
-          - name: precipitation_homogeneity_no
-            description: Homogeneity number for precipitation (均質番号).
-          - name: temperature_c
-            description: Air temperature in °C (気温).
-          - name: temperature_quality_flag
-            description: Quality flag for temperature (品質情報).
-          - name: temperature_homogeneity_no
-            description: Homogeneity number for temperature (均質番号).
-          - name: wind_speed_ms
-            description: Wind speed in m/s (風速).
-          - name: wind_speed_quality_flag
-            description: Quality flag for wind speed (品質情報).
-          - name: wind_direction
-            description: >
-              Wind direction as a 16-point compass word (北西 etc.) or 静穏
-              (calm) (風向).
-          - name: wind_direction_quality_flag
-            description: >
-              Quality flag for wind direction (品質情報). Null (empty cell
-              instead of 0) at a few stations while the wind element is
-              entirely unobserved (wind_speed_quality_flag 0): a1674 through
-              2022-10-30, a1643/a1644 in Dec 2016.
-          - name: wind_homogeneity_no
-            description: Homogeneity number shared by wind speed and direction (均質番号).
-          - name: sunshine_duration_h
-            description: >
-              Sunshine duration in the past hour in hours (日照時間(前1時間)).
-              Empty (null) with quality flag 8 means a no-sunshine hour at
-              AMeDAS stations. Estimated (satellite-derived) at active AMeDAS
-              stations since 2021-03.
-          - name: sunshine_quality_flag
-            description: Quality flag for sunshine duration (品質情報).
-          - name: sunshine_homogeneity_no
-            description: Homogeneity number for sunshine duration (均質番号).
       - name: jma_hourly_staffed
         description: >
-          Hourly core-element observations from staffed stations (気象官署,
-          s-prefixed station ids, e.g. s47662 = 東京). One row per station and
-          hour; grain (station_id, observed_at) is enforced at load time.
-          Same layout as jma_hourly_amedas plus 現象なし情報 columns on the
-          phenomenon-recording elements (precipitation, sunshine):
-          1 = no phenomenon that hour (the 0 value is a true zero),
-          0 = phenomenon occurred, null when the quality flag is 2/1/0.
-          Load contract: conf/schemas/jma_hourly_staffed.yaml.
+          Hourly observations from staffed stations (気象官署, s-prefixed
+          station ids, e.g. s47662 = 東京), the sole source since the 2026-08
+          re-scope. One row per station and hour; grain (station_id,
+          observed_at) is enforced at load time. Files are stitched from two
+          half-year requests per station-year into one 27-column layout
+          across 7 elements (precipitation, temperature, wind, sunshine,
+          snow depth, humidity, solar radiation), with 現象なし情報 columns
+          on the phenomenon-recording elements (precipitation, sunshine,
+          snow depth): 1 = no phenomenon that hour (the 0 value is a true
+          zero), 0 = phenomenon occurred, null when the quality flag is
+          2/1/0. Homogeneity numbers restart at 1 per REQUEST WINDOW
+          (half-year), so in a stitched year file the numbering resets at
+          the window boundary — only within-window changes mark
+          observation-environment breaks, and a real break exactly on the
+          boundary is invisible in the CSV alone. Load contract:
+          conf/schemas/jma_hourly_staffed.yaml.
         columns:
           - name: station_id
             description: >
@@ -138,3 +89,30 @@ sources:
             description: Quality flag for sunshine duration (品質情報).
           - name: sunshine_homogeneity_no
             description: Homogeneity number for sunshine duration (均質番号).
+          - name: snow_depth_cm
+            description: >
+              Snow depth at observed_at in cm (積雪の深さ). 0 with
+              phenomenon_absent 1 is a confirmed no-snow hour; null value
+              with null phenomenon_absent (quality 1) means snow is not
+              tracked that hour (e.g. off-season).
+          - name: snow_depth_phenomenon_absent
+            description: >
+              現象なし情報 for snow depth: 1 = confirmed no snow on the
+              ground (value 0 is a true zero), 0 = snow present; null when
+              snow is untracked or the quality flag is 2/1/0.
+          - name: snow_depth_quality_flag
+            description: Quality flag for snow depth (品質情報).
+          - name: snow_depth_homogeneity_no
+            description: Homogeneity number for snow depth (均質番号; resets per stitched half-year window).
+          - name: humidity_pct
+            description: Relative humidity at observed_at in percent (相対湿度).
+          - name: humidity_quality_flag
+            description: Quality flag for humidity (品質情報).
+          - name: humidity_homogeneity_no
+            description: Homogeneity number for humidity (均質番号; resets per stitched half-year window).
+          - name: solar_radiation_mjm2
+            description: Global solar radiation over the observation hour in MJ/m² (全天日射量(前1時間)).
+          - name: solar_radiation_quality_flag
+            description: Quality flag for solar radiation (品質情報).
+          - name: solar_radiation_homogeneity_no
+            description: Homogeneity number for solar radiation (均質番号; resets per stitched half-year window).

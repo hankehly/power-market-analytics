@@ -4,21 +4,17 @@ models:
       contract:
         enforced: true
     description: >
-      Standardized JMA hourly core-element observations: the union of
-      stg_jma__hourly_staffed and stg_jma__hourly_amedas plus a typed time
-      axis. One row per station_id and observation hour. observed_at marks
-      the END of the observation hour (JMA hours run 01:00-24:00 JST, 24:00
-      stored as next-day 00:00): accumulation elements (precipitation,
-      sunshine) cover [observed_hour_start_at, observed_at], instantaneous
-      elements (temperature, wind) are the value at observed_at.
-      observed_date is the JMA observation day, i.e. the hour-start date.
-      The phenomenon_absent columns are null for all AMeDAS rows — JMA does
-      not publish 現象なし情報 there, so the trace-vs-none distinction
-      (value 0 with the phenomenon observed, ~12% of precipitation hours and
-      ~23% of sunshine hours at staffed stations) is only knowable for
-      staffed rows. Value cells are null when the quality flag is 2/1/0 —
-      and AMeDAS sunshine is also null (not 0) with flag 8 for no-sunshine
-      hours. Homogeneity numbers are only comparable within one downloaded
+      Standardized JMA hourly observations from staffed stations
+      (stg_jma__hourly_staffed) plus a typed time axis. One row per
+      station_id and observation hour. observed_at marks the END of the
+      observation hour (JMA hours run 01:00-24:00 JST, 24:00 stored as
+      next-day 00:00): accumulation elements (precipitation, sunshine) cover
+      [observed_hour_start_at, observed_at], instantaneous elements
+      (temperature, wind) are the value at observed_at. observed_date is the
+      JMA observation day, i.e. the hour-start date. Value cells are null
+      when the quality flag is 2/1/0. The phenomenon_absent columns are null
+      only when the quality flag is 2/1/0. Homogeneity numbers are only
+      comparable within one request window (half-year) of one stitched
       station-year file.
     data_tests:
       - dbt_utils.unique_combination_of_columns:
@@ -86,4 +82,40 @@ models:
       - name: sunshine_quality_flag
         data_type: int
       - name: sunshine_homogeneity_no
+        data_type: int
+      - name: snow_depth_cm
+        data_type: int
+      - name: snow_depth_phenomenon_absent
+        data_type: int
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [0, 1]
+      - name: snow_depth_quality_flag
+        data_type: int
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [0, 1, 2, 4, 5, 8]
+      - name: snow_depth_homogeneity_no
+        data_type: int
+      - name: humidity_pct
+        data_type: int
+      - name: humidity_quality_flag
+        data_type: int
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [0, 1, 2, 4, 5, 8]
+      - name: humidity_homogeneity_no
+        data_type: int
+      - name: solar_radiation_mjm2
+        data_type: double
+      - name: solar_radiation_quality_flag
+        data_type: int
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [0, 1, 2, 4, 5, 8]
+      - name: solar_radiation_homogeneity_no
         data_type: int
