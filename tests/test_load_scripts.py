@@ -143,7 +143,7 @@ class TestSingleContractScripts:
 
 
 class TestLoadJmaHourly:
-    def test_loads_both_layouts_with_defaults(self, monkeypatch):
+    def test_loads_the_staffed_layout_with_defaults(self, monkeypatch):
         script = import_script("load_jma_hourly")
         monkeypatch.setattr(script, "JmaHourlyCsvLoader", RecordingLoader)
 
@@ -151,49 +151,42 @@ class TestLoadJmaHourly:
 
         assert [(b["filepath"], b["table"], b["loaded"]) for b in RecordingLoader.built] == [
             (
-                REPO_ROOT / "data/jma/hourly" / "a*_101-201-301-401_*.csv",
-                "pma_raw.jma_hourly_amedas",
-                True,
-            ),
-            (
-                REPO_ROOT / "data/jma/hourly" / "s*_101-201-301-401_*.csv",
+                REPO_ROOT / "data/jma/hourly" / "s*_101-201-301-401-501-605-610_*.csv",
                 "pma_raw.jma_hourly_staffed",
                 True,
             ),
         ]
-        amedas, staffed = (b["schema"] for b in RecordingLoader.built)
-        assert isinstance(amedas, CsvTableSchema) and isinstance(staffed, CsvTableSchema)
-        assert amedas.grain == ["station_id", "observed_at"]
+        (staffed,) = (b["schema"] for b in RecordingLoader.built)
+        assert isinstance(staffed, CsvTableSchema)
         assert staffed.grain == ["station_id", "observed_at"]
-        # The two contracts are distinct layouts (15 vs 17 physical columns).
-        assert amedas.columns[-1].source == "_c14"
-        assert staffed.columns[-1].source == "_c16"
+        assert staffed.columns[-1].source == "_c26"
 
     def test_data_dir_and_schema_dir_overrides(self, tmp_path, monkeypatch):
         script = import_script("load_jma_hourly")
         monkeypatch.setattr(script, "JmaHourlyCsvLoader", RecordingLoader)
         schema_dir = tmp_path / "schemas"
         schema_dir.mkdir()
-        for stem, grain in (("jma_hourly_amedas", "a"), ("jma_hourly_staffed", "s")):
-            (schema_dir / f"{stem}.yaml").write_text(
-                f"grain: [{grain}]\ncolumns:\n  - {{name: {grain}, type: string}}\n",
-                encoding="utf-8",
-            )
+        (schema_dir / "jma_hourly_staffed.yaml").write_text(
+            "grain: [s]\ncolumns:\n  - {name: s, type: string}\n",
+            encoding="utf-8",
+        )
         data_dir = tmp_path / "hourly"
 
         script.main(["--data-dir", str(data_dir), "--schema-dir", str(schema_dir)])
 
-        assert [b["schema"].grain for b in RecordingLoader.built] == [["a"], ["s"]]
+        assert [b["schema"].grain for b in RecordingLoader.built] == [["s"]]
         assert [b["filepath"] for b in RecordingLoader.built] == [
-            data_dir / "a*_101-201-301-401_*.csv",
-            data_dir / "s*_101-201-301-401_*.csv",
+            data_dir / "s*_101-201-301-401-501-605-610_*.csv",
         ]
 
     def test_formats_table_is_the_source_of_truth(self):
         script = import_script("load_jma_hourly")
         assert script.FORMATS == [
-            ("jma_hourly_amedas", "a*_101-201-301-401_*.csv", "pma_raw.jma_hourly_amedas"),
-            ("jma_hourly_staffed", "s*_101-201-301-401_*.csv", "pma_raw.jma_hourly_staffed"),
+            (
+                "jma_hourly_staffed",
+                "s*_101-201-301-401-501-605-610_*.csv",
+                "pma_raw.jma_hourly_staffed",
+            ),
         ]
 
 

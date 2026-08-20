@@ -1,10 +1,12 @@
 """Load downloaded JMA hourly CSVs into the warehouse (full reload).
 
-The core element set (温度/降水/風/日照, codes 101-201-301-401) comes in two
-fixed layouts — 15 columns at AMeDAS stations, 17 at staffed stations (extra
-現象なし情報 columns) — so each loads through its own contract into its own
-raw table. Files are matched by name: ``{station}_{codes}_{year}.csv`` with
-an ``a``/``s`` station prefix.
+The 7-element staffed-station scrape set (降水量+気温+風向・風速+日照時間+
+積雪の深さ+相対湿度+全天日射量, codes 101-201-301-401-501-605-610) is a
+single fixed 27-column layout, loaded through one contract into one raw
+table. Files are matched by name:
+``s{station}_101-201-301-401-501-605-610_{year}.csv``. The loader's
+column-count check (contract vs. first data row) now guards against JMA
+layout drift rather than station-class mixups.
 
 Run inside the devcontainer so the Spark session picks up the shared Hive
 metastore from ``SPARK_CONF_DIR``:
@@ -22,10 +24,13 @@ from power_market_analytics.jma_loader import JmaHourlyCsvLoader
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
-#: (schema file stem, file glob, destination table) per format.
+#: (schema file stem, file glob, destination table).
 FORMATS = [
-    ("jma_hourly_amedas", "a*_101-201-301-401_*.csv", "pma_raw.jma_hourly_amedas"),
-    ("jma_hourly_staffed", "s*_101-201-301-401_*.csv", "pma_raw.jma_hourly_staffed"),
+    (
+        "jma_hourly_staffed",
+        "s*_101-201-301-401-501-605-610_*.csv",
+        "pma_raw.jma_hourly_staffed",
+    ),
 ]
 
 
