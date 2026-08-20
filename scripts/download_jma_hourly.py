@@ -1,9 +1,10 @@
 """Download JMA hourly observation CSVs for a station, one file per year.
 
-All requested elements are fetched in a single request per year (bounded by
-JMA's per-request data-volume cap; wind counts as two value columns). Past
-years are immutable and served from the local cache; the current year is
-always re-downloaded because JMA appends new observations daily.
+Large element sets are fetched in multiple windows per year and stitched
+into one file (bounded by JMA's per-request data-volume budget; wind counts
+as two value columns). Past years are immutable and served from the local
+cache; the current year is always re-downloaded because JMA appends new
+observations daily.
 """
 
 import argparse
@@ -12,7 +13,7 @@ from pathlib import Path
 
 from loguru import logger
 
-from power_market_analytics.jma import HOURLY_ELEMENTS, JmaHourlyDownloader
+from power_market_analytics.jma import HOURLY_ELEMENTS, SCRAPE_ELEMENTS, JmaHourlyDownloader
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -25,12 +26,14 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--elements",
         nargs="+",
-        default=["temperature", "precipitation", "sunshine", "wind"],
+        default=SCRAPE_ELEMENTS,
         choices=sorted(HOURLY_ELEMENTS),
         metavar="ELEMENT",
         help=(
-            "Observation elements to download in one request per year "
-            f"(choices: {', '.join(sorted(HOURLY_ELEMENTS))})."
+            "Observation elements to download per year; large sets are "
+            "fetched in multiple windows and stitched into one file "
+            "(bounded by JMA's per-request data-volume budget; wind counts "
+            f"as two value columns) (choices: {', '.join(sorted(HOURLY_ELEMENTS))})."
         ),
     )
     parser.add_argument(

@@ -1,11 +1,15 @@
-"""Download JMA hourly core-element CSVs for every station in the master.
+"""Download JMA hourly weather CSVs for every staffed station in the master.
 
-Walks the station master (downloading it first if absent), plans one
-request per station and calendar year — the core element set 気温+降水量+
-風向・風速+日照時間 fits a single request (docs/JMA-Weather-Data-Retrieval.md
-§6.3) — and downloads each missing file. Stations whose observations ended
-before the window are skipped, and discontinued stations only get years up
-to their end date.
+Walks the station master (downloading it first if absent, restricted to
+staffed stations only — 気象官署, ``s``-prefixed ids; the 2026-08 re-scope,
+docs/superpowers/specs/2026-08-20-jma-s-station-rescope-design.md), plans
+one request-set per station and calendar year for the 7-element scrape set
+(``SCRAPE_ELEMENTS``: 気温・降水量・風向風速・日照時間・積雪の深さ・相対湿
+度・全天日射量, docs/JMA-Weather-Data-Retrieval.md §6.3) — 8 value columns,
+which exceeds JMA's per-request data-volume budget, so each station-year is
+fetched as 2 request windows stitched into one file — and downloads each
+missing file. Stations whose observations ended before the window are
+skipped, and discontinued stations only get years up to their end date.
 
 The scrape is resumable: existing year files are served from the cache, so
 re-running after an interruption continues where it left off. A current-year
@@ -14,8 +18,11 @@ logged and skipped (the next run retries them, since no file is written),
 but ten consecutive failures abort the run — that pattern means JMA is
 refusing us, and hammering on regardless would be impolite.
 
-The full network (~1,300 active stations x 11 years at 5-second spacing)
-takes roughly a day; run it detached, e.g.:
+The full staffed network (~159 stations x 11 years x 2 windows/station-year
+≈ 3,450 requests) takes roughly 14 hours cold at 5-second spacing — smaller
+overall (in both requests and CSV volume, ~7 GB before this re-scope) than
+the prior core-element scrape across the full ~1,300-station AMeDAS network;
+run it detached, e.g.:
 
     nohup python scripts/download_jma_hourly_all.py > jma_scrape.log 2>&1 &
 """
@@ -28,11 +35,10 @@ from pathlib import Path
 from loguru import logger
 
 from power_market_analytics.jma import (
+    SCRAPE_ELEMENTS,
     JmaHourlyDownloader,
     JmaStationMasterDownloader,
 )
-
-CORE_ELEMENTS = ["temperature", "precipitation", "sunshine", "wind"]
 
 #: Consecutive failures after which the run aborts (server refusing us).
 MAX_CONSECUTIVE_FAILURES = 10
@@ -168,7 +174,7 @@ def main(argv: list[str] | None = None) -> None:
     )
     args = parser.parse_args(argv)
 
-    JmaStationMasterDownloader(dest=args.stations_csv).download()
+    JmaStationMasterDownloader(dest=args.stations_csv, staffed_only=True).download()
     plan = build_plan(
         args.stations_csv,
         args.start_year,
@@ -182,18 +188,20 @@ def main(argv: list[str] | None = None) -> None:
     to_fetch = sum(
         1
         for station_id, year in plan
-        if not downloader.path_for(station_id, CORE_ELEMENTS, year).exists()
+        if not downloader.path_for(station_id, SCRAPE_ELEMENTS, year).exists()
     )
     # Server response time (~10 s per file) usually dominates the request
     # interval, so the spacing-based figure is a lower bound.
+    requests_per_year = downloader.window_count(SCRAPE_ELEMENTS, today.year)
     logger.info(
-        "{} of {} station-years not yet downloaded; at least {:.1f} h at "
-        "{:.0f} s spacing (~{:.0f} h at the observed ~15 s/request)",
+        "{} of {} station-years not yet downloaded (~{} requests); at least "
+        "{:.1f} h at {:.0f} s spacing (~{:.0f} h at the observed ~15 s/request)",
         to_fetch,
         len(plan),
-        to_fetch * args.request_interval / 3600,
+        to_fetch * requests_per_year,
+        to_fetch * requests_per_year * args.request_interval / 3600,
         args.request_interval,
-        to_fetch * 15 / 3600,
+        to_fetch * requests_per_year * 15 / 3600,
     )
     if args.dry_run:
         logger.info("Dry run: would download {} of {} station-years", to_fetch, len(plan))
@@ -202,7 +210,7 @@ def main(argv: list[str] | None = None) -> None:
     failures: list[tuple[str, int, str]] = []
     consecutive_failures = 0
     for i, (station_id, year) in enumerate(plan, start=1):
-        dest = downloader.path_for(station_id, CORE_ELEMENTS, year)
+        dest = downloader.path_for(station_id, SCRAPE_ELEMENTS, year)
         # Refresh a current-year file only if it predates today; past years
         # are immutable and always served from the cache.
         force = (
@@ -211,7 +219,7 @@ def main(argv: list[str] | None = None) -> None:
             and datetime.date.fromtimestamp(dest.stat().st_mtime) < today
         )
         try:
-            downloader.download(station_id, CORE_ELEMENTS, year, force=force)
+            downloader.download(station_id, SCRAPE_ELEMENTS, year, force=force)
             consecutive_failures = 0
         except Exception as exc:
             failures.append((station_id, year, str(exc)))
