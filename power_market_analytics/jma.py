@@ -427,6 +427,10 @@ class JmaStationMasterDownloader(_JmaDownloader):
     ----------
     dest : pathlib.Path or str, default ``"data/jma/stations.csv"``
         Output CSV path. Parent directories are created as needed.
+    staffed_only : bool, default False
+        Write only staffed stations (気象官署, ``s``-prefixed ids) and drop
+        every AMeDAS row. The scrape itself is unchanged — the same
+        per-prefecture pages are fetched — only the output is filtered.
     **kwargs
         HTTP behavior options passed through to ``_JmaDownloader``
         (``timeout``, ``request_interval``, ``max_retries``,
@@ -463,9 +467,15 @@ class JmaStationMasterDownloader(_JmaDownloader):
         r'<input type="hidden" name="kansoku" value="(\d+)">'
     )
 
-    def __init__(self, dest: Path | str = Path("data/jma/stations.csv"), **kwargs) -> None:
+    def __init__(
+        self,
+        dest: Path | str = Path("data/jma/stations.csv"),
+        staffed_only: bool = False,
+        **kwargs,
+    ) -> None:
         super().__init__(**kwargs)
         self.dest = Path(dest)
+        self.staffed_only = staffed_only
 
     def download(self, force: bool = False) -> Path:
         """Download the station master for every prefecture into ``dest``.
@@ -519,6 +529,9 @@ class JmaStationMasterDownloader(_JmaDownloader):
                         row["prefecture_code"],
                     )
             logger.info("Area {:02d}: {} stations ({} new)", code, len(rows), new)
+
+        if self.staffed_only:
+            stations = {sid: row for sid, row in stations.items() if sid.startswith("s")}
 
         ordered = sorted(stations.values(), key=lambda r: (r["prefecture_code"], r["station_id"]))
         self.dest.parent.mkdir(parents=True, exist_ok=True)
