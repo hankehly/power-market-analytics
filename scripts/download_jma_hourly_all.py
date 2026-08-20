@@ -19,10 +19,11 @@ but ten consecutive failures abort the run — that pattern means JMA is
 refusing us, and hammering on regardless would be impolite.
 
 The full staffed network (~159 stations x 11 years x 2 windows/station-year
-≈ 3,450 requests) takes roughly 14 hours cold at 5-second spacing — smaller
-overall (in both requests and CSV volume, ~7 GB before this re-scope) than
-the prior core-element scrape across the full ~1,300-station AMeDAS network;
-run it detached, e.g.:
+≈ 3,450 requests) takes roughly 14 hours cold at the observed ~15-second
+per-request pace (server response time, ~10 s per file, dominates the 5-second
+spacing floor) — smaller overall (in both requests and CSV volume, ~7 GB
+before this re-scope) than the prior core-element scrape across the full
+~1,300-station AMeDAS network; run it detached, e.g.:
 
     nohup python scripts/download_jma_hourly_all.py > jma_scrape.log 2>&1 &
 """

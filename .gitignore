@@ -48,6 +48,11 @@ wandb/
 tmp/
 .playwright-mcp
 
+# Ops logs (repo-root, from nohup'd refresh commands)
+/jma_scrape.log
+/load_jma.log
+/dbt_build.log
+
 # Claude Code
 .claude/worktrees/
 .claude/settings.local.json

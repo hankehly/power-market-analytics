@@ -619,7 +619,10 @@ expected. The dbt staging model `stg_jma__hourly_staffed` exposes the raw table 
 an enforced contract, a grain uniqueness test, and accepted-values tests on the flag
 columns; a single `stg` → `std` → `fct` chain (`std_jma__hourly` →
 `fct_jma_weather_hourly`) carries it downstream. Loading needs Spark, so run inside the
-devcontainer:
+devcontainer. A full reload reads all ~1,718 station-year files at once, so it needs a
+large Spark driver heap: the compose environment defaults `SPARK_DRIVER_MEMORY` to `20g`
+(`docker-compose.yaml`, overridable per-host in `.env`); smaller overrides stall (`1g`) or
+OOM during the parquet write (`8g`).
 
 ```bash
 just python scripts/load_jma_hourly.py
@@ -633,7 +636,7 @@ follow the CSV-loading conventions used for JEPX data):
 import pandas as pd
 
 df = pd.read_csv(
-    "data/jma/hourly/s47662_101-201-301-401_2016.csv",
+    "data/jma/hourly/s47662_101-201-301-401-501-605-610_2016.csv",
     encoding="cp932",
     skiprows=6,  # 5 for single-element files — parse the header instead of hard-coding
     header=None,
@@ -643,6 +646,9 @@ df = pd.read_csv(
         "temp_c", "temp_q", "temp_h",
         "wind_speed_ms", "wind_speed_q", "wind_dir", "wind_dir_q", "wind_h",
         "sunshine_h", "sunshine_none", "sunshine_q", "sunshine_hn",
+        "snow_depth_cm", "snow_depth_none", "snow_depth_q", "snow_depth_h",
+        "humidity_pct", "humidity_q", "humidity_h",
+        "solar_radiation_mjm2", "solar_radiation_q", "solar_radiation_h",
     ],
     parse_dates=["observed_at"],
 )
@@ -652,13 +658,14 @@ df = pd.read_csv(
 
 - Hourly files land in `data/jma/hourly/` (gitignored), named
   `{station_id}_{sorted-element-codes}_{year}.csv`, e.g.
-  `s47662_101-201-301-401_2016.csv`.
+  `s47662_101-201-301-401-501-605-610_2016.csv`.
 - The station master is the dbt seed `dbt/seeds/jma_stations.csv` (UTF-8,
   version-controlled, one row per station including discontinued ones, sorted by
   prefecture then station id), surfaced in the warehouse as `dim_jma_station`.
-- Currently downloaded: the station master, plus 東京 (`s47662`) precipitation +
-  temperature + wind + sunshine, 2016 through 2026 (current year partial), validated
-  complete — 8,760/8,784 data rows per full year, 17 columns.
+- Currently downloaded: all 159 staffed stations (156 active + 阿蘇山, discontinued
+  2017 and so files only through that year; 伊吹山/剣山 discontinued before the
+  2016+ window and so contribute no files) — the 7-element `SCRAPE_ELEMENTS`
+  stitched files, 27 columns, 2016 through current, backfilled 2026-08-20.
 
 ## Appendix A: Prefecture (`pd`) codes
 
