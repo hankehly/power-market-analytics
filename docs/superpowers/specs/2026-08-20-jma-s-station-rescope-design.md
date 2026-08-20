@@ -50,8 +50,9 @@ One live request: all 7 elements (8 value columns) for 東京 s47662, 2024-01-01
 (~35k values, under the proven ~44k pass / ~61k fail bracket from
 docs/JMA-Weather-Data-Retrieval.md §6.1). Outcomes:
 
-- **Pass** → confirms `MAX_VALUES_PER_REQUEST = 40_000` and pins the real 26-column
-  layout for the contract and test fixtures.
+- **Pass** → confirms `MAX_VALUES_PER_REQUEST = 44_000` (the largest proven-passing
+  request, core 4 × a full leap year, is 43,920 values and must stay single-window)
+  and pins the real 27-column layout for the contract and test fixtures.
 - **Fail** → lower the constant and re-spike at a smaller window (quarter → month).
   The stitched-file design is unchanged; only window count grows.
 
@@ -61,7 +62,7 @@ docs/JMA-Weather-Data-Retrieval.md §6.1). Outcomes:
   `scripts/update_jma_stations_seed.py` enables it. Seed regen cost unchanged (same
   per-prefecture pages scraped).
 - `JmaHourlyDownloader.download` gains time-windowing: window count =
-  `ceil(value_columns × hours_in_year / MAX_VALUES_PER_REQUEST)` (8 columns → 2
+  `ceil(value_columns × hours_in_year / MAX_VALUES_PER_REQUEST = 44_000)` (8 columns → 2
   half-year windows). It fetches each window, strips the repeated header block, and
   stitches responses into one CSV, written once. The current `MAX_VALUE_COLUMNS = 5`
   hard reject becomes the windowing trigger. Window boundaries are clean because hour
@@ -89,19 +90,24 @@ model descriptions wherever `*_homogeneity_no` is surfaced.
 
 - `scripts/load_jma_hourly.py` `FORMATS` shrinks to one entry:
   `("jma_hourly_staffed", "s*_101-201-301-401-501-605-610_*.csv", "pma_raw.jma_hourly_staffed")`.
-- `conf/schemas/jma_hourly_staffed.yaml` is rewritten for the 26-column stitched layout —
+- `conf/schemas/jma_hourly_staffed.yaml` is rewritten for the 27-column stitched layout —
   timestamp + 降水量 (value, 現象なし, 品質, 均質) + 気温 (value, 品質, 均質) + 風
   (風速 value+品質, 風向 value+品質, shared 均質) + 日照時間 (value, 現象なし, 品質, 均質) +
-  積雪の深さ (value, 品質, 均質) + 相対湿度 (value, 品質, 均質) + 全天日射量 (value, 品質, 均質).
-  None of the three new elements is a phenomenon element, so no new 現象なし columns.
+  積雪の深さ (value, 現象なし, 品質, 均質) + 相対湿度 (value, 品質, 均質) + 全天日射量
+  (value, 品質, 均質). The 2026-08-20 spike showed 積雪の深さ carries a 現象なし情報
+  column at staffed stations (the retrieval doc's phenomenon-element list was
+  incomplete); humidity and solar radiation do not. Snow semantics: 0 with 現象なし=1
+  is a confirmed no-snow hour, blank value + blank 現象なし (quality 1) means snow is
+  not tracked that hour (e.g. off-season).
   Exact column order is pinned from the spike's real response.
   `conf/schemas/jma_hourly_amedas.yaml` is deleted. `JmaHourlyCsvLoader` is schema-driven
   and should need no code change.
 - dbt: delete `stg_jma__hourly_amedas.{sql,yml}`; widen `stg_jma__hourly_staffed`; update
   `models/raw/jma.yml` (drop the amedas table, extend staffed columns);
   `std_jma__hourly` becomes a straight select (no union, no join, no null-padding);
-  `fct_jma_weather_hourly` gains 9 columns — `snow_depth_cm`, `humidity_pct`,
-  `solar_radiation_mjm2`, each with `_quality_flag` and `_homogeneity_no`. Grain unchanged
+  `fct_jma_weather_hourly` gains 10 columns — `snow_depth_cm`, `humidity_pct`,
+  `solar_radiation_mjm2`, each with `_quality_flag` and `_homogeneity_no`, plus
+  `snow_depth_phenomenon_absent`. Grain unchanged
   (station × hour). Enforced contracts and uniqueness tests updated per repo dbt rules.
 - `dim_jma_station`: no SQL change (seed-driven); descriptions/tests updated where they
   mention AMeDAS. Downstream demand task untouched — new columns are available for future
@@ -124,7 +130,7 @@ Side effect: once backfilled, 大阪 s47772 is loaded and current, unblocking
 TDD throughout; the 100% coverage gate stays. Unit tests: station-master s-filter;
 downloader windowing (boundary math incl. the 24:00 → next-day-00:00 handoff, header
 dedup, value-budget arithmetic, cache/current-year behavior, window-failure ladder);
-loader against a 26-column fixture trimmed from the spike response; `FORMATS`/plan
+loader against a 27-column fixture of verbatim spike rows; `FORMATS`/plan
 assertions; AMeDAS tests removed. End-to-end: script entry points in the devcontainer
 (`--prefecture 44 --limit 1` smoke), then full `dbt build`.
 
