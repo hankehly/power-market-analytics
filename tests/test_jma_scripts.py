@@ -11,11 +11,14 @@ from pathlib import Path
 import pytest
 from loguru import logger
 
-from power_market_analytics.jma import JmaHourlyDownloader, JmaStationMasterDownloader
+from power_market_analytics.jma import (
+    SCRAPE_ELEMENTS,
+    JmaHourlyDownloader,
+    JmaStationMasterDownloader,
+)
 from tests.support import REPO_ROOT, import_script
 
 TODAY = datetime.date.today()
-CORE_ELEMENTS = ["temperature", "precipitation", "sunshine", "wind"]
 
 
 def write_stations(path: Path, rows: list[dict]) -> Path:
@@ -33,9 +36,9 @@ def write_stations(path: Path, rows: list[dict]) -> Path:
     return path
 
 
-def core_path(data_dir: Path, station_id: str, year: int) -> Path:
-    """Where the orchestrator expects a core-element file (hand-derived name)."""
-    return data_dir / f"{station_id}_101-201-301-401_{year}.csv"
+def scrape_path(data_dir: Path, station_id: str, year: int) -> Path:
+    """Where the orchestrator expects a stitched file (hand-derived name)."""
+    return data_dir / f"{station_id}_101-201-301-401-501-605-610_{year}.csv"
 
 
 # --------------------------------------------------------------------------- download_jma_hourly
@@ -72,7 +75,7 @@ def make_hourly_fake(record: dict, failing: set[str] = frozenset(), write_root: 
 
 
 class TestDownloadJmaHourly:
-    def test_defaults_cover_tokyo_core_set_from_2016_forcing_only_this_year(self, monkeypatch):
+    def test_defaults_cover_tokyo_scrape_set_from_2016_forcing_only_this_year(self, monkeypatch):
         script = import_script("download_jma_hourly")
         record: dict = {}
         monkeypatch.setattr(script, "JmaHourlyDownloader", make_hourly_fake(record))
@@ -80,9 +83,9 @@ class TestDownloadJmaHourly:
         script.main([])
 
         assert record["data_dir"] == Path("data/jma/hourly")
-        elements = ["temperature", "precipitation", "sunshine", "wind"]
         assert record["calls"] == [
-            ("s47662", elements, year, year == TODAY.year) for year in range(2016, TODAY.year + 1)
+            ("s47662", SCRAPE_ELEMENTS, year, year == TODAY.year)
+            for year in range(2016, TODAY.year + 1)
         ]
 
     def test_explicit_past_range_is_served_from_cache(self, tmp_path, monkeypatch):
@@ -332,8 +335,8 @@ class TestDownloadJmaHourlyAll:
         )
         stations_csv = tmp_path / "seed" / "jma_stations.csv"  # absent → fake writes it
         data_dir = tmp_path / "hourly"
-        core_path(data_dir, "s47662", 2016).parent.mkdir()
-        core_path(data_dir, "s47662", 2016).write_bytes(b"old")
+        scrape_path(data_dir, "s47662", 2016).parent.mkdir()
+        scrape_path(data_dir, "s47662", 2016).write_bytes(b"old")
         messages, sink = capture_logs()
         try:
             result = script.main(
@@ -355,7 +358,7 @@ class TestDownloadJmaHourlyAll:
         assert result is None
         assert master == {
             "dest": stations_csv,
-            "staffed_only": False,
+            "staffed_only": True,
             "download": {"force": False},
         }
         assert stations_csv.exists()
@@ -390,22 +393,23 @@ class TestDownloadJmaHourlyAll:
 
         assert master == {
             "dest": stations_csv,
-            "staffed_only": False,
+            "staffed_only": True,
             "download": {"force": False},
         }
+        assert master["staffed_only"] is True
         assert hourly["data_dir"] == data_dir
         assert hourly["request_interval"] == 0.5
         assert hourly["calls"] == [
-            ("s47662", CORE_ELEMENTS, 2016, False),
-            ("s47662", CORE_ELEMENTS, 2017, False),
-            ("a0368", CORE_ELEMENTS, 2016, False),
-            ("a0368", CORE_ELEMENTS, 2017, False),
+            ("s47662", SCRAPE_ELEMENTS, 2016, False),
+            ("s47662", SCRAPE_ELEMENTS, 2017, False),
+            ("a0368", SCRAPE_ELEMENTS, 2016, False),
+            ("a0368", SCRAPE_ELEMENTS, 2017, False),
         ]
         assert sorted(p.name for p in data_dir.iterdir()) == [
-            "a0368_101-201-301-401_2016.csv",
-            "a0368_101-201-301-401_2017.csv",
-            "s47662_101-201-301-401_2016.csv",
-            "s47662_101-201-301-401_2017.csv",
+            "a0368_101-201-301-401-501-605-610_2016.csv",
+            "a0368_101-201-301-401-501-605-610_2017.csv",
+            "s47662_101-201-301-401-501-605-610_2016.csv",
+            "s47662_101-201-301-401-501-605-610_2017.csv",
         ]
 
     def test_prefecture_and_limit_flow_into_the_plan(self, tmp_path, monkeypatch):
@@ -441,7 +445,7 @@ class TestDownloadJmaHourlyAll:
             ]
         )
 
-        assert hourly["calls"] == [("s47662", CORE_ELEMENTS, 2016, False)]
+        assert hourly["calls"] == [("s47662", SCRAPE_ELEMENTS, 2016, False)]
 
     def test_unmatched_prefecture_aborts_before_downloading(self, tmp_path, monkeypatch):
         script = import_script("download_jma_hourly_all")
@@ -505,10 +509,10 @@ class TestDownloadJmaHourlyAll:
             ("a0368", 2017),
         ]
         assert sorted(p.name for p in data_dir.iterdir()) == [
-            "a0368_101-201-301-401_2016.csv",
-            "a0368_101-201-301-401_2017.csv",
-            "s47662_101-201-301-401_2016.csv",
-            "s47662_101-201-301-401_2017.csv",
+            "a0368_101-201-301-401-501-605-610_2016.csv",
+            "a0368_101-201-301-401-501-605-610_2017.csv",
+            "s47662_101-201-301-401-501-605-610_2016.csv",
+            "s47662_101-201-301-401-501-605-610_2017.csv",
         ]
         assert messages == [
             "FAILED bad 2016: 503 for bad",
@@ -614,12 +618,12 @@ class TestDownloadJmaHourlyAll:
         data_dir.mkdir()
         # A last-year file and a this-year file written two days ago …
         for year in (TODAY.year - 1, TODAY.year):
-            path = core_path(data_dir, "stale", year)
+            path = scrape_path(data_dir, "stale", year)
             path.write_bytes(b"old")
             two_days_ago = time.time() - 2 * 86400
             os.utime(path, (two_days_ago, two_days_ago))
         # … and a this-year file written just now.
-        core_path(data_dir, "fresh", TODAY.year).write_bytes(b"today")
+        scrape_path(data_dir, "fresh", TODAY.year).write_bytes(b"today")
 
         script.main(
             [
