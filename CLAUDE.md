@@ -3,9 +3,10 @@
 ## Commands
 
 - `just refresh-jepx` — JEPX refresh: download JEPX CSVs + holidays, reload `raw`, `dbt build` (models + tests).
-- `just refresh-jma` — JMA weather refresh: regenerate the station seed (~5 min), download
-  hourly CSVs (args pass through, e.g. `--prefecture 44`; no args = full network, ~60 h
-  cold), reload `raw`, `dbt build`.
+- `just refresh-jma` — JMA weather refresh: regenerate the station seed (~5 min, staffed
+  stations only), download stitched 7-element hourly CSVs (args pass through, e.g.
+  `--prefecture 44`; no args = all ~159 staffed stations, ~14 h cold), reload `raw`,
+  `dbt build`.
 - `just refresh-occto` — OCCTO 翌々日 refresh, two datasets: the demand-forecast CSV (~700 KB,
   3 HTTP calls) and the half-hourly area reserve-rate CSV (~20 MB/yr, fetched in 300-day windows
   because the portal caps a download at 150,000 rows), reload `raw`, `dbt build`.
@@ -68,11 +69,14 @@
 
 - JEPX CSVs: `scripts/download_jepx_spot.py` → `data/jepx/spot/` (gitignored) →
   `scripts/load_jepx_spot.py` (`CsvLoader`, load contract in `conf/schemas/jepx_spot.yaml`) → `pma_raw.jepx_spot`.
-- JMA weather CSVs: `scripts/download_jma_hourly_all.py` (per-station:
-  `download_jma_hourly.py`) → `data/jma/hourly/` → `scripts/load_jma_hourly.py`
-  (`JmaHourlyCsvLoader`, positional contracts in `conf/schemas/jma_hourly_*.yaml`, one per
-  station-class layout) → `pma_raw.jma_hourly_amedas` / `pma_raw.jma_hourly_staffed`.
-  Station master: `scripts/update_jma_stations_seed.py` → seed `jma_stations` →
+- JMA weather CSVs (staffed stations only, since the 2026-08 re-scope):
+  `scripts/download_jma_hourly_all.py` (per-station: `download_jma_hourly.py`) →
+  `data/jma/hourly/` → `scripts/load_jma_hourly.py` (`JmaHourlyCsvLoader`, positional
+  contract `conf/schemas/jma_hourly_staffed.yaml`, 27 columns) →
+  `pma_raw.jma_hourly_staffed` only (over-budget station-years are fetched as 2 request
+  windows and stitched into one file; 均質番号 resets per window, so a stitched year file
+  resets it at the mid-year boundary). Station master:
+  `scripts/update_jma_stations_seed.py` (`staffed_only=True`) → seed `jma_stations` →
   `dim_jma_station`. Protocol + CSV format:
   [docs/JMA-Weather-Data-Retrieval.md](docs/JMA-Weather-Data-Retrieval.md).
 - OCCTO 翌々日 demand forecast: `scripts/download_occto_demand_forecast.py`
