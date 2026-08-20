@@ -197,6 +197,16 @@ erDiagram
         int sunshine_phenomenon_absent
         int sunshine_quality_flag
         int sunshine_homogeneity_no
+        int snow_depth_cm
+        int snow_depth_phenomenon_absent
+        int snow_depth_quality_flag
+        int snow_depth_homogeneity_no
+        int humidity_pct
+        int humidity_quality_flag
+        int humidity_homogeneity_no
+        double solar_radiation_mjm2
+        int solar_radiation_quality_flag
+        int solar_radiation_homogeneity_no
     }
 
     fct_spot_price_forecast {
@@ -337,7 +347,8 @@ Notes:
 - `fct_jma_weather_hourly.observed_at` marks the end of the observation hour;
   precipitation and sunshine accumulate over `[observed_hour_start_at,
   observed_at]`, temperature and wind are instantaneous at `observed_at`.
-  `phenomenon_absent` is null for AMeDAS stations; value 0 with
+  `phenomenon_absent` columns are null only when the quality flag is 2/1/0
+  (for snow depth, also null when snow is untracked off-season); value 0 with
   `phenomenon_absent = 0` is a JMA "trace" reading (below measurement
   resolution), distinct from a true zero (`phenomenon_absent = 1`).
 - `fct_occto_demand_supply_forecast_daily` MW columns are additive across areas; the

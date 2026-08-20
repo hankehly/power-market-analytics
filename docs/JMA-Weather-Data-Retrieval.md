@@ -194,6 +194,17 @@ the `jma_stations` dbt seed (see [§8](#8-downloading-with-power_market_analytic
 Coordinates are given by JMA in degrees + decimal minutes (0.1′ ≈ 185 m precision);
 southern latitudes (南緯, the Antarctic station) parse as negative.
 
+**Staffed stations only, since 2026-08.** The pipeline scrapes and loads staffed stations
+(気象官署, `s`-prefixed ids) exclusively — the 2026-08-20 re-scope (spec:
+`docs/superpowers/specs/2026-08-20-jma-s-station-rescope-design.md`). The enumeration above
+is unchanged: `JmaStationMasterDownloader` still walks every prefecture page and reads
+every station's `kansoku` mask, but with `staffed_only=True` (the default in
+`scripts/update_jma_stations_seed.py`) it keeps only `s`-prefixed rows before writing the
+seed, dropping AMeDAS entirely. AMeDAS ([§4.1](#41-station-types)) remains documented here
+for reference — the station-type taxonomy, `kansoku` decoding, and the mdrr history files
+below all still apply to it — but AMeDAS stations are no longer scraped, downloaded, or
+loaded into the warehouse.
+
 ### 4.3 Station metadata changes over time
 
 Station metadata is not static: stations relocate, instruments change height, elements are
@@ -246,23 +257,27 @@ Element codes for `aggrgPeriod=9`, extracted from the `top/element` response. "V
 columns" is each element's width in the CSV **and** its weight against the per-request
 cap ([§6](#6-request-limits)); wind is the only multi-column element.
 
-| Code | JMA name | `HOURLY_ELEMENTS` key | Value columns | Staffed only (官署のみ) |
-|---|---|---|---|---|
-| 101 | 降水量（前1時間） | `precipitation` | 1 | |
-| 201 | 気温 | `temperature` | 1 | |
-| 301 | 風向・風速 | `wind` | 2 (speed + direction) | |
-| 401 | 日照時間（前1時間） | `sunshine` | 1 | |
-| 501 | 積雪の深さ | `snow_depth` | 1 | |
-| 503 | 降雪の深さ（前1時間） | `snowfall` | 1 | |
-| 601 | 現地気圧 | `station_pressure` | 1 | ✓ |
-| 602 | 海面気圧 | `sea_level_pressure` | 1 | ✓ |
-| 604 | 蒸気圧 | `vapor_pressure` | 1 | |
-| 605 | 相対湿度 | `humidity` | 1 | |
-| 607 | 雲量 | `cloud_cover` | 1 | ✓ |
-| 610 | 全天日射量（前1時間） | `solar_radiation` | 1 | ✓ |
-| 612 | 露点温度 | `dew_point` | 1 | |
-| 703 | 天気 | `weather` | 1 | ✓ |
-| 704 | 視程 | `visibility` | 1 | ✓ |
+| Code | JMA name | `HOURLY_ELEMENTS` key | Value columns | Staffed only (官署のみ) | Scraped |
+|---|---|---|---|---|---|
+| 101 | 降水量（前1時間） | `precipitation` | 1 | | ✓ |
+| 201 | 気温 | `temperature` | 1 | | ✓ |
+| 301 | 風向・風速 | `wind` | 2 (speed + direction) | | ✓ |
+| 401 | 日照時間（前1時間） | `sunshine` | 1 | | ✓ |
+| 501 | 積雪の深さ | `snow_depth` | 1 | | ✓ |
+| 503 | 降雪の深さ（前1時間） | `snowfall` | 1 | | |
+| 601 | 現地気圧 | `station_pressure` | 1 | ✓ | |
+| 602 | 海面気圧 | `sea_level_pressure` | 1 | ✓ | |
+| 604 | 蒸気圧 | `vapor_pressure` | 1 | | |
+| 605 | 相対湿度 | `humidity` | 1 | | ✓ |
+| 607 | 雲量 | `cloud_cover` | 1 | ✓ | |
+| 610 | 全天日射量（前1時間） | `solar_radiation` | 1 | ✓ | ✓ |
+| 612 | 露点温度 | `dew_point` | 1 | | |
+| 703 | 天気 | `weather` | 1 | ✓ | |
+| 704 | 視程 | `visibility` | 1 | ✓ | |
+
+The scrape set is `SCRAPE_ELEMENTS` in `power_market_analytics/jma.py` (8 value columns →
+2 windows per station-year): 101/201/301/401/501/605/610 (precipitation, temperature, wind,
+sunshine, snow depth, humidity, solar radiation).
 
 For price forecasting, 天気/雲量/視程 are the least useful (categorical, observer-
 dependent, partly discontinued at automated offices); 蒸気圧/露点温度 are derivable from
@@ -287,30 +302,59 @@ all for one station over one full year of hourly data:
 | 15 elements, 2 stations | 32 | ✗ |
 
 Rule of thumb: **≤ 5 value columns × 1 station × 1 full year per request** (~44k values
-succeeded; ~61k was rejected, so the cap lies between). The downloader enforces this via
-`MAX_VALUE_COLUMNS = 5`, counting wind as 2.
+succeeded; ~61k was rejected, so the cap lies between). The downloader models the cap as
+`MAX_VALUES_PER_REQUEST = 44_000` values (columns × hours) and splits over-budget
+station-years into time windows instead of rejecting them; the 2026-08-20 spike confirmed
+an 8-column half-year (~35k values) passes. (An earlier version of the downloader enforced
+a flat `MAX_VALUE_COLUMNS = 5` and raised on anything wider — that reject no longer
+exists.)
 
 ### 6.2 Rate limiting
 
 A burst of ~9 requests at 2-second spacing drew HTTP 429. The downloader spaces requests
 5 s apart (`request_interval`) and retries 429/5xx with exponential backoff
-(30 s → 60 s → 120 s → 240 s). At this pacing, downloading all four core elements for one
-station's 2016–2026 history (11 requests) takes about a minute.
+(30 s → 60 s → 120 s → 240 s). That 5 s spacing is a lower bound, not the realistic pace
+([§6.3](#63-packing-math-for-a-full-scrape)): one station's full 2016–2026 history with the
+current 7-element scrape set (`SCRAPE_ELEMENTS`) is 11 years × 2 windows/year = 22 requests,
+which takes about 5.5 minutes at the observed ~15 s/request.
 
 ### 6.3 Packing math for a full scrape
 
-Requests per station-year = ceil(desired value columns ÷ 5):
+Requests (windows) per station-year = `window_count()` =
+`ceil(value columns × hours ÷ MAX_VALUES_PER_REQUEST)`. The current scrape set
+(`SCRAPE_ELEMENTS`, [§5](#5-hourly-observation-elements)) is 7 elements / 8 value columns
+(wind counts 2), which exceeds the 44,000-value budget for a full year
+(8 × 8,760 ≈ 70k) but not for a half-year (8 × 4,380 ≈ 35k) — so every station-year splits
+into **2 windows**, stitched into one file ([§7.1](#71-encoding-and-overall-structure)).
 
-- Four-element AMeDAS (rain+wind+temp+sunshine = 5 columns): **1 request/station-year**.
+Scope: 159 staffed stations in the seed (156 active + 3 discontinued). Two of the
+discontinued stations ended before 2016 and so contribute no station-years at all;
+阿蘇山 `s47821` ended 2017-12-11 and contributes only 2016–2017. Station-years therefore
+total 156 × 11 + 1 × 2 ≈ 1,718, × 2 windows/station-year ≈ **3,450 requests**. Server response time
+(~10 s per file) dominates the 5-second spacing, so the realistic pace is ~15 s/request ≈
+**14 hours cold** for the full staffed network — smaller than the pre-re-scope core-set
+AMeDAS scrape below despite the extra elements, because it covers ~159 stations instead of
+~1,300. A current-year refresh is still 2 windows/station (the window count is planned off
+the full calendar year, not how much of it has elapsed — [§7.4](#74-time-semantics)), so
+159 stations × 2 windows ≈ 320 requests ≈ 1.5 hours.
+
+<details>
+<summary>Historical: the pre-2026-08-20 core-element AMeDAS+staffed scrape</summary>
+
+Before the 2026-08 re-scope, the packing math targeted every station (AMeDAS and staffed)
+with a fixed 5-value-column cap that rejected over-budget requests outright
+(`MAX_VALUE_COLUMNS = 5`, superseded — [§6.1](#61-data-volume-cap)):
+
+- Four-element AMeDAS (rain+wind+temp+sunshine = 5 columns): 1 request/station-year.
 - Precipitation-only AMeDAS: 1 request/station-year (smaller).
-- Staffed stations, all 15 elements (16 columns): 4 requests/station-year, or **3** if
+- Staffed stations, all 15 elements (16 columns): 4 requests/station-year, or 3 if
   天気/雲量/視程 are dropped (13 columns).
 
-Measured for the core-set scrape (2026-07-20): 1,321 stations in scope (1,287 active +
-34 discontinued within the 2016+ window) → **14,330 station-year requests ≈ 7 GB**.
-Server response time (~10 s per file) dominates the 5-second spacing, so the realistic
-pace is ~15 s/request ≈ **60 hours** for the full network (20 h is the spacing-only
-floor). Scoping to stations near JEPX demand centers cuts this dramatically.
+Measured for that core-set scrape (2026-07-20): 1,321 stations in scope (1,287 active +
+34 discontinued within the 2016+ window) → 14,330 station-year requests ≈ 7 GB, ~15 s/
+request ≈ 60 hours for the full network (20 h was the spacing-only floor).
+
+</details>
 
 ## 7. CSV file format
 
@@ -325,6 +369,11 @@ Reference: JMA's own format page —
   element, flag-labels) — data starts at **line 6**. With multiple elements a fourth
   header row appears (sub-labels such as 風向 under wind) — data starts at **line 7**.
   A loader must parse the header rows, not hard-code positions.
+
+Files on disk are stitched: `JmaHourlyDownloader` fetches over-budget years in windows and
+keeps the header block of the first window only, appending later windows' data rows. Files
+are write-once — assembled in memory, landed atomically, never appended to; a stale
+current-year file is replaced wholesale.
 
 Single-element example (`temperature` only):
 
@@ -355,9 +404,14 @@ Each element occupies a contiguous group: value column(s), then appended info co
 **The group width varies by element and station type**:
 
 - Every group ends with 品質情報 (per value) and one 均質番号.
-- Elements that record "did the phenomenon occur" — precipitation, sunshine, snowfall —
-  additionally carry a 現象なし情報 column **at staffed stations** (AMeDAS elements and
-  non-phenomenon elements like temperature never have it). Verified side by side: the
+- Elements that record "did the phenomenon occur" — precipitation (101), sunshine (401),
+  and **snow depth (501)** — additionally carry a 現象なし情報 column **at staffed
+  stations** (AMeDAS elements and non-phenomenon elements like temperature never have it).
+  Earlier passes of this doc listed only 101/401/503 as phenomenon elements; the
+  2026-08-20 spike ([§6.1](#61-data-volume-cap)) downloaded the current 7-element staffed
+  scrape set live and
+  showed 501 (積雪の深さ) also carries a 現象なし情報 column — 503 (降雪の深さ, snowfall)
+  is not in the scrape set and was never verified either way. Verified side by side: the
   identical temp+precip+sunshine+wind request returns **17 columns for 東京 (staffed)
   but 15 for 府中 (AMeDAS)** — no request parameter changes this, so a loader cannot
   assume one fixed layout across station types.
@@ -396,6 +450,10 @@ boundary `amdmaster.index4` records for its switch to estimated sunshine (verifi
 across files — when stitching year files, only within-file changes are meaningful, and a
 break falling exactly on a chunk boundary is invisible in the CSVs alone.
 
+**Stitched files sharpen this caveat**: numbering restarts per request *window*
+(half-year), not just per file, so a stitched year file resets 均質番号 at the mid-year
+boundary and a real break exactly on that boundary is invisible in the CSV alone.
+
 ### 7.4 Time semantics
 
 - Timestamps are JST. Hours run 01:00–24:00, and with `ymdLiteral=1` hour 24:00 is
@@ -411,16 +469,35 @@ else. Within one class and one fixed element set, every station produces the ide
 layout: unobserved elements still emit standard-width groups (empty value, quality 0;
 verified at a precipitation-only station), all 159 staffed stations observe all elements
 (`kansoku=111111`), and discontinued stations keep the layout too. A set containing a
-phenomenon element (降水量 101, 日照時間 401, 降雪 503) has two layout variants (staffed
-adds 現象なし情報); a set without any has one shared layout everywhere.
+phenomenon element (降水量 101, 日照時間 401, 積雪の深さ 501 — [§7.2](#72-column-groups))
+has two layout variants across station classes (staffed adds 現象なし情報); a set without
+any has one shared layout everywhere.
 
-Consequences, given the 5-value-column cap:
+Consequence, at the current scrape's coverage: **one format.** The pipeline scrapes and
+loads a single station class (staffed only, since the 2026-08 re-scope — [§4](#4-stations))
+against a single fixed 7-element set (`SCRAPE_ELEMENTS`), so there is exactly one layout to
+support:
 
-- **Core coverage** (temp + precip + wind + sunshine, every station): **2 formats** —
-  the 15-column AMeDAS layout and the 17-column staffed layout. This is the floor for
-  any coverage that includes precipitation or sunshine at both station classes; only a
+| # | Element set | Stations | Layout |
+|---|---|---|---|
+| F1 | precip, temp, wind, sunshine, snow_depth, humidity, solar_radiation | all staffed | 27 cols |
+
+This floor only holds because AMeDAS is out of scope; the historical multi-format analysis
+(AMeDAS + staffed, more elements) is kept below for context. The downloader's file naming
+(`{station}_{codes}_{year}.csv`) makes format membership derivable from the file name alone
+(station prefix + element-code list) — moot today since only one set is ever requested, but
+still true.
+
+<details>
+<summary>Historical: format count before the 2026-08-20 re-scope</summary>
+
+Consequences, given the pre-re-scope 5-value-column cap and both station classes in scope:
+
+- **Core coverage** (temp + precip + wind + sunshine, every station): 2 formats — the
+  15-column AMeDAS layout and the 17-column staffed layout. This was the floor for any
+  coverage that included precipitation or sunshine at both station classes; only a
   phenomenon-free set (e.g. temp + wind + humidity) could reach a single format.
-- **Full coverage** (all forecast-relevant elements): **5 formats** —
+- **Full coverage** (all forecast-relevant elements): 5 formats —
   | # | Element set | Stations | Layout |
   |---|---|---|---|
   | F1 | precip, temp, wind, sunshine | all AMeDAS | 15 cols |
@@ -429,10 +506,10 @@ Consequences, given the 5-value-column cap:
   | F4 | snowfall, snow_depth, humidity, vapor_pressure, dew_point | all staffed | 17 cols |
   | F5 | solar_radiation, station_pressure, sea_level_pressure | all staffed | 10 cols |
 
-  F3 cannot fold into F1 and F4+F5 cannot merge (both exceed the value-column cap), so
-  five is the floor at this coverage. The downloader's file naming
-  (`{station}_{codes}_{year}.csv`) makes format membership derivable from the file name
-  alone (station prefix + element-code list).
+  F3 could not fold into F1 and F4+F5 could not merge (both exceeded the value-column
+  cap), so five was the floor at that coverage.
+
+</details>
 
 ### 7.6 Data caveats
 
@@ -450,6 +527,8 @@ Consequences, given the 5-value-column cap:
   that flag as nullable.
 - Discontinued stations appear in the station list with an end date; their files simply
   stop at that date.
+- 全天日射量 and 降水量 print a bare `0` at some hours and a decimal (`0.0`, `1.56`) at
+  others — parse both as double.
 
 ## 8. Downloading with `power_market_analytics.jma`
 
@@ -458,25 +537,23 @@ caching, throttling, backoff, and response validation. `HOURLY_ELEMENTS` maps fr
 names to element codes.
 
 ```python
-from power_market_analytics.jma import HOURLY_ELEMENTS, JmaHourlyDownloader
+from power_market_analytics.jma import HOURLY_ELEMENTS, SCRAPE_ELEMENTS, JmaHourlyDownloader
 
 downloader = JmaHourlyDownloader()  # data_dir="data/jma/hourly", 5 s between requests
 
-# One station-year, all four core elements in a single request.
-path = downloader.download("s47662", ["temperature", "precipitation", "sunshine", "wind"], 2016)
-# -> data/jma/hourly/s47662_101-201-301-401_2016.csv
+# One station-year, the full 7-element scrape set — two requests, one file.
+path = downloader.download("s47662", SCRAPE_ELEMENTS, 2016)
+# -> data/jma/hourly/s47662_101-201-301-401-501-605-610_2016.csv
 #    (file name embeds the sorted element codes, so the same set = the same cache file)
 
 # Cached: a second call returns instantly without touching JMA.
-path = downloader.download("s47662", ["temperature", "precipitation", "sunshine", "wind"], 2016)
+path = downloader.download("s47662", SCRAPE_ELEMENTS, 2016)
 
 # The current year must be refreshed explicitly (JMA appends new hours daily).
-downloader.download("s47662", ["temperature", "precipitation", "sunshine", "wind"], 2026, force=True)
+downloader.download("s47662", SCRAPE_ELEMENTS, 2026, force=True)
 
-# The value-column budget is validated up front (wind counts as 2):
-downloader.download("s47662", ["temperature", "humidity", "solar_radiation", "wind"], 2016)  # 5 cols: OK
-# downloader.download("s47662", ["temperature", "humidity", "sunshine", "precipitation", "wind"], 2016)
-#   -> ValueError: needs 6 value columns; JMA rejects full-year requests above 5
+# Over-budget element sets are windowed automatically, never rejected:
+downloader.window_count(SCRAPE_ELEMENTS, 2016)  # -> 2 (two half-year requests, stitched)
 ```
 
 The CLI wrapper downloads a station's full history (past years cached, current year
@@ -506,15 +583,17 @@ station, `station_id` as the natural key).
 
 ### The full-network scrape
 
-`scripts/download_jma_hourly_all.py` orchestrates the core-set scrape: it loads the
-station master (downloading it first if absent), plans one request per station-year —
-skipping stations that ended before the window and truncating discontinued stations at
-their end year — and downloads every missing file. It is resumable (existing files are
-cached; re-running continues where it stopped and retries earlier failures), refreshes a
-current-year file only when it predates today, logs and skips per-download failures, and
-aborts after 10 consecutive failures as a rate-limit circuit breaker. See
-[§6.3](#63-packing-math-for-a-full-scrape) for scale: ~14.3k requests, roughly 60 hours,
-so run it detached:
+`scripts/download_jma_hourly_all.py` orchestrates the staffed-station scrape: it loads the
+station master (downloading it first if absent, staffed stations only —
+[§4](#4-stations)), plans the request windows for `SCRAPE_ELEMENTS` per station-year (2
+windows/station-year — [§6.3](#63-packing-math-for-a-full-scrape)) — skipping stations that
+ended before the window and truncating discontinued stations at their end year — and
+downloads every missing file. It is resumable (existing files are cached; re-running
+continues where it stopped and retries earlier failures), refreshes a current-year file
+only when it predates today, logs and skips per-download failures, and aborts after 10
+consecutive failures as a rate-limit circuit breaker. See
+[§6.3](#63-packing-math-for-a-full-scrape) for scale: ~3,450 requests, roughly 14 hours
+cold, so run it detached:
 
 ```bash
 nohup uv run python scripts/download_jma_hourly_all.py > jma_scrape.log 2>&1 &
@@ -526,21 +605,28 @@ nohup uv run python scripts/download_jma_hourly_all.py > jma_scrape.log 2>&1 &
 
 ### Loading into the warehouse
 
-`scripts/load_jma_hourly.py` performs a full reload of the downloaded core-set files into
-`pma_raw.jma_hourly_amedas` / `pma_raw.jma_hourly_staffed` — one table per format
-([§7.5](#75-minimum-distinct-formats-for-ingestion)) — via `JmaHourlyCsvLoader`
-(`power_market_analytics/jma_loader.py`), a positional variant of the generic
-`CsvLoader`: because the JMA header rows repeat labels per element, columns are addressed
-as `_c0`..`_c16` in the load contracts (`conf/schemas/jma_hourly_amedas.yaml`,
-`conf/schemas/jma_hourly_staffed.yaml`), `station_id` is injected from the file name, and
-each file's column count is checked against the contract before reading. dbt staging
-models `stg_jma__hourly_amedas` / `stg_jma__hourly_staffed` expose the raw tables as-is
-with enforced contracts, grain uniqueness tests, and accepted-values tests on the flag
-columns. Loading needs Spark, so run inside the devcontainer:
+`scripts/load_jma_hourly.py` performs a full reload of the downloaded staffed-station files
+into `pma_raw.jma_hourly_staffed` — the single format at the current scrape's coverage
+([§7.5](#75-minimum-distinct-formats-for-ingestion); the pre-re-scope
+`pma_raw.jma_hourly_amedas` table is gone, since AMeDAS is out of scope — [§4](#4-stations))
+— via `JmaHourlyCsvLoader` (`power_market_analytics/jma_loader.py`), a positional variant
+of the generic `CsvLoader`: because the JMA header rows repeat labels per element, columns
+are addressed as `_c0`..`_c26` (27 columns) in the load contract
+`conf/schemas/jma_hourly_staffed.yaml`, `station_id` is injected from the file name, and
+each file's column count is checked against the contract before reading — now a guard
+against JMA layout drift rather than a station-class mixup, since only one layout is
+expected. The dbt staging model `stg_jma__hourly_staffed` exposes the raw table as-is with
+an enforced contract, a grain uniqueness test, and accepted-values tests on the flag
+columns; a single `stg` → `std` → `fct` chain (`std_jma__hourly` →
+`fct_jma_weather_hourly`) carries it downstream. Loading needs Spark, so run inside the
+devcontainer. A full reload reads all ~1,718 station-year files at once, so it needs a
+large Spark driver heap: the compose environment defaults `SPARK_DRIVER_MEMORY` to `20g`
+(`docker-compose.yaml`, overridable per-host in `.env`); smaller overrides stall (`1g`) or
+OOM during the parquet write (`8g`).
 
 ```bash
 just python scripts/load_jma_hourly.py
-just dbt build --select stg_jma__hourly_amedas stg_jma__hourly_staffed
+just dbt build --select stg_jma__hourly_staffed
 ```
 
 Minimal parse of a downloaded multi-element file (illustrative; the real loader should
@@ -550,7 +636,7 @@ follow the CSV-loading conventions used for JEPX data):
 import pandas as pd
 
 df = pd.read_csv(
-    "data/jma/hourly/s47662_101-201-301-401_2016.csv",
+    "data/jma/hourly/s47662_101-201-301-401-501-605-610_2016.csv",
     encoding="cp932",
     skiprows=6,  # 5 for single-element files — parse the header instead of hard-coding
     header=None,
@@ -560,6 +646,9 @@ df = pd.read_csv(
         "temp_c", "temp_q", "temp_h",
         "wind_speed_ms", "wind_speed_q", "wind_dir", "wind_dir_q", "wind_h",
         "sunshine_h", "sunshine_none", "sunshine_q", "sunshine_hn",
+        "snow_depth_cm", "snow_depth_none", "snow_depth_q", "snow_depth_h",
+        "humidity_pct", "humidity_q", "humidity_h",
+        "solar_radiation_mjm2", "solar_radiation_q", "solar_radiation_h",
     ],
     parse_dates=["observed_at"],
 )
@@ -569,13 +658,14 @@ df = pd.read_csv(
 
 - Hourly files land in `data/jma/hourly/` (gitignored), named
   `{station_id}_{sorted-element-codes}_{year}.csv`, e.g.
-  `s47662_101-201-301-401_2016.csv`.
+  `s47662_101-201-301-401-501-605-610_2016.csv`.
 - The station master is the dbt seed `dbt/seeds/jma_stations.csv` (UTF-8,
   version-controlled, one row per station including discontinued ones, sorted by
   prefecture then station id), surfaced in the warehouse as `dim_jma_station`.
-- Currently downloaded: the station master, plus 東京 (`s47662`) precipitation +
-  temperature + wind + sunshine, 2016 through 2026 (current year partial), validated
-  complete — 8,760/8,784 data rows per full year, 17 columns.
+- Currently downloaded: all 159 staffed stations (156 active + 阿蘇山, discontinued
+  2017 and so files only through that year; 伊吹山/剣山 discontinued before the
+  2016+ window and so contribute no files) — the 7-element `SCRAPE_ELEMENTS`
+  stitched files, 27 columns, 2016 through current, backfilled 2026-08-20.
 
 ## Appendix A: Prefecture (`pd`) codes
 

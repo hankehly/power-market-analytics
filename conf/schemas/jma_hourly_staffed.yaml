@@ -1,20 +1,29 @@
 description: >
   JMA hourly observations from staffed stations (気象官署, s-prefixed station
-  ids), core element set 降水量+気温+風向・風速+日照時間 (element codes
-  101-201-301-401): the 17-column staffed layout described in
-  docs/JMA-Weather-Data-Retrieval.md §7. Identical to the AMeDAS layout
-  (conf/schemas/jma_hourly_amedas.yaml) except that the phenomenon-recording
-  elements 降水量 and 日照時間 each carry an extra 現象なし情報 column:
+  ids — the network was re-scoped to staffed stations only in 2026-08), the
+  7-element scrape set 降水量+気温+風向・風速+日照時間+積雪の深さ+相対湿度+
+  全天日射量 (element codes 101-201-301-401-501-605-610): a 27-column layout
+  per docs/JMA-Weather-Data-Retrieval.md §7. The phenomenon-recording
+  elements 降水量, 日照時間 and 積雪の深さ each carry a 現象なし情報 column:
   1 = no phenomenon that hour (the 0 value is a true zero), 0 = phenomenon
-  occurred, empty when the quality flag is 2/1/0. Files are downloaded by
-  scripts/download_jma_hourly.py and read positionally (source _c0.._c16) by
-  JmaHourlyCsvLoader; station_id is injected from the file name. One row per
-  station and hour; hours run 01:00-24:00 JST with 24:00 stored as 00:00 of
-  the next day. Quality flags: 8 normal, 5 quasi-normal, 4 insufficient,
-  2 questionable, 1 missing, 0 not observed; value cells are empty when the
-  flag is 2/1/0. Wind direction is a 16-point compass word (北西 etc.) or
-  静穏 (calm). Homogeneity numbers restart at 1 in every downloaded file;
-  only within-file changes mark observation-environment breaks.
+  occurred, empty when the quality flag is 2/1/0. For 積雪の深さ, a blank
+  value with a blank 現象なし情報 (quality 1) means snow is not tracked that
+  hour (e.g. off-season) — distinct from a confirmed 0. Files are stitched from
+  two half-year requests per station-year by JmaHourlyDownloader (the
+  8-value-column set exceeds the per-request budget) and read positionally
+  (source _c0.._c26) by JmaHourlyCsvLoader; station_id is injected from the
+  file name. One row per station and hour; hours run 01:00-24:00 JST with
+  24:00 stored as 00:00 of the next day. Quality flags: 8 normal,
+  5 quasi-normal, 4 insufficient, 2 questionable, 1 missing, 0 not
+  observed; value cells are empty when the flag is 2/1/0. Wind direction is
+  a 16-point compass word (北西 etc.) or 静穏 (calm). Homogeneity numbers
+  restart at 1 in every REQUEST WINDOW (half-year), not just every file, so
+  in a stitched year file the numbering resets at the window boundary —
+  breaks are only meaningful within a window. At s47821 (阿蘇山) the
+  wind-direction 品質情報 cell is empty (null) instead of 0 in the
+  post-closure padding rows 2017-12-12..12-31, while the wind element is
+  entirely unobserved (wind_speed_quality_flag 0) — hence this one flag is
+  nullable.
 
 read_options:
   # Java charset name for cp932 / Shift_JIS with Windows extensions
@@ -35,9 +44,19 @@ columns:
   - { name: wind_speed_ms, source: _c8, type: double }
   - { name: wind_speed_quality_flag, source: _c9, type: int, nullable: false }
   - { name: wind_direction, source: _c10, type: string }
-  - { name: wind_direction_quality_flag, source: _c11, type: int, nullable: false }
+  - { name: wind_direction_quality_flag, source: _c11, type: int }
   - { name: wind_homogeneity_no, source: _c12, type: int, nullable: false }
   - { name: sunshine_duration_h, source: _c13, type: double }
   - { name: sunshine_phenomenon_absent, source: _c14, type: int }
   - { name: sunshine_quality_flag, source: _c15, type: int, nullable: false }
   - { name: sunshine_homogeneity_no, source: _c16, type: int, nullable: false }
+  - { name: snow_depth_cm, source: _c17, type: int }
+  - { name: snow_depth_phenomenon_absent, source: _c18, type: int }
+  - { name: snow_depth_quality_flag, source: _c19, type: int, nullable: false }
+  - { name: snow_depth_homogeneity_no, source: _c20, type: int, nullable: false }
+  - { name: humidity_pct, source: _c21, type: int }
+  - { name: humidity_quality_flag, source: _c22, type: int, nullable: false }
+  - { name: humidity_homogeneity_no, source: _c23, type: int, nullable: false }
+  - { name: solar_radiation_mjm2, source: _c24, type: double }
+  - { name: solar_radiation_quality_flag, source: _c25, type: int, nullable: false }
+  - { name: solar_radiation_homogeneity_no, source: _c26, type: int, nullable: false }

@@ -11,9 +11,10 @@ files headerless — the load contract addresses columns positionally via
 timestamp), and injects a ``station_id`` column parsed from the file name
 (contract ``source: __station_id``).
 
-Because the column count is the only thing distinguishing the AMeDAS layout
-from the staffed layout, each file's count is checked against the contract
-before reading; a mismatch fails the load rather than silently truncating.
+Each file's column count is checked against the contract before reading;
+a mismatch fails the load rather than silently truncating, guarding against
+JMA layout drift (or a stale pre-re-scope file) rather than a station-class
+mixup.
 """
 
 from __future__ import annotations

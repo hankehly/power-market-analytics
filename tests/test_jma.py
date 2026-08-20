@@ -19,6 +19,7 @@ from power_market_analytics.jma import (
     ELEMENT_VALUE_COLUMNS,
     HOURLY_ELEMENTS,
     KANSOKU_DIGITS,
+    SCRAPE_ELEMENTS,
     JmaHourlyDownloader,
     JmaStationMasterDownloader,
     _JmaDownloader,
@@ -177,6 +178,12 @@ CSV_HEAD = "ダウンロードした時刻：2026/08/18 10:00:00\r\n\r\n,東京,
 CSV_BYTES = (CSV_HEAD + "2016/1/1 1:00,5.1,8,1,0.0,8,1\r\n").encode("cp932")
 HTML_ERROR = "<html><body>エラーが発生しました</body></html>".encode("cp932")
 
+WINDOW1_BYTES = (
+    CSV_HEAD + "2024/1/1 1:00,5.1,8,1,0.0,8,1\r\n2024/1/1 2:00,4.8,8,1,0.0,8,1\r\n"
+).encode("cp932")
+WINDOW2_BYTES = (CSV_HEAD + "2024/7/2 1:00,25.3,8,1,0.0,8,1\r\n").encode("cp932")
+STITCHED_BYTES = WINDOW1_BYTES + "2024/7/2 1:00,25.3,8,1,0.0,8,1\r\n".encode("cp932")
+
 PAST_YEAR_PAYLOAD = {
     "stationNumList": '["s47662"]',
     "aggrgPeriod": "9",
@@ -232,6 +239,54 @@ class TestHourlyPaths:
         assert dl._element_codes(["humidity", "wind", "precipitation"]) == ["101", "301", "605"]
 
 
+class TestWindows:
+    def test_scrape_elements_is_the_rescope_set(self):
+        assert SCRAPE_ELEMENTS == [
+            "precipitation",
+            "temperature",
+            "wind",
+            "sunshine",
+            "snow_depth",
+            "humidity",
+            "solar_radiation",
+        ]
+        assert sum(ELEMENT_VALUE_COLUMNS[e] for e in SCRAPE_ELEMENTS) == 8
+
+    def test_small_sets_fit_one_full_year_window(self):
+        dl = JmaHourlyDownloader()
+        core = ["precipitation", "temperature", "wind", "sunshine"]  # 5 cols, 43,920 leap values
+        assert dl.window_count(core, 2024) == 1
+        assert dl.window_count(["temperature"], 2016) == 1
+        assert dl._windows(core, 2016, today=TODAY) == [
+            (datetime.date(2016, 1, 1), datetime.date(2016, 12, 31))
+        ]
+
+    def test_scrape_set_needs_two_windows_split_at_midyear(self):
+        dl = JmaHourlyDownloader()
+        assert dl.window_count(SCRAPE_ELEMENTS, 2024) == 2  # leap: 70,272 values
+        assert dl.window_count(SCRAPE_ELEMENTS, 2023) == 2  # 70,080 values
+        assert dl._windows(SCRAPE_ELEMENTS, 2024, today=TODAY) == [
+            (datetime.date(2024, 1, 1), datetime.date(2024, 7, 1)),
+            (datetime.date(2024, 7, 2), datetime.date(2024, 12, 31)),
+        ]
+
+    def test_current_year_windows_are_clamped_to_yesterday(self):
+        dl = JmaHourlyDownloader()
+        # TODAY = 2026-08-18: window 2 starts Jul 2 and is cut at Aug 17.
+        assert dl._windows(SCRAPE_ELEMENTS, 2026, today=TODAY) == [
+            (datetime.date(2026, 1, 1), datetime.date(2026, 7, 1)),
+            (datetime.date(2026, 7, 2), datetime.date(2026, 8, 17)),
+        ]
+        # Early in the year only the first (clamped) window remains.
+        assert dl._windows(SCRAPE_ELEMENTS, 2026, today=datetime.date(2026, 3, 1)) == [
+            (datetime.date(2026, 1, 1), datetime.date(2026, 2, 28)),
+        ]
+
+    def test_january_first_has_no_observable_days_yet(self):
+        dl = JmaHourlyDownloader()
+        assert dl._windows(["temperature"], 2026, today=datetime.date(2026, 1, 1)) == []
+
+
 class TestValidateElements:
     def test_empty(self):
         with pytest.raises(ValueError, match="At least one element"):
@@ -245,38 +300,38 @@ class TestValidateElements:
         with pytest.raises(ValueError, match="Duplicate"):
             JmaHourlyDownloader()._validate_elements(["temperature", "temperature"])
 
-    def test_over_the_value_column_cap(self):
-        elements = ["wind", "temperature", "precipitation", "sunshine", "humidity"]  # 6 cols
-        with pytest.raises(ValueError, match="needs 6 value columns"):
-            JmaHourlyDownloader()._validate_elements(elements)
-
-    def test_exactly_at_the_cap_is_allowed(self):
-        JmaHourlyDownloader()._validate_elements(
-            ["wind", "temperature", "precipitation", "sunshine"]
-        )
-
 
 class TestHourlyPayload:
-    def test_past_year_covers_january_through_december(self):
+    def test_full_year_span(self):
         dl = JmaHourlyDownloader()
-        payload = dl._payload("s47662", ["temperature", "precipitation"], 2016, today=TODAY)
+        payload = dl._payload(
+            "s47662",
+            ["temperature", "precipitation"],
+            datetime.date(2016, 1, 1),
+            datetime.date(2016, 12, 31),
+        )
         assert payload == PAST_YEAR_PAYLOAD
 
-    def test_current_year_is_clamped_to_yesterday(self):
+    def test_partial_span_uses_the_given_dates_verbatim(self):
         dl = JmaHourlyDownloader()
-        payload = dl._payload("a0368", ["wind"], 2026, today=TODAY)
-        assert payload["ymdList"] == '["2026","2026","1","8","1","17"]'
+        payload = dl._payload(
+            "a0368", ["wind"], datetime.date(2026, 7, 2), datetime.date(2026, 8, 17)
+        )
+        assert payload["ymdList"] == '["2026","2026","7","8","2","17"]'
         assert payload["stationNumList"] == '["a0368"]'
         assert payload["elementNumList"] == '[["301",""]]'
 
-    def test_last_year_on_new_years_day_still_ends_december_31(self):
-        dl = JmaHourlyDownloader()
-        payload = dl._payload("s47662", ["temperature"], 2025, today=datetime.date(2026, 1, 1))
-        assert payload["ymdList"] == '["2025","2025","1","12","1","31"]'
 
-    def test_today_defaults_to_the_real_date(self):
-        payload = JmaHourlyDownloader()._payload("s47662", ["temperature"], 2016)
-        assert payload["ymdList"] == '["2016","2016","1","12","1","31"]'
+class TestStitch:
+    def test_single_part_is_returned_as_is(self):
+        assert JmaHourlyDownloader._stitch([WINDOW1_BYTES]) == WINDOW1_BYTES
+
+    def test_later_parts_contribute_only_data_rows(self):
+        assert JmaHourlyDownloader._stitch([WINDOW1_BYTES, WINDOW2_BYTES]) == STITCHED_BYTES
+
+    def test_first_part_without_trailing_newline_still_stitches_cleanly(self):
+        stitched = JmaHourlyDownloader._stitch([WINDOW1_BYTES.rstrip(b"\r\n"), WINDOW2_BYTES])
+        assert stitched == STITCHED_BYTES
 
 
 class TestHourlyDownload:
@@ -357,10 +412,44 @@ class TestHourlyDownload:
         data_dir = tmp_path / "hourly"
         dl = JmaHourlyDownloader(data_dir=data_dir, request_interval=0.0, session=session)
 
-        with pytest.raises(ValueError, match=r"s47662/\['temperature'\]/2016 \(not a JMA CSV\)"):
+        with pytest.raises(
+            ValueError, match=r"s47662/\['temperature'\]/2016-01-01\.\.2016-12-31 \(not a JMA CSV\)"
+        ):
             dl.download("s47662", ["temperature"], 2016, today=TODAY)
 
         assert not data_dir.exists()
+
+    def test_multi_window_set_posts_per_window_and_writes_one_stitched_file(self, tmp_path):
+        session = FakeSession([FakeResponse(WINDOW1_BYTES), FakeResponse(WINDOW2_BYTES)])
+        dl = JmaHourlyDownloader(data_dir=tmp_path, request_interval=0.0, session=session)
+
+        path = dl.download("s47662", SCRAPE_ELEMENTS, 2024, today=TODAY)
+
+        assert path == tmp_path / "s47662_101-201-301-401-501-605-610_2024.csv"
+        assert path.read_bytes() == STITCHED_BYTES
+        assert [c["data"]["ymdList"] for c in session.calls] == [
+            '["2024","2024","1","7","1","1"]',
+            '["2024","2024","7","12","2","31"]',
+        ]
+        codes = '[["101",""],["201",""],["301",""],["401",""],["501",""],["605",""],["610",""]]'
+        assert {c["data"]["elementNumList"] for c in session.calls} == {codes}
+
+    def test_html_error_on_a_later_window_writes_nothing(self, tmp_path):
+        session = FakeSession([FakeResponse(WINDOW1_BYTES), FakeResponse(HTML_ERROR)])
+        data_dir = tmp_path / "hourly"
+        dl = JmaHourlyDownloader(data_dir=data_dir, request_interval=0.0, session=session)
+
+        with pytest.raises(ValueError, match=r"2024-07-02\.\.2024-12-31 \(not a JMA CSV\)"):
+            dl.download("s47662", SCRAPE_ELEMENTS, 2024, today=TODAY)
+
+        assert not data_dir.exists()
+
+    def test_year_with_no_observable_days_raises_before_any_http(self, tmp_path):
+        session = FakeSession([FakeResponse(CSV_BYTES)])
+        dl = JmaHourlyDownloader(data_dir=tmp_path, request_interval=0.0, session=session)
+        with pytest.raises(ValueError, match="no observable days"):
+            dl.download("s47662", ["temperature"], 2026, today=datetime.date(2026, 1, 1))
+        assert session.calls == []
 
     def test_http_error_propagates(self, tmp_path):
         session = FakeSession([FakeResponse(status=404)])
@@ -669,6 +758,28 @@ class TestStationMasterDownload:
         assert dest.read_bytes().decode("utf-8") == (
             HEADER + "\r\ns47662,44,東京,トウキヨウ,35.6917,139.75,25.2,111111,1,1,1,1,1,1,\r\n"
         )
+
+    def test_staffed_only_writes_only_s_stations(self, tmp_path):
+        pages = {"00": PREFECTURE_MAP, "44": TOKYO + FUCHU + SHINKIBA, "45": ""}
+        session = FakeSession(route_areas(pages))
+        dest = tmp_path / "stations.csv"
+        dl = JmaStationMasterDownloader(
+            dest=dest, staffed_only=True, request_interval=0.0, session=session
+        )
+
+        dl.download()
+
+        assert dest.read_bytes().decode("utf-8") == (
+            HEADER + "\r\ns47662,44,東京,トウキヨウ,35.6917,139.75,25.2,111111,1,1,1,1,1,1,\r\n"
+        )
+
+    def test_staffed_only_defaults_off(self, tmp_path):
+        pages = {"00": PREFECTURE_MAP, "44": TOKYO + FUCHU, "45": ""}
+        session = FakeSession(route_areas(pages))
+        dest = tmp_path / "stations.csv"
+        JmaStationMasterDownloader(dest=dest, request_interval=0.0, session=session).download()
+        station_ids = [line.split(",")[0] for line in dest.read_text().splitlines()[1:]]
+        assert station_ids == ["a1133", "s47662"]
 
     def test_conflicting_duplicate_keeps_the_first_and_warns(self, tmp_path):
         # Same station id on two pages but with different metadata (JMA moved
