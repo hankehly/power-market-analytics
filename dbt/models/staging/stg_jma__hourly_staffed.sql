@@ -18,7 +18,17 @@ with
     sunshine_duration_h,
     sunshine_phenomenon_absent,
     sunshine_quality_flag,
-    sunshine_homogeneity_no
+    sunshine_homogeneity_no,
+    snow_depth_cm,
+    snow_depth_phenomenon_absent,
+    snow_depth_quality_flag,
+    snow_depth_homogeneity_no,
+    humidity_pct,
+    humidity_quality_flag,
+    humidity_homogeneity_no,
+    solar_radiation_mjm2,
+    solar_radiation_quality_flag,
+    solar_radiation_homogeneity_no
   from
     {{ source('jma', 'jma_hourly_staffed') }}
   )
