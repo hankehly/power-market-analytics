@@ -19,7 +19,11 @@ description: >
   a 16-point compass word (北西 etc.) or 静穏 (calm). Homogeneity numbers
   restart at 1 in every REQUEST WINDOW (half-year), not just every file, so
   in a stitched year file the numbering resets at the window boundary —
-  breaks are only meaningful within a window.
+  breaks are only meaningful within a window. At s47821 (阿蘇山) the
+  wind-direction 品質情報 cell is empty (null) instead of 0 in the
+  post-closure padding rows 2017-12-12..12-31, while the wind element is
+  entirely unobserved (wind_speed_quality_flag 0) — hence this one flag is
+  nullable.
 
 read_options:
   # Java charset name for cp932 / Shift_JIS with Windows extensions
@@ -40,7 +44,7 @@ columns:
   - { name: wind_speed_ms, source: _c8, type: double }
   - { name: wind_speed_quality_flag, source: _c9, type: int, nullable: false }
   - { name: wind_direction, source: _c10, type: string }
-  - { name: wind_direction_quality_flag, source: _c11, type: int, nullable: false }
+  - { name: wind_direction_quality_flag, source: _c11, type: int }
   - { name: wind_homogeneity_no, source: _c12, type: int, nullable: false }
   - { name: sunshine_duration_h, source: _c13, type: double }
   - { name: sunshine_phenomenon_absent, source: _c14, type: int }

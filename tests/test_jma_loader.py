@@ -46,6 +46,9 @@ STAFFED_ROWS = [
     "2024/7/1 13:00:00,0.0,0,8,1,27.7,8,1,5.2,8,南南西,8,1,0.0,0,8,1,,,1,1,85,8,1,1.56,8,1",
     # Missing 気温 and 相対湿度: blank value cells with quality 1 (flags never blank).
     "2024/11/7 16:00:00,0,1,8,1,,1,1,4.8,8,北西,8,1,1.0,0,8,1,,,1,1,,1,1,0.61,8,1",
+    # 阿蘇山-style post-closure padding: everything unobserved, wind-direction
+    # flag cell empty (not 0) while wind_speed_quality_flag is 0.
+    "2017/12/12 1:00:00,,,0,1,,0,1,,0,,,1,,,0,1,,,0,1,,0,1,,0,1",
 ]
 
 #: Pre-rescope 17-column core layout (no snow/humidity/solar) — kept only to
@@ -119,7 +122,7 @@ class TestJmaHourlyCsvLoaderLoad:
         )
         loader = JmaHourlyCsvLoader(STAFFED_CONTRACT, tmp_path, "test_jma.staffed", spark=spark)
 
-        assert loader.load() == 3
+        assert loader.load() == 4
 
         rows = {r.observed_at: r for r in spark.table("test_jma.staffed").collect()}
         r1 = rows[datetime.datetime(2024, 2, 5, 19, 0)]
@@ -136,6 +139,11 @@ class TestJmaHourlyCsvLoaderLoad:
         assert (r3.temperature_c, r3.temperature_quality_flag) == (None, 1)
         assert (r3.humidity_pct, r3.humidity_quality_flag) == (None, 1)
         assert r3.solar_radiation_mjm2 == 0.61
+        # 阿蘇山 post-closure padding: wind-direction quality flag cell empty
+        # (null), not 0, while the wind element is entirely unobserved.
+        r4 = rows[datetime.datetime(2017, 12, 12, 1, 0)]
+        assert (r4.wind_speed_quality_flag, r4.wind_direction_quality_flag) == (0, None)
+        assert (r4.temperature_c, r4.temperature_quality_flag) == (None, 0)
 
     def test_two_stations_share_a_table_and_the_grain_holds(self, spark, tmp_path):
         staffed_file(tmp_path, "s47662_101-201-301-401-501-605-610_2024.csv")
@@ -147,11 +155,11 @@ class TestJmaHourlyCsvLoaderLoad:
             spark=spark,
         )
 
-        assert loader.load() == 6
+        assert loader.load() == 8
 
         rows = spark.table("test_jma.two").collect()
         assert sorted({r.station_id for r in rows}) == ["s47662", "s47772"]
-        assert len({(r.station_id, r.observed_at) for r in rows}) == 6
+        assert len({(r.station_id, r.observed_at) for r in rows}) == 8
 
     def test_overlapping_year_files_of_one_station_violate_the_grain(self, spark, tmp_path):
         staffed_file(tmp_path, "s47662_101-201-301-401-501-605-610_2024.csv")
@@ -159,7 +167,7 @@ class TestJmaHourlyCsvLoaderLoad:
         loader = JmaHourlyCsvLoader(STAFFED_CONTRACT, tmp_path, "test_jma.overlap", spark=spark)
         with pytest.raises(
             ValueError,
-            match=re.escape("Grain ['station_id', 'observed_at'] is not unique: 6 rows but 3"),
+            match=re.escape("Grain ['station_id', 'observed_at'] is not unique: 8 rows but 4"),
         ):
             loader.load()
 
