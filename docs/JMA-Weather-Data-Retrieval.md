@@ -313,8 +313,10 @@ exists.)
 
 A burst of ~9 requests at 2-second spacing drew HTTP 429. The downloader spaces requests
 5 s apart (`request_interval`) and retries 429/5xx with exponential backoff
-(30 s → 60 s → 120 s → 240 s). At this pacing, downloading all four core elements for one
-station's 2016–2026 history (11 requests) takes about a minute.
+(30 s → 60 s → 120 s → 240 s). That 5 s spacing is a lower bound, not the realistic pace
+([§6.3](#63-packing-math-for-a-full-scrape)): one station's full 2016–2026 history with the
+current 7-element scrape set (`SCRAPE_ELEMENTS`) is 11 years × 2 windows/year = 22 requests,
+which takes about 5.5 minutes at the observed ~15 s/request.
 
 ### 6.3 Packing math for a full scrape
 
