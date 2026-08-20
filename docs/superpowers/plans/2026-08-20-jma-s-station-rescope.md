@@ -26,14 +26,14 @@
 
 ### Task 1: Spike — validate the windowed 8-column request against live JMA
 
-Confirms the design's one empirical assumption before any code: an 8-value-column half-year request passes JMA's data-volume cap. Also pins the real 26-column layout for Task 5's contract. **Throwaway code — never committed.**
+Confirms the design's one empirical assumption before any code: an 8-value-column half-year request passes JMA's data-volume cap. Also pins the real 27-column layout (the pre-spike plan expected 26; the spike found 積雪の深さ carries 現象なし情報) for Task 5's contract. **Throwaway code — never committed.**
 
 **Files:**
 - Create: `<scratchpad>/spike_jma_window.py` (scratchpad dir from the session; NOT in the repo)
 - Create: `<scratchpad>/s47662_window1_2024.csv`, `<scratchpad>/s47662_window2_2024.csv` (spike outputs, referenced by Task 5)
 
 **Interfaces:**
-- Produces: confirmation that `MAX_VALUES_PER_REQUEST = 44_000` is safe (half-year × 8 columns ≈ 35k values passes); the real header rows and 2 sample data rows of the 26-column layout; observed value formats for 積雪 (int cm), 湿度 (int %), 全天日射量 (double MJ/㎡, incl. what a night hour looks like).
+- Produces: confirmation that `MAX_VALUES_PER_REQUEST = 44_000` is safe (half-year × 8 columns ≈ 35k values passes); the real header rows and 2 sample data rows of the 27-column layout; observed value formats for 積雪 (int cm), 湿度 (int %), 全天日射量 (double MJ/㎡, incl. what a night hour looks like).
 
 - [ ] **Step 1: Write the throwaway spike script**
 
@@ -75,7 +75,7 @@ for i in (1, 2):
 
 (The `_payload` template call uses the CURRENT signature `(station_id, elements, year)` — this spike runs before Task 3 changes it.)
 
-- [ ] **Step 2: Run it** — `just python <scratchpad>/spike_jma_window.py` (or host-side `uv run python`; no SparkSession involved). Expected: both windows print `head='ダウンロードした時刻…'`, window 1 has 4,392 data rows (Jan 1 01:00 → Jul 2 00:00 stored timestamps ending 24:00 as next-day 00:00), window 2 has 4,392, columns = **26**.
+- [ ] **Step 2: Run it** — `just python <scratchpad>/spike_jma_window.py` (or host-side `uv run python`; no SparkSession involved). Expected: both windows print `head='ダウンロードした時刻…'`, window 1 has 4,392 data rows (Jan 1 01:00 → Jul 2 00:00 stored timestamps ending 24:00 as next-day 00:00), window 2 has 4,392, columns = **27**.
 
 - [ ] **Step 3: Decision gate.**
   - Both pass → record in the task report: confirmed `MAX_VALUES_PER_REQUEST = 44_000`; paste the 4 header rows + 2 data rows (one winter with snow if visible, one summer day + one night hour for solar) into the report for Task 5.
