@@ -670,6 +670,28 @@ class TestStationMasterDownload:
             HEADER + "\r\ns47662,44,東京,トウキヨウ,35.6917,139.75,25.2,111111,1,1,1,1,1,1,\r\n"
         )
 
+    def test_staffed_only_writes_only_s_stations(self, tmp_path):
+        pages = {"00": PREFECTURE_MAP, "44": TOKYO + FUCHU + SHINKIBA, "45": ""}
+        session = FakeSession(route_areas(pages))
+        dest = tmp_path / "stations.csv"
+        dl = JmaStationMasterDownloader(
+            dest=dest, staffed_only=True, request_interval=0.0, session=session
+        )
+
+        dl.download()
+
+        assert dest.read_bytes().decode("utf-8") == (
+            HEADER + "\r\ns47662,44,東京,トウキヨウ,35.6917,139.75,25.2,111111,1,1,1,1,1,1,\r\n"
+        )
+
+    def test_staffed_only_defaults_off(self, tmp_path):
+        pages = {"00": PREFECTURE_MAP, "44": TOKYO + FUCHU, "45": ""}
+        session = FakeSession(route_areas(pages))
+        dest = tmp_path / "stations.csv"
+        JmaStationMasterDownloader(dest=dest, request_interval=0.0, session=session).download()
+        station_ids = [line.split(",")[0] for line in dest.read_text().splitlines()[1:]]
+        assert station_ids == ["a1133", "s47662"]
+
     def test_conflicting_duplicate_keeps_the_first_and_warns(self, tmp_path):
         # Same station id on two pages but with different metadata (JMA moved
         # it, or the pages disagree): the first-seen row wins.

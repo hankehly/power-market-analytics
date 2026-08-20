@@ -1,10 +1,13 @@
-"""Regenerate the JMA station master dbt seed.
+"""Regenerate the JMA station master dbt seed (staffed stations only).
 
 Scrapes the station master (id, name, kana, prefecture, coordinates,
 elevation, observed-element mask, end-of-observation date) from the JMA
-obsdl per-prefecture station pages and rewrites dbt/seeds/jma_stations.csv
-as UTF-8 with ISO dates. Roughly 60 requests at polite spacing, so expect
-~5 minutes. dim_jma_station is built from this seed.
+obsdl per-prefecture station pages, keeps only staffed stations (気象官署,
+s-prefixed ids — the 2026-08 re-scope; see
+docs/superpowers/specs/2026-08-20-jma-s-station-rescope-design.md) and
+rewrites dbt/seeds/jma_stations.csv as UTF-8 with ISO dates. Roughly 60
+requests at polite spacing, so expect ~5 minutes. dim_jma_station is built
+from this seed.
 """
 
 import argparse
@@ -27,7 +30,7 @@ def main(argv: list[str] | None = None) -> None:
     )
     args = parser.parse_args(argv)
 
-    downloader = JmaStationMasterDownloader(dest=args.dest)
+    downloader = JmaStationMasterDownloader(dest=args.dest, staffed_only=True)
     # Always refresh: the point of this script is to pick up new stations and
     # discontinuations, so the cached copy must never be served.
     path = downloader.download(force=True)

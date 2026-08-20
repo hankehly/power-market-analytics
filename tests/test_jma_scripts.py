@@ -293,8 +293,9 @@ def make_station_master_fake(record: dict, rows: list[dict] | None = None):
     """A ``JmaStationMasterDownloader`` stand-in that writes ``rows`` to ``dest`` if absent."""
 
     class FakeStationMaster:
-        def __init__(self, dest):
+        def __init__(self, dest, staffed_only=False):
             record["dest"] = Path(dest)
+            record["staffed_only"] = staffed_only
 
         def download(self, force=False):
             record["download"] = {"force": force}
@@ -352,7 +353,11 @@ class TestDownloadJmaHourlyAll:
             logger.remove(sink)
 
         assert result is None
-        assert master == {"dest": stations_csv, "download": {"force": False}}
+        assert master == {
+            "dest": stations_csv,
+            "staffed_only": False,
+            "download": {"force": False},
+        }
         assert stations_csv.exists()
         assert hourly["calls"] == []
         assert "Dry run: would download 3 of 4 station-years" in messages
@@ -383,7 +388,11 @@ class TestDownloadJmaHourlyAll:
             ]
         )
 
-        assert master == {"dest": stations_csv, "download": {"force": False}}
+        assert master == {
+            "dest": stations_csv,
+            "staffed_only": False,
+            "download": {"force": False},
+        }
         assert hourly["data_dir"] == data_dir
         assert hourly["request_interval"] == 0.5
         assert hourly["calls"] == [
@@ -682,7 +691,11 @@ class TestUpdateJmaStationsSeed:
 
         assert script.SEED_PATH == REPO_ROOT / "dbt/seeds/jma_stations.csv"
         # force=True is the contract: the seed must always be regenerated.
-        assert record == {"dest": script.SEED_PATH, "download": {"force": True}}
+        assert record == {
+            "dest": script.SEED_PATH,
+            "staffed_only": True,
+            "download": {"force": True},
+        }
 
     def test_dest_override(self, tmp_path, monkeypatch):
         script = import_script("update_jma_stations_seed")
@@ -691,4 +704,8 @@ class TestUpdateJmaStationsSeed:
 
         script.main(["--dest", str(tmp_path / "stations.csv")])
 
-        assert record == {"dest": tmp_path / "stations.csv", "download": {"force": True}}
+        assert record == {
+            "dest": tmp_path / "stations.csv",
+            "staffed_only": True,
+            "download": {"force": True},
+        }
