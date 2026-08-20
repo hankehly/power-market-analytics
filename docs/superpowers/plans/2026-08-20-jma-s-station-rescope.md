@@ -4,7 +4,7 @@
 
 **Goal:** Re-scope the JMA hourly weather pipeline to staffed (s-prefixed) stations only, expand the element set to 7 elements (core 4 + 積雪の深さ/相対湿度/全天日射量), and download each station-year as ONE stitched write-once CSV built from time-windowed requests.
 
-**Architecture:** The seed/dim shrink to s-stations via a `staffed_only` filter in the station-master downloader. `JmaHourlyDownloader` gains time-windowing: when an element set × year exceeds JMA's per-request value budget, the year is split into windows, each fetched separately, and the responses stitched (header block kept once, data rows appended) into one file per station-year. The AMeDAS leg (contract, raw table, stg model, union in std) is deleted; the staffed contract widens to 26 columns and `std`/`fct` gain 9 columns.
+**Architecture:** The seed/dim shrink to s-stations via a `staffed_only` filter in the station-master downloader. `JmaHourlyDownloader` gains time-windowing: when an element set × year exceeds JMA's per-request value budget, the year is split into windows, each fetched separately, and the responses stitched (header block kept once, data rows appended) into one file per station-year. The AMeDAS leg (contract, raw table, stg model, union in std) is deleted; the staffed contract widens to 27 columns and `std`/`fct` gain 10 columns.
 
 **Tech Stack:** Python (requests, loguru, PySpark loader framework), pytest (100% coverage gate), dbt 1.11 on Spark thriftserver, uv, just.
 
@@ -651,7 +651,7 @@ git commit -m "Scrape the 7-element staffed set in both JMA download scripts"
 
 ---
 
-### Task 5: Load contract (26 columns) + loader wiring
+### Task 5: Load contract (27 columns) + loader wiring
 
 **Files:**
 - Modify: `conf/schemas/jma_hourly_staffed.yaml` (full rewrite)
@@ -660,64 +660,75 @@ git commit -m "Scrape the 7-element staffed set in both JMA download scripts"
 - Test: `tests/test_jma_loader.py` (major rewrite), `tests/test_load_scripts.py` (TestLoadJmaHourly)
 
 **Interfaces:**
-- Consumes: the Task 1 spike's real header/data rows (verify the fixture below against them; fix the fixture, not the spike).
-- Produces: `pma_raw.jma_hourly_staffed` with 27 contract columns (station_id + 26 physical); `FORMATS = [("jma_hourly_staffed", "s*_101-201-301-401-501-605-610_*.csv", "pma_raw.jma_hourly_staffed")]`. Column names consumed by Task 6: `snow_depth_cm`, `snow_depth_quality_flag`, `snow_depth_homogeneity_no`, `humidity_pct`, `humidity_quality_flag`, `humidity_homogeneity_no`, `solar_radiation_mjm2`, `solar_radiation_quality_flag`, `solar_radiation_homogeneity_no`.
+- Consumes: the Task 1 spike report (`<workspace>/task-1-report.md`) — the fixture below uses its verbatim rows; the layout is CONFIRMED: 27 physical columns, snow depth carries 現象なし情報.
+- Produces: `pma_raw.jma_hourly_staffed` with 28 contract columns (station_id + 27 physical); `FORMATS = [("jma_hourly_staffed", "s*_101-201-301-401-501-605-610_*.csv", "pma_raw.jma_hourly_staffed")]`. Column names consumed by Task 6: `snow_depth_cm`, `snow_depth_phenomenon_absent`, `snow_depth_quality_flag`, `snow_depth_homogeneity_no`, `humidity_pct`, `humidity_quality_flag`, `humidity_homogeneity_no`, `solar_radiation_mjm2`, `solar_radiation_quality_flag`, `solar_radiation_homogeneity_no`.
 
 - [ ] **Step 1: Rewrite the test fixtures and tests (failing first).** In `tests/test_jma_loader.py`:
   - Delete `AMEDAS_CONTRACT`, `AMEDAS_HEADER`, `AMEDAS_ROWS`, `amedas_file`, and every `TestJmaHourlyCsvLoaderLoad` test that exercises the AMeDAS layout (`test_amedas_file_loads_positionally...`, `test_staffed_layout_against_amedas_contract_fails_loudly`, `test_amedas_layout_against_staffed_contract_fails_loudly`). Port their generic behaviors (grain violation, unparseable name, headers-only, missing non-nullable flag, two stations share a table, wrong column count fails loudly) to staffed fixtures.
-  - New 26-column staffed fixture (element groups in ascending code order; **verify labels/orders against the spike output**):
+  - New 27-column staffed fixture — these header rows and data rows are VERBATIM from the Task 1 spike response (東京 2024); do not alter them:
 
 ```python
-#: 26-column staffed layout: precip(4) temp(3) wind(5) sunshine(4) snow(3)
-#: humidity(3) solar(3) after the timestamp. Shaped like the 2026-08-20
-#: spike response for 東京.
+#: 27-column staffed layout: precip(4) temp(3) wind(5) sunshine(4) snow(4)
+#: humidity(3) solar(3) after the timestamp. Verbatim from the 2026-08-20
+#: spike response for 東京 (積雪の深さ carries 現象なし情報 at staffed
+#: stations, unlike what doc §7.2 suggested).
 STAFFED_HEADER = [
-    "ダウンロードした時刻：2026/08/20 12:49:53",
+    "ダウンロードした時刻：2026/08/20 10:20:49",
     "",
-    "," + ",".join(["東京"] * 25),
+    "," + ",".join(["東京"] * 26),
     "年月日時,降水量(mm),降水量(mm),降水量(mm),降水量(mm),気温(℃),気温(℃),気温(℃),"
     "風速(m/s),風速(m/s),風速(m/s),風速(m/s),風速(m/s),"
     "日照時間(時間),日照時間(時間),日照時間(時間),日照時間(時間),"
-    "積雪(cm),積雪(cm),積雪(cm),相対湿度(％),相対湿度(％),相対湿度(％),"
-    "全天日射量(MJ/㎡),全天日射量(MJ/㎡),全天日射量(MJ/㎡)",
-    ",,,,,,,,,,風向,風向,,,,,,,,,,,,,,",
+    "積雪(cm),積雪(cm),積雪(cm),積雪(cm),相対湿度(％),相対湿度(％),相対湿度(％),"
+    "日射量(MJ/㎡),日射量(MJ/㎡),日射量(MJ/㎡)",
+    ",,,,,,,,,,風向,風向,,,,,,,,,,,,,,,",
     ",,現象なし情報,品質情報,均質番号,,品質情報,均質番号,,品質情報,,品質情報,均質番号,"
-    ",現象なし情報,品質情報,均質番号,,品質情報,均質番号,,品質情報,均質番号,,品質情報,均質番号",
+    ",現象なし情報,品質情報,均質番号,,現象なし情報,品質情報,均質番号,,品質情報,均質番号,"
+    ",品質情報,均質番号",
 ]
 STAFFED_ROWS = [
-    # Daytime winter hour: snow on the ground, some sun.
-    "2024/1/1 10:00:00,0,1,8,1,5.2,8,1,2.4,8,北西,8,1,0.4,0,8,1,3,8,1,45,8,1,1.25,8,1",
-    # Night hour: no sunshine (true zero), zero solar radiation.
-    "2024/1/1 23:00:00,1.5,0,8,1,4.0,8,1,2.0,8,北,8,1,0,1,8,1,3,8,1,60,8,1,0.0,8,1",
+    # Snow event in progress: 積雪 3 cm (現象なし=0), winter evening hour.
+    "2024/2/5 19:00:00,3.0,0,8,1,0.6,8,1,3.9,8,北北西,8,1,0,1,8,1,3,0,8,1,98,8,1,0,8,1",
+    # Summer daytime: snow untracked (blank value + blank 現象なし, quality 1),
+    # solar 1.56 MJ/m2; note precip prints 0.0 here but bare 0 elsewhere.
+    "2024/7/1 13:00:00,0.0,0,8,1,27.7,8,1,5.2,8,南南西,8,1,0.0,0,8,1,,,1,1,85,8,1,1.56,8,1",
+    # Missing 気温 and 相対湿度: blank value cells with quality 1 (flags never blank).
+    "2024/11/7 16:00:00,0,1,8,1,,1,1,4.8,8,北西,8,1,1.0,0,8,1,,,1,1,,1,1,0.61,8,1",
 ]
 ```
 
-    Verify the value formats against the spike output before finalizing (e.g. whether 積雪/湿度 print as ints and how a missing hour renders); the contract's `nullable: false` flags must match reality — if the spike shows an empty flag cell anywhere, relax that flag in the Step 3 contract and document it. For the ported missing-flag test, construct the bad row by editing row 1 (blank out `precipitation_quality_flag`, position `_c3`), mirroring the existing `test_missing_non_nullable_flag_fails_the_load` pattern.
-  - Update `STAFFED_CONTRACT` expected column count test to 26, `_sniff_column_count` test to 26, and file names to `s47662_101-201-301-401-501-605-610_2024.csv`.
+    The spike scanned all 8,784 rows of 2024: quality-flag cells are never empty, so the contract's `nullable: false` flags stand. For the ported missing-flag test, construct the bad row by editing row 1 (blank out `precipitation_quality_flag`, position `_c3`), mirroring the existing `test_missing_non_nullable_flag_fails_the_load` pattern.
+  - Update `STAFFED_CONTRACT` expected column count test to 27, `_sniff_column_count` test to 27, and file names to `s47662_101-201-301-401-501-605-610_2024.csv`.
   - Load test asserting the new columns land typed, in the spirit of the existing one:
 
 ```python
     def test_staffed_file_loads_through_the_contract(self, spark, tmp_path):
         write_cp932(
             tmp_path / "s47662_101-201-301-401-501-605-610_2024.csv",
-            STAFFED_HEADER + STAFFED_ROWS[:2],
+            STAFFED_HEADER + STAFFED_ROWS,
         )
         loader = JmaHourlyCsvLoader(STAFFED_CONTRACT, tmp_path, "test_jma.staffed", spark=spark)
 
-        assert loader.load() == 2
+        assert loader.load() == 3
 
         rows = {r.observed_at: r for r in spark.table("test_jma.staffed").collect()}
-        r1 = rows[datetime.datetime(2024, 1, 1, 10, 0)]
+        r1 = rows[datetime.datetime(2024, 2, 5, 19, 0)]
         assert r1.station_id == "s47662"
-        assert (r1.snow_depth_cm, r1.snow_depth_quality_flag) == (3, 8)
-        assert (r1.humidity_pct, r1.humidity_quality_flag) == (45, 8)
-        assert (r1.solar_radiation_mjm2, r1.solar_radiation_quality_flag) == (1.25, 8)
-        r2 = rows[datetime.datetime(2024, 1, 1, 23, 0)]
-        assert r2.solar_radiation_mjm2 == 0.0
-        assert (r2.sunshine_duration_h, r2.sunshine_phenomenon_absent) == (0.0, 1)
+        assert (r1.snow_depth_cm, r1.snow_depth_phenomenon_absent) == (3, 0)
+        assert (r1.humidity_pct, r1.humidity_quality_flag) == (98, 8)
+        assert (r1.solar_radiation_mjm2, r1.solar_radiation_quality_flag) == (0.0, 8)
+        r2 = rows[datetime.datetime(2024, 7, 1, 13, 0)]
+        # Snow untracked off-season: blank value AND blank 現象なし, quality 1.
+        assert (r2.snow_depth_cm, r2.snow_depth_phenomenon_absent) == (None, None)
+        assert r2.snow_depth_quality_flag == 1
+        assert r2.solar_radiation_mjm2 == 1.56
+        r3 = rows[datetime.datetime(2024, 11, 7, 16, 0)]
+        assert (r3.temperature_c, r3.temperature_quality_flag) == (None, 1)
+        assert (r3.humidity_pct, r3.humidity_quality_flag) == (None, 1)
+        assert r3.solar_radiation_mjm2 == 0.61
 ```
 
-  - Keep a wrong-layout guard: write an old 17-column core file and assert `"first data row has 17 columns, contract expects 26"`.
+  - Keep a wrong-layout guard: write an old 17-column core file and assert `"first data row has 17 columns, contract expects 27"`.
 
 - [ ] **Step 2: Run to verify failure** — `just test tests/test_jma_loader.py -x`. Expected: contract mismatch (yaml still 17 columns).
 
@@ -728,14 +739,16 @@ description: >
   JMA hourly observations from staffed stations (気象官署, s-prefixed station
   ids — the network was re-scoped to staffed stations only in 2026-08), the
   7-element scrape set 降水量+気温+風向・風速+日照時間+積雪の深さ+相対湿度+
-  全天日射量 (element codes 101-201-301-401-501-605-610): a 26-column layout
+  全天日射量 (element codes 101-201-301-401-501-605-610): a 27-column layout
   per docs/JMA-Weather-Data-Retrieval.md §7. The phenomenon-recording
-  elements 降水量 and 日照時間 each carry a 現象なし情報 column: 1 = no
-  phenomenon that hour (the 0 value is a true zero), 0 = phenomenon
-  occurred, empty when the quality flag is 2/1/0. Files are stitched from
+  elements 降水量, 日照時間 and 積雪の深さ each carry a 現象なし情報 column:
+  1 = no phenomenon that hour (the 0 value is a true zero), 0 = phenomenon
+  occurred, empty when the quality flag is 2/1/0. For 積雪の深さ, a blank
+  value with a blank 現象なし情報 (quality 1) means snow is not tracked that
+  hour (e.g. off-season) — distinct from a confirmed 0. Files are stitched from
   two half-year requests per station-year by JmaHourlyDownloader (the
   8-value-column set exceeds the per-request budget) and read positionally
-  (source _c0.._c25) by JmaHourlyCsvLoader; station_id is injected from the
+  (source _c0.._c26) by JmaHourlyCsvLoader; station_id is injected from the
   file name. One row per station and hour; hours run 01:00-24:00 JST with
   24:00 stored as 00:00 of the next day. Quality flags: 8 normal,
   5 quasi-normal, 4 insufficient, 2 questionable, 1 missing, 0 not
@@ -771,17 +784,18 @@ columns:
   - { name: sunshine_quality_flag, source: _c15, type: int, nullable: false }
   - { name: sunshine_homogeneity_no, source: _c16, type: int, nullable: false }
   - { name: snow_depth_cm, source: _c17, type: int }
-  - { name: snow_depth_quality_flag, source: _c18, type: int, nullable: false }
-  - { name: snow_depth_homogeneity_no, source: _c19, type: int, nullable: false }
-  - { name: humidity_pct, source: _c20, type: int }
-  - { name: humidity_quality_flag, source: _c21, type: int, nullable: false }
-  - { name: humidity_homogeneity_no, source: _c22, type: int, nullable: false }
-  - { name: solar_radiation_mjm2, source: _c23, type: double }
-  - { name: solar_radiation_quality_flag, source: _c24, type: int, nullable: false }
-  - { name: solar_radiation_homogeneity_no, source: _c25, type: int, nullable: false }
+  - { name: snow_depth_phenomenon_absent, source: _c18, type: int }
+  - { name: snow_depth_quality_flag, source: _c19, type: int, nullable: false }
+  - { name: snow_depth_homogeneity_no, source: _c20, type: int, nullable: false }
+  - { name: humidity_pct, source: _c21, type: int }
+  - { name: humidity_quality_flag, source: _c22, type: int, nullable: false }
+  - { name: humidity_homogeneity_no, source: _c23, type: int, nullable: false }
+  - { name: solar_radiation_mjm2, source: _c24, type: double }
+  - { name: solar_radiation_quality_flag, source: _c25, type: int, nullable: false }
+  - { name: solar_radiation_homogeneity_no, source: _c26, type: int, nullable: false }
 ```
 
-Delete `conf/schemas/jma_hourly_amedas.yaml` (`git rm`). If a fixture row legitimately shows an empty flag cell in the spike data (like the AMeDAS wind quirk), relax that one flag to nullable and document it in the description — evidence over plan.
+Delete `conf/schemas/jma_hourly_amedas.yaml` (`git rm`). The spike scanned every 2024 row: quality-flag cells are never empty, so all `nullable: false` flags stand as written.
 
 - [ ] **Step 4: Update the load script.** `scripts/load_jma_hourly.py` — `FORMATS` becomes:
 
@@ -796,9 +810,9 @@ FORMATS = [
 ]
 ```
 
-Module docstring: drop the two-layout paragraph; state one 26-column staffed layout, stitched files, and that the loader's column-count check now guards JMA layout drift rather than station-class mixups.
+Module docstring: drop the two-layout paragraph; state one 27-column staffed layout, stitched files, and that the loader's column-count check now guards JMA layout drift rather than station-class mixups.
 
-- [ ] **Step 5: Update `tests/test_load_scripts.py` `TestLoadJmaHourly`** — single-entry expectations: `test_loads_both_layouts_with_defaults` → `test_loads_the_staffed_layout_with_defaults` (one build: glob `s*_101-201-301-401-501-605-610_*.csv`, table `pma_raw.jma_hourly_staffed`, `schema.columns[-1].source == "_c25"`); the schema-dir override test writes only the `jma_hourly_staffed` stub; `test_formats_table_is_the_source_of_truth` asserts the new single-entry list.
+- [ ] **Step 5: Update `tests/test_load_scripts.py` `TestLoadJmaHourly`** — single-entry expectations: `test_loads_both_layouts_with_defaults` → `test_loads_the_staffed_layout_with_defaults` (one build: glob `s*_101-201-301-401-501-605-610_*.csv`, table `pma_raw.jma_hourly_staffed`, `schema.columns[-1].source == "_c26"`); the schema-dir override test writes only the `jma_hourly_staffed` stub; `test_formats_table_is_the_source_of_truth` asserts the new single-entry list.
 
 - [ ] **Step 6: Run** — `just test tests/test_jma_loader.py tests/test_load_scripts.py`, then the full `just test` (coverage gate must hold — the deleted AMeDAS tests must not leave uncovered lines; `grep -rn "amedas" power_market_analytics/ scripts/ tests/` should return nothing). Expected: PASS.
 
@@ -806,12 +820,12 @@ Module docstring: drop the two-layout paragraph; state one 26-column staffed lay
 
 ```bash
 git add -A conf/schemas scripts/load_jma_hourly.py tests/test_jma_loader.py tests/test_load_scripts.py
-git commit -m "Widen the staffed load contract to 26 columns and drop the AMeDAS leg"
+git commit -m "Widen the staffed load contract to 27 columns and drop the AMeDAS leg"
 ```
 
 ---
 
-### Task 6: dbt — single-source models with 9 new columns
+### Task 6: dbt — single-source models with 10 new columns
 
 **Files:**
 - Modify: `dbt/models/raw/jma.yml`
@@ -823,12 +837,13 @@ git commit -m "Widen the staffed load contract to 26 columns and drop the AMeDAS
 
 **Interfaces:**
 - Consumes: raw column names from Task 5.
-- Produces: `fct_jma_weather_hourly` with 9 additional columns (same names as raw). Grain everywhere unchanged: (station_id, observed_at).
+- Produces: `fct_jma_weather_hourly` with 10 additional columns (same names as raw). Grain everywhere unchanged: (station_id, observed_at).
 
-The 9-column block, used verbatim in stg/std/fct SQL selects (append after `sunshine_homogeneity_no` in each select list):
+The 10-column block, used verbatim in stg/std/fct SQL selects (append after `sunshine_homogeneity_no` in each select list):
 
 ```sql
     snow_depth_cm,
+    snow_depth_phenomenon_absent,
     snow_depth_quality_flag,
     snow_depth_homogeneity_no,
     humidity_pct,
@@ -839,11 +854,20 @@ The 9-column block, used verbatim in stg/std/fct SQL selects (append after `suns
     solar_radiation_homogeneity_no
 ```
 
-- [ ] **Step 1: `dbt/models/raw/jma.yml`.** Delete the entire `jma_hourly_amedas` table block. Rewrite the source `description` (drop "two fixed layouts", state: staffed stations only since the 2026-08 re-scope, 7-element set, one 26-column layout, files stitched from two half-year requests, and: "Homogeneity numbers restart at 1 per REQUEST WINDOW (half-year), so in a stitched year file the numbering resets at the window boundary — only within-window changes mark observation-environment breaks, and a real break exactly on the boundary is invisible in the CSV alone."). In the `jma_hourly_staffed` table block, update its description the same way and append column docs:
+- [ ] **Step 1: `dbt/models/raw/jma.yml`.** Delete the entire `jma_hourly_amedas` table block. Rewrite the source `description` (drop "two fixed layouts", state: staffed stations only since the 2026-08 re-scope, 7-element set, one 27-column layout, files stitched from two half-year requests, and: "Homogeneity numbers restart at 1 per REQUEST WINDOW (half-year), so in a stitched year file the numbering resets at the window boundary — only within-window changes mark observation-environment breaks, and a real break exactly on the boundary is invisible in the CSV alone."). In the `jma_hourly_staffed` table block, update its description the same way and append column docs:
 
 ```yaml
           - name: snow_depth_cm
-            description: Snow depth at observed_at in cm (積雪の深さ).
+            description: >
+              Snow depth at observed_at in cm (積雪の深さ). 0 with
+              phenomenon_absent 1 is a confirmed no-snow hour; null value
+              with null phenomenon_absent (quality 1) means snow is not
+              tracked that hour (e.g. off-season).
+          - name: snow_depth_phenomenon_absent
+            description: >
+              現象なし情報 for snow depth: 1 = confirmed no snow on the
+              ground (value 0 is a true zero), 0 = snow present; null when
+              snow is untracked or the quality flag is 2/1/0.
           - name: snow_depth_quality_flag
             description: Quality flag for snow depth (品質情報).
           - name: snow_depth_homogeneity_no
@@ -867,6 +891,12 @@ The 9-column block, used verbatim in stg/std/fct SQL selects (append after `suns
 ```yaml
       - name: snow_depth_cm
         data_type: int
+      - name: snow_depth_phenomenon_absent
+        data_type: int
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [0, 1]
       - name: snow_depth_quality_flag
         data_type: int
         data_tests:
@@ -950,19 +980,29 @@ with
 select * from final
 ```
 
-In `std_jma__hourly.yml`: rewrite the description — no union/AMeDAS mention; keep the time-axis semantics; the phenomenon_absent sentence becomes "The phenomenon_absent columns are null only when the quality flag is 2/1/0"; replace the homogeneity sentence with "Homogeneity numbers are only comparable within one request window (half-year) of one stitched station-year file." Append the same 9 column entries as staging (data_type only + the three quality-flag accepted_values tests).
+In `std_jma__hourly.yml`: rewrite the description — no union/AMeDAS mention; keep the time-axis semantics; the phenomenon_absent sentence becomes "The phenomenon_absent columns are null only when the quality flag is 2/1/0"; replace the homogeneity sentence with "Homogeneity numbers are only comparable within one request window (half-year) of one stitched station-year file." Append the same 10 column entries as staging (data_type only + the three quality-flag accepted_values tests and the snow_depth_phenomenon_absent [0, 1] test).
 
 - [ ] **Step 4: fct.** In `fct_jma_weather_hourly.sql`, append the 9-column block to the final select. In `.yml`: update the description (drop the AMeDAS/null sentence as in std; add the window-reset homogeneity note) and append:
 
 ```yaml
       - name: snow_depth_cm
         data_type: int
-        description: Snow depth at observed_at in cm (積雪の深さ).
+        description: >
+          Snow depth at observed_at in cm (積雪の深さ). 0 with
+          phenomenon_absent 1 is a confirmed no-snow hour; null value with
+          null phenomenon_absent (quality 1) means snow is not tracked that
+          hour (e.g. off-season).
         data_tests:
           - dbt_utils.accepted_range:
               arguments:
                 min_value: 0
                 max_value: 800
+      - name: snow_depth_phenomenon_absent
+        data_type: int
+        description: >
+          1 = confirmed no snow on the ground (value 0 is a true zero),
+          0 = snow present; null when snow is untracked or the quality flag
+          is 2/1/0.
       - name: snow_depth_quality_flag
         data_type: int
         description: Quality flag for snow depth.
@@ -1027,8 +1067,9 @@ git commit -m "Single-source JMA dbt models with snow, humidity and solar column
   - §6.1: append: "The downloader models the cap as `MAX_VALUES_PER_REQUEST = 44_000` values (columns × hours) and splits over-budget station-years into time windows instead of rejecting them; the 2026-08-20 spike confirmed an 8-column half-year (~35k values) passes."
   - §6.3 (packing math): rewrite for the current scrape: 159 staffed stations (156 active; 阿蘇山 contributes 2016–2017), 7 elements = 8 columns → 2 requests/station-year ≈ 3,450 requests ≈ 14 h cold at ~15 s/request; a current-year refresh is ~320 requests ≈ 1.5 h. Keep the historical AMeDAS math as a struck-through or "historical" note if useful, otherwise delete.
   - §7.1: add after the layout bullet list: "Files on disk are stitched: `JmaHourlyDownloader` fetches over-budget years in windows and keeps the header block of the first window only, appending later windows' data rows. Files are write-once — assembled in memory, landed atomically, never appended to; a stale current-year file is replaced wholesale."
+  - §7.6 (data caveats): add: "全天日射量 and 降水量 print a bare `0` at some hours and a decimal (`0.0`, `1.56`) at others — parse both as double."
   - §7.3 (均質番号 paragraph): append: "**Stitched files sharpen this caveat**: numbering restarts per request *window* (half-year), not just per file, so a stitched year file resets 均質番号 at the mid-year boundary and a real break exactly on that boundary is invisible in the CSV alone."
-  - §7.5: replace the two-format/five-format consequences with the current floor: one format — all staffed stations, the 7-element set, 26 columns; the format table shrinks to that single row; keep the "layout is a pure function of (element set) × (station class)" finding.
+  - §7.2/§7.5: correct the phenomenon-element list — the 2026-08-20 spike showed 積雪の深さ (501) ALSO carries a 現象なし情報 column at staffed stations (the doc listed only 101/401/503). Then replace the two-format/five-format consequences with the current floor: one format — all staffed stations, the 7-element set, 27 columns; the format table shrinks to that single row; keep the "layout is a pure function of (element set) × (station class)" finding.
   - §8: update the example to the new reality:
 
 ```python
@@ -1040,7 +1081,7 @@ downloader.download("s47662", SCRAPE_ELEMENTS, 2016)
   and delete the `ValueError: needs 6 value columns` example (the cap now windows instead of rejecting). Update "The full-network scrape" numbers (159 stations, ~14 h).
 - [ ] **Step 2: `CLAUDE.md`.**
   - `just refresh-jma` bullet: "regenerate the station seed (~5 min, staffed stations only), download stitched 7-element hourly CSVs (args pass through, e.g. `--prefecture 44`; no args = all ~159 staffed stations, ~14 h cold), reload `raw`, `dbt build`."
-  - Architecture JMA bullet: one loader contract (`conf/schemas/jma_hourly_staffed.yaml`, 26 columns) → `pma_raw.jma_hourly_staffed` only; note the stitched-file + 均質番号-per-window caveat in one clause.
+  - Architecture JMA bullet: one loader contract (`conf/schemas/jma_hourly_staffed.yaml`, 27 columns) → `pma_raw.jma_hourly_staffed` only; note the stitched-file + 均質番号-per-window caveat in one clause.
   - Update the demand-task bullet's parenthetical about s47772/s47662 staleness only if Task 8 has already refreshed the data (otherwise leave for Task 8's memory/doc sweep).
   - Apply the same edits to `AGENTS.md` if it contains the same text.
 - [ ] **Step 3: `justfile`.** Update the `refresh-jma` doc attribute: `[doc("Refresh JMA weather data: update staffed-station seed, download stitched 7-element hourly files (args pass through, e.g. --prefecture 44; ~14 h cold), reload raw, rebuild + test dbt")]`.
@@ -1064,7 +1105,7 @@ Live, long-running, and stateful — run in this order; the warehouse must never
 
 **Interfaces:**
 - Consumes: everything above, merged to the branch.
-- Produces: fully backfilled `pma_raw.jma_hourly_staffed` (26 columns, ~159 stations × 2016+), green `dbt build`, deleted AMeDAS artifacts, dropped orphan relations.
+- Produces: fully backfilled `pma_raw.jma_hourly_staffed` (27 physical columns, ~157 stations × 2016+), green `dbt build`, deleted AMeDAS artifacts, dropped orphan relations.
 
 - [ ] **Step 1: Regenerate the seed** — `just python scripts/update_jma_stations_seed.py` (~5 min live). Verify: `awk -F, 'NR>1 && $1 !~ /^s/' dbt/seeds/jma_stations.csv | wc -l` → 0, and `wc -l` → 160 (159 stations + header). Commit:
 
@@ -1073,7 +1114,7 @@ git add dbt/seeds/jma_stations.csv
 git commit -m "Regenerate the jma_stations seed as staffed-only"
 ```
 
-- [ ] **Step 2: Smoke the live pipeline** — `just python scripts/download_jma_hourly_all.py --prefecture 83 --limit 1 --start-year 2024 --end-year 2024` (大分県; first station after the filter is s47814 日田) (one station-year, 2 requests). Inspect the produced `data/jma/hourly/s*_101-201-301-401-501-605-610_2024.csv`: one header block, ~8,784 data rows, 26 columns.
+- [ ] **Step 2: Smoke the live pipeline** — `just python scripts/download_jma_hourly_all.py --prefecture 83 --limit 1 --start-year 2024 --end-year 2024` (大分県; first station after the filter is s47814 日田) (one station-year, 2 requests). Inspect the produced `data/jma/hourly/s*_101-201-301-401-501-605-610_2024.csv`: one header block, 8,784 data rows, 27 columns.
 - [ ] **Step 3: Launch the backfill detached** (~3,450 requests ≈ 14 h, resumable — rerun the same command to resume after any interruption):
 
 ```bash
@@ -1114,5 +1155,5 @@ DROP VIEW IF EXISTS pma_staging.stg_jma__hourly_amedas;
 
 - Spec coverage: decisions 1–7 map to Tasks 2 (seed filter), 3 (windowing/write-once/time-ladder constant), 4 (element set), 5 (single contract, AMeDAS deletion), 6 (models + 均質番号 docs), 7 (docs), 8 (cleanup order, verification, side effects). The spike is Task 1 with the quarter-window fallback in its decision gate.
 - The 均質番号 window caveat is asserted in code (`_stitch` docstring), contract yaml, raw/std/fct ymls, and the retrieval doc.
-- Type consistency: `SCRAPE_ELEMENTS`, `window_count`, `_windows`, `_stitch`, `staffed_only`, and the 9 column names are used identically across tasks; file code string `101-201-301-401-501-605-610` everywhere.
-- Fixture caveat: Task 5's fixture rows are format-faithful constructions — the Task 1 spike output is the authority; adjust the fixture (and, if needed, flag nullability) to match reality, never the reverse.
+- Type consistency: `SCRAPE_ELEMENTS`, `window_count`, `_windows`, `_stitch`, `staffed_only`, and the 10 column names are used identically across tasks; file code string `101-201-301-401-501-605-610` everywhere.
+- Fixture caveat: Task 5's fixture rows are VERBATIM Task 1 spike rows (27-column layout, snow 現象なし confirmed); the saved spike responses in the scratchpad remain the authority.
