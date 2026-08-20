@@ -1,58 +1,6 @@
 with
-  staffed as (
-  select
-    station_id,
-    observed_at,
-    precipitation_mm,
-    precipitation_phenomenon_absent,
-    precipitation_quality_flag,
-    precipitation_homogeneity_no,
-    temperature_c,
-    temperature_quality_flag,
-    temperature_homogeneity_no,
-    wind_speed_ms,
-    wind_speed_quality_flag,
-    wind_direction,
-    wind_direction_quality_flag,
-    wind_homogeneity_no,
-    sunshine_duration_h,
-    sunshine_phenomenon_absent,
-    sunshine_quality_flag,
-    sunshine_homogeneity_no
-  from
-    {{ ref('stg_jma__hourly_staffed') }}
-  ),
-
-  amedas as (
-  select
-    station_id,
-    observed_at,
-    precipitation_mm,
-    -- AMeDAS files carry no 現象なし情報 columns, so the trace-vs-none
-    -- distinction (value 0 with phenomenon observed) is unknowable there.
-    cast(null as int) as precipitation_phenomenon_absent,
-    precipitation_quality_flag,
-    precipitation_homogeneity_no,
-    temperature_c,
-    temperature_quality_flag,
-    temperature_homogeneity_no,
-    wind_speed_ms,
-    wind_speed_quality_flag,
-    wind_direction,
-    wind_direction_quality_flag,
-    wind_homogeneity_no,
-    sunshine_duration_h,
-    cast(null as int) as sunshine_phenomenon_absent,
-    sunshine_quality_flag,
-    sunshine_homogeneity_no
-  from
-    {{ ref('stg_jma__hourly_amedas') }}
-  ),
-
-  unioned as (
-  select * from staffed
-  union all
-  select * from amedas
+  source as (
+  select * from {{ ref('stg_jma__hourly_staffed') }}
   ),
 
   final as (
@@ -81,9 +29,19 @@ with
     sunshine_duration_h,
     sunshine_phenomenon_absent,
     sunshine_quality_flag,
-    sunshine_homogeneity_no
+    sunshine_homogeneity_no,
+    snow_depth_cm,
+    snow_depth_phenomenon_absent,
+    snow_depth_quality_flag,
+    snow_depth_homogeneity_no,
+    humidity_pct,
+    humidity_quality_flag,
+    humidity_homogeneity_no,
+    solar_radiation_mjm2,
+    solar_radiation_quality_flag,
+    solar_radiation_homogeneity_no
   from
-    unioned
+    source
   )
 
 select * from final

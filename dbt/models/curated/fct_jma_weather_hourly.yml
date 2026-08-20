@@ -12,12 +12,13 @@ models:
       24:00 stored as next-day 00:00): accumulation elements (precipitation,
       sunshine) cover [observed_hour_start_at, observed_at], instantaneous
       elements (temperature, wind) are the value at observed_at. date_key
-      references dim_date on the observation day. The phenomenon_absent
-      columns are null for AMeDAS stations (JMA does not publish 現象なし情報
-      there); value 0 with phenomenon_absent 0 is a JMA "trace" reading
-      (below measurement resolution), distinct from a true zero
-      (phenomenon_absent 1). Value cells are null when the quality flag is
-      2/1/0.
+      references dim_date on the observation day. Value cells are null when
+      the quality flag is 2/1/0; value 0 with phenomenon_absent 0 is a JMA
+      "trace" reading (below measurement resolution), distinct from a true
+      zero (phenomenon_absent 1). The phenomenon_absent columns are null
+      only when the quality flag is 2/1/0. Homogeneity numbers are only
+      comparable within one request window (half-year) of one stitched
+      station-year file.
     data_tests:
       - dbt_utils.unique_combination_of_columns:
           arguments:
@@ -71,13 +72,13 @@ models:
         description: >
           1 = no precipitation this hour (value 0 is a true zero), 0 =
           precipitation occurred (value 0 then means a trace amount); null
-          for AMeDAS stations and missing hours.
+          when the quality flag is 2/1/0.
       - name: precipitation_quality_flag
         data_type: int
         description: Quality flag (8 normal, 5 quasi, 4 insufficient, 2 questionable, 1 missing, 0 not observed).
       - name: precipitation_homogeneity_no
         data_type: int
-        description: Observation-environment homogeneity number (comparable only within one downloaded station-year).
+        description: Observation-environment homogeneity number (resets per stitched half-year window).
       - name: temperature_c
         data_type: double
         description: Air temperature at observed_at in °C.
@@ -124,11 +125,63 @@ models:
         data_type: int
         description: >
           1 = no sunshine this hour (value 0 is a true zero), 0 = sunshine
-          occurred (value 0 then means a trace amount); null for AMeDAS
-          stations and missing hours.
+          occurred (value 0 then means a trace amount); null when the
+          quality flag is 2/1/0.
       - name: sunshine_quality_flag
         data_type: int
         description: Quality flag for sunshine duration.
       - name: sunshine_homogeneity_no
         data_type: int
         description: Homogeneity number for sunshine duration.
+      - name: snow_depth_cm
+        data_type: int
+        description: >
+          Snow depth at observed_at in cm (積雪の深さ). 0 with
+          phenomenon_absent 1 is a confirmed no-snow hour; null value with
+          null phenomenon_absent (quality 1) means snow is not tracked that
+          hour (e.g. off-season).
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 800
+      - name: snow_depth_phenomenon_absent
+        data_type: int
+        description: >
+          1 = confirmed no snow on the ground (value 0 is a true zero),
+          0 = snow present; null when snow is untracked or the quality flag
+          is 2/1/0.
+      - name: snow_depth_quality_flag
+        data_type: int
+        description: Quality flag for snow depth.
+      - name: snow_depth_homogeneity_no
+        data_type: int
+        description: Homogeneity number for snow depth (resets per stitched half-year window).
+      - name: humidity_pct
+        data_type: int
+        description: Relative humidity at observed_at in percent.
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 100
+      - name: humidity_quality_flag
+        data_type: int
+        description: Quality flag for humidity.
+      - name: humidity_homogeneity_no
+        data_type: int
+        description: Homogeneity number for humidity (resets per stitched half-year window).
+      - name: solar_radiation_mjm2
+        data_type: double
+        description: Global solar radiation over the observation hour in MJ/m².
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 5
+      - name: solar_radiation_quality_flag
+        data_type: int
+        description: Quality flag for solar radiation.
+      - name: solar_radiation_homogeneity_no
+        data_type: int
+        description: Homogeneity number for solar radiation (resets per stitched half-year window).

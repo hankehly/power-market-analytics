@@ -23,8 +23,10 @@ apart and retried with exponential backoff.
 
 from __future__ import annotations
 
+import calendar
 import csv
 import datetime
+import math
 import re
 import time
 from pathlib import Path
@@ -56,6 +58,20 @@ HOURLY_ELEMENTS = {
 #: Value columns each element contributes to the CSV (and, apparently, to
 #: the per-request data-volume cap). Wind yields two: speed and direction.
 ELEMENT_VALUE_COLUMNS = {name: 2 if name == "wind" else 1 for name in HOURLY_ELEMENTS}
+
+#: The element set scraped for every staffed station: the core four plus the
+#: 官署 additions chosen in the 2026-08 re-scope (spec:
+#: docs/superpowers/specs/2026-08-20-jma-s-station-rescope-design.md).
+#: 8 value columns -> 2 requests (windows) per station-year.
+SCRAPE_ELEMENTS = [
+    "precipitation",
+    "temperature",
+    "wind",
+    "sunshine",
+    "snow_depth",
+    "humidity",
+    "solar_radiation",
+]
 
 #: Digit order of the ``kansoku`` observed-element mask, as defined in the
 #: site's own JS (``web/js/top.2.1.js``). Digit values: 0 = not observed,
@@ -200,8 +216,13 @@ class JmaHourlyDownloader(_JmaDownloader):
     #: Encoding of the CSV files served by JMA.
     ENCODING = "cp932"
 
-    #: Empirical per-request cap on value columns for a full-year period.
-    MAX_VALUE_COLUMNS = 5
+    #: Empirical per-request cap on the number of values (value columns x
+    #: hours). The largest proven-passing request is the core set over a
+    #: full leap year (5 x 8784 = 43,920); the smallest proven-failing is
+    #: ~61k (7 columns x a full year); 8-column half-years (~35k) were
+    #: confirmed by the 2026-08-20 spike. Requests over the budget are
+    #: split into windows and stitched, never rejected.
+    MAX_VALUES_PER_REQUEST = 44_000
 
     def __init__(self, data_dir: Path | str = Path("data/jma/hourly"), **kwargs) -> None:
         super().__init__(**kwargs)
@@ -231,6 +252,82 @@ class JmaHourlyDownloader(_JmaDownloader):
         codes = "-".join(self._element_codes(elements))
         return self.data_dir / f"{station_id}_{codes}_{year}.csv"
 
+    def window_count(self, elements: list[str], year: int) -> int:
+        """Number of requests needed for one station-year of ``elements``.
+
+        Parameters
+        ----------
+        elements : list of str
+            Element names; keys of ``HOURLY_ELEMENTS``.
+        year : int
+            Calendar year (leap years have more hours).
+
+        Returns
+        -------
+        int
+            ``ceil(value columns x hours / MAX_VALUES_PER_REQUEST)``, >= 1.
+        """
+        hours = 24 * (366 if calendar.isleap(year) else 365)
+        values = hours * sum(ELEMENT_VALUE_COLUMNS[e] for e in elements)
+        return max(1, math.ceil(values / self.MAX_VALUES_PER_REQUEST))
+
+    def _window_bounds(self, elements: list[str], year: int) -> list[tuple]:
+        """Split ``year`` into the request windows for ``elements``.
+
+        Parameters
+        ----------
+        elements : list of str
+            Element names; keys of ``HOURLY_ELEMENTS``.
+        year : int
+            Calendar year to split.
+
+        Returns
+        -------
+        list of (datetime.date, datetime.date)
+            ``window_count`` contiguous, non-overlapping [start, end] spans
+            covering Jan 1 .. Dec 31.
+        """
+        n = self.window_count(elements, year)
+        first = datetime.date(year, 1, 1)
+        days = (datetime.date(year, 12, 31) - first).days + 1
+        return [
+            (
+                first + datetime.timedelta(days=i * days // n),
+                first + datetime.timedelta(days=(i + 1) * days // n - 1),
+            )
+            for i in range(n)
+        ]
+
+    def _windows(self, elements: list[str], year: int, today: datetime.date) -> list[tuple]:
+        """The windows to actually request: bounds clamped to yesterday.
+
+        An end date later than yesterday makes the endpoint return an HTML
+        error page, so current-year windows are cut at yesterday and
+        entirely-future windows are dropped.
+
+        Parameters
+        ----------
+        elements : list of str
+            Element names; keys of ``HOURLY_ELEMENTS``.
+        year : int
+            Calendar year to split.
+        today : datetime.date
+            The current date. Windows starting after yesterday are dropped;
+            windows ending after yesterday are cut at yesterday.
+
+        Returns
+        -------
+        list of (datetime.date, datetime.date)
+            May be empty (e.g. on January 1, when the year has no
+            observable days yet).
+        """
+        yesterday = today - datetime.timedelta(days=1)
+        return [
+            (start, min(end, yesterday))
+            for start, end in self._window_bounds(elements, year)
+            if start <= yesterday
+        ]
+
     def download(
         self,
         station_id: str,
@@ -246,9 +343,9 @@ class JmaHourlyDownloader(_JmaDownloader):
         station_id : str
             JMA station id, e.g. ``"s47662"`` for 東京.
         elements : list of str
-            Element names to fetch in one request; keys of
-            ``HOURLY_ELEMENTS``. Together they may contribute at most
-            ``MAX_VALUE_COLUMNS`` value columns (wind counts as two).
+            Element names to fetch; any subset of ``HOURLY_ELEMENTS``; sets
+            over the per-request value budget are fetched in multiple time
+            windows and stitched into one file.
         year : int
             Calendar year to download (January 1 through December 31,
             clamped to yesterday for the current year).
@@ -267,10 +364,9 @@ class JmaHourlyDownloader(_JmaDownloader):
         Raises
         ------
         ValueError
-            If an element is unknown or duplicated, the element set
-            exceeds ``MAX_VALUE_COLUMNS`` value columns, ``year`` is
-            outside ``EARLIEST_YEAR``..current year, or the response is
-            not a CSV (e.g. an HTML error page for an over-cap request).
+            If an element is unknown or duplicated, ``year`` is outside
+            ``EARLIEST_YEAR``..current year, the year has no observable
+            days yet, or a response is not a CSV.
         requests.HTTPError
             If JMA still responds with an error status after retries.
         """
@@ -288,29 +384,35 @@ class JmaHourlyDownloader(_JmaDownloader):
             logger.info("Using cached JMA hourly file: {}", dest)
             return dest
 
-        logger.info("Downloading {} {} {} -> {}", station_id, sorted(elements), year, dest)
-        response = self._post_with_retry(
-            self.SHOW_TABLE_URL, self._payload(station_id, elements, year, today=today)
-        )
-
-        head = response.content[:64].decode(self.ENCODING, errors="replace")
-        if not head.startswith("ダウンロードした時刻"):
-            raise ValueError(
-                f"Unexpected response for {station_id}/{sorted(elements)}/{year} "
-                f"(not a JMA CSV): {head!r}"
+        windows = self._windows(elements, year, today)
+        if not windows:
+            raise ValueError(f"Year {year} has no observable days before {today}")
+        parts = []
+        for start, end in windows:
+            logger.info("Downloading {} {} {}..{}", station_id, sorted(elements), start, end)
+            response = self._post_with_retry(
+                self.SHOW_TABLE_URL, self._payload(station_id, elements, start, end)
             )
+            head = response.content[:64].decode(self.ENCODING, errors="replace")
+            if not head.startswith("ダウンロードした時刻"):
+                raise ValueError(
+                    f"Unexpected response for {station_id}/{sorted(elements)}/"
+                    f"{start}..{end} (not a JMA CSV): {head!r}"
+                )
+            parts.append(response.content)
 
         self.data_dir.mkdir(parents=True, exist_ok=True)
-        # Write to a temp file and rename so an interrupted download never
-        # leaves a truncated file at the cached path.
+        # Write-once: assemble in memory, land via temp-file + rename, and
+        # never append to or patch an existing file (stale current-year
+        # files are replaced wholesale via force=True).
         partial = dest.with_name(dest.name + ".part")
-        partial.write_bytes(response.content)
+        partial.write_bytes(self._stitch(parts))
         partial.replace(dest)
         logger.info("Saved {} ({} bytes)", dest, dest.stat().st_size)
         return dest
 
     def _validate_elements(self, elements: list[str]) -> None:
-        """Check element names, uniqueness and the value-column budget.
+        """Check element names and uniqueness.
 
         Parameters
         ----------
@@ -320,8 +422,8 @@ class JmaHourlyDownloader(_JmaDownloader):
         Raises
         ------
         ValueError
-            If ``elements`` is empty, contains an unknown or duplicate
-            name, or exceeds ``MAX_VALUE_COLUMNS`` value columns.
+            If ``elements`` is empty or contains an unknown or duplicate
+            name.
         """
         if not elements:
             raise ValueError("At least one element is required")
@@ -330,13 +432,6 @@ class JmaHourlyDownloader(_JmaDownloader):
             raise ValueError(f"Unknown elements {unknown}; expected keys of HOURLY_ELEMENTS")
         if len(set(elements)) != len(elements):
             raise ValueError(f"Duplicate elements in {elements}")
-        columns = sum(ELEMENT_VALUE_COLUMNS[e] for e in elements)
-        if columns > self.MAX_VALUE_COLUMNS:
-            raise ValueError(
-                f"Element set {sorted(elements)} needs {columns} value columns; "
-                f"JMA rejects full-year requests above {self.MAX_VALUE_COLUMNS}. "
-                "Split the set across multiple downloads."
-            )
 
     def _element_codes(self, elements: list[str]) -> list[str]:
         """Return the numeric codes for ``elements``, sorted ascending.
@@ -353,14 +448,46 @@ class JmaHourlyDownloader(_JmaDownloader):
         """
         return sorted((HOURLY_ELEMENTS[e] for e in elements), key=int)
 
+    _DATA_ROW = re.compile(rb"^\d{4}/")
+
+    @classmethod
+    def _stitch(cls, parts: list[bytes]) -> bytes:
+        """Concatenate window responses into one CSV.
+
+        The first part is kept whole (download-timestamp line, blank line,
+        header rows, data); subsequent parts contribute only their data
+        rows, so the header block appears exactly once. Note: 均質番号
+        restarts at 1 in every server response, so in the stitched file the
+        numbering resets at each window boundary — breaks are only
+        meaningful within a window.
+
+        Parameters
+        ----------
+        parts : list of bytes
+            One cp932 response body per window, in chronological order.
+
+        Returns
+        -------
+        bytes
+            The stitched file content, CRLF line endings throughout.
+        """
+        stitched = bytearray(parts[0])
+        if not stitched.endswith(b"\r\n"):
+            stitched += b"\r\n"
+        for part in parts[1:]:
+            for line in part.split(b"\r\n"):
+                if cls._DATA_ROW.match(line):
+                    stitched += line + b"\r\n"
+        return bytes(stitched)
+
     def _payload(
         self,
         station_id: str,
         elements: list[str],
-        year: int,
-        today: datetime.date | None = None,
+        start: datetime.date,
+        end: datetime.date,
     ) -> dict:
-        """Build the ``show/table`` form payload for one station-elements-year.
+        """Build the ``show/table`` form payload for one station-elements-window.
 
         Parameters
         ----------
@@ -368,23 +495,19 @@ class JmaHourlyDownloader(_JmaDownloader):
             JMA station id.
         elements : list of str
             Element names; keys of ``HOURLY_ELEMENTS``.
-        year : int
-            Calendar year.
-        today : datetime.date, optional
-            The current date; defaults to ``datetime.date.today()``. The
-            period ends at the earlier of December 31 and yesterday.
+        start : datetime.date
+            First day of the requested period.
+        end : datetime.date
+            Last day of the requested period. The caller must keep this at
+            or before yesterday — an end date later than yesterday makes
+            the endpoint return an HTML error page instead of a CSV;
+            ``_windows`` is what enforces that clamp.
 
         Returns
         -------
         dict
             Form fields for the ``show/table`` POST.
         """
-        # An end date later than yesterday makes the endpoint return an HTML
-        # error page, so the current year's period must stop at yesterday.
-        if today is None:
-            today = datetime.date.today()
-        yesterday = today - datetime.timedelta(days=1)
-        end = min(datetime.date(year, 12, 31), yesterday)
         element_num_list = (
             "[" + ",".join(f'["{c}",""]' for c in self._element_codes(elements)) + "]"
         )
@@ -394,7 +517,10 @@ class JmaHourlyDownloader(_JmaDownloader):
             "elementNumList": element_num_list,
             "interAnnualType": "1",  # one continuous period
             # [yearFrom, yearTo, monthFrom, monthTo, dayFrom, dayTo]
-            "ymdList": f'["{year}","{year}","1","{end.month}","1","{end.day}"]',
+            "ymdList": (
+                f'["{start.year}","{end.year}","{start.month}","{end.month}",'
+                f'"{start.day}","{end.day}"]'
+            ),
             "optionNumList": "[]",
             "downloadFlag": "true",
             "rmkFlag": "1",  # include quality flags as numeric columns
@@ -427,6 +553,10 @@ class JmaStationMasterDownloader(_JmaDownloader):
     ----------
     dest : pathlib.Path or str, default ``"data/jma/stations.csv"``
         Output CSV path. Parent directories are created as needed.
+    staffed_only : bool, default False
+        Write only staffed stations (気象官署, ``s``-prefixed ids) and drop
+        every AMeDAS row. The scrape itself is unchanged — the same
+        per-prefecture pages are fetched — only the output is filtered.
     **kwargs
         HTTP behavior options passed through to ``_JmaDownloader``
         (``timeout``, ``request_interval``, ``max_retries``,
@@ -463,9 +593,15 @@ class JmaStationMasterDownloader(_JmaDownloader):
         r'<input type="hidden" name="kansoku" value="(\d+)">'
     )
 
-    def __init__(self, dest: Path | str = Path("data/jma/stations.csv"), **kwargs) -> None:
+    def __init__(
+        self,
+        dest: Path | str = Path("data/jma/stations.csv"),
+        staffed_only: bool = False,
+        **kwargs,
+    ) -> None:
         super().__init__(**kwargs)
         self.dest = Path(dest)
+        self.staffed_only = staffed_only
 
     def download(self, force: bool = False) -> Path:
         """Download the station master for every prefecture into ``dest``.
@@ -519,6 +655,9 @@ class JmaStationMasterDownloader(_JmaDownloader):
                         row["prefecture_code"],
                     )
             logger.info("Area {:02d}: {} stations ({} new)", code, len(rows), new)
+
+        if self.staffed_only:
+            stations = {sid: row for sid, row in stations.items() if sid.startswith("s")}
 
         ordered = sorted(stations.values(), key=lambda r: (r["prefecture_code"], r["station_id"]))
         self.dest.parent.mkdir(parents=True, exist_ok=True)

@@ -51,7 +51,7 @@ refresh-jepx:
     just python scripts/load_jepx_spot.py
     just dbt build
 
-[doc("Refresh JMA weather data: update station seed, download hourly files (args pass through, e.g. --prefecture 44), reload raw, rebuild + test dbt")]
+[doc("Refresh JMA weather data: update staffed-station seed, download stitched 7-element hourly files (args pass through, e.g. --prefecture 44; ~14 h cold), reload raw, rebuild + test dbt")]
 refresh-jma *args:
     just python scripts/update_jma_stations_seed.py
     just python scripts/download_jma_hourly_all.py {{ args }}
