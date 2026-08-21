@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import pandas as pd
 from mlflow.models import EvaluationResult
@@ -26,8 +26,13 @@ class ForecastUnavailableError(ValueError):
     """
 
 
-class ForecastStrategy(ABC):
+class ForecastStrategy[HistoryT: HalfHourlySeries, EvalSetT: DomainFrame](ABC):
     """Produces a 48-period day-ahead forecast for one delivery day.
+
+    Generic over the history frame the strategy consumes (``HistoryT``) and
+    the design-matrix frame its evaluation runs on (``EvalSetT``), so a
+    concrete strategy can declare its task-specific frames without violating
+    this base contract.
 
     Attributes
     ----------
@@ -42,7 +47,7 @@ class ForecastStrategy(ABC):
     task: ClassVar[TaskSpec]
 
     @abstractmethod
-    def predict(self, target_date: pd.Timestamp, history: HalfHourlySeries) -> DayAheadForecast:
+    def predict(self, target_date: pd.Timestamp, history: HistoryT) -> DayAheadForecast:
         """Forecast all 48 values for one delivery day.
 
         Parameters
@@ -67,11 +72,11 @@ class ForecastStrategy(ABC):
     @abstractmethod
     def build_eval_set(
         self,
-        history: HalfHourlySeries,
+        history: HistoryT,
         start_date: pd.Timestamp,
         end_date: pd.Timestamp,
         run: BacktestRun | None = None,
-    ) -> DomainFrame:
+    ) -> EvalSetT:
         """Assemble the design matrix MLflow evaluates this strategy on.
 
         Every strategy must be evaluable: the backtest scripts always run
@@ -101,7 +106,7 @@ class ForecastStrategy(ABC):
         """
 
     @abstractmethod
-    def evaluate(self, eval_set: DomainFrame, **kwargs: object) -> EvaluationResult:
+    def evaluate(self, eval_set: EvalSetT, **kwargs: Any) -> EvaluationResult:
         """Log this strategy as a model and evaluate it with MLflow.
 
         Called inside an active MLflow run; the model, metrics and SHAP plots

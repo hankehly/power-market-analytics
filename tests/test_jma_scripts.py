@@ -6,6 +6,7 @@ import csv
 import datetime
 import os
 import time
+from collections.abc import Collection
 from pathlib import Path
 
 import pytest
@@ -44,7 +45,9 @@ def scrape_path(data_dir: Path, station_id: str, year: int) -> Path:
 # --------------------------------------------------------------------------- download_jma_hourly
 
 
-def make_hourly_fake(record: dict, failing: set[str] = frozenset(), write_root: Path | None = None):
+def make_hourly_fake(
+    record: dict, failing: Collection[str] = frozenset(), write_root: Path | None = None
+):
     """A ``JmaHourlyDownloader`` whose ``download`` records calls instead of fetching.
 
     Everything else (``EARLIEST_YEAR``, ``path_for``, the constructor) is the

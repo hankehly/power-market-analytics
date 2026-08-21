@@ -106,7 +106,7 @@ def full_day_result(days: list[pd.Timestamp]) -> SpotPriceBacktestResult:
     2024 days: actual 10, forecast 10 + tc/5 -> MAE tc/5, MAPE 2 tc %.
     """
     tcs = list(range(1, 49))
-    rows = []
+    rows: list[dict[str, object]] = []
     for day in days:
         actual, slope = (20.0, 0.1) if day.year == 2023 else (10.0, 0.2)
         rows.extend(

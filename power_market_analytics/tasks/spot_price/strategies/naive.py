@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import mlflow
 import numpy as np
 import pandas as pd
 from loguru import logger
 from mlflow.models import EvaluationResult
+
+# Imported from the submodule: mlflow lazy-loads `mlflow.pyfunc`, so the
+# dotted name is opaque to mypy in a base-class position.
+from mlflow.pyfunc import PythonModel
 
 from power_market_analytics.common.frames import DomainFrame
 from power_market_analytics.common.tracking import evaluate_regressor
@@ -53,7 +59,7 @@ class PreviousDayEvalSet(DomainFrame):
         return self.df[[*FEATURE_COLS, TARGET_COL]].astype("float64")
 
 
-class PreviousDayModel(mlflow.pyfunc.PythonModel):
+class PreviousDayModel(PythonModel):
     """Pyfunc view of :class:`PreviousDayStrategy` over a feature matrix.
 
     MLflow's evaluation API explains a function of features, while the
@@ -86,7 +92,7 @@ class PreviousDayModel(mlflow.pyfunc.PythonModel):
         return model_input["lag_1d_price"].to_numpy()
 
 
-class PreviousDayStrategy(ForecastStrategy):
+class PreviousDayStrategy(ForecastStrategy[SpotPrices, PreviousDayEvalSet]):
     """Forecast each time code with the same time code's price from D-1."""
 
     name = "previous_day"
@@ -187,7 +193,7 @@ class PreviousDayStrategy(ForecastStrategy):
     def evaluate(
         self,
         eval_set: PreviousDayEvalSet,
-        **kwargs: object,
+        **kwargs: Any,
     ) -> EvaluationResult:
         """Log this strategy as a pyfunc model and evaluate it with MLflow.
 

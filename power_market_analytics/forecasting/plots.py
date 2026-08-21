@@ -84,11 +84,8 @@ def metric_by_year_time_code(
     actual_col, forecast_col = type(result).actual_col, type(result).forecast_col
     df = result.df.assign(year=result.df["trade_date"].dt.year)
     long = (
-        df.groupby(["year", "time_code"])
-        .apply(
-            lambda g: metric(g[actual_col], g[forecast_col]),
-            include_groups=False,
-        )
+        df.groupby(["year", "time_code"])[[actual_col, forecast_col]]
+        .apply(lambda g: metric(g[actual_col], g[forecast_col]))
         .rename("value")
         .reset_index()
         .astype({"year": "int64", "time_code": "int64", "value": "float64"})
@@ -137,7 +134,7 @@ def error_heatmaps(task: TaskSpec, result: BacktestResult, title: str) -> go.Fig
     for row, (name, unit, metric, ramp) in enumerate(panels, start=1):
         pivot = metric_by_year_time_code(result, metric).to_matrix()
         n_years = len(pivot.index)
-        period_labels = [_period_label(tc) for tc in pivot.columns]
+        period_labels = [_period_label(int(tc)) for tc in pivot.columns]
         # One colorbar per panel, each aligned to its own subplot.
         colorbar_y = 1.0 - (row - 0.5) / len(panels)
         fig.add_trace(

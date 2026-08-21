@@ -11,7 +11,7 @@ summary plots — lives here.
 from __future__ import annotations
 
 from abc import abstractmethod
-from typing import ClassVar
+from typing import Any, ClassVar
 
 import lightgbm
 import matplotlib.pyplot as plt
@@ -33,11 +33,11 @@ from power_market_analytics.forecasting.frames import (
 )
 from power_market_analytics.forecasting.strategy import ForecastStrategy, ForecastUnavailableError
 
-CALENDAR_FEATURE_COLS = ("time_code", "month", "day_of_week")
+CALENDAR_FEATURE_COLS: tuple[str, ...] = ("time_code", "month", "day_of_week")
 
 # Modest, fixed hyperparameters: a handful of low-cardinality features does
 # not warrant tuning machinery yet. Logged to the MLflow run in `evaluate`.
-LGBM_PARAMS = {
+LGBM_PARAMS: dict[str, Any] = {
     "n_estimators": 500,
     "learning_rate": 0.05,
     "num_leaves": 31,
@@ -77,7 +77,7 @@ class LightGbmEvalSetBase(DomainFrame):
         return self.df[[*self.feature_cols, self.target_col, self.forecast_col]].astype("float64")
 
 
-class SlidingWindowLightGbmStrategy(ForecastStrategy):
+class SlidingWindowLightGbmStrategy(ForecastStrategy[HalfHourlySeries, LightGbmEvalSetBase]):
     """LightGBM regressor over calendar features plus task-specific features.
 
     The model is refit every ``refit_every_days`` calendar days on a sliding
@@ -190,7 +190,7 @@ class SlidingWindowLightGbmStrategy(ForecastStrategy):
         # A string-parsed Timestamp carries second resolution; normalize so
         # the assigned trade_date column is datetime64[ns] per the contract.
         target_date = pd.Timestamp(target_date).as_unit("ns")
-        self._ensure_fitted(history.df, target_date)
+        model = self._ensure_fitted(history.df, target_date)
         points = pd.DataFrame(
             {"trade_date": target_date, "time_code": np.arange(1, N_PERIODS + 1, dtype="int64")}
         )
@@ -202,10 +202,10 @@ class SlidingWindowLightGbmStrategy(ForecastStrategy):
                 f"{target_date.date()}"
             )
         features = featured[list(self.feature_cols)].astype("float64")
-        forecast = featured[GRAIN_COLS].assign(**{self.forecast_col: self._model.predict(features)})
+        forecast = featured[GRAIN_COLS].assign(**{self.forecast_col: model.predict(features)})
         # Exact TreeSHAP from LightGBM itself: per-feature contributions
         # plus a trailing expected-value column that sum to the prediction.
-        contributions = self._model.predict(features, pred_contrib=True)
+        contributions = np.asarray(model.predict(features, pred_contrib=True))
         self._shap_records[target_date] = pd.concat(
             [
                 forecast[GRAIN_COLS],
@@ -310,6 +310,7 @@ class SlidingWindowLightGbmStrategy(ForecastStrategy):
         eval_set: LightGbmEvalSetBase,
         *,
         explainability_nsamples: int = 500,
+        **kwargs: Any,
     ) -> EvaluationResult:
         """Evaluate the walk-forward forecasts and explain them with MLflow.
 
@@ -327,6 +328,9 @@ class SlidingWindowLightGbmStrategy(ForecastStrategy):
         explainability_nsamples : int, optional
             Rows sampled for the beeswarm plot (rendering cost only); the
             feature-importance plot always uses every row.
+        **kwargs
+            Rejected: the base contract allows strategy-specific options and
+            this strategy has none beyond ``explainability_nsamples``.
 
         Returns
         -------
@@ -334,10 +338,16 @@ class SlidingWindowLightGbmStrategy(ForecastStrategy):
 
         Raises
         ------
+        TypeError
+            If an unknown keyword argument is passed.
         RuntimeError
             If no backtest has recorded a model and contributions, or the
             recorded contributions do not cover the eval rows.
         """
+        if kwargs:
+            raise TypeError(
+                f"{self.name}.evaluate got unexpected keyword arguments {sorted(kwargs)}"
+            )
         if self._model is None or not self._shap_records:
             raise RuntimeError(
                 f"{self.name}: no fitted model or recorded contributions; run the backtest first"
@@ -422,7 +432,9 @@ class SlidingWindowLightGbmStrategy(ForecastStrategy):
         mlflow.log_figure(plt.gcf(), "shap_feature_importance_plot.png")
         plt.close("all")
 
-    def _ensure_fitted(self, history: pd.DataFrame, target_date: pd.Timestamp) -> None:
+    def _ensure_fitted(
+        self, history: pd.DataFrame, target_date: pd.Timestamp
+    ) -> lightgbm.LGBMRegressor:
         """Refit the sliding-window model for a target day if due.
 
         A refit is due when there is no model yet, the refit cadence has
@@ -439,18 +451,25 @@ class SlidingWindowLightGbmStrategy(ForecastStrategy):
         target_date : pandas.Timestamp
             Delivery day about to be forecast.
 
+        Returns
+        -------
+        lightgbm.LGBMRegressor
+            The model to score ``target_date`` with (cached or just refit).
+
         Raises
         ------
         ForecastUnavailableError
             If the training window contains no complete rows.
         """
-        due = (
-            self._model is None
-            or target_date <= self._trained_through
-            or target_date >= self._fit_anchor + pd.Timedelta(days=self.refit_every_days)
-        )
-        if not due:
-            return
+        cached = self._model
+        if (
+            cached is not None
+            and self._trained_through is not None
+            and self._fit_anchor is not None
+            and target_date > self._trained_through
+            and target_date < self._fit_anchor + pd.Timedelta(days=self.refit_every_days)
+        ):
+            return cached
         window_start = target_date - pd.Timedelta(days=self.train_window_days)
         if self.train_start_date is not None:
             window_start = max(window_start, self.train_start_date)
@@ -469,8 +488,9 @@ class SlidingWindowLightGbmStrategy(ForecastStrategy):
             )
         model = lightgbm.LGBMRegressor(**LGBM_PARAMS)
         model.fit(train[list(self.feature_cols)].astype("float64"), train[self.target_col])
+        trained_through = train["trade_date"].max()
         self._model = model
-        self._trained_through = train["trade_date"].max()
+        self._trained_through = trained_through
         self._fit_anchor = target_date
         self._n_fits += 1
         logger.info(
@@ -479,8 +499,9 @@ class SlidingWindowLightGbmStrategy(ForecastStrategy):
             self._n_fits,
             len(train),
             train["trade_date"].min().date(),
-            self._trained_through.date(),
+            trained_through.date(),
         )
+        return model
 
     def _design_matrix(self, history: pd.DataFrame) -> pd.DataFrame:
         """Features and target for every (trade_date, time_code) point of ``history``.

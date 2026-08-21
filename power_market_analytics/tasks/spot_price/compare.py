@@ -311,10 +311,12 @@ def to_markdown(table: SegmentComparison, *, metric: str, unit: str = "JPY/kWh")
         "Relative change",
     ]
     lines = ["| " + " | ".join(header) + " |", "|---|---:|---:|---:|---:|---:|"]
-    for row in table.df.itertuples(index=False):
-        rel = "—" if pd.isna(row.rel_change_pct) else f"{row.rel_change_pct:+.1f}%"
+    # Plain tuples in schema order (the frame contract fixes the column order).
+    for segment, n, baseline, candidate, abs_change, rel_change_pct in table.df.itertuples(
+        index=False, name=None
+    ):
+        rel = "—" if pd.isna(rel_change_pct) else f"{rel_change_pct:+.1f}%"
         lines.append(
-            f"| {row.segment} | {row.n:,} | {row.baseline:.3f} | {row.candidate:.3f} | "
-            f"{row.abs_change:+.3f} | {rel} |"
+            f"| {segment} | {n:,} | {baseline:.3f} | {candidate:.3f} | {abs_change:+.3f} | {rel} |"
         )
     return "\n".join(lines)

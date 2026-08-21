@@ -399,17 +399,18 @@ class AreaActualsCsvLoader(CsvLoader):
         resolved = source if source is not None else type(self).source
         if resolved is None:
             raise ValueError("AreaActualsCsvLoader needs a source (argument or class attribute)")
-        self.source = resolved
+        self._source = resolved
         super().__init__(schema=schema, filepath=filepath, table=table, spark=spark)
 
     def _resolve_files(self) -> list[str]:
         files = super()._resolve_files()
-        if not self.source.archive_includes_current_day:
+        if not self._source.archive_includes_current_day:
             return files
-        final, skipped = [], []
+        final: list[str] = []
+        skipped: list[str] = []
         for file in files:
             (
-                final if sniff_metadata(file, self.source.accepted_headers).is_final else skipped
+                final if sniff_metadata(file, self._source.accepted_headers).is_final else skipped
             ).append(file)
         if skipped:
             logger.info("Skipping {} not-yet-final file(s): {}", len(skipped), skipped)
@@ -418,7 +419,7 @@ class AreaActualsCsvLoader(CsvLoader):
         return final
 
     def _read_file(self, file: str) -> DataFrame:
-        file_updated_at = sniff_metadata(file, self.source.accepted_headers).file_updated_at
+        file_updated_at = sniff_metadata(file, self._source.accepted_headers).file_updated_at
         spark_schema = StructType(
             [StructField(f"_c{i}", StringType()) for i in range(COLUMN_COUNT)]
         )

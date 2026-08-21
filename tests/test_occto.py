@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime
 import json
 from pathlib import Path
+from typing import cast
 
 import pytest
 import requests
@@ -146,9 +147,8 @@ class FakeSession:
     def __enter__(self) -> FakeSession:
         return self
 
-    def __exit__(self, *exc) -> bool:
+    def __exit__(self, *exc) -> None:
         self.closed = True
-        return False
 
     def get(self, url: str, timeout: float) -> FakeResponse:
         self.calls.append(("get", url, {"timeout": timeout}))
@@ -415,7 +415,9 @@ class TestIssueDownloadKey:
 
     def issue(self, response: FakeResponse) -> tuple[FakeSession, tuple[str, str] | None]:
         session = FakeSession([response])
-        result = OcctoBulkDownloader(timeout=9.0)._issue_download_key(session, self.selection)
+        result = OcctoBulkDownloader(timeout=9.0)._issue_download_key(
+            cast(requests.Session, session), self.selection
+        )
         return session, result
 
     def test_posts_the_ajax_ok_request_and_returns_the_key_pair(self):
@@ -480,7 +482,9 @@ class TestFetchCsv:
     def fetch(self, response: FakeResponse) -> tuple[FakeSession, bytes]:
         session = FakeSession([response])
         dl = OcctoBulkDownloader(timeout=11.0)
-        return session, dl._fetch_csv(session, self.selection, "KEY-1", "TOKEN-1")
+        return session, dl._fetch_csv(
+            cast(requests.Session, session), self.selection, "KEY-1", "TOKEN-1"
+        )
 
     def test_posts_the_key_pair_and_returns_the_attachment_bytes(self):
         payload = cp932(DEMAND_HEADER + "\nrow\n")

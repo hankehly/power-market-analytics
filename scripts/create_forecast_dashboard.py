@@ -37,6 +37,7 @@ import json
 import os
 import re
 from dataclasses import dataclass
+from typing import Any
 
 import requests
 from loguru import logger
@@ -914,7 +915,7 @@ def build_position_json(spec: DashboardSpec, sections: list[dict]) -> dict:
     -------
     dict
     """
-    position = {
+    position: dict[str, Any] = {
         "DASHBOARD_VERSION_KEY": "v2",
         "ROOT_ID": {"type": "ROOT", "id": "ROOT_ID", "children": ["GRID_ID"]},
         "GRID_ID": {"type": "GRID", "id": "GRID_ID", "children": [], "parents": ["ROOT_ID"]},
@@ -984,6 +985,7 @@ def build_native_filters(
     -------
     list of dict
     """
+    run_default_mask: dict[str, Any]
     if default_run_label is None:
         run_default_mask = {"extraFormData": {}, "filterState": {}}
     else:
@@ -1138,7 +1140,7 @@ def build_dashboard(client: SupersetClient, database_id: int, spec: DashboardSpe
     worst_days = chart("Worst days", worst_days_params(spec, dataset_id))
     detail = chart("Forecast vs actual (30-min detail)", detail_params(spec, dataset_id))
 
-    sections = [
+    sections: list[dict[str, Any]] = [
         {
             "header": None,
             "rows": [

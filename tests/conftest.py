@@ -16,6 +16,7 @@ import dataclasses
 import math
 import os
 import time
+from collections.abc import Iterator
 
 # The Spark fixture pins spark.sql.session.timeZone to Asia/Tokyo, but PySpark's
 # collect() renders TimestampType as a naive datetime in the *process's* local
@@ -39,7 +40,7 @@ from pyspark.sql import SparkSession  # noqa: E402
 
 
 @pytest.fixture(scope="session")
-def spark(tmp_path_factory: pytest.TempPathFactory) -> SparkSession:
+def spark(tmp_path_factory: pytest.TempPathFactory) -> Iterator[SparkSession]:
     """Session-scoped local SparkSession writing to a temp warehouse."""
     warehouse = tmp_path_factory.mktemp("warehouse")
     session = (

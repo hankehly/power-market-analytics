@@ -1,11 +1,12 @@
 name: ci
 
 # On every push (and on demand): the unit tests with their coverage gate, a
-# ruff lint pass, and a checkov scan of the IaC. The 100% coverage threshold
-# lives in pyproject.toml ([tool.coverage.report] fail_under), the ruff rules in
-# pyproject.toml [tool.ruff], and the checkov config in .checkov.yaml, so
-# `just test` / `just lint` / `just checkov` locally and these jobs fail on
-# exactly the same conditions.
+# ruff lint pass, a mypy type-check, and a checkov scan of the IaC. All the
+# gates live in the repo config — coverage in pyproject.toml
+# ([tool.coverage.report] fail_under), ruff in [tool.ruff], mypy in
+# [tool.mypy], checkov in .checkov.yaml — so `just test` / `just lint` /
+# `just mypy` / `just checkov` locally and these jobs fail on exactly the
+# same conditions.
 on:
   push:
   workflow_dispatch:
@@ -69,6 +70,28 @@ jobs:
       # pyproject.toml [tool.ruff].
       - name: Run ruff
         run: uv run --no-sync ruff check .
+
+  mypy:
+    name: mypy
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v10.0.1  # no moving major tag past v7; pin the full version
+        with:
+          enable-cache: true
+          python-version: "3.13"
+
+      # Full dependency set: unlike ruff, mypy resolves types against the
+      # runtime libraries (PySpark, MLflow, pandas stubs).
+      - name: Install dependencies (locked)
+        run: uv sync --locked
+
+      # Same check as `just mypy`; the checked packages and per-module
+      # overrides come from pyproject.toml [tool.mypy].
+      - name: Run mypy
+        run: uv run --no-sync mypy
 
   checkov:
     name: checkov (IaC + secrets)

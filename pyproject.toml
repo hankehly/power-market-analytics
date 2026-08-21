@@ -30,10 +30,24 @@ packages = ["power_market_analytics"]
 
 [dependency-groups]
 dev = [
+    "mypy>=1.19.1",
+    "pandas-stubs>=3.0.5.260730",
     "pytest>=9.1.1",
     "pytest-cov>=7.1.0",
     "ruff>=0.16.2",
+    "types-pyyaml>=6.0.12.20260815",
 ]
+
+[tool.mypy]
+files = ["power_market_analytics", "scripts", "tests"]
+# Bodies of untyped functions (mostly test helpers) are not checked — mypy's
+# default; silence the per-function reminder notes so real findings stand out.
+disable_error_code = ["annotation-unchecked"]
+
+# Libraries that ship no type stubs or py.typed marker.
+[[tool.mypy.overrides]]
+module = ["plotly.*", "shap.*"]
+ignore_missing_imports = true
 
 [tool.ruff]
 line-length = 100

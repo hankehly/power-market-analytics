@@ -139,6 +139,7 @@ class FakeSupersetSession:
             return FakeResponse({"data": [{"run_label": DEFAULT_LABEL}]})
         m = re.fullmatch(r"/api/v1/(dataset|chart|dashboard)/", path)
         if m:
+            assert payload is not None
             row_id = self.seed(m.group(1), **payload)
             return FakeResponse({"id": row_id, "result": payload}, 201)
         return FakeResponse({"message": "Not found"}, 404)
@@ -146,6 +147,7 @@ class FakeSupersetSession:
     def _put(self, path: str, payload: dict | None) -> FakeResponse:
         m = re.fullmatch(r"/api/v1/(dataset|chart|dashboard)/(\d+)", path)
         if m and int(m.group(2)) in self.rows[m.group(1)]:
+            assert payload is not None
             row = self.rows[m.group(1)][int(m.group(2))]
             row.update(payload)
             return FakeResponse({"id": row["id"], "result": payload})

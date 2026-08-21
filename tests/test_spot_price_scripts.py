@@ -22,7 +22,9 @@ FORECAST_TABLE = "pma_ml.spot_price_forecast"
 
 def last_run() -> mlflow.entities.Run:
     """The run the script just finished (or failed), re-read from the store."""
-    return mlflow.get_run(mlflow.last_active_run().info.run_id)
+    run = mlflow.last_active_run()
+    assert run is not None
+    return mlflow.get_run(run.info.run_id)
 
 
 def artifact_names(run_id: str) -> set[str]:

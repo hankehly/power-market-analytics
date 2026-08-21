@@ -212,9 +212,11 @@ class CsvLoader:
     def _validate(self, df: DataFrame) -> None:
         non_nullable = [c.name for c in self.schema.columns if not c.nullable]
         if non_nullable:
+            # collect()[0] over first(): an aggregation always yields one row,
+            # and unlike first() the element is not Optional.
             null_counts = df.select(
                 [F.count(F.when(F.col(name).isNull(), True)).alias(name) for name in non_nullable]
-            ).first()
+            ).collect()[0]
             bad = {name: null_counts[name] for name in non_nullable if null_counts[name]}
             if bad:
                 raise ValueError(
