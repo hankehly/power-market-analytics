@@ -14,10 +14,11 @@ models:
       fct_jma_weather_hourly.observed_at, so forecast-vs-observed
       comparisons join on station_id and forecast_valid_at = observed_at.
       Forecast leads 28-51 = JST hour-endings 01:00-24:00 of the delivery
-      day; hour 24:00 is stored as next-day 00:00. precipitation_mm and
-      shortwave_radiation_wm2 cover [forecast_hour_start_at,
-      forecast_valid_at); every other weather value is instantaneous at
-      forecast_valid_at. Every weather value is the nearest MSM grid point
+      day; hour 24:00 is stored as next-day 00:00. precipitation_mm,
+      shortwave_radiation_wm2 and solar_radiation_mjm2 cover
+      [forecast_hour_start_at, forecast_valid_at); every other weather value
+      is instantaneous at forecast_valid_at. Every weather value is the
+      nearest MSM grid point
       (grid_latitude/grid_longitude/grid_distance_km) rather than a station
       forecast, and the grid point's elevation/terrain differ from the
       station's. date_key references dim_date on the forecast-valid day
@@ -63,8 +64,8 @@ models:
         data_type: timestamp
         description: >
           Start of the represented weather hour (forecast_valid_at minus
-          one hour); the accumulation window for precipitation_mm and
-          shortwave_radiation_wm2.
+          one hour); the accumulation window for precipitation_mm,
+          shortwave_radiation_wm2 and solar_radiation_mjm2.
         data_tests:
           - not_null
       - name: forecast_lead_hours
