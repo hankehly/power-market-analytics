@@ -120,3 +120,112 @@ sources:
             description: Quality flag for solar radiation (品質情報).
           - name: solar_radiation_homogeneity_no
             description: Homogeneity number for solar radiation (均質番号; resets per stitched half-year window).
+      - name: jma_msm_surface_forecast
+        description: >
+          JMA MSM (メソ数値予報モデル) GPV point-forecast extracts — one row per
+          station, forecast reference run and forecast lead hour. This
+          pipeline ingests a single vintage per delivery day D: the 12 UTC
+          run of D-2 (21:00 JST), the latest run whose forecast horizon
+          still covers every hour of D without leaking information past the
+          demand-forecast model's 09:30 JST D-1 cutoff. Source: Kyoto
+          University RISH's GRIB2 mirror of the JMA MSM surface grid
+          (https://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/),
+          downloaded and decoded per delivery day by MsmDownloader
+          (scripts/download_jma_msm_surface_forecast.py) into one gzip CSV
+          extract (msm_surface_YYYYMMDD.csv.gz, one row per station x
+          forecast lead hour) and loaded by MsmForecastCsvLoader
+          (scripts/load_jma_msm_surface_forecast.py). forecast_reference_at_utc
+          and forecast_valid_at_utc are kept as raw-layer ISO 8601 UTC
+          strings ("...Z") rather than parsed timestamps, to avoid
+          session-timezone parsing ambiguity; std converts them to JST
+          wall-clock. Grain: station_id, forecast_reference_at_utc,
+          forecast_valid_at_utc; enforced at load time. The nine
+          identifying columns (station/grid ids, coordinates, the two
+          reference/valid timestamps, lead hours) and source_file_name are
+          never null; every weather value column is nullable — a GRIB
+          bitmap hole becomes an empty CSV cell, decoded here as NULL.
+          Protocol, archive layout and unit conversions:
+          docs/JMA-MSM-GPV-Retrieval.md. Load contract:
+          conf/schemas/jma_msm_surface_forecast.yaml.
+        columns:
+          - name: station_id
+            description: >
+              JMA obsdl station id the MSM value is reported against (e.g.
+              s47662 = 東京). Joinable to dim_jma_station.
+            data_tests:
+              - not_null
+          - name: station_latitude
+            description: Station latitude in decimal degrees, from the station master.
+          - name: station_longitude
+            description: Station longitude in decimal degrees, from the station master.
+          - name: grid_latitude
+            description: >
+              Latitude of the MSM grid point nearest the station — the
+              source of every weather value column (not the station's own
+              location).
+          - name: grid_longitude
+            description: >
+              Longitude of the MSM grid point nearest the station — the
+              source of every weather value column (not the station's own
+              location).
+          - name: grid_distance_km
+            description: Great-circle distance in km between the station and the nearest MSM grid point.
+          - name: forecast_reference_at_utc
+            description: >
+              Forecast run start, UTC ISO 8601 string ("...Z"). Always the
+              12:00 UTC run of delivery day D-2 for this pipeline.
+            data_tests:
+              - not_null
+          - name: forecast_valid_at_utc
+            description: >
+              Forecast valid time, UTC ISO 8601 string ("...Z") — the END of
+              the represented weather hour (matches the fct_jma_weather_hourly
+              observed_at convention).
+            data_tests:
+              - not_null
+          - name: forecast_lead_hours
+            description: >
+              Forecast lead in hours from forecast_reference_at_utc (28-51
+              for this pipeline's single ingested vintage — JST hour-endings
+              01:00-24:00 of delivery day D).
+          - name: temperature_c
+            description: Air temperature at forecast_valid_at_utc in °C, at the nearest MSM grid point.
+          - name: relative_humidity_pct
+            description: Relative humidity at forecast_valid_at_utc in percent, at the nearest MSM grid point.
+          - name: u_wind_ms
+            description: Eastward wind component at forecast_valid_at_utc in m/s, at the nearest MSM grid point.
+          - name: v_wind_ms
+            description: Northward wind component at forecast_valid_at_utc in m/s, at the nearest MSM grid point.
+          - name: wind_speed_ms
+            description: Wind speed at forecast_valid_at_utc in m/s, derived from u_wind_ms/v_wind_ms.
+          - name: precipitation_mm
+            description: >
+              Precipitation in mm accumulated over the forecast hour
+              preceding forecast_valid_at_utc, at the nearest MSM grid
+              point.
+          - name: surface_pressure_hpa
+            description: Surface pressure at forecast_valid_at_utc in hPa, at the nearest MSM grid point.
+          - name: sea_level_pressure_hpa
+            description: Sea-level pressure at forecast_valid_at_utc in hPa, at the nearest MSM grid point.
+          - name: shortwave_radiation_wm2
+            description: >
+              Downward shortwave radiation flux in W/m², averaged over the
+              forecast hour preceding forecast_valid_at_utc, at the nearest
+              MSM grid point.
+          - name: solar_radiation_mjm2
+            description: >
+              Global solar radiation in MJ/m² accumulated over the forecast
+              hour preceding forecast_valid_at_utc, at the nearest MSM grid
+              point.
+          - name: total_cloud_cover_pct
+            description: Total cloud cover at forecast_valid_at_utc in percent, at the nearest MSM grid point.
+          - name: high_cloud_cover_pct
+            description: High cloud cover at forecast_valid_at_utc in percent, at the nearest MSM grid point.
+          - name: middle_cloud_cover_pct
+            description: Middle cloud cover at forecast_valid_at_utc in percent, at the nearest MSM grid point.
+          - name: low_cloud_cover_pct
+            description: Low cloud cover at forecast_valid_at_utc in percent, at the nearest MSM grid point.
+          - name: source_file_name
+            description: Archive extract the row came from, e.g. msm_surface_20260817.csv.gz.
+            data_tests:
+              - not_null
