@@ -205,6 +205,20 @@ for reference — the station-type taxonomy, `kansoku` decoding, and the mdrr hi
 below all still apply to it — but AMeDAS stations are no longer scraped, downloaded, or
 loaded into the warehouse.
 
+**JEPX areas only, since 2026-08-21.** A second scope cut drops the staffed stations that
+lie outside every JEPX area, so `dim_jma_station.area_key` is a required foreign key to
+`dim_area`: the 8 Okinawa stations (pd 91 — 沖縄電力's supply area, no JEPX product), 昭和
+(pd 99, Antarctica), and 南鳥島 `s47991` (東京都, but excluded from TEPCO PG's supply area
+per its 託送供給等約款; the JMA/JSDF outpost self-generates). The filter is
+`jepx_areas_only=True` on `JmaStationMasterDownloader` (policy constants
+`NON_JEPX_AREA_PREFECTURE_CODES` / `NON_JEPX_AREA_STATION_IDS`), passed by both
+`scripts/update_jma_stations_seed.py` and `scripts/download_jma_hourly_all.py`. Each
+remaining station's JEPX area is assigned in the hand-curated `dbt/seeds/jma_station_areas.csv`
+(prefecture-level per the TSO 供給区域 definitions in their 託送供給等約款, except 静岡,
+which splits at the 富士川 — TEPCO PG east, Chubu PG west; the only other split
+prefectures, 福井/岐阜/三重/兵庫/香川/愛媛, have no staffed station in their
+minority-TSO exclaves — note 敦賀市 is Hokuriku territory, the Kansai boundary being 関峠).
+
 ### 4.3 Station metadata changes over time
 
 Station metadata is not static: stations relocate, instruments change height, elements are
@@ -327,16 +341,17 @@ Requests (windows) per station-year = `window_count()` =
 (8 × 8,760 ≈ 70k) but not for a half-year (8 × 4,380 ≈ 35k) — so every station-year splits
 into **2 windows**, stitched into one file ([§7.1](#71-encoding-and-overall-structure)).
 
-Scope: 159 staffed stations in the seed (156 active + 3 discontinued). Two of the
+Scope: 149 staffed stations in the seed (146 active + 3 discontinued; the JEPX-area
+re-scope removed 10 — [§4](#4-stations)). Two of the
 discontinued stations ended before 2016 and so contribute no station-years at all;
 阿蘇山 `s47821` ended 2017-12-11 and contributes only 2016–2017. Station-years therefore
-total 156 × 11 + 1 × 2 ≈ 1,718, × 2 windows/station-year ≈ **3,450 requests**. Server response time
+total 146 × 11 + 1 × 2 ≈ 1,608, × 2 windows/station-year ≈ **3,220 requests**. Server response time
 (~10 s per file) dominates the 5-second spacing, so the realistic pace is ~15 s/request ≈
-**14 hours cold** for the full staffed network — smaller than the pre-re-scope core-set
-AMeDAS scrape below despite the extra elements, because it covers ~159 stations instead of
+**13.5 hours cold** for the full staffed network — smaller than the pre-re-scope core-set
+AMeDAS scrape below despite the extra elements, because it covers ~149 stations instead of
 ~1,300. A current-year refresh is still 2 windows/station (the window count is planned off
 the full calendar year, not how much of it has elapsed — [§7.4](#74-time-semantics)), so
-159 stations × 2 windows ≈ 320 requests ≈ 1.5 hours.
+149 stations × 2 windows ≈ 300 requests ≈ 1.25 hours.
 
 <details>
 <summary>Historical: the pre-2026-08-20 core-element AMeDAS+staffed scrape</summary>
@@ -467,8 +482,8 @@ boundary and a real break exactly on that boundary is invisible in the CSV alone
 A file's column layout is a pure function of **(element set) × (station class)** — nothing
 else. Within one class and one fixed element set, every station produces the identical
 layout: unobserved elements still emit standard-width groups (empty value, quality 0;
-verified at a precipitation-only station), all 159 staffed stations observe all elements
-(`kansoku=111111`), and discontinued stations keep the layout too. A set containing a
+verified at a precipitation-only station), all 149 staffed stations in the seed observe
+all elements (`kansoku=111111`), and discontinued stations keep the layout too. A set containing a
 phenomenon element (降水量 101, 日照時間 401, 積雪の深さ 501 — [§7.2](#72-column-groups))
 has two layout variants across station classes (staffed adds 現象なし情報); a set without
 any has one shared layout everywhere.
@@ -662,10 +677,12 @@ df = pd.read_csv(
 - The station master is the dbt seed `dbt/seeds/jma_stations.csv` (UTF-8,
   version-controlled, one row per station including discontinued ones, sorted by
   prefecture then station id), surfaced in the warehouse as `dim_jma_station`.
-- Currently downloaded: all 159 staffed stations (156 active + 阿蘇山, discontinued
-  2017 and so files only through that year; 伊吹山/剣山 discontinued before the
-  2016+ window and so contribute no files) — the 7-element `SCRAPE_ELEMENTS`
-  stitched files, 27 columns, 2016 through current, backfilled 2026-08-20.
+- Currently downloaded: all 149 staffed stations in the seed (146 active + 阿蘇山,
+  discontinued 2017 and so files only through that year; 伊吹山/剣山 discontinued before
+  the 2016+ window and so contribute no files) — the 7-element `SCRAPE_ELEMENTS`
+  stitched files, 27 columns, 2016 through current, backfilled 2026-08-20. The 10
+  stations outside every JEPX area ([§4](#4-stations)) were downloaded in that backfill
+  but removed from `data/jma/hourly/` and the warehouse on 2026-08-21.
 
 ## Appendix A: Prefecture (`pd`) codes
 

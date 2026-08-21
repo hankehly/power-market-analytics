@@ -73,6 +73,16 @@ SCRAPE_ELEMENTS = [
     "solar_radiation",
 ]
 
+#: JMA area (``pd``) codes whose stations lie outside every JEPX area:
+#: 91 is Okinawa — 沖縄電力's supply area, and JEPX trades no Okinawa
+#: product — and 99 is Antarctica (昭和基地).
+NON_JEPX_AREA_PREFECTURE_CODES = {91, 99}
+
+#: Stations outside every JEPX area despite an in-scope prefecture code:
+#: s47991 南鳥島 belongs to 東京都 (pd 44) but is excluded from TEPCO PG's
+#: supply area per its 託送供給等約款 (the JMA/JSDF outpost self-generates).
+NON_JEPX_AREA_STATION_IDS = {"s47991"}
+
 #: Digit order of the ``kansoku`` observed-element mask, as defined in the
 #: site's own JS (``web/js/top.2.1.js``). Digit values: 0 = not observed,
 #: 1 = observed, 2 = estimated (satellite-derived sunshine at AMeDAS).
@@ -557,6 +567,11 @@ class JmaStationMasterDownloader(_JmaDownloader):
         Write only staffed stations (気象官署, ``s``-prefixed ids) and drop
         every AMeDAS row. The scrape itself is unchanged — the same
         per-prefecture pages are fetched — only the output is filtered.
+    jepx_areas_only : bool, default False
+        Drop stations outside every JEPX area — Okinawa and Antarctica
+        (``NON_JEPX_AREA_PREFECTURE_CODES``) plus 南鳥島
+        (``NON_JEPX_AREA_STATION_IDS``). Like ``staffed_only``, only the
+        output is filtered.
     **kwargs
         HTTP behavior options passed through to ``_JmaDownloader``
         (``timeout``, ``request_interval``, ``max_retries``,
@@ -597,11 +612,13 @@ class JmaStationMasterDownloader(_JmaDownloader):
         self,
         dest: Path | str = Path("data/jma/stations.csv"),
         staffed_only: bool = False,
+        jepx_areas_only: bool = False,
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
         self.dest = Path(dest)
         self.staffed_only = staffed_only
+        self.jepx_areas_only = jepx_areas_only
 
     def download(self, force: bool = False) -> Path:
         """Download the station master for every prefecture into ``dest``.
@@ -658,6 +675,13 @@ class JmaStationMasterDownloader(_JmaDownloader):
 
         if self.staffed_only:
             stations = {sid: row for sid, row in stations.items() if sid.startswith("s")}
+        if self.jepx_areas_only:
+            stations = {
+                sid: row
+                for sid, row in stations.items()
+                if row["prefecture_code"] not in NON_JEPX_AREA_PREFECTURE_CODES
+                and sid not in NON_JEPX_AREA_STATION_IDS
+            }
 
         ordered = sorted(stations.values(), key=lambda r: (r["prefecture_code"], r["station_id"]))
         self.dest.parent.mkdir(parents=True, exist_ok=True)
