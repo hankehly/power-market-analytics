@@ -651,9 +651,17 @@ class MsmDownloader:
         MsmExtractError
             If a source file cannot be decoded (see
             :func:`extract_station_records`) or the day's total record count
-            is not ``len(stations) * 24``. Nothing is written at the final
-            csv path and the GRIB2 files downloaded so far are left in place
-            for inspection.
+            is not ``len(stations) * 24``.
+
+        Notes
+        -----
+        On any failure — download, decode, the record-count check, or either
+        write — nothing is ever left at :meth:`csv_path_for`'s path (the
+        manifest is written first and the csv.gz last, so the csv commit is
+        the sole "this day is done" signal the cache check above trusts) and
+        the GRIB2 files downloaded so far are left in place for inspection.
+        A later non-``force`` call therefore always re-attempts a day that
+        previously failed partway, rather than silently treating it as done.
         """
         csv_path = self.csv_path_for(delivery_date)
         if csv_path.exists() and not force:
@@ -686,10 +694,17 @@ class MsmDownloader:
             )
         records.sort(key=lambda r: (r.station_id, r.forecast_lead_hours))
 
-        self._write_csv(csv_path, records)
+        # The manifest is written first and the csv.gz last: csv_path.exists()
+        # is the sole "this day is done" cache check above, so the csv commit
+        # must be the final, unlocking step. If either write fails, both are
+        # atomic on their own (.part -> replace, cleaned up on error), so a
+        # failure here never leaves a file at csv_path — a later non-force
+        # call always re-attempts instead of silently trusting a half-written
+        # day.
         self._write_manifest(
             self.manifest_path_for(delivery_date), delivery_date, reference_at, manifest_files
         )
+        self._write_csv(csv_path, records)
 
         if not keep_grib:
             for grib_path in grib_paths:
@@ -697,20 +712,44 @@ class MsmDownloader:
         logger.info("Extracted {}: {} records -> {}", delivery_date, len(records), csv_path)
         return csv_path
 
-    def _write_csv(self, path: Path, records: list[StationHourRecord]) -> None:
-        """Write one delivery day's records as a gzip CSV, atomically."""
+    @staticmethod
+    def _atomic_write(path: Path, write: Callable[[Path], None]) -> None:
+        """Write to ``path`` atomically: ``write`` fills a ``.part`` file, then replace.
+
+        Parameters
+        ----------
+        path : pathlib.Path
+            Final destination.
+        write : callable
+            ``write(partial_path)`` fills the temporary file's contents.
+
+        Notes
+        -----
+        On any exception from ``write`` (or from the replace itself), the
+        partial file is deleted and the exception re-raised; nothing is ever
+        left at ``path`` unless the write fully succeeded, and a prior file
+        at ``path`` is untouched until the replace.
+        """
         path.parent.mkdir(parents=True, exist_ok=True)
         partial = path.with_name(path.name + ".part")
         try:
+            write(partial)
+            partial.replace(path)
+        except Exception:
+            partial.unlink(missing_ok=True)
+            raise
+
+    def _write_csv(self, path: Path, records: list[StationHourRecord]) -> None:
+        """Write one delivery day's records as a gzip CSV, atomically."""
+
+        def write(partial: Path) -> None:
             with gzip.open(partial, "wt", newline="") as f:
                 writer = csv.writer(f)
                 writer.writerow(RAW_CSV_COLUMNS)
                 for record in records:
                     writer.writerow(self._csv_row(record))
-            partial.replace(path)
-        except Exception:
-            partial.unlink(missing_ok=True)
-            raise
+
+        self._atomic_write(path, write)
 
     @staticmethod
     def _csv_row(record: StationHourRecord) -> list[str | int]:
@@ -737,19 +776,16 @@ class MsmDownloader:
         files: list[dict[str, object]],
     ) -> None:
         """Write a delivery day's source-file manifest as JSON, atomically."""
-        path.parent.mkdir(parents=True, exist_ok=True)
-        partial = path.with_name(path.name + ".part")
         payload = {
             "delivery_date": delivery_date.isoformat(),
             "reference_at_utc": reference_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "files": files,
         }
-        try:
+
+        def write(partial: Path) -> None:
             partial.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-            partial.replace(path)
-        except Exception:
-            partial.unlink(missing_ok=True)
-            raise
+
+        self._atomic_write(path, write)
 
     # ----------------------------------------------------------------- backfill
 
