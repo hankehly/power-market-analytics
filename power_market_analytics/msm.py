@@ -45,6 +45,32 @@ DEFAULT_BACKFILL_START = datetime.date(2022, 4, 1)
 JST = datetime.timezone(datetime.timedelta(hours=9))
 
 
+def _now() -> datetime.datetime:
+    """Return the current instant in JST.
+
+    A seam so :func:`default_end_date` is testable: tests monkeypatch this
+    function to freeze "now" rather than depending on the real clock.
+
+    Returns
+    -------
+    datetime.datetime
+        Timezone-aware JST.
+    """
+    return datetime.datetime.now(JST)
+
+
+def default_end_date() -> datetime.date:
+    """Return the default upper bound of an MSM download range.
+
+    Returns
+    -------
+    datetime.date
+        JST "today" (:func:`_now`) plus one day — the default
+        ``--end-date`` of ``scripts/download_jma_msm_surface_forecast.py``.
+    """
+    return _now().date() + datetime.timedelta(days=1)
+
+
 class MsmError(RuntimeError):
     """Base error for MSM download, extraction and lookup failures."""
 
