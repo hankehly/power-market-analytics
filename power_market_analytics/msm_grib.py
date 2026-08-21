@@ -180,7 +180,16 @@ def extract_station_records(
     shortwave radiation) cover the hour *ending* at it, i.e. the interval
     ``(endStep - 1, endStep]``. Both land on the same record, which the
     pipeline reads as the hour ending at ``forecast_valid_at``.
+
+    JMA packs many fields into one GRIB2 message envelope — a whole archive
+    member is a *single* envelope (the FH16-33 file holds 12 elements x 18
+    forecast hours = 216 fields in it) — so ecCodes' multi-field support has
+    to be on or the message loop sees only the first field of each envelope.
+    It is process-global ecCodes state that other code (ecCodes' own multi
+    writer, for one) can flip, so it is re-asserted on every call; the call is
+    idempotent and costs nothing.
     """
+    eccodes.codes_grib_multi_support_on()
     leads_used = set(source_file.leads_used)
     # (station id, lead) -> element key -> value, filled message by message.
     element_values: dict[tuple[str, int], dict[str, float | None]] = {}

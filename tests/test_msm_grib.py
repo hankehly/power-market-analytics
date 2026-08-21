@@ -40,6 +40,7 @@ from tests.msm_grib_support import (
     build_edition1_message,
     build_file,
     build_message,
+    build_multi_field_file,
     constant_value,
     day_messages,
     read_message_keys,
@@ -281,6 +282,41 @@ class TestMessageOrder:
         )
         # The file's message order is arbitrary; identification is by metadata.
         assert extract(shuffled) == extract(varying_file)
+
+
+class TestMultiFieldEnvelopes:
+    """JMA packs a whole archive member into one multi-field GRIB2 envelope.
+
+    The real FH16-33 file is a single ``GRIB`` envelope holding 216 fields
+    (12 elements x leads 16-33); a reader without ecCodes' multi-field support
+    sees only the first field of an envelope and then skips to the next one.
+    """
+
+    @pytest.fixture
+    def multi_field_file(self, tmp_path):
+        # A distinct name: `varying_file` shares this tmp_path and would
+        # otherwise overwrite the envelope with a plain concatenation.
+        return build_multi_field_file(
+            tmp_path / f"multi_{SOURCE_FILE.file_name}",
+            day_messages(SOURCE_FILE, REFERENCE_AT, GRID, varying_value),
+        )
+
+    def test_the_fixture_really_is_a_single_envelope(self, multi_field_file):
+        # Guards the test below from silently degrading into the concatenated case.
+        assert multi_field_file.read_bytes().count(b"GRIB") == 1
+
+    def test_every_field_of_an_envelope_is_decoded(self, multi_field_file, varying_file):
+        # Same 72 fields as the concatenated fixture, same records.
+        assert extract(multi_field_file) == extract(varying_file)
+
+    def test_several_envelopes_in_one_file_are_all_walked(self, tmp_path, varying_file):
+        messages = day_messages(SOURCE_FILE, REFERENCE_AT, GRID, varying_value)
+        half = len(messages) // 2
+        first = build_multi_field_file(tmp_path / "first.bin", messages[:half])
+        second = build_multi_field_file(tmp_path / "second.bin", messages[half:])
+        combined = build_file(tmp_path / "combined.bin", [first.read_bytes(), second.read_bytes()])
+        assert combined.read_bytes().count(b"GRIB") == 2
+        assert extract(combined) == extract(varying_file)
 
 
 class TestStatisticalProducts:

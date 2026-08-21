@@ -14,7 +14,8 @@ the fixtures deterministic and cheap:
   a negative step.
 * A GRIB file is a plain concatenation of messages, so :func:`build_file`
   writes ``b"".join(messages)`` — message order in the file is whatever the
-  caller passes.
+  caller passes. :func:`build_multi_field_file` instead packs messages into a
+  single *multi-field* envelope, the way JMA actually ships an MSM member.
 
 No variant the decode layer must handle had to be dropped: the sample template
 accepts ``jScansPositively``, ``iScansNegatively``, ``jPointsAreConsecutive``,
@@ -44,6 +45,10 @@ HOUR_STEP_UNIT = 1
 #: Sentinel written at ``missing_indices``; also ecCodes' default decode-side
 #: ``missingValue``, which is what the decoder compares against.
 MISSING_VALUE = 9999.0
+#: First GRIB2 section repeated per field inside a multi-field envelope:
+#: sections 1-3 (identification, local use, grid definition) are shared, 4-7
+#: (product, representation, bitmap, data) belong to the individual field.
+MULTI_APPEND_START_SECTION = 4
 
 #: One representative value per element, in the element's own GRIB unit.
 ELEMENT_BASE_VALUES: dict[str, float] = {
@@ -232,6 +237,56 @@ def build_file(path: Path, messages: Iterable[bytes]) -> Path:
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(b"".join(messages))
+    return path
+
+
+def build_multi_field_file(path: Path, messages: Iterable[bytes]) -> Path:
+    """Pack messages into **one** multi-field GRIB2 envelope and write it to ``path``.
+
+    This is how JMA ships an MSM archive member: the real 78.7 MB FH16-33 file
+    is a single envelope (one ``GRIB`` marker) holding 216 fields, and a reader
+    without ecCodes' multi-field support sees only the first of them.
+
+    Parameters
+    ----------
+    path : pathlib.Path
+        Destination; parent directories are created.
+    messages : iterable of bytes
+        Single-field messages, e.g. from :func:`build_message`. They must agree
+        on sections 1-3 (same run, same grid); only sections 4-7 are repeated
+        per field.
+
+    Returns
+    -------
+    pathlib.Path
+        ``path``.
+
+    Notes
+    -----
+    The multi handle keeps referencing the appended handles' data, so every
+    appended handle is held open until after the write — releasing one earlier
+    crashes the ecCodes library.
+
+    The multi *writer* switches ecCodes' process-global multi-field support on
+    as a side effect, which would let a decoder that never enables it read this
+    fixture anyway. The default (off) is therefore restored before returning,
+    so a decode test against this fixture really does test the decoder.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    multi = eccodes.codes_grib_multi_new()
+    appended = []
+    try:
+        for raw in messages:
+            handle = eccodes.codes_new_from_message(raw)
+            appended.append(handle)
+            eccodes.codes_grib_multi_append(handle, MULTI_APPEND_START_SECTION, multi)
+        with open(path, "wb") as f:
+            eccodes.codes_grib_multi_write(multi, f)
+    finally:
+        eccodes.codes_grib_multi_release(multi)
+        for handle in appended:
+            eccodes.codes_release(handle)
+        eccodes.codes_grib_multi_support_off()
     return path
 
 
