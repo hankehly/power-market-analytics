@@ -509,6 +509,35 @@ TOKYO = station_block("s47662", "東京", "44", "111111", TOKYO_TITLE)
 FUCHU = station_block("a1133", "府中", "44", "111201", FUCHU_TITLE, extra_class=" st_a")
 SHINKIBA = station_block("a0370", "新木場", "44", "111100", SHINKIBA_TITLE)
 
+# Stations outside every JEPX area: 南鳥島 (Tokyo pd but outside TEPCO PG's
+# supply area), 那覇 (Okinawa Electric), 昭和 (Antarctica).
+MINAMITORISHIMA = station_block(
+    "s47991",
+    "南鳥島",
+    "44",
+    "111111",
+    "地点名：南鳥島\nカナ:ミナミトリシマ\n北緯：24度17.3分\n東経：153度59.0分\n標高：7.1m",
+)
+NAHA = station_block(
+    "s47936",
+    "那覇",
+    "91",
+    "111111",
+    "地点名：那覇\nカナ:ナハ\n北緯：26度12.4分\n東経：127度41.2分\n標高：28.1m",
+)
+SYOWA = station_block(
+    "s89532",
+    "昭和",
+    "99",
+    "111111",
+    "地点名：昭和\nカナ:シヨウワ\n南緯：69度0.3分\n東経：39度34.8分\n標高：18.4m",
+)
+NON_JEPX_PREFECTURE_MAP = (
+    '<div id="prmap"><div class="prefecture" id="pr44"></div>'
+    '<div class="prefecture" id="pr91"></div>'
+    '<div class="prefecture" id="pr99"></div></div>'
+)
+
 TOKYO_ROW = {
     "station_id": "s47662",
     "prefecture_code": 44,
@@ -780,6 +809,37 @@ class TestStationMasterDownload:
         JmaStationMasterDownloader(dest=dest, request_interval=0.0, session=session).download()
         station_ids = [line.split(",")[0] for line in dest.read_text().splitlines()[1:]]
         assert station_ids == ["a1133", "s47662"]
+
+    def test_jepx_areas_only_drops_okinawa_antarctica_and_minamitorishima(self, tmp_path):
+        pages = {
+            "00": NON_JEPX_PREFECTURE_MAP,
+            "44": TOKYO + MINAMITORISHIMA,
+            "91": NAHA,
+            "99": SYOWA,
+        }
+        session = FakeSession(route_areas(pages))
+        dest = tmp_path / "stations.csv"
+        dl = JmaStationMasterDownloader(
+            dest=dest, jepx_areas_only=True, request_interval=0.0, session=session
+        )
+
+        dl.download()
+
+        station_ids = [line.split(",")[0] for line in dest.read_text().splitlines()[1:]]
+        assert station_ids == ["s47662"]
+
+    def test_jepx_areas_only_defaults_off(self, tmp_path):
+        pages = {
+            "00": NON_JEPX_PREFECTURE_MAP,
+            "44": TOKYO + MINAMITORISHIMA,
+            "91": NAHA,
+            "99": SYOWA,
+        }
+        session = FakeSession(route_areas(pages))
+        dest = tmp_path / "stations.csv"
+        JmaStationMasterDownloader(dest=dest, request_interval=0.0, session=session).download()
+        station_ids = [line.split(",")[0] for line in dest.read_text().splitlines()[1:]]
+        assert station_ids == ["s47662", "s47991", "s47936", "s89532"]
 
     def test_conflicting_duplicate_keeps_the_first_and_warns(self, tmp_path):
         # Same station id on two pages but with different metadata (JMA moved
