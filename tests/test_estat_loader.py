@@ -1,4 +1,4 @@
-"""Tests for the vintage-aware census population-mesh loader (``estat_loader``).
+"""Tests for the vintage-aware census population-mesh loader (``estat``).
 
 Files are small CP932 extracts of the real ``tblT000847H5339.txt`` /
 ``tblT001101H5339.txt`` tables (two header rows, ``*``-suppressed detail
@@ -16,8 +16,12 @@ from pathlib import Path
 import pytest
 
 from power_market_analytics.csv_loader import CsvTableSchema
-from power_market_analytics.estat import VINTAGES, CensusVintage, vintage_for_year
-from power_market_analytics.estat_loader import EstatCensusMeshCsvLoader
+from power_market_analytics.estat import (
+    VINTAGES,
+    CensusVintage,
+    EstatCensusMeshCsvLoader,
+    vintage_for_year,
+)
 from tests.support import REPO_ROOT
 
 CONTRACT = CsvTableSchema.from_yaml(REPO_ROOT / "conf/schemas/estat_census_population_mesh.yaml")

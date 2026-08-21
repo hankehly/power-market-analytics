@@ -5,8 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from power_market_analytics.area_actuals import AreaActualsCsvLoader, AreaActualsDownloader
-from power_market_analytics.kansai import KANSAI, KansaiAreaDownloader
-from power_market_analytics.kansai_loader import KansaiAreaCsvLoader
+from power_market_analytics.kansai import KANSAI, KansaiAreaCsvLoader, KansaiAreaDownloader
 
 
 class TestKansaiSource:

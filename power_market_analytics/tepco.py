@@ -11,10 +11,11 @@ BG計画総計 balancing-group plans (``AREA_BGKEI_``). Only the actuals files a
 extracted. The archive layout, CSV format and data quirks are documented in
 docs/TEPCO-Area-Demand-Generation-Retrieval.md.
 
-The download/extract logic itself is the shared
-:class:`~power_market_analytics.area_actuals.AreaActualsDownloader`; this
+The download/extract and load logic itself is the shared
+:class:`~power_market_analytics.area_actuals.AreaActualsDownloader` /
+:class:`~power_market_analytics.area_actuals.AreaActualsCsvLoader` pair; this
 module only supplies the TEPCO :class:`~power_market_analytics.area_actuals.AreaActualsSource`
-and a convenience subclass bound to it.
+and convenience subclasses bound to it.
 """
 
 from __future__ import annotations
@@ -25,6 +26,7 @@ from pathlib import Path
 import requests
 
 from power_market_analytics.area_actuals import (
+    AreaActualsCsvLoader,
     AreaActualsDownloader,
     AreaActualsDownloadError,
     AreaActualsSource,
@@ -33,6 +35,7 @@ from power_market_analytics.area_actuals import (
 
 __all__ = [
     "TEPCO",
+    "TepcoAreaCsvLoader",
     "TepcoAreaDownloader",
     "TepcoDownloadError",
     "month_range",
@@ -94,3 +97,21 @@ class TepcoAreaDownloader(AreaActualsDownloader):
         session: requests.Session | None = None,
     ) -> None:
         super().__init__(TEPCO, data_dir=data_dir, timeout=timeout, session=session)
+
+
+class TepcoAreaCsvLoader(AreaActualsCsvLoader):
+    """Positional full reload of TEPCO area actuals CSVs into a warehouse table.
+
+    Each ``AREA_JISEKI_YYYYMMDD.csv`` (format in
+    docs/TEPCO-Area-Demand-Generation-Retrieval.md) opens with two metadata
+    lines — the header ``ファイル更新日,ファイル更新時間,対象年月日`` and its
+    values — before the real column header, so the files are read positionally
+    by the shared :class:`~power_market_analytics.area_actuals.AreaActualsCsvLoader`
+    (contract ``source: _c0`` .. ``_c6`` plus ``__file_updated_at``).
+
+    Same constructor as :class:`~power_market_analytics.csv_loader.CsvLoader`
+    (``schema``, ``filepath``, ``table``, optional ``spark``); the source spec
+    (accepted column-header line) is fixed to :data:`TEPCO`.
+    """
+
+    source = TEPCO

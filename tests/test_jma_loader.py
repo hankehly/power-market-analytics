@@ -1,4 +1,4 @@
-"""Tests for the positional JMA hourly loader (``power_market_analytics.jma_loader``).
+"""Tests for the positional JMA hourly loader (``power_market_analytics.jma``).
 
 Files are small but realistic cp932 CSVs shaped like docs/JMA-Weather-Data-Retrieval.md
 §7 (download-timestamp line, blank line, four header rows, then data rows), named the
@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 from power_market_analytics.csv_loader import CsvTableSchema
-from power_market_analytics.jma_loader import JmaHourlyCsvLoader
+from power_market_analytics.jma import JmaHourlyCsvLoader
 from tests.support import REPO_ROOT
 
 STAFFED_CONTRACT = CsvTableSchema.from_yaml(REPO_ROOT / "conf/schemas/jma_hourly_staffed.yaml")

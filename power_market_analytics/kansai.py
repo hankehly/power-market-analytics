@@ -14,10 +14,11 @@ https://www.kansai-td.co.jp/denkiyoho/imbalance/ (past months via
 first full month and the start of the new imbalance regime, matching TEPCO.
 Format and quirks: docs/Kansai-Area-Demand-Generation-Retrieval.md.
 
-The download/extract logic itself is the shared
-:class:`~power_market_analytics.area_actuals.AreaActualsDownloader`; this
+The download/extract and load logic itself is the shared
+:class:`~power_market_analytics.area_actuals.AreaActualsDownloader` /
+:class:`~power_market_analytics.area_actuals.AreaActualsCsvLoader` pair; this
 module only supplies the Kansai :class:`~power_market_analytics.area_actuals.AreaActualsSource`
-and a convenience subclass bound to it.
+and convenience subclasses bound to it.
 """
 
 from __future__ import annotations
@@ -27,9 +28,13 @@ from pathlib import Path
 
 import requests
 
-from power_market_analytics.area_actuals import AreaActualsDownloader, AreaActualsSource
+from power_market_analytics.area_actuals import (
+    AreaActualsCsvLoader,
+    AreaActualsDownloader,
+    AreaActualsSource,
+)
 
-__all__ = ["KANSAI", "KansaiAreaDownloader"]
+__all__ = ["KANSAI", "KansaiAreaCsvLoader", "KansaiAreaDownloader"]
 
 KANSAI = AreaActualsSource(
     code="kansai",
@@ -81,3 +86,22 @@ class KansaiAreaDownloader(AreaActualsDownloader):
         session: requests.Session | None = None,
     ) -> None:
         super().__init__(KANSAI, data_dir=data_dir, timeout=timeout, session=session)
+
+
+class KansaiAreaCsvLoader(AreaActualsCsvLoader):
+    """Positional full reload of Kansai area actuals CSVs into a warehouse table.
+
+    The daily files (format in docs/Kansai-Area-Demand-Generation-Retrieval.md)
+    open with metadata lines before the real column header — three lines until
+    2025-12-24 (a title line plus the two ``ファイル更新日`` lines), two from
+    2025-12-25 — so they are read positionally by the shared
+    :class:`~power_market_analytics.area_actuals.AreaActualsCsvLoader`
+    (contract ``source: _c0`` .. ``_c6`` plus ``__file_updated_at``), which
+    also normalises the newer ``yyyy/mm/dd`` dates to ``yyyymmdd``.
+
+    Same constructor as :class:`~power_market_analytics.csv_loader.CsvLoader`
+    (``schema``, ``filepath``, ``table``, optional ``spark``); the source spec
+    (accepted column-header lines) is fixed to :data:`KANSAI`.
+    """
+
+    source = KANSAI

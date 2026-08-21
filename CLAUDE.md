@@ -141,7 +141,7 @@
   population column, census date, datum, listing URL, expected file count; the listing rows come
   from the `search_detail` JSON endpoint, not the HTML page; zips validated before caching, member
   extracted byte-for-byte) → `data/estat/census_population_mesh/{year}/{zip,txt}/` →
-  `scripts/load_estat_census_population_mesh.py` (`EstatCensusMeshCsvLoader` in `estat_loader.py`:
+  `scripts/load_estat_census_population_mesh.py` (`EstatCensusMeshCsvLoader`, also in `estat.py`:
   vintage from the file name, selects that vintage's population column, injects vintage attributes,
   validates mesh codes / population / HTKSYORI before casting; contract
   `conf/schemas/estat_census_population_mesh.yaml`) → `pma_raw.estat_census_population_mesh` →

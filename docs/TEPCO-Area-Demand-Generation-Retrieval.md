@@ -1,8 +1,8 @@
 # TEPCO エリア需要・発電情報 (Area Demand & Generation) Data Retrieval
 
 How TEPCO Power Grid publishes the Tokyo-area 30-minute demand / generation
-actuals, what the files look like, and how `power_market_analytics.tepco` /
-`power_market_analytics.tepco_loader` bring them into the warehouse.
+actuals, what the files look like, and how `power_market_analytics.tepco`
+brings them into the warehouse.
 
 Verified against a full capture on 2026-08-16 (every daily file 2022-04-01 →
 2026-08-15).
@@ -106,8 +106,8 @@ The download/extract and the positional load are the shared
 `power_market_analytics/area_actuals.py`, driven by a per-TSO
 `AreaActualsSource` spec; `power_market_analytics/tepco.py` supplies the
 `TEPCO` spec (URL template, 2022-04, `AREA_JISEKI_*` member regex, the one
-accepted column-header line) plus a thin `TepcoAreaDownloader`, and
-`tepco_loader.py` a thin `TepcoAreaCsvLoader`. The Kansai feed reuses the
+accepted column-header line) plus thin `TepcoAreaDownloader` and
+`TepcoAreaCsvLoader` subclasses. The Kansai feed reuses the
 same classes ([Kansai doc](Kansai-Area-Demand-Generation-Retrieval.md)).
 
 ```python

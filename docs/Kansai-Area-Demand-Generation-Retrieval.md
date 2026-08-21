@@ -2,7 +2,7 @@
 
 How 関西電力送配電 (Kansai Transmission and Distribution) publishes the
 Kansai-area 30-minute demand / generation actuals, what the files look like,
-and how `power_market_analytics.kansai` / `kansai_loader` bring them into the
+and how `power_market_analytics.kansai` brings them into the
 warehouse. This is the Kansai counterpart of TEPCO's feed
 ([TEPCO doc](TEPCO-Area-Demand-Generation-Retrieval.md)); the two share the
 downloader/loader code (`power_market_analytics/area_actuals.py`) and land in
@@ -116,9 +116,8 @@ that month's zip immediately; the live intraday copy updates every 30 min
 
 `power_market_analytics/kansai.py` supplies the `KANSAI` `AreaActualsSource`
 (URL template, 2022-04, both member-name generations, both accepted headers,
-`archive_includes_current_day`) and a thin `KansaiAreaDownloader`;
-`kansai_loader.py` binds the shared positional loader as
-`KansaiAreaCsvLoader`.
+`archive_includes_current_day`), a thin `KansaiAreaDownloader`, and
+`KansaiAreaCsvLoader`, which binds the shared positional loader to the spec.
 
 ```python
 from power_market_analytics.kansai import KansaiAreaDownloader
