@@ -36,8 +36,15 @@ class TestDefaultEndDate:
         assert msm.default_end_date() == datetime.date(2026, 8, 23)
 
     def test_real_now_returns_a_date_in_the_future(self):
-        # No monkeypatch: exercises the real _now() seam.
-        assert msm.default_end_date() > datetime.datetime.now(msm.JST).date()
+        # No monkeypatch: exercises the real _now() seam. The reference date
+        # is read once, strictly before default_end_date() makes its own
+        # (possibly later) _now() call — so the result is always at least
+        # one full day ahead of this reference, even if midnight JST falls
+        # between the two reads; comparing against a *second*, later now()
+        # read would be flaky right at that boundary.
+        reference_date = datetime.datetime.now(msm.JST).date()
+
+        assert msm.default_end_date() > reference_date
 
 
 class TestDownloadJmaMsmSurfaceForecast:
