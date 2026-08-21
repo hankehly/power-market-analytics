@@ -2,7 +2,7 @@
 
 How the Statistics Bureau publishes the Population Census on the 500 m mesh
 through e-Stat 統計GIS, what the files look like, how the privacy processing
-works, and how `power_market_analytics.estat` / `estat_loader` bring the total
+works, and how `power_market_analytics.estat` brings the total
 population per mesh into the warehouse for every configured census vintage.
 The output feeds a later population-weighted weather aggregation; the
 weather-grid crosswalk and the weights themselves are **not** part of this
@@ -172,8 +172,8 @@ no boundary polygons are stored.
 ## 6. Downloading and loading with `power_market_analytics.estat`
 
 `power_market_analytics/estat.py` holds the vintage configuration
-(`CensusVintage`, `VINTAGES`), the mesh decoder and the downloader;
-`estat_loader.py` the vintage-aware `EstatCensusMeshCsvLoader`.
+(`CensusVintage`, `VINTAGES`), the mesh decoder, the downloader and the
+vintage-aware `EstatCensusMeshCsvLoader`.
 
 ```python
 from power_market_analytics.estat import EstatCensusMeshDownloader, vintage_for_year

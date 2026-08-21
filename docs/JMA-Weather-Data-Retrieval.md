@@ -624,7 +624,7 @@ nohup uv run python scripts/download_jma_hourly_all.py > jma_scrape.log 2>&1 &
 into `pma_raw.jma_hourly_staffed` — the single format at the current scrape's coverage
 ([§7.5](#75-minimum-distinct-formats-for-ingestion); the pre-re-scope
 `pma_raw.jma_hourly_amedas` table is gone, since AMeDAS is out of scope — [§4](#4-stations))
-— via `JmaHourlyCsvLoader` (`power_market_analytics/jma_loader.py`), a positional variant
+— via `JmaHourlyCsvLoader` (`power_market_analytics/jma.py`), a positional variant
 of the generic `CsvLoader`: because the JMA header rows repeat labels per element, columns
 are addressed as `_c0`..`_c26` (27 columns) in the load contract
 `conf/schemas/jma_hourly_staffed.yaml`, `station_id` is injected from the file name, and

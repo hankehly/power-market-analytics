@@ -12,7 +12,7 @@ from pathlib import Path
 from loguru import logger
 
 from power_market_analytics.csv_loader import CsvTableSchema
-from power_market_analytics.tepco_loader import TepcoAreaCsvLoader
+from power_market_analytics.tepco import TepcoAreaCsvLoader
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
