@@ -299,9 +299,10 @@ def make_station_master_fake(record: dict, rows: list[dict] | None = None):
     """A ``JmaStationMasterDownloader`` stand-in that writes ``rows`` to ``dest`` if absent."""
 
     class FakeStationMaster:
-        def __init__(self, dest, staffed_only=False):
+        def __init__(self, dest, staffed_only=False, jepx_areas_only=False):
             record["dest"] = Path(dest)
             record["staffed_only"] = staffed_only
+            record["jepx_areas_only"] = jepx_areas_only
 
         def download(self, force=False):
             record["download"] = {"force": force}
@@ -362,6 +363,7 @@ class TestDownloadJmaHourlyAll:
         assert master == {
             "dest": stations_csv,
             "staffed_only": True,
+            "jepx_areas_only": True,
             "download": {"force": False},
         }
         assert stations_csv.exists()
@@ -397,6 +399,7 @@ class TestDownloadJmaHourlyAll:
         assert master == {
             "dest": stations_csv,
             "staffed_only": True,
+            "jepx_areas_only": True,
             "download": {"force": False},
         }
         assert master["staffed_only"] is True
@@ -701,6 +704,7 @@ class TestUpdateJmaStationsSeed:
         assert record == {
             "dest": script.SEED_PATH,
             "staffed_only": True,
+            "jepx_areas_only": True,
             "download": {"force": True},
         }
 
@@ -714,5 +718,6 @@ class TestUpdateJmaStationsSeed:
         assert record == {
             "dest": tmp_path / "stations.csv",
             "staffed_only": True,
+            "jepx_areas_only": True,
             "download": {"force": True},
         }

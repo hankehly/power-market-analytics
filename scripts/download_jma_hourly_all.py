@@ -2,7 +2,8 @@
 
 Walks the station master (downloading it first if absent, restricted to
 staffed stations only — 気象官署, ``s``-prefixed ids; the 2026-08 re-scope,
-docs/superpowers/specs/2026-08-20-jma-s-station-rescope-design.md), plans
+docs/superpowers/specs/2026-08-20-jma-s-station-rescope-design.md — inside
+a JEPX area, i.e. excluding Okinawa, Antarctica and 南鳥島), plans
 one request-set per station and calendar year for the 7-element scrape set
 (``SCRAPE_ELEMENTS``: 気温・降水量・風向風速・日照時間・積雪の深さ・相対湿
 度・全天日射量, docs/JMA-Weather-Data-Retrieval.md §6.3) — 8 value columns,
@@ -18,7 +19,7 @@ logged and skipped (the next run retries them, since no file is written),
 but ten consecutive failures abort the run — that pattern means JMA is
 refusing us, and hammering on regardless would be impolite.
 
-The full staffed network (~159 stations x 11 years x 2 windows/station-year
+The full staffed network (~149 stations x 11 years x 2 windows/station-year
 ≈ 3,450 requests) takes roughly 14 hours cold at the observed ~15-second
 per-request pace (server response time, ~10 s per file, dominates the 5-second
 spacing floor) — smaller overall (in both requests and CSV volume, ~7 GB
@@ -175,7 +176,9 @@ def main(argv: list[str] | None = None) -> None:
     )
     args = parser.parse_args(argv)
 
-    JmaStationMasterDownloader(dest=args.stations_csv, staffed_only=True).download()
+    JmaStationMasterDownloader(
+        dest=args.stations_csv, staffed_only=True, jepx_areas_only=True
+    ).download()
     plan = build_plan(
         args.stations_csv,
         args.start_year,
