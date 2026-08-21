@@ -1,10 +1,11 @@
 name: ci
 
-# On every push (and on demand): the unit tests with their coverage gate, and a
-# checkov scan of the IaC. The 100% coverage threshold lives in pyproject.toml
-# ([tool.coverage.report] fail_under) and the checkov config in .checkov.yaml,
-# so `just test` / `just checkov` locally and these jobs fail on exactly the
-# same conditions.
+# On every push (and on demand): the unit tests with their coverage gate, a
+# ruff lint pass, and a checkov scan of the IaC. The 100% coverage threshold
+# lives in pyproject.toml ([tool.coverage.report] fail_under), the ruff rules in
+# pyproject.toml [tool.ruff], and the checkov config in .checkov.yaml, so
+# `just test` / `just lint` / `just checkov` locally and these jobs fail on
+# exactly the same conditions.
 on:
   push:
   workflow_dispatch:
@@ -46,6 +47,28 @@ jobs:
       # fail_under = 100) comes from pyproject.toml.
       - name: Run tests with coverage
         run: uv run pytest --cov --cov-report=term-missing
+
+  lint:
+    name: ruff check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v10.0.1  # no moving major tag past v7; pin the full version
+        with:
+          enable-cache: true
+          python-version: "3.13"
+
+      # Ruff comes from the dev dependency group; the project's runtime deps
+      # (PySpark etc.) aren't needed to lint.
+      - name: Install dev dependencies (locked)
+        run: uv sync --locked --only-group dev
+
+      # Same check as `just lint`; rule selection and line length come from
+      # pyproject.toml [tool.ruff].
+      - name: Run ruff
+        run: uv run --no-sync ruff check .
 
   checkov:
     name: checkov (IaC + secrets)
