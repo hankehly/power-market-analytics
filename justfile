@@ -88,6 +88,10 @@ refresh-estat *args:
 test *args:
     uv run pytest --cov --cov-report=term-missing {{args}}
 
+[doc("Lint Python with ruff (rules in pyproject.toml [tool.ruff]; e.g. just lint --fix)")]
+lint *args:
+    uv run ruff check . {{args}}
+
 # Version pinned here and in .github/workflows/ci.yml — bump both together.
 [doc("Scan Dockerfiles, workflows and committed files with checkov (config in .checkov.yaml)")]
 checkov *args:
