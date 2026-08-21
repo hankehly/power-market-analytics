@@ -1,0 +1,87 @@
+models:
+  - name: stg_jma__msm_surface_forecast
+    config:
+      contract:
+        enforced: true
+    description: >
+      As-is representation of pma_raw.jma_msm_surface_forecast (JMA MSM GPV
+      surface point forecasts, one ingested vintage per delivery day). One
+      row per station_id, forecast_reference_at_utc and
+      forecast_valid_at_utc. Column documentation lives on the source
+      (models/raw/jma.yml).
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - station_id
+              - forecast_reference_at_utc
+              - forecast_valid_at_utc
+    columns:
+      - name: station_id
+        data_type: string
+        data_tests:
+          - not_null
+      - name: station_latitude
+        data_type: double
+        data_tests:
+          - not_null
+      - name: station_longitude
+        data_type: double
+        data_tests:
+          - not_null
+      - name: grid_latitude
+        data_type: double
+        data_tests:
+          - not_null
+      - name: grid_longitude
+        data_type: double
+        data_tests:
+          - not_null
+      - name: grid_distance_km
+        data_type: double
+        data_tests:
+          - not_null
+      - name: forecast_reference_at_utc
+        data_type: string
+        data_tests:
+          - not_null
+      - name: forecast_valid_at_utc
+        data_type: string
+        data_tests:
+          - not_null
+      - name: forecast_lead_hours
+        data_type: int
+        data_tests:
+          - not_null
+      - name: temperature_c
+        data_type: double
+      - name: relative_humidity_pct
+        data_type: double
+      - name: u_wind_ms
+        data_type: double
+      - name: v_wind_ms
+        data_type: double
+      - name: wind_speed_ms
+        data_type: double
+      - name: precipitation_mm
+        data_type: double
+      - name: surface_pressure_hpa
+        data_type: double
+      - name: sea_level_pressure_hpa
+        data_type: double
+      - name: shortwave_radiation_wm2
+        data_type: double
+      - name: solar_radiation_mjm2
+        data_type: double
+      - name: total_cloud_cover_pct
+        data_type: double
+      - name: high_cloud_cover_pct
+        data_type: double
+      - name: middle_cloud_cover_pct
+        data_type: double
+      - name: low_cloud_cover_pct
+        data_type: double
+      - name: source_file_name
+        data_type: string
+        data_tests:
+          - not_null

@@ -1,0 +1,234 @@
+models:
+  - name: fct_jma_msm_weather_forecast_hourly
+    config:
+      contract:
+        enforced: true
+    description: >
+      JMA MSM GPV surface point forecasts, one row per station, forecast
+      run and forecast-valid hour — a multi-vintage atomic forecast fact
+      (the grain allows more than one forecast_reference_at per station and
+      forecast_valid_at, even though this pipeline currently loads a single
+      vintage per delivery day: the 12:00 UTC run of D-2). Built from
+      std_jma__msm_surface_forecast. forecast_valid_at marks the END of the
+      represented weather hour, the same convention as
+      fct_jma_weather_hourly.observed_at, so forecast-vs-observed
+      comparisons join on station_id and forecast_valid_at = observed_at.
+      Forecast leads 28-51 = JST hour-endings 01:00-24:00 of the delivery
+      day; hour 24:00 is stored as next-day 00:00. precipitation_mm and
+      shortwave_radiation_wm2 cover [forecast_hour_start_at,
+      forecast_valid_at); every other weather value is instantaneous at
+      forecast_valid_at. Every weather value is the nearest MSM grid point
+      (grid_latitude/grid_longitude/grid_distance_km) rather than a station
+      forecast, and the grid point's elevation/terrain differ from the
+      station's. date_key references dim_date on the forecast-valid day
+      (the hour-start date). Downstream maps JEPX 30-minute delivery
+      periods onto this hourly grain via hour_ending = (time_code + 1) //
+      2; no half-hour duplication is applied here.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - station_id
+              - forecast_reference_at
+              - forecast_valid_at
+    columns:
+      - name: station_id
+        data_type: string
+        description: >
+          Station foreign key to dim_jma_station, e.g. s47662 = 東京 (the
+          station the MSM grid point is nearest to, not the grid point's
+          own location).
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_jma_station')
+                field: station_id
+      - name: forecast_reference_at
+        data_type: timestamp
+        description: >
+          Forecast run start (JST). For this pipeline, always 21:00 JST of
+          delivery day D-2.
+        data_tests:
+          - not_null
+      - name: forecast_valid_at
+        data_type: timestamp
+        description: >
+          End of the represented weather hour (JST) — matches
+          fct_jma_weather_hourly.observed_at, the join key for
+          forecast-vs-observed comparisons.
+        data_tests:
+          - not_null
+      - name: forecast_hour_start_at
+        data_type: timestamp
+        description: >
+          Start of the represented weather hour (forecast_valid_at minus
+          one hour); the accumulation window for precipitation_mm and
+          shortwave_radiation_wm2.
+        data_tests:
+          - not_null
+      - name: forecast_lead_hours
+        data_type: int
+        description: >
+          Forecast lead in hours from forecast_reference_at (28-51 for this
+          pipeline's single ingested vintage).
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 28
+                max_value: 51
+      - name: date_key
+        data_type: date
+        description: >
+          Foreign key to dim_date on the forecast-valid day (the hour-start
+          date).
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_date')
+                field: date_key
+      - name: grid_latitude
+        data_type: double
+        description: Latitude of the nearest MSM grid point, the source of every weather value column.
+        data_tests:
+          - not_null
+      - name: grid_longitude
+        data_type: double
+        description: Longitude of the nearest MSM grid point, the source of every weather value column.
+        data_tests:
+          - not_null
+      - name: grid_distance_km
+        data_type: double
+        description: Great-circle distance in km between the station and the nearest MSM grid point.
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 5
+      - name: temperature_c
+        data_type: double
+        description: Air temperature at forecast_valid_at in °C, at the nearest MSM grid point.
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: -50
+                max_value: 50
+      - name: relative_humidity_pct
+        data_type: double
+        description: Relative humidity at forecast_valid_at in percent, at the nearest MSM grid point.
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 100
+      - name: u_wind_ms
+        data_type: double
+        description: Eastward wind component at forecast_valid_at in m/s, at the nearest MSM grid point.
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: -80
+                max_value: 80
+      - name: v_wind_ms
+        data_type: double
+        description: Northward wind component at forecast_valid_at in m/s, at the nearest MSM grid point.
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: -80
+                max_value: 80
+      - name: wind_speed_ms
+        data_type: double
+        description: Wind speed at forecast_valid_at in m/s, derived from u_wind_ms/v_wind_ms, at the nearest MSM grid point.
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 90
+      - name: precipitation_mm
+        data_type: double
+        description: >
+          Precipitation in mm over [forecast_hour_start_at,
+          forecast_valid_at), at the nearest MSM grid point.
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 200
+      - name: surface_pressure_hpa
+        data_type: double
+        description: Surface pressure at forecast_valid_at in hPa, at the nearest MSM grid point.
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 500
+                max_value: 1100
+      - name: sea_level_pressure_hpa
+        data_type: double
+        description: Sea-level pressure at forecast_valid_at in hPa, at the nearest MSM grid point.
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 870
+                max_value: 1090
+      - name: shortwave_radiation_wm2
+        data_type: double
+        description: >
+          Downward shortwave radiation flux in W/m², averaged over
+          [forecast_hour_start_at, forecast_valid_at), at the nearest MSM
+          grid point.
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 1500
+      - name: solar_radiation_mjm2
+        data_type: double
+        description: >
+          Global solar radiation in MJ/m² over [forecast_hour_start_at,
+          forecast_valid_at), at the nearest MSM grid point.
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 5.4
+      - name: total_cloud_cover_pct
+        data_type: double
+        description: Total cloud cover at forecast_valid_at in percent, at the nearest MSM grid point.
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 100
+      - name: high_cloud_cover_pct
+        data_type: double
+        description: High cloud cover at forecast_valid_at in percent, at the nearest MSM grid point.
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 100
+      - name: middle_cloud_cover_pct
+        data_type: double
+        description: Middle cloud cover at forecast_valid_at in percent, at the nearest MSM grid point.
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 100
+      - name: low_cloud_cover_pct
+        data_type: double
+        description: Low cloud cover at forecast_valid_at in percent, at the nearest MSM grid point.
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 100
+      - name: source_file_name
+        data_type: string
+        description: Archive extract the row came from, e.g. msm_surface_20260817.csv.gz.
+        data_tests:
+          - not_null
