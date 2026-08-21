@@ -438,8 +438,9 @@ HOURS_PER_DELIVERY_DAY = 24
 
 
 class MsmDownloadError(MsmError):
-    """A GRIB2 file could not be downloaded, or a delivery day's extraction
-    did not produce a complete csv.gz extract."""
+    """A GRIB2 archive member could not be downloaded: HTTP 404 (the file is
+    absent) or a completed download's content failed validation (empty body,
+    or missing the GRIB2 magic bytes)."""
 
 
 class MsmDownloader:
@@ -538,11 +539,14 @@ class MsmDownloader:
         MsmDownloadError
             On HTTP 404 (the archive member is absent — a RISH publication
             gap or a run not yet published, never silently treated as an
-            empty forecast; nothing is written) or if the downloaded content
-            is empty or does not start with the GRIB2 magic bytes (the
-            ``.part`` file written so far is deleted).
+            empty forecast; nothing is written) or if a completed attempt's
+            content is empty or does not start with the GRIB2 magic bytes
+            (the ``.part`` file written so far is deleted). Neither case is
+            retried.
         requests.RequestException
-            If every attempt (``max_attempts``) fails for another reason.
+            If every attempt (``max_attempts``) still fails with a
+            transport-level error (connection error, timeout, a failure
+            while streaming the body, ...).
         """
         dest = self.grib_path_for(source_file)
         if dest.exists() and not force:
@@ -551,41 +555,45 @@ class MsmDownloader:
             return dest, sha256_hex
 
         logger.info("Downloading {} -> {}", source_file.url, dest)
-        response = self._get_streaming(source_file.url)
-
         dest.parent.mkdir(parents=True, exist_ok=True)
         partial = dest.with_name(dest.name + ".part")
-        digest = hashlib.sha256()
-        size = 0
-        head = b""
-        with open(partial, "wb") as f:
-            for chunk in response.iter_content(chunk_size=DOWNLOAD_CHUNK_BYTES):
-                if not head:
-                    head = chunk[:4]
-                digest.update(chunk)
-                size += len(chunk)
-                f.write(chunk)
-        if size == 0 or not head.startswith(GRIB_MAGIC):
-            partial.unlink(missing_ok=True)
-            raise MsmDownloadError(
-                f"{source_file.url}: downloaded content is not a GRIB2 file "
-                f"({size} bytes, starts with {head!r})"
-            )
+        sha256_hex = self._stream_to_file(source_file.url, partial)
         partial.replace(dest)
-        sha256_hex = digest.hexdigest()
-        logger.info("Saved {} ({} bytes, sha256={})", dest, size, sha256_hex)
+        logger.info("Saved {} ({} bytes, sha256={})", dest, dest.stat().st_size, sha256_hex)
         return dest, sha256_hex
 
-    def _get_streaming(self, url: str) -> requests.Response:
-        """GET a URL with streaming enabled, retrying transient failures.
+    def _stream_to_file(self, url: str, partial: Path) -> str:
+        """GET a URL and stream its body to ``partial``, retrying whole attempts.
+
+        Every attempt — the GET, streaming the body and validating it — is
+        made inside the bounded retry scope, so a transport-level failure at
+        any point during an attempt (not just on the initial GET) is
+        retried; each retried attempt starts ``partial`` over from empty and
+        recomputes its sha256 from scratch.
+
+        Parameters
+        ----------
+        url : str
+            URL to GET.
+        partial : pathlib.Path
+            Destination the streamed body is written to.
+
+        Returns
+        -------
+        str
+            sha256 hex digest of the downloaded content.
 
         Raises
         ------
         MsmDownloadError
-            On HTTP 404 — not retried, since a missing archive member is a
-            completeness failure rather than a transient one.
+            On HTTP 404, or if a completed attempt's content is empty or
+            does not start with the GRIB2 magic bytes — neither is retried,
+            and ``partial`` is deleted before the error is raised.
         requests.RequestException
-            If every attempt (``max_attempts``) still fails.
+            If a transport-level failure occurs on every attempt
+            (``max_attempts``); each such failure deletes ``partial`` and,
+            unless it was the last attempt, retries after a
+            ``request_interval * attempt`` backoff.
         """
         attempt = 1
         while True:
@@ -598,10 +606,11 @@ class MsmDownloader:
                         "or a run not yet published), not an empty forecast"
                     )
                 response.raise_for_status()
-                return response
+                return self._write_body(response, url, partial)
             except MsmDownloadError:
                 raise
             except requests.RequestException as exc:
+                partial.unlink(missing_ok=True)
                 if attempt >= self.max_attempts:
                     raise
                 wait = self.request_interval * attempt
@@ -615,6 +624,53 @@ class MsmDownloader:
                 )
                 time.sleep(wait)
                 attempt += 1
+
+    @staticmethod
+    def _write_body(response: requests.Response, url: str, partial: Path) -> str:
+        """Stream one response's body to ``partial`` and validate it as GRIB2.
+
+        Parameters
+        ----------
+        response : requests.Response
+            Streaming response whose body is consumed via ``iter_content``.
+        url : str
+            Source URL, named in a validation-failure error.
+        partial : pathlib.Path
+            File the body is written to (opened fresh, so a retried attempt
+            never mixes bytes with an earlier failed one).
+
+        Returns
+        -------
+        str
+            sha256 hex digest of the written content.
+
+        Raises
+        ------
+        MsmDownloadError
+            If the content is empty or does not start with the GRIB2 magic
+            bytes (``partial`` is deleted first).
+        requests.RequestException
+            Propagated as-is if ``iter_content`` fails mid-stream; ``partial``
+            is left in place with whatever was written so far — the caller
+            deletes it before retrying.
+        """
+        digest = hashlib.sha256()
+        size = 0
+        head = b""
+        with open(partial, "wb") as f:
+            for chunk in response.iter_content(chunk_size=DOWNLOAD_CHUNK_BYTES):
+                if not head:
+                    head = chunk[:4]
+                digest.update(chunk)
+                size += len(chunk)
+                f.write(chunk)
+        if size == 0 or not head.startswith(GRIB_MAGIC):
+            partial.unlink(missing_ok=True)
+            raise MsmDownloadError(
+                f"{url}: downloaded content is not a GRIB2 file "
+                f"({size} bytes, starts with {head!r})"
+            )
+        return digest.hexdigest()
 
     def _throttle(self) -> None:
         """Sleep so consecutive HTTP requests are ``request_interval`` apart."""

@@ -230,6 +230,6 @@ models:
                 max_value: 100
       - name: source_file_name
         data_type: string
-        description: Archive extract the row came from, e.g. msm_surface_20260817.csv.gz.
+        description: GRIB2 archive member the row's leads were decoded from, e.g. Z__C_RJTD_20260817120000_MSM_GPV_Rjp_Lsurf_FH16-33_grib2.bin.
         data_tests:
           - not_null

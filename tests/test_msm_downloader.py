@@ -100,6 +100,26 @@ class FakeResponse:
             yield content[i : i + chunk_size]
 
 
+class MidStreamFailureResponse:
+    """Stand-in response whose ``iter_content`` yields one chunk then raises.
+
+    Simulates a transport-level failure that happens *after* the GET/headers
+    succeeded — a connection dropped partway through the body — rather than
+    on the initial request.
+    """
+
+    def __init__(self, first_chunk: bytes, status: int = 200):
+        self.first_chunk = first_chunk
+        self.status_code = status
+
+    def raise_for_status(self) -> None:
+        pass
+
+    def iter_content(self, chunk_size: int):
+        yield self.first_chunk
+        raise requests.ConnectionError("mid-stream boom")
+
+
 class FakeSession:
     """Stand-in for requests.Session serving canned responses by URL (404 if absent)."""
 
@@ -276,6 +296,93 @@ class TestDownloadFile:
 
         assert len(session.calls) == 3
         assert not dl.grib_path_for(sf).exists()
+
+    def test_mid_stream_failure_then_success_uses_the_second_attempts_content(self, tmp_path):
+        # The first attempt's body never completes (and isn't even valid
+        # GRIB2) -- it must be fully discarded, not merged with the second,
+        # successful attempt's content.
+        sf = SOURCE_FILES[0]
+        content = sample_message_bytes()
+        session = ScriptedSession([MidStreamFailureResponse(b"doo"), FakeResponse(content)])
+        dl = MsmDownloader(data_dir=tmp_path, session=session, request_interval=0, max_attempts=3)
+
+        path, sha256_hex = dl.download_file(sf)
+
+        assert path.read_bytes() == content
+        assert sha256_hex == hashlib.sha256(content).hexdigest()
+        assert len(session.calls) == 2
+        assert list((tmp_path / "grib").glob("*.part")) == []
+
+    def test_mid_stream_failure_every_attempt_raises_and_leaves_no_part(self, tmp_path):
+        sf = SOURCE_FILES[0]
+        session = ScriptedSession(
+            [MidStreamFailureResponse(b"doo"), MidStreamFailureResponse(b"doo")]
+        )
+        dl = MsmDownloader(data_dir=tmp_path, session=session, request_interval=0, max_attempts=2)
+
+        with pytest.raises(requests.ConnectionError):
+            dl.download_file(sf)
+
+        assert len(session.calls) == 2
+        assert not dl.grib_path_for(sf).exists()
+        assert list((tmp_path / "grib").glob("*.part")) == []
+
+
+class TestRetryBackoff:
+    """Backoff sleep VALUES, isolated from any throttle sleep.
+
+    ``time.monotonic`` is monkeypatched to always jump far past
+    ``request_interval`` between calls, so ``_throttle`` never itself sleeps
+    -- every recorded ``time.sleep`` call is therefore a retry backoff, and
+    the values can be asserted exactly.
+    """
+
+    @pytest.fixture
+    def no_throttle_sleeps(self, monkeypatch):
+        clock = {"t": 0.0}
+
+        def fake_monotonic():
+            clock["t"] += 1000.0
+            return clock["t"]
+
+        sleeps: list[float] = []
+        monkeypatch.setattr(msm_grib.time, "monotonic", fake_monotonic)
+        monkeypatch.setattr(msm_grib.time, "sleep", lambda s: sleeps.append(s))
+        return sleeps
+
+    def test_one_retry_sleeps_interval_times_one(self, tmp_path, no_throttle_sleeps):
+        sleeps = no_throttle_sleeps
+        sf = SOURCE_FILES[0]
+        content = sample_message_bytes()
+        session = ScriptedSession([requests.ConnectionError("boom"), FakeResponse(content)])
+        interval = 2.0
+        dl = MsmDownloader(
+            data_dir=tmp_path, session=session, request_interval=interval, max_attempts=3
+        )
+
+        dl.download_file(sf)
+
+        assert sleeps == [interval * 1]
+
+    def test_two_retries_sleep_interval_times_one_then_two(self, tmp_path, no_throttle_sleeps):
+        sleeps = no_throttle_sleeps
+        sf = SOURCE_FILES[0]
+        content = sample_message_bytes()
+        session = ScriptedSession(
+            [
+                requests.ConnectionError("boom"),
+                requests.ConnectionError("boom"),
+                FakeResponse(content),
+            ]
+        )
+        interval = 2.0
+        dl = MsmDownloader(
+            data_dir=tmp_path, session=session, request_interval=interval, max_attempts=3
+        )
+
+        dl.download_file(sf)
+
+        assert sleeps == [interval * 1, interval * 2]
 
 
 class TestThrottle:

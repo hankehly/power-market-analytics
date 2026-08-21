@@ -226,6 +226,6 @@ sources:
           - name: low_cloud_cover_pct
             description: Low cloud cover at forecast_valid_at_utc in percent, at the nearest MSM grid point.
           - name: source_file_name
-            description: Archive extract the row came from, e.g. msm_surface_20260817.csv.gz.
+            description: GRIB2 archive member the row's leads were decoded from, e.g. Z__C_RJTD_20260817120000_MSM_GPV_Rjp_Lsurf_FH16-33_grib2.bin.
             data_tests:
               - not_null

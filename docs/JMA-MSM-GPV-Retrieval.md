@@ -188,9 +188,11 @@ tolerated. The real file's messages confirmed every row of this table exactly:
 The height annotations in the "Surface type" column (1.5 m, 10 m) come from JMA's MSM
 format specification, not from a decode-time assertion: the decoder checks only
 `typeOfFirstFixedSurface` (103) against `MsmElement.surface_type`, never the height value
-itself (GRIB2 does not carry the 1.5 m / 10 m figure on a level-103 field as a separate,
-independently checkable key here) — the heights are documentation of what 103 means for
-each element, not something this pipeline re-verifies per message.
+itself (the height is carried but not checked by the decoder — a level-103 message's
+`scaledValueOfFirstFixedSurface`/ecCodes `level` key does hold the 1.5 m / 10 m figure
+independently, only `typeOfFirstFixedSurface` is asserted here) — the heights are
+documentation of what 103 means for each element, not something this pipeline re-verifies
+per message.
 
 Two other checks apply to every message before it is used
 (`_check_message_identity`): `editionNumber` must be **2** (GRIB2 throughout the archive)
