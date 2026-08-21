@@ -97,8 +97,9 @@ Why the 12 UTC D−2 run and not another:
   hours of margin.
 - **The 21 UTC D−2 run cannot be used**: its horizon (FH39 pre-extension era; even
   post-extension its practical distribution timing is the same run family) reaches only
-  21:00 UTC + 39 h = 12:00 UTC D = **21:00 JST D** — four hours short of the delivery day's
-  last hour-ending (24:00 JST D). A 39-hour horizon run simply cannot cover the full day.
+  21:00 UTC + 39 h = 12:00 UTC D = **21:00 JST D** — three hours short of the delivery day's
+  last hour-ending (24:00 JST D; the missing hour-endings are 22:00, 23:00, 24:00). A
+  39-hour horizon run simply cannot cover the full day.
 - **The 00 UTC D−1 run cannot be used**: although its horizon (FH51 or FH78 depending on
   era) would cover D, it is not distributed until roughly **11:30 JST D−1** — *after* the
   09:30 JST D−1 cutoff. Using it would leak same-day information the demand model could not
@@ -183,6 +184,13 @@ tolerated. The real file's messages confirmed every row of this table exactly:
 | `low_cloud_cover_pct` | 0/6/3 | 1 (ground/surface) | Low cloud cover | Instantaneous, % |
 | `middle_cloud_cover_pct` | 0/6/4 | 1 (ground/surface) | Middle cloud cover | Instantaneous, % |
 | `high_cloud_cover_pct` | 0/6/5 | 1 (ground/surface) | High cloud cover | Instantaneous, % |
+
+The height annotations in the "Surface type" column (1.5 m, 10 m) come from JMA's MSM
+format specification, not from a decode-time assertion: the decoder checks only
+`typeOfFirstFixedSurface` (103) against `MsmElement.surface_type`, never the height value
+itself (GRIB2 does not carry the 1.5 m / 10 m figure on a level-103 field as a separate,
+independently checkable key here) — the heights are documentation of what 103 means for
+each element, not something this pipeline re-verifies per message.
 
 Two other checks apply to every message before it is used
 (`_check_message_identity`): `editionNumber` must be **2** (GRIB2 throughout the archive)
