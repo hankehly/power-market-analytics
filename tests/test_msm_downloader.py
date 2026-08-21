@@ -437,34 +437,65 @@ class TestExtractDay:
         with pytest.raises(MsmExtractError, match="expected 48"):
             dl.extract_day(DELIVERY_DATE, STATIONS)
 
-    def test_csv_write_failure_cleans_up_the_partial_file(self, tmp_path, monkeypatch):
+    def _assert_retry_actually_rewrites(self, dl):
+        """Nothing at the csv path short-circuits the cache check, so a later
+        non-force call must re-run the full pipeline and produce a correct,
+        complete extract — not silently report the day as already done."""
+        assert not dl.csv_path_for(DELIVERY_DATE).exists()
+        # GRIBs from the failed attempt are kept for inspection, per contract.
+        for sf in SOURCE_FILES:
+            assert dl.grib_path_for(sf).exists()
+
+        path = dl.extract_day(DELIVERY_DATE, STATIONS)
+
+        assert path.exists()
+        with gzip.open(path, "rt", newline="") as f:
+            rows = list(csv.reader(f))
+        assert rows[0] == list(RAW_CSV_COLUMNS)
+        assert len(rows) - 1 == len(STATIONS) * 24
+        assert dl.manifest_path_for(DELIVERY_DATE).exists()
+        # The retry succeeded end to end, so the usual GRIB cleanup ran too.
+        for sf in SOURCE_FILES:
+            assert not dl.grib_path_for(sf).exists()
+
+    def test_csv_write_failure_cleans_up_and_a_later_call_retries(self, tmp_path, monkeypatch):
         session = complete_session()
         dl = MsmDownloader(data_dir=tmp_path, session=session, request_interval=0)
 
         def boom(*args, **kwargs):
             raise OSError("disk full")
 
-        monkeypatch.setattr(msm_grib.gzip, "open", boom)
-
-        with pytest.raises(OSError):
-            dl.extract_day(DELIVERY_DATE, STATIONS)
+        with monkeypatch.context() as m:
+            m.setattr(msm_grib.gzip, "open", boom)
+            with pytest.raises(OSError):
+                dl.extract_day(DELIVERY_DATE, STATIONS)
 
         assert list(dl.csv_dir.rglob("*.part")) == []
-        assert not dl.csv_path_for(DELIVERY_DATE).exists()
+        self._assert_retry_actually_rewrites(dl)
 
-    def test_manifest_write_failure_cleans_up_the_partial_file(self, tmp_path, monkeypatch):
+    def test_manifest_write_failure_leaves_no_csv_and_a_later_call_retries(
+        self, tmp_path, monkeypatch
+    ):
         session = complete_session()
         dl = MsmDownloader(data_dir=tmp_path, session=session, request_interval=0)
 
         def boom(*args, **kwargs):
             raise TypeError("not serializable")
 
-        monkeypatch.setattr(msm_grib.json, "dumps", boom)
-
-        with pytest.raises(TypeError):
-            dl.extract_day(DELIVERY_DATE, STATIONS)
+        with monkeypatch.context() as m:
+            m.setattr(msm_grib.json, "dumps", boom)
+            with pytest.raises(TypeError):
+                dl.extract_day(DELIVERY_DATE, STATIONS)
 
         assert list(dl.csv_dir.rglob("*.part")) == []
+        # The manifest is written before the csv (csv commit is the sole
+        # "day done" signal the cache check trusts), so a manifest-write
+        # failure must leave no file at the final csv path either — the bug
+        # this test pins: previously the csv was written first and survived
+        # a manifest-write failure, so a later non-force call would
+        # short-circuit on the stale "cached" csv.gz without ever noticing
+        # the manifest was never written.
+        self._assert_retry_actually_rewrites(dl)
 
 
 # --------------------------------------------------------------------------- download_range
