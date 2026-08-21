@@ -1,0 +1,48 @@
+description: >
+  JMA MSM (メソ数値予報モデル) GPV point-forecast extracts — one row per
+  station, forecast reference run and forecast lead hour. This pipeline
+  ingests a single vintage per delivery day D: the 12 UTC run of D-2
+  (21:00 JST), the latest run whose forecast horizon still covers every
+  hour of D without leaking information past the demand-forecast model's
+  09:30 JST D-1 cutoff. Source: Kyoto University RISH's GRIB2 mirror of
+  the JMA MSM surface grid
+  (https://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/),
+  downloaded and decoded per delivery day by MsmDownloader
+  (scripts/download_jma_msm_surface_forecast.py) into one gzip CSV extract
+  (msm_surface_YYYYMMDD.csv.gz, one row per station x forecast lead hour,
+  header RAW_CSV_COLUMNS) and loaded by MsmForecastCsvLoader
+  (scripts/load_jma_msm_surface_forecast.py). forecast_reference_at_utc and
+  forecast_valid_at_utc are kept as raw-layer ISO 8601 UTC strings ("...Z")
+  rather than parsed timestamps, to avoid session-timezone parsing
+  ambiguity; std converts them to JST wall-clock. The nine identifying
+  columns and source_file_name are never null; every value column is
+  nullable — a GRIB bitmap hole becomes an empty CSV cell, decoded here as
+  NULL. Protocol, archive layout and unit conversions:
+  docs/JMA-MSM-GPV-Retrieval.md.
+
+grain: [station_id, forecast_reference_at_utc, forecast_valid_at_utc]
+columns:
+  - { name: station_id, type: string, nullable: false }
+  - { name: station_latitude, type: double, nullable: false }
+  - { name: station_longitude, type: double, nullable: false }
+  - { name: grid_latitude, type: double, nullable: false }
+  - { name: grid_longitude, type: double, nullable: false }
+  - { name: grid_distance_km, type: double, nullable: false }
+  - { name: forecast_reference_at_utc, type: string, nullable: false }
+  - { name: forecast_valid_at_utc, type: string, nullable: false }
+  - { name: forecast_lead_hours, type: int, nullable: false }
+  - { name: temperature_c, type: double }
+  - { name: relative_humidity_pct, type: double }
+  - { name: u_wind_ms, type: double }
+  - { name: v_wind_ms, type: double }
+  - { name: wind_speed_ms, type: double }
+  - { name: precipitation_mm, type: double }
+  - { name: surface_pressure_hpa, type: double }
+  - { name: sea_level_pressure_hpa, type: double }
+  - { name: shortwave_radiation_wm2, type: double }
+  - { name: solar_radiation_mjm2, type: double }
+  - { name: total_cloud_cover_pct, type: double }
+  - { name: high_cloud_cover_pct, type: double }
+  - { name: middle_cloud_cover_pct, type: double }
+  - { name: low_cloud_cover_pct, type: double }
+  - { name: source_file_name, type: string, nullable: false }
