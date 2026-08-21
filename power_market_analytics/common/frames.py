@@ -7,7 +7,7 @@ constructor and fails fast when the contract is violated.
 
 from __future__ import annotations
 
-from typing import ClassVar
+from typing import ClassVar, Self
 
 import pandas as pd
 
@@ -51,7 +51,7 @@ class DomainFrame:
         return len(self._df)
 
     @classmethod
-    def from_df(cls, df: pd.DataFrame) -> "DomainFrame":
+    def from_df(cls, df: pd.DataFrame) -> Self:
         """Construct a validated wrapper from a raw DataFrame.
 
         Parameters
@@ -61,7 +61,7 @@ class DomainFrame:
 
         Returns
         -------
-        DomainFrame
+        Self
             The validated wrapper (an instance of ``cls``).
 
         Raises

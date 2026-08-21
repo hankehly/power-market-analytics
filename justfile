@@ -92,6 +92,10 @@ test *args:
 lint *args:
     uv run ruff check . {{args}}
 
+[doc("Type-check Python with mypy (checked packages + config in pyproject.toml [tool.mypy])")]
+mypy *args:
+    uv run mypy {{args}}
+
 # Version pinned here and in .github/workflows/ci.yml — bump both together.
 [doc("Scan Dockerfiles, workflows and committed files with checkov (config in .checkov.yaml)")]
 checkov *args:

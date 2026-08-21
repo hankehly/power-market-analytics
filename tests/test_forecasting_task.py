@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+from typing import Any
 
 import pandas as pd
 import pytest
@@ -38,7 +39,7 @@ class OtherRecords(ForecastRecords):
 
 
 def make_spec(**overrides) -> TaskSpec:
-    kwargs = dict(
+    kwargs: dict[str, Any] = dict(
         name="load",
         unit="MW",
         history_lead_days=2,

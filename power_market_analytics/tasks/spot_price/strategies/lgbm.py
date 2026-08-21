@@ -14,8 +14,12 @@ from power_market_analytics.forecasting.lgbm import (
 from power_market_analytics.tasks.spot_price import TASK
 from power_market_analytics.tasks.spot_price.frames import OcctoDemandForecast
 
-BASE_FEATURE_COLS = (*CALENDAR_FEATURE_COLS, "lag_1d_price")
-OCCTO_FEATURE_COLS = ("max_demand_hour_ending", "max_demand_mw", "max_supply_capacity_mw")
+BASE_FEATURE_COLS: tuple[str, ...] = (*CALENDAR_FEATURE_COLS, "lag_1d_price")
+OCCTO_FEATURE_COLS: tuple[str, ...] = (
+    "max_demand_hour_ending",
+    "max_demand_mw",
+    "max_supply_capacity_mw",
+)
 TARGET_COL = TASK.actual_col
 FORECAST_COL = TASK.forecast_col
 

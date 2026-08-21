@@ -31,6 +31,11 @@
 - `just lint [ruff args]` — `uv run ruff check .` (rules in `pyproject.toml` `[tool.ruff]`;
   extra args append, e.g. `just lint --fix`). The `ci` workflow runs the same check as a
   `lint` job on every push (dev dependency group only, no PySpark install).
+- `just mypy [mypy args]` — `uv run mypy` over `power_market_analytics/` + `scripts/` +
+  `tests/` (config in `pyproject.toml` `[tool.mypy]`; untyped-function bodies are not
+  checked, and plotly/shap imports are ignored for lack of stubs). Also a `ci` job on every
+  push (full `uv sync` — mypy resolves types against PySpark/MLflow and the `pandas-stubs` /
+  `types-PyYAML` dev dependencies).
 - `just checkov [checkov args]` — checkov scan (Dockerfiles, GitHub Actions workflows, secrets
   in any committed file; config in `.checkov.yaml`, version pinned in the justfile and
   `.github/workflows/ci.yml`). Exits 1 on any failed check; the `ci` workflow runs it as a
@@ -227,8 +232,8 @@
   new Python should come with tests; the coverage gate is 100% locally and in the GitHub
   Actions `ci` workflow, and the `if __name__ == "__main__":` guard is the only excluded
   line). Validate data/model changes with `just dbt build`
-  (contracts + tests) and Python changes with `just lint` (= `uv run ruff check .`, also a CI
-  job); loaders/downloaders are
+  (contracts + tests) and Python changes with `just lint` + `just mypy` (both also CI
+  jobs); loaders/downloaders are
   also checked end-to-end by running their `scripts/` entry point in the devcontainer.
 
 ## Dimensional Modeling

@@ -19,6 +19,7 @@ import pandas as pd
 import pytest
 
 from power_market_analytics.forecasting.backtest import BacktestRun, run_backtest
+from power_market_analytics.forecasting.frames import DayAheadForecast
 from power_market_analytics.forecasting.strategy import ForecastUnavailableError
 from power_market_analytics.tasks.spot_price.frames import (
     OcctoDemandForecast,
@@ -98,7 +99,9 @@ def make_occto(days) -> OcctoDemandForecast:
 
 def training_rows(strategy: LightGbmStrategy) -> int:
     """Rows the current model was fitted on, read off the first tree's root node."""
-    root = strategy._model.booster_.dump_model()["tree_info"][0]["tree_structure"]
+    model = strategy._model
+    assert model is not None
+    root = model.booster_.dump_model()["tree_info"][0]["tree_structure"]
     return root["internal_count"] if "internal_count" in root else root["leaf_count"]
 
 
@@ -239,7 +242,7 @@ class TestInit:
 
 
 @pytest.fixture(scope="module")
-def fitted(prices: SpotPrices) -> tuple[LightGbmStrategy, SpotPriceForecast]:
+def fitted(prices: SpotPrices) -> tuple[LightGbmStrategy, DayAheadForecast]:
     """One strategy after a single ``predict`` for ``D``, shared by the read-only checks."""
     strategy = LightGbmStrategy(train_window_days=30, refit_every_days=7)
     forecast = strategy.predict(D, history_before(prices, D))
@@ -530,24 +533,34 @@ def logged_model_names(run_id: str) -> list[str]:
     return [mlflow.get_logged_model(out.model_id).name for out in run.outputs.model_outputs]
 
 
+def one_row_eval_set() -> LightGbmEvalSet:
+    return LightGbmEvalSet.from_df(
+        pd.DataFrame(
+            {
+                "trade_date": pd.to_datetime(["2024-04-10"]),
+                "time_code": [1],
+                "month": [4],
+                "day_of_week": [2],
+                "lag_1d_price": [10.5],
+                "actual_price_jpy_kwh": [10.0],
+                "forecast_price_jpy_kwh": [10.25],
+            }
+        )
+    )
+
+
 class TestEvaluate:
     def test_before_any_backtest_raises(self, prices):
         strategy = LightGbmStrategy()
-        eval_set = LightGbmEvalSet.from_df(
-            pd.DataFrame(
-                {
-                    "trade_date": pd.to_datetime(["2024-04-10"]),
-                    "time_code": [1],
-                    "month": [4],
-                    "day_of_week": [2],
-                    "lag_1d_price": [10.5],
-                    "actual_price_jpy_kwh": [10.0],
-                    "forecast_price_jpy_kwh": [10.25],
-                }
-            )
-        )
         with pytest.raises(RuntimeError, match="lightgbm: no fitted model or recorded"):
-            strategy.evaluate(eval_set)
+            strategy.evaluate(one_row_eval_set())
+
+    def test_unknown_keyword_arguments_raise(self, prices):
+        # The base contract accepts strategy-specific keyword options, so the
+        # sliding-window strategy rejects the ones it does not support itself.
+        strategy = LightGbmStrategy()
+        with pytest.raises(TypeError, match="lightgbm.evaluate got unexpected keyword arguments"):
+            strategy.evaluate(one_row_eval_set(), explainability_algorithm="exact")
 
     def test_logs_backtest_metrics_params_plots_and_model(self, prices):
         strategy = LightGbmStrategy(train_window_days=30, refit_every_days=7)

@@ -200,13 +200,15 @@ class EstatCensusMeshCsvLoader(CsvLoader):
             f"{PRIVACY_CODE} not in {list(_ACCEPTED_PRIVACY_CODES)}": key.isNotNull()
             & ~privacy.isin(*_ACCEPTED_PRIVACY_CODES),
         }
+        # collect()[0] over first(): an aggregation always yields one row,
+        # and unlike first() the element is not Optional.
         counts = raw.agg(
             F.count(F.when(key.isNull(), True)).alias("__label_rows"),
             *[
                 F.count(F.when(cond, True)).alias(f"__c{i}")
                 for i, cond in enumerate(checks.values())
             ],
-        ).first()
+        ).collect()[0]
         if counts["__label_rows"] != 1:
             raise ValueError(
                 f"{file}: expected exactly one label row without a KEY_CODE, found "

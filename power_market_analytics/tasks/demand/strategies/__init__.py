@@ -9,7 +9,9 @@ from power_market_analytics.forecasting.strategy import ForecastStrategy
 from power_market_analytics.tasks.demand.datasets import load_area_temperature
 from power_market_analytics.tasks.demand.strategies.lgbm import LightGbmStrategy
 
-STRATEGIES: dict[str, type[ForecastStrategy]] = {
+# Typed to the concrete base because build_strategy instantiates entries with
+# LightGbmStrategy's constructor signature (temperature + train_start_date).
+STRATEGIES: dict[str, type[LightGbmStrategy]] = {
     LightGbmStrategy.name: LightGbmStrategy,
 }
 

@@ -20,6 +20,7 @@ import dataclasses
 import datetime
 from collections.abc import Callable
 from pathlib import Path
+from typing import cast
 from zoneinfo import ZoneInfo
 
 import requests
@@ -229,7 +230,11 @@ class OcctoBulkDownloader:
             ) from None
         if (target_date_from is None) != (target_date_to is None):
             raise ValueError("target_date_from and target_date_to must be given together")
-        if target_date_from is not None and target_date_from > target_date_to:
+        if (
+            target_date_from is not None
+            and target_date_to is not None
+            and target_date_from > target_date_to
+        ):
             raise ValueError("target_date_from must not be after target_date_to")
 
         windows = self._windows(spec, target_date_from, target_date_to)
@@ -276,15 +281,17 @@ class OcctoBulkDownloader:
         """
         if spec.max_days_per_download is None:
             return [(target_date_from, target_date_to)]
-        if target_date_from is None:
-            target_date_from = spec.history_start
+        if target_date_from is None or target_date_to is None:
+            # OcctoDataset.__post_init__ guarantees history_start for
+            # chunked datasets.
+            target_date_from = cast(datetime.date, spec.history_start)
             # The 翌々日 series is published for D+2 on day D (~17:45 JST), so
             # today + 2 is the furthest target date that can exist. Asking past
             # the last published day is harmless: the portal returns the rows
             # that exist (a fully-future window comes back header-only).
             target_date_to = datetime.datetime.now(JST).date() + datetime.timedelta(days=2)
         step = datetime.timedelta(days=spec.max_days_per_download)
-        windows = []
+        windows: list[tuple[datetime.date | None, datetime.date | None]] = []
         window_from = target_date_from
         while window_from <= target_date_to:
             window_to = min(window_from + step - datetime.timedelta(days=1), target_date_to)
@@ -401,7 +408,7 @@ class OcctoBulkDownloader:
             "allAreaSectDwld": "11",
             **AREA_CHECKBOXES,
         }
-        if target_date_from is None:
+        if target_date_from is None or target_date_to is None:
             selection["areaAllTermDwld"] = "Y"
         else:
             selection["areaNngpFrom"] = target_date_from.strftime("%Y/%m/%d")

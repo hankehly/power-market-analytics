@@ -131,15 +131,14 @@ def daily_metrics(result: BacktestResult) -> pd.DataFrame:
     """
     actual_col, forecast_col = type(result).actual_col, type(result).forecast_col
     return (
-        result.df.groupby("trade_date")
+        result.df.groupby("trade_date")[[actual_col, forecast_col]]
         .apply(
             lambda g: pd.Series(
                 {
                     "mae": mae(g[actual_col], g[forecast_col]),
                     "mape": mape(g[actual_col], g[forecast_col]),
                 }
-            ),
-            include_groups=False,
+            )
         )
         .reset_index()
     )
