@@ -36,6 +36,7 @@ from power_market_analytics.msm_grib import (
     extract_station_records,
 )
 from tests.msm_grib_support import (
+    MINUTE_STEP_UNIT,
     build_day_file,
     build_edition1_message,
     build_file,
@@ -372,6 +373,58 @@ class TestStatisticalProducts:
             assert by_key[("s00001", lead)].values["temperature_c"] == pytest.approx(
                 varying_value("temperature_k", lead, 0) - 273.15, abs=1e-9
             )
+
+
+class TestStepEncoding:
+    """Parameter + endStep alone is not enough: template and interval are asserted."""
+
+    def _file_with(self, tmp_path, element_key, **overrides):
+        """A complete member where one (element, first lead) message is re-encoded."""
+        element = next(e for e in MSM_SURFACE_ELEMENTS if e.key == element_key)
+        lead = SOURCE_FILE.leads_used[0]
+        messages = day_messages(
+            SOURCE_FILE, REFERENCE_AT, GRID, constant_value, omit=[(element_key, lead)]
+        )
+        replaced = build_message(
+            element,
+            lead_hours=lead,
+            reference_at=REFERENCE_AT,
+            grid=GRID,
+            values=[constant_value(element_key, lead, i) for i in range(GRID.ni * GRID.nj)],
+            **overrides,
+        )
+        return build_file(tmp_path / "re_encoded.bin", [replaced, *messages])
+
+    def test_cumulative_interval_on_a_statistical_element_is_rejected(self, tmp_path):
+        # (0, 28] passes a parameter + endStep match but is not the hour (27, 28].
+        path = self._file_with(tmp_path, "precipitation_mm", start_step=0)
+        with pytest.raises(
+            MsmExtractError,
+            match=r"precipitation_mm \(lead 28\).*over steps 0-28.*expected template 8 over steps 27-28",
+        ):
+            extract(path)
+
+    def test_statistical_element_encoded_instantaneously_is_rejected(self, tmp_path):
+        path = self._file_with(tmp_path, "shortwave_radiation_wm2", statistical=False)
+        with pytest.raises(
+            MsmExtractError,
+            match=r"shortwave_radiation_wm2 \(lead 28\).*productDefinitionTemplateNumber=0",
+        ):
+            extract(path)
+
+    def test_instantaneous_element_encoded_as_an_interval_is_rejected(self, tmp_path):
+        path = self._file_with(tmp_path, "temperature_k", statistical=True)
+        with pytest.raises(
+            MsmExtractError,
+            match=r"temperature_k \(lead 28\).*productDefinitionTemplateNumber=8.*expected template 0 over steps 28-28",
+        ):
+            extract(path)
+
+    def test_steps_coded_in_minutes_are_read_in_hours(self, tmp_path, constant_file):
+        # The decoder pins stepUnits to hours before reading any step key, so a
+        # message coding lead 28 as 1680 minutes decodes exactly like the hourly one.
+        path = self._file_with(tmp_path, "temperature_k", step_unit=MINUTE_STEP_UNIT)
+        assert extract(path) == extract(constant_file)
 
 
 class TestSkippedMessages:

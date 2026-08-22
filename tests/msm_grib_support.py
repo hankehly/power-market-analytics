@@ -35,13 +35,15 @@ from pathlib import Path
 import eccodes
 
 from power_market_analytics.msm import MSM_SURFACE_ELEMENTS, MsmElement, MsmGrid, MsmSourceFile
+from power_market_analytics.msm_grib import HOUR_STEP_UNIT
 
 #: ecCodes sample the GRIB2 fixtures are built from.
 GRIB2_SAMPLE = "regular_ll_sfc_grib2"
 #: ecCodes sample used for the ``editionNumber`` rejection fixture.
 GRIB1_SAMPLE = "regular_ll_sfc_grib1"
-#: Step unit code for hours (``stepUnits``), the unit MSM forecast hours use.
-HOUR_STEP_UNIT = 1
+#: ecCodes ``stepUnits`` code for minutes (a message coded in minutes, for the
+#: decoder's hours pin).
+MINUTE_STEP_UNIT = 0
 #: Sentinel written at ``missing_indices``; also ecCodes' default decode-side
 #: ``missingValue``, which is what the decoder compares against.
 MISSING_VALUE = 9999.0
@@ -93,6 +95,9 @@ def build_message(
     missing_indices: Sequence[int] = (),
     surface_type: int | None = None,
     j_points_are_consecutive: int = 0,
+    statistical: bool | None = None,
+    start_step: int | None = None,
+    step_unit: int = HOUR_STEP_UNIT,
 ) -> bytes:
     """Encode one GRIB2 message the decode layer should recognise.
 
@@ -120,6 +125,16 @@ def build_message(
         Overrides ``element.surface_type`` (to build a mismatching message).
     j_points_are_consecutive : int, optional
         ``jPointsAreConsecutive`` (1 builds a j-fastest message).
+    statistical : bool, optional
+        Overrides ``element.statistical`` for the *encoding* only — an
+        instantaneous element written as template 8, or a statistical one
+        written as template 0 (both must be rejected by the decoder).
+    start_step : int, optional
+        Interval start for a statistical encoding (default ``lead_hours - 1``);
+        ``0`` writes a cumulative ``(0, lead_hours]`` field the decoder must reject.
+    step_unit : int, optional
+        ``stepUnits`` the steps are coded in (default hours); with
+        :data:`MINUTE_STEP_UNIT` the steps are written in minutes.
 
     Returns
     -------
@@ -138,7 +153,8 @@ def build_message(
         eccodes.codes_set(msg, "discipline", element.discipline)
         eccodes.codes_set(msg, "parameterCategory", element.parameter_category)
         eccodes.codes_set(msg, "parameterNumber", element.parameter_number)
-        if element.statistical:
+        is_statistical = element.statistical if statistical is None else statistical
+        if is_statistical:
             # Template 8 (statistical over an interval) must be selected before
             # the step keys exist on the message.
             eccodes.codes_set(msg, "productDefinitionTemplateNumber", 8)
@@ -150,12 +166,14 @@ def build_message(
         eccodes.codes_set(msg, "productionStatusOfProcessedData", production_status)
         eccodes.codes_set(msg, "dataDate", int(reference_at.strftime("%Y%m%d")))
         eccodes.codes_set(msg, "dataTime", reference_at.hour * 100 + reference_at.minute)
-        eccodes.codes_set(msg, "stepUnits", HOUR_STEP_UNIT)
-        if element.statistical:
-            eccodes.codes_set(msg, "startStep", lead_hours - 1)
-            eccodes.codes_set(msg, "endStep", lead_hours)
+        scale = 60 if step_unit == MINUTE_STEP_UNIT else 1
+        eccodes.codes_set(msg, "stepUnits", step_unit)
+        if is_statistical:
+            first = lead_hours - 1 if start_step is None else start_step
+            eccodes.codes_set(msg, "startStep", first * scale)
+            eccodes.codes_set(msg, "endStep", lead_hours * scale)
         else:
-            eccodes.codes_set(msg, "forecastTime", lead_hours)
+            eccodes.codes_set(msg, "forecastTime", lead_hours * scale)
         _set_grid(msg, grid, j_points_are_consecutive)
         eccodes.codes_set(msg, "packingType", "grid_ieee")
         eccodes.codes_set(msg, "precision", 2)
