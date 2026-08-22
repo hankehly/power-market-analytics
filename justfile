@@ -84,6 +84,12 @@ refresh-estat *args:
     just python scripts/load_estat_census_population_mesh.py
     just dbt build
 
+[doc("Refresh JMA MSM surface forecasts: download RISH GRIB2 runs (~157 MB per delivery day; args pass through, e.g. --start-date 2026-08-01 --keep-grib), extract station points, reload raw, rebuild + test dbt")]
+refresh-msm *args:
+    just python scripts/download_jma_msm_surface_forecast.py {{ args }}
+    just python scripts/load_jma_msm_surface_forecast.py
+    just dbt build
+
 [doc("Run the Python unit tests with a coverage report (pytest, host-side; uses a local SparkSession)")]
 test *args:
     uv run pytest --cov --cov-report=term-missing {{args}}

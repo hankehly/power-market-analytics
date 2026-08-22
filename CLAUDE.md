@@ -18,6 +18,12 @@
   census vintage (2015 `T000847`, 2020 `T001101` JGD2000; 151 primary-mesh zips each, cached —
   args pass through, e.g. `--years 2020`, `--force`; a cold run is ~50 min because e-Stat generates
   each archive in ~10 s), reload `raw`, `dbt build`.
+- `just refresh-msm [args]` — JMA MSM GPV surface-forecast refresh: for each delivery day D,
+  download + decode the three RISH GRIB2 files covering the 12 UTC D-2 run (args pass through,
+  e.g. `--start-date`, `--force`, `--keep-grib`; ~157 MB per delivery day, ~54 GiB/yr), reload
+  `raw`, `dbt build`. Needs a devcontainer image rebuild (`docker compose build devcontainer`)
+  for the eccodes dependency before it can run end-to-end in-container; see
+  [docs/JMA-MSM-GPV-Retrieval.md](docs/JMA-MSM-GPV-Retrieval.md) §8.
 - `just test [pytest args]` — Python unit tests (host-side pytest, ~1 min) with a `pytest-cov`
   term-missing report over `power_market_analytics/` + `scripts/` (config in `pyproject.toml`
   `[tool.coverage.*]`; gated at 100% via `fail_under`, so a partial suite fails locally and in
@@ -92,6 +98,21 @@
   prefecture-level except 静岡, split at the 富士川) for its `area_key`/`area_code`
   columns — every station must have a mapping row. Protocol + CSV format:
   [docs/JMA-Weather-Data-Retrieval.md](docs/JMA-Weather-Data-Retrieval.md).
+- JMA MSM GPV surface forecast (one vintage per delivery day D — the 12 UTC D-2 run, leads
+  28-51 = JST hour-endings 01:00-24:00 of D, safely before the demand model's 09:30 JST D-1
+  cutoff): `scripts/download_jma_msm_surface_forecast.py` (`MsmDownloader` in
+  `power_market_analytics/msm_grib.py`, GRIB2 decode via eccodes with per-call
+  `codes_grib_multi_support_on()` — JMA packs many fields per message; three RISH GRIB2
+  files/day, deleted after a successful extract by default) → `data/jma/msm_surface_forecast/`
+  (one `csv.gz` extract + manifest per delivery day) → `scripts/load_jma_msm_surface_forecast.py`
+  (`MsmForecastCsvLoader` in `power_market_analytics/msm.py`, eccodes-free, contract
+  `conf/schemas/jma_msm_surface_forecast.yaml`) → `pma_raw.jma_msm_surface_forecast` →
+  `stg/std_jma__msm_surface_forecast` (JST conversion, raw UTC kept as ISO strings) →
+  `fct_jma_msm_weather_forecast_hourly` (grain station_id × forecast_reference_at ×
+  forecast_valid_at; nearest-grid-point values, not station-specific; joins
+  `fct_jma_weather_hourly` on station_id + forecast_valid_at = observed_at for
+  forecast-vs-observed comparisons). Protocol, GRIB2 element table and verification results:
+  [docs/JMA-MSM-GPV-Retrieval.md](docs/JMA-MSM-GPV-Retrieval.md).
 - OCCTO 翌々日 demand forecast: `scripts/download_occto_demand_forecast.py`
   (`OcctoBulkDownloader` in `power_market_analytics/occto.py`, always re-downloads the whole
   history) → `data/occto/demand_forecast_dad/` → `scripts/load_occto_demand_forecast.py`
@@ -224,6 +245,13 @@
   day can also have blank cells (2025-10-12, 22 periods) → null measures; two CSV layouts
   (title line + `yyyymmdd` until 2025-12-24, TEPCO-shaped `yyyy/mm/dd` from 2025-12-25) and two
   member-name generations (`YYYYMMDD_jisseki.csv` → `jukyu_jisseki_YYYYMMDD_06.csv` from 2025-12).
+- JMA MSM GRIB2: JMA packs many (element, forecast-hour) fields into one message envelope per
+  archive file (216 fields in a single FH16-33 file) — ecCodes needs
+  `codes_grib_multi_support_on()` (process-global, re-asserted per call) or it yields only the
+  first field. RISH's TLS chain has served a stale intermediate since its leaf cert's
+  2026-05-28 renewal; `requests`/certifi rejects it (browsers/curl tolerate it via AIA chasing)
+  — fetch the correct intermediate and pass a combined bundle via `REQUESTS_CA_BUNDLE` until
+  RISH fixes it. Details: `docs/JMA-MSM-GPV-Retrieval.md` §5.1/§8.4.
 
 ## Claude Code settings
 
