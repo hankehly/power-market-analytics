@@ -360,7 +360,10 @@ Every weather value column is the **nearest MSM grid point's** value
 grid point's elevation and terrain can differ materially from the station's own
 ([§9.4](#94-forecast-vs-observed-comparison) shows this in the verified numbers). `dbt_utils.accepted_range`
 tests on the fct model encode the physically-derived plausibility bounds (e.g.
-`relative_humidity_pct` 0–100, `grid_distance_km` 0–5).
+`relative_humidity_pct` 0–100, `grid_distance_km` 0–5). One deliberate allowance:
+`total_cloud_cover_pct` is tested against 0–100.1, because the GRIB2 packing of that field
+overshoots 100 by up to ~0.011 on rare rows (157 of 5.7 M in the full backfill); values are
+kept as decoded rather than clamped, and the three layer covers stay within 0–100.
 
 ## 8. Operations
 
@@ -481,6 +484,14 @@ day **2026-08-19** (reference run **2026-08-17T12:00:00Z**, the 12 UTC D−2 run
 Full `just dbt build`: **624/624 PASS** — every contract, every grain-uniqueness test, and
 every relationship test (`dim_jma_station`, `dim_date`) held, including every physical-range
 test on real data (notably `relative_humidity_pct` staying within its asserted 0–100 bound).
+
+The full backfill (2022-04-01 → 2026-08-23, run 2026-08-21/22: 1,606 delivery days,
+252.8 GB of GRIB2 fetched sequentially at ~80 days/hour, 320 MB of csv.gz extracts, every
+file exactly 3,576 rows, 5,743,056 raw rows loaded) surfaced one real-data refinement: the
+`total_cloud_cover_pct` packing overshoot described in [§7](#7-warehouse-models), after
+which the build is again fully green. A dozen transient RISH connection resets during the
+run were absorbed by the per-file retry; two laptop-sleep network outages exhausted the
+retries, and the resumable cache picked up at the first missing day on relaunch.
 
 ### 9.3 Downloader/loader
 

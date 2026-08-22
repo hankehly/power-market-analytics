@@ -218,7 +218,10 @@ sources:
               hour preceding forecast_valid_at_utc, at the nearest MSM grid
               point.
           - name: total_cloud_cover_pct
-            description: Total cloud cover at forecast_valid_at_utc in percent, at the nearest MSM grid point.
+            description: >
+              Total cloud cover at forecast_valid_at_utc in percent, at the
+              nearest MSM grid point. As decoded from GRIB2 — the packing
+              overshoots 100 by up to ~0.011 on rare rows (not clamped).
           - name: high_cloud_cover_pct
             description: High cloud cover at forecast_valid_at_utc in percent, at the nearest MSM grid point.
           - name: middle_cloud_cover_pct
