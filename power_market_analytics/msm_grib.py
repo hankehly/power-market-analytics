@@ -46,6 +46,7 @@ from power_market_analytics.msm import (
     EARLIEST_DELIVERY_DATE,
     MSM_SURFACE_ELEMENTS,
     RAW_CSV_COLUMNS,
+    MsmElement,
     MsmError,
     MsmGrid,
     MsmSourceFile,
@@ -66,6 +67,14 @@ GRIB_EDITION = 2
 #: ``productionStatusOfProcessedData`` of operational data — the only status
 #: this pipeline accepts (test/research runs must never reach the warehouse).
 OPERATIONAL_PRODUCTION_STATUS = 0
+#: GRIB2 product definition templates the MSM surface members use: 0 for an
+#: instantaneous field, 8 for a field statistically processed over a time
+#: interval (the 1-hour precipitation accumulation and shortwave mean flux).
+INSTANTANEOUS_TEMPLATE = 0
+STATISTICAL_TEMPLATE = 8
+#: ecCodes ``stepUnits`` code for hours — pinned before any step key is read so
+#: leads come back in hours whatever unit a member codes them in.
+HOUR_STEP_UNIT = 1
 #: Decimal places every extracted value is rounded to.
 VALUE_PRECISION = 6
 
@@ -178,8 +187,12 @@ def extract_station_records(
     A forecast hour is always the message's ``endStep``: instantaneous elements
     are valid *at* that hour, statistical ones (precipitation, downward
     shortwave radiation) cover the hour *ending* at it, i.e. the interval
-    ``(endStep - 1, endStep]``. Both land on the same record, which the
-    pipeline reads as the hour ending at ``forecast_valid_at``.
+    ``(endStep - 1, endStep]``. The decoder asserts that encoding per message
+    (:func:`_check_step_encoding`) — template 8 over exactly
+    ``(endStep - 1, endStep]`` for a statistical element, template 0 at
+    ``endStep`` for an instantaneous one — so a cumulative or re-templated field
+    is rejected rather than published as hourly. Both land on the same record,
+    which the pipeline reads as the hour ending at ``forecast_valid_at``.
 
     JMA packs many fields into one GRIB2 message envelope — a whole archive
     member is a *single* envelope (the FH16-33 file holds 12 elements x 18
@@ -214,6 +227,8 @@ def extract_station_records(
                 )
                 if element is None:
                     continue
+                # Step keys are read in hours whatever unit the member codes them in.
+                eccodes.codes_set(message, "stepUnits", HOUR_STEP_UNIT)
                 lead_hours = eccodes.codes_get(message, "endStep", int)
                 if lead_hours not in leads_used:
                     continue
@@ -224,6 +239,7 @@ def extract_station_records(
                         f"typeOfFirstFixedSurface={surface_type}, expected "
                         f"{element.surface_type} — the MSM file format changed"
                     )
+                _check_step_encoding(message, grib_path, element, lead_hours)
                 grid = _read_grid(message, grib_path)
                 points = selections.get(grid)
                 if points is None:
@@ -329,6 +345,53 @@ def _check_message_identity(message: int, grib_path: Path, reference_at: datetim
         raise MsmExtractError(
             f"{grib_path.name}: message run {data_date} {data_time:04d} is not the expected "
             f"{expected_date} {expected_time:04d}"
+        )
+
+
+def _check_step_encoding(
+    message: int, grib_path: Path, element: MsmElement, lead_hours: int
+) -> None:
+    """Reject a message whose product template or step interval does not fit its element.
+
+    Selecting a message by parameter triple and ``endStep`` alone would also
+    accept a cumulative ``(0, lead]`` accumulation, or an instantaneous field
+    re-templated as an interval, and publish it as the one-hour value the
+    warehouse promises. The template and the interval start are therefore
+    asserted against what :class:`~power_market_analytics.msm.MsmElement`
+    declares.
+
+    Parameters
+    ----------
+    message : int
+        Open ecCodes message handle (step keys already pinned to hours).
+    grib_path : pathlib.Path
+        File the message came from (named in the error).
+    element : MsmElement
+        The matched element (supplies ``statistical``).
+    lead_hours : int
+        The message's ``endStep``.
+
+    Raises
+    ------
+    MsmExtractError
+        If a statistical element is not product definition template 8 over
+        exactly ``(lead_hours - 1, lead_hours]``, or an instantaneous element
+        is not template 0 at ``lead_hours``.
+    """
+    template = eccodes.codes_get(message, "productDefinitionTemplateNumber", int)
+    start_step = eccodes.codes_get(message, "startStep", int)
+    if element.statistical:
+        expected_template, expected_start = STATISTICAL_TEMPLATE, lead_hours - 1
+        kind = "a one-hour statistical interval"
+    else:
+        expected_template, expected_start = INSTANTANEOUS_TEMPLATE, lead_hours
+        kind = "an instantaneous value"
+    if template != expected_template or start_step != expected_start:
+        raise MsmExtractError(
+            f"{grib_path.name}: {element.key} (lead {lead_hours}) is encoded with "
+            f"productDefinitionTemplateNumber={template} over steps {start_step}-{lead_hours}, "
+            f"expected template {expected_template} over steps {expected_start}-{lead_hours} "
+            f"({kind}) — a cumulative or re-templated field must not be published as hourly"
         )
 
 
@@ -727,11 +790,21 @@ class MsmDownloader:
         the GRIB2 files downloaded so far are left in place for inspection.
         A later non-``force`` call therefore always re-attempts a day that
         previously failed partway, rather than silently treating it as done.
+        A ``force`` rebuild removes the day's existing csv.gz and manifest
+        first, for the same reason: a forced rebuild that fails must not leave
+        the stale extract it was meant to replace looking complete.
         """
         csv_path = self.csv_path_for(delivery_date)
         if csv_path.exists() and not force:
             logger.info("Using cached extract: {}", csv_path)
             return csv_path
+        if force:
+            # A forced rebuild exists to replace a possibly-bad extract, so the
+            # old csv.gz (the cache signal) and manifest go BEFORE the network is
+            # touched: a rebuild that fails partway then leaves the day visibly
+            # incomplete instead of a stale "done" a later non-force run trusts.
+            csv_path.unlink(missing_ok=True)
+            self.manifest_path_for(delivery_date).unlink(missing_ok=True)
 
         reference_at = reference_at_for(delivery_date)
         source_files = source_files_for(delivery_date)

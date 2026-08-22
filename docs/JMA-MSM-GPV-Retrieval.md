@@ -204,7 +204,11 @@ misnamed or stale cached file).
 The two **statistical** elements (precipitation, shortwave radiation) use GRIB2 Product
 Definition Template 8 (a statistically-processed field over a time interval) with a 1-hour
 accumulation/mean window ending at the message's forecast hour; the ten instantaneous
-elements are valid *at* that hour. Both land on the same `StationHourRecord` — the record is
+elements are valid *at* that hour. The decoder asserts that encoding per message
+(`_check_step_encoding`): template 8 over exactly `(lead − 1, lead]` for a statistical
+element, template 0 at `lead` for an instantaneous one, with step keys read in hours — so a
+cumulative `(0, lead]` field or a re-templated product can never be published as an hourly
+value. Both land on the same `StationHourRecord` — the record is
 read downstream as "the hour ending at `forecast_valid_at`" regardless of which semantics an
 individual value column carries (documented per-column in the std/fct model descriptions,
 [§7](#7-warehouse-models)).
@@ -415,7 +419,10 @@ devcontainer's eccodes state, because the load path (`power_market_analytics/msm
 
 Both `download_file` (per GRIB2 file) and `extract_day` (per delivery day) are idempotent
 caches by default: an already-downloaded GRIB2 file or an already-extracted `csv.gz` is
-reused unless `--force`. On any failure mid-day — a download error, a decode error, or the
+reused unless `--force`. A `--force` rebuild first removes the day's cached `csv.gz` and
+manifest, so a forced rebuild that fails partway leaves the day visibly incomplete and the
+next ordinary run re-attempts it instead of re-serving the stale extract that prompted the
+`--force`. On any failure mid-day — a download error, a decode error, or the
 record-count sanity check (`len(stations) * 24`) failing — **nothing is ever left at the
 day's `csv_path`**: the manifest is written first and the `csv.gz` committed last
 ([§6.2](#62-manifest)), so the `csv.gz`'s existence is the sole "this day is done" signal the

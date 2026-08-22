@@ -494,6 +494,30 @@ class TestExtractDay:
 
         assert session.calls == [sf.url for sf in SOURCE_FILES]
 
+    def test_force_rebuild_failure_invalidates_the_old_extract_and_a_later_call_retries(
+        self, tmp_path
+    ):
+        session = complete_session()
+        dl = MsmDownloader(data_dir=tmp_path, session=session, request_interval=0)
+        dl.extract_day(DELIVERY_DATE, STATIONS)
+        good = session.responses[SOURCE_FILES[1].url]
+        session.responses[SOURCE_FILES[1].url] = FakeResponse(b"missing", status=404)
+
+        with pytest.raises(MsmDownloadError):
+            dl.extract_day(DELIVERY_DATE, STATIONS, force=True)
+
+        # The stale extract and manifest are gone: the day is visibly incomplete,
+        # not a "done" that hides the failed rebuild the --force asked for.
+        assert not dl.csv_path_for(DELIVERY_DATE).exists()
+        assert not dl.manifest_path_for(DELIVERY_DATE).exists()
+
+        # A later ordinary call re-attempts the day rather than trusting the old csv.
+        session.responses[SOURCE_FILES[1].url] = good
+        session.calls.clear()
+        path = dl.extract_day(DELIVERY_DATE, STATIONS)
+        assert path.exists()
+        assert session.calls != []
+
     def test_cached_grib_is_reused_when_csv_is_absent(self, tmp_path):
         session = complete_session()
         dl = MsmDownloader(data_dir=tmp_path, session=session, request_interval=0)
