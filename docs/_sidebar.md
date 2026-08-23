@@ -1,9 +1,14 @@
 - [Home](README.md)
 - Forecasting Research
   - [Research Index](research/README.md)
-  - [Observation Log](research/observations.md)
-  - [R-001 — Supply and Demand Tightness](research/R-001-supply-demand-tightness.md)
   - [Investigation Template](research/investigation-template.md)
+  - Spot price
+    - [Index](research/spot_price/README.md)
+    - [Observation Log](research/spot_price/observations.md)
+    - [R-001 — Supply and Demand Tightness](research/spot_price/R-001-supply-demand-tightness.md)
+  - Demand
+    - [Index](research/demand/README.md)
+    - [Observation Log](research/demand/observations.md)
 - [JMA Weather Data Retrieval](JMA-Weather-Data-Retrieval.md)
 - [JMA MSM GPV Retrieval](JMA-MSM-GPV-Retrieval.md)
 - [OCCTO Demand Forecast Retrieval](OCCTO-Demand-Forecast-Retrieval.md)

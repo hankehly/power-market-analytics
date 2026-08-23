@@ -1,5 +1,8 @@
 # R-XXX — Investigation title
 
+<!-- Copy this file into the task folder (docs/research/<task>/) as
+     R-XXX-<slug>.md, using the next R number *within that task*. -->
+
 **Status:** Backlog  
 **Created:** YYYY-MM-DD  
 **Last updated:** YYYY-MM-DD  
@@ -27,12 +30,17 @@ forecasting performance and why.
 
 ## Scope and constraints
 
-- **Forecast target:**
-- **Information cutoff:** D-1 at 09:55 JST
+Start from the *Scope defaults* in the task README (`spot_price/README.md`,
+`demand/README.md`) and narrow them to this question.
+
+- **Forecast target:** Task target, area(s) and unit
+- **Information cutoff:** The task's issue time and usable-history rule
 - **Baseline:** Strategy/version or MLflow run ID
-- **Primary metric:** MAE
-- **Important segments:** For example, area, season, time of day, or high-price periods
-- **Evaluation method:** Rolling out-of-sample backtest
+- **Primary metric:** The task's primary metric
+- **Important segments:** The segments this question is about (for example
+  area, season, time of day, or extreme-value periods)
+- **Evaluation method:** Rolling out-of-sample backtest over identical
+  delivery dates and training rows for baseline and candidate
 
 ## E-001 — Experiment title
 

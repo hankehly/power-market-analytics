@@ -128,7 +128,7 @@ class LightGbmStrategy(SlidingWindowLightGbmStrategy):
 class LightGbmOcctoStrategy(LightGbmStrategy):
     """:class:`LightGbmStrategy` plus OCCTO 翌々日 peak-demand/supply features.
 
-    Experiment E-001 of docs/research/R-001-supply-demand-tightness.md: the
+    Experiment E-001 of docs/research/spot_price/R-001-supply-demand-tightness.md: the
     OCCTO forecast for delivery day D (published D-2 ~17:45 JST, before the
     D-1 09:55 cutoff) is joined to D's 48 rows, adding
     ``max_demand_hour_ending``, ``max_demand_mw`` and
