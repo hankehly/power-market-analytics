@@ -9,6 +9,7 @@ import pytest
 from power_market_analytics.tasks.demand.frames import (
     AreaDemand,
     AreaTemperature,
+    AreaTemperatureForecast,
     DemandBacktestResult,
     DemandForecast,
     DemandForecastRecords,
@@ -74,3 +75,35 @@ class TestAreaTemperature:
     def test_duplicate_day_hour_rejected(self):
         with pytest.raises(ValueError, match="grain .* not unique"):
             AreaTemperature.from_df(temperature_df([1, 1], [5.0, 6.0]))
+
+
+def forecast_df(hours: list[int], temps: list[float]) -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "trade_date": [D1] * len(hours),
+            "hour_ending": np.array(hours, dtype="int64"),
+            "forecast_temperature_c": np.array(temps, dtype="float64"),
+        }
+    )
+
+
+class TestAreaTemperatureForecast:
+    def test_grain_is_delivery_day_and_hour_ending(self):
+        assert AreaTemperatureForecast.keys == ["trade_date", "hour_ending"]
+        out = AreaTemperatureForecast.from_df(forecast_df([1, 24], [5.0, 7.5]))
+        assert list(out.df.columns) == ["trade_date", "hour_ending", "forecast_temperature_c"]
+
+    def test_missing_forecast_is_allowed(self):
+        out = AreaTemperatureForecast.from_df(forecast_df([1, 2], [5.0, np.nan]))
+        assert out.df["forecast_temperature_c"].isna().tolist() == [False, True]
+
+    @pytest.mark.parametrize("hour", [0, 25])
+    def test_hour_ending_outside_1_24_rejected(self, hour):
+        with pytest.raises(
+            ValueError, match=rf"hour_ending outside 1\.\.24: \[[^\]]*\b{hour}\b[^\]]*\]$"
+        ):
+            AreaTemperatureForecast.from_df(forecast_df([hour], [5.0]))
+
+    def test_duplicate_day_hour_rejected(self):
+        with pytest.raises(ValueError, match="grain .* not unique"):
+            AreaTemperatureForecast.from_df(forecast_df([1, 1], [5.0, 6.0]))

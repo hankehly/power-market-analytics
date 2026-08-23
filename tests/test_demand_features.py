@@ -1,4 +1,4 @@
-"""Tests for the demand task's recency-weighted temperature feature."""
+"""Tests for the demand task's temperature features (recency-weighted observed, forecast)."""
 
 from __future__ import annotations
 
@@ -7,13 +7,15 @@ import pandas as pd
 import pytest
 
 from power_market_analytics.tasks.demand.features import (
+    FORECAST_TEMPERATURE_FEATURE,
     TEMPERATURE_FEATURE,
     TEMPERATURE_HALF_LIFE_DAYS,
     TEMPERATURE_LAG_DAYS,
     hour_ending_of,
+    join_forecast_temperature,
     recency_weighted_temperature,
 )
-from power_market_analytics.tasks.demand.frames import AreaTemperature
+from power_market_analytics.tasks.demand.frames import AreaTemperature, AreaTemperatureForecast
 
 D = pd.Timestamp("2024-04-10").as_unit("ns")
 
@@ -37,11 +39,25 @@ def points(time_codes: list[int]) -> pd.DataFrame:
     )
 
 
+def make_forecast(values: dict[tuple[int, int], float]) -> AreaTemperatureForecast:
+    """AreaTemperatureForecast from {(days_after_D, hour_ending): forecast_temperature_c}."""
+    return AreaTemperatureForecast.from_df(
+        pd.DataFrame(
+            {
+                "trade_date": [D + pd.Timedelta(days=k) for (k, _) in values],
+                "hour_ending": np.array([h for (_, h) in values], dtype="int64"),
+                "forecast_temperature_c": np.array(list(values.values()), dtype="float64"),
+            }
+        )
+    )
+
+
 class TestConstants:
     def test_defaults(self):
         assert TEMPERATURE_LAG_DAYS == (2, 3, 4, 5, 6, 7, 8)
         assert TEMPERATURE_HALF_LIFE_DAYS == 1.0
         assert TEMPERATURE_FEATURE == "wavg_temperature_c"
+        assert FORECAST_TEMPERATURE_FEATURE == "forecast_temperature_c"
 
 
 class TestHourEndingOf:
@@ -104,3 +120,33 @@ class TestRecencyWeightedTemperature:
         temperature = make_temperature({(2, 1): 10.0})
         out = recency_weighted_temperature(points([1]).assign(month=4), temperature)
         assert list(out.columns) == ["trade_date", "time_code", "month", TEMPERATURE_FEATURE]
+
+
+class TestJoinForecastTemperature:
+    def test_each_period_gets_the_forecast_of_the_hour_containing_it(self):
+        forecast = make_forecast({(0, 1): 10.0, (0, 2): 30.0, (0, 24): 50.0})
+        out = join_forecast_temperature(points([1, 2, 3, 48]), forecast)
+        assert list(out.columns) == ["trade_date", "time_code", FORECAST_TEMPERATURE_FEATURE]
+        assert out[FORECAST_TEMPERATURE_FEATURE].tolist() == [10.0, 10.0, 30.0, 50.0]
+
+    def test_row_order_is_kept(self):
+        forecast = make_forecast({(0, 1): 10.0, (0, 2): 30.0})
+        out = join_forecast_temperature(points([3, 1]), forecast)
+        assert out["time_code"].tolist() == [3, 1]
+        assert out[FORECAST_TEMPERATURE_FEATURE].tolist() == [30.0, 10.0]
+
+    def test_day_without_a_forecast_gives_nan(self):
+        forecast = make_forecast({(1, 1): 10.0})  # D+1 only
+        out = join_forecast_temperature(points([1]), forecast)
+        assert np.isnan(out[FORECAST_TEMPERATURE_FEATURE].iloc[0])
+
+    def test_missing_hour_gives_nan_for_its_periods_only(self):
+        forecast = make_forecast({(0, 1): 10.0})  # hour 2 absent
+        out = join_forecast_temperature(points([1, 2, 3, 4]), forecast)
+        assert out[FORECAST_TEMPERATURE_FEATURE].isna().tolist() == [False, False, True, True]
+
+    def test_name_is_configurable_and_extra_point_columns_pass_through(self):
+        forecast = make_forecast({(0, 1): 10.0})
+        out = join_forecast_temperature(points([1]).assign(month=4), forecast, name="t")
+        assert list(out.columns) == ["trade_date", "time_code", "month", "t"]
+        assert out["t"].iloc[0] == 10.0
