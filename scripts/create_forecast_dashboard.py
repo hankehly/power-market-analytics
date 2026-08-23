@@ -49,7 +49,8 @@ ADMIN_PASSWORD = os.environ.get("SUPERSET_ADMIN_PASSWORD", "admin")
 DATABASE_NAME = "Spark Thriftserver"
 
 # Shared skeleton of every task's virtual dataset: calendar / delivery-period
-# / area context, the run label, then the task's value columns and errors.
+# / area context, the run label, then the task's value and error columns
+# (in the task's display unit) and the unit-free percentage errors.
 DATASET_SQL_TEMPLATE = """\
 select
   f.date_key,
@@ -84,8 +85,6 @@ select
   f.forecast_issued_ts,
   f.horizon_hours,
 {value_columns_sql}
-  f.{error_col},
-  f.{abs_error_col},
   f.pct_error,
   f.abs_pct_error
 from {accuracy_table} f
@@ -188,12 +187,14 @@ class DashboardSpec:
     unit : str
         Display unit of the forecast quantity (labels, subheaders, axes).
     forecast_col, actual_col, error_col, abs_error_col : str
-        Mart columns for the forecast, the actual, the signed error and the
-        absolute error.
+        *Dataset* columns for the forecast, the actual, the signed error and
+        the absolute error — the mart columns as-is, or rescaled in
+        ``value_columns_sql`` when the display unit differs from the mart's.
     value_columns_sql : str
         Task-specific block of the dataset select list (the forecast, the
-        actual, the rounded actual for the calibration curve and the actual
-        band), already indented two spaces, every line comma-terminated.
+        actual, the rounded actual for the calibration curve, the actual
+        band, the signed error and the absolute error), already indented two
+        spaces, every line comma-terminated.
     value_columns : tuple of (str, str, bool)
         Column metadata for that block, in select order.
     band_col, band_chart_title : str
@@ -207,7 +208,8 @@ class DashboardSpec:
         d3 format for MAE bar-chart y axes.
     calibration_x_format, calibration_y_format : str
         d3 formats for the calibration curve's axes (``~g`` is Superset's
-        x-axis default; large values need ``SMART_NUMBER`` to avoid ``1e+7``).
+        x-axis default; large values need an explicit format such as ``,.0f``
+        or ``SMART_NUMBER`` to avoid ``1e+7``).
     worst_days_max_format : str
         d3 format for the worst-days table's ``Max |error|`` / ``Max actual``.
     """
@@ -240,8 +242,6 @@ class DashboardSpec:
         """The virtual dataset's SQL: the shared template around this task's columns."""
         return DATASET_SQL_TEMPLATE.format(
             value_columns_sql=self.value_columns_sql,
-            error_col=self.error_col,
-            abs_error_col=self.abs_error_col,
             accuracy_table=self.accuracy_table,
         )
 
@@ -251,8 +251,6 @@ class DashboardSpec:
         return [
             *COMMON_DATASET_COLUMNS,
             *self.value_columns,
-            (self.error_col, "DOUBLE", False),
-            (self.abs_error_col, "DOUBLE", False),
             ("pct_error", "DOUBLE", False),
             ("abs_pct_error", "DOUBLE", False),
         ]
@@ -313,12 +311,16 @@ SPOT_PRICE = DashboardSpec(
     when f.actual_price_jpy_kwh < 30 then '20-30'
     when f.actual_price_jpy_kwh < 50 then '30-50'
     else '50+'
-  end as actual_price_band,""",
+  end as actual_price_band,
+  f.error_jpy_kwh,
+  f.abs_error_jpy_kwh,""",
     value_columns=(
         ("forecast_price_jpy_kwh", "DOUBLE", False),
         ("actual_price_jpy_kwh", "DOUBLE", False),
         ("actual_price_round_jpy", "INT", False),
         ("actual_price_band", "STRING", False),
+        ("error_jpy_kwh", "DOUBLE", False),
+        ("abs_error_jpy_kwh", "DOUBLE", False),
     ),
     band_col="actual_price_band",
     band_chart_title="MAE by actual price band",
@@ -332,49 +334,56 @@ SPOT_PRICE = DashboardSpec(
     worst_days_max_format=",.2f",
 )
 
-# Demand is 30分kWh as the TSOs publish it (Tokyo ≈ 9–30 GWh per half hour,
-# Kansai ≈ 5–14 GWh), so values are formatted with SI prefixes (``.4s`` →
-# ``1.098M``) and the actual is banded in fixed 2-GWh bins (``10-12`` …),
-# which suit any area; the calibration curve rounds the actual to 1 GWh.
+# Demand is 30分kWh as the TSOs publish it and as the mart stores it (Tokyo
+# ≈ 9–30 GWh per half hour, Kansai ≈ 5–14 GWh); the dataset rescales it to
+# MWh for display (errors in the hundreds, levels in the tens of thousands),
+# so plain thousands-separated d3 formats work and the actual is banded in
+# fixed 2,000-MWh bins (zero-padded ``10000-12000`` … so the string sort is
+# numeric), which suit any area; the calibration curve rounds the actual to
+# 1,000 MWh.
 DEMAND = DashboardSpec(
     task="demand",
     dataset_name="demand_forecast_analysis",
     dashboard_title="Demand Forecast Analysis",
     dashboard_slug="demand-forecast-analysis",
     accuracy_table="pma_curated.fct_demand_forecast_accuracy",
-    unit="kWh",
-    forecast_col="forecast_demand_kwh",
-    actual_col="actual_demand_kwh",
-    error_col="error_kwh",
-    abs_error_col="abs_error_kwh",
+    unit="MWh",
+    forecast_col="forecast_demand_mwh",
+    actual_col="actual_demand_mwh",
+    error_col="error_mwh",
+    abs_error_col="abs_error_mwh",
     value_columns_sql="""\
-  f.forecast_demand_kwh,
-  f.actual_demand_kwh,
-  cast(round(f.actual_demand_kwh, -6) as bigint) as actual_demand_round_kwh,
+  f.forecast_demand_kwh / 1000 as forecast_demand_mwh,
+  f.actual_demand_kwh / 1000 as actual_demand_mwh,
+  cast(round(f.actual_demand_kwh / 1000, -3) as int) as actual_demand_round_mwh,
   case
     when f.actual_demand_kwh is null then null
     else concat(
-      lpad(cast(cast(floor(f.actual_demand_kwh / 2000000) * 2 as int) as string), 2, '0'),
+      lpad(cast(cast(floor(f.actual_demand_kwh / 2000000) * 2000 as int) as string), 5, '0'),
       '-',
-      lpad(cast(cast(floor(f.actual_demand_kwh / 2000000) * 2 + 2 as int) as string), 2, '0')
+      lpad(cast(cast(floor(f.actual_demand_kwh / 2000000) * 2000 + 2000 as int) as string), 5, '0')
     )
-  end as actual_demand_band,""",
+  end as actual_demand_band,
+  f.error_kwh / 1000 as error_mwh,
+  f.abs_error_kwh / 1000 as abs_error_mwh,""",
     value_columns=(
-        ("forecast_demand_kwh", "DOUBLE", False),
-        ("actual_demand_kwh", "BIGINT", False),
-        ("actual_demand_round_kwh", "BIGINT", False),
+        ("forecast_demand_mwh", "DOUBLE", False),
+        ("actual_demand_mwh", "DOUBLE", False),
+        ("actual_demand_round_mwh", "INT", False),
         ("actual_demand_band", "STRING", False),
+        ("error_mwh", "DOUBLE", False),
+        ("abs_error_mwh", "DOUBLE", False),
     ),
     band_col="actual_demand_band",
     band_chart_title="MAE by actual demand band",
-    calibration_x_col="actual_demand_round_kwh",
+    calibration_x_col="actual_demand_round_mwh",
     calibration_chart_title="Calibration: forecast vs actual demand level",
-    calibration_x_title="Actual demand (kWh, rounded to 1 GWh)",
-    number_format=".4s",
-    axis_format="SMART_NUMBER",
-    calibration_x_format="SMART_NUMBER",
-    calibration_y_format="SMART_NUMBER",
-    worst_days_max_format=".4s",
+    calibration_x_title="Actual demand (MWh, rounded to 1,000 MWh)",
+    number_format=",.1f",
+    axis_format=",.0f",
+    calibration_x_format=",.0f",
+    calibration_y_format=",.0f",
+    worst_days_max_format=",.0f",
 )
 
 DASHBOARDS: dict[str, DashboardSpec] = {spec.task: spec for spec in (SPOT_PRICE, DEMAND)}
@@ -871,6 +880,9 @@ def detail_params(spec: DashboardSpec, dataset_id: int) -> dict:
 def upsert_chart(client: SupersetClient, name: str, dataset_id: int, params: dict) -> int:
     """Create or update a chart (matched by name within its dataset) and return its id.
 
+    An update also clears the chart's saved ``query_context`` (see the inline
+    note) so the repo's ``params`` are the only definition that survives.
+
     Parameters
     ----------
     client : SupersetClient
@@ -895,7 +907,11 @@ def upsert_chart(client: SupersetClient, name: str, dataset_id: int, params: dic
     chart_id = client.find_one("chart", slice_name=name, datasource_id=dataset_id)
     if chart_id is None:
         return client._post_json("/api/v1/chart/", payload)["id"]
-    client._put_json(f"/api/v1/chart/{chart_id}", payload)
+    # Reset any query context saved from Explore: it snapshots the dataset
+    # columns of its day, and the chart-data API (thumbnails, alerts, MCP)
+    # replays it — stale after a dataset SQL change. The dashboard itself
+    # renders from ``params``.
+    client._put_json(f"/api/v1/chart/{chart_id}", {**payload, "query_context": None})
     return chart_id
 
 

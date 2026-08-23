@@ -361,19 +361,19 @@ select
   f.published_at,
   f.forecast_issued_ts,
   f.horizon_hours,
-  f.forecast_demand_kwh,
-  f.actual_demand_kwh,
-  cast(round(f.actual_demand_kwh, -6) as bigint) as actual_demand_round_kwh,
+  f.forecast_demand_kwh / 1000 as forecast_demand_mwh,
+  f.actual_demand_kwh / 1000 as actual_demand_mwh,
+  cast(round(f.actual_demand_kwh / 1000, -3) as int) as actual_demand_round_mwh,
   case
     when f.actual_demand_kwh is null then null
     else concat(
-      lpad(cast(cast(floor(f.actual_demand_kwh / 2000000) * 2 as int) as string), 2, '0'),
+      lpad(cast(cast(floor(f.actual_demand_kwh / 2000000) * 2000 as int) as string), 5, '0'),
       '-',
-      lpad(cast(cast(floor(f.actual_demand_kwh / 2000000) * 2 + 2 as int) as string), 2, '0')
+      lpad(cast(cast(floor(f.actual_demand_kwh / 2000000) * 2000 + 2000 as int) as string), 5, '0')
     )
   end as actual_demand_band,
-  f.error_kwh,
-  f.abs_error_kwh,
+  f.error_kwh / 1000 as error_mwh,
+  f.abs_error_kwh / 1000 as abs_error_mwh,
   f.pct_error,
   f.abs_pct_error
 from pma_curated.fct_demand_forecast_accuracy f
@@ -418,12 +418,12 @@ SPOT_COLUMNS = COMMON_COLUMNS_HEAD + [
     ("abs_pct_error", "DOUBLE", False),
 ]
 DEMAND_COLUMNS = COMMON_COLUMNS_HEAD + [
-    ("forecast_demand_kwh", "DOUBLE", False),
-    ("actual_demand_kwh", "BIGINT", False),
-    ("actual_demand_round_kwh", "BIGINT", False),
+    ("forecast_demand_mwh", "DOUBLE", False),
+    ("actual_demand_mwh", "DOUBLE", False),
+    ("actual_demand_round_mwh", "INT", False),
     ("actual_demand_band", "STRING", False),
-    ("error_kwh", "DOUBLE", False),
-    ("abs_error_kwh", "DOUBLE", False),
+    ("error_mwh", "DOUBLE", False),
+    ("abs_error_mwh", "DOUBLE", False),
     ("pct_error", "DOUBLE", False),
     ("abs_pct_error", "DOUBLE", False),
 ]
@@ -466,23 +466,23 @@ class TestDashboardSpecs:
         assert demand.dashboard_title == "Demand Forecast Analysis"
         assert demand.dashboard_slug == "demand-forecast-analysis"
         assert demand.accuracy_table == "pma_curated.fct_demand_forecast_accuracy"
-        assert demand.unit == "kWh"
+        assert demand.unit == "MWh"
         assert (demand.forecast_col, demand.actual_col) == (
-            "forecast_demand_kwh",
-            "actual_demand_kwh",
+            "forecast_demand_mwh",
+            "actual_demand_mwh",
         )
-        assert (demand.error_col, demand.abs_error_col) == ("error_kwh", "abs_error_kwh")
+        assert (demand.error_col, demand.abs_error_col) == ("error_mwh", "abs_error_mwh")
         assert demand.band_col == "actual_demand_band"
         assert demand.band_chart_title == "MAE by actual demand band"
-        assert demand.calibration_x_col == "actual_demand_round_kwh"
+        assert demand.calibration_x_col == "actual_demand_round_mwh"
         assert demand.calibration_chart_title == "Calibration: forecast vs actual demand level"
-        assert demand.calibration_x_title == "Actual demand (kWh, rounded to 1 GWh)"
-        assert demand.number_format == ".4s"
-        assert demand.signed_number_format == "+.4s"
-        assert demand.axis_format == "SMART_NUMBER"
-        assert demand.calibration_x_format == "SMART_NUMBER"
-        assert demand.calibration_y_format == "SMART_NUMBER"
-        assert demand.worst_days_max_format == ".4s"
+        assert demand.calibration_x_title == "Actual demand (MWh, rounded to 1,000 MWh)"
+        assert demand.number_format == ",.1f"
+        assert demand.signed_number_format == "+,.1f"
+        assert demand.axis_format == ",.0f"
+        assert demand.calibration_x_format == ",.0f"
+        assert demand.calibration_y_format == ",.0f"
+        assert demand.worst_days_max_format == ",.0f"
 
     def test_spot_price_dataset_sql_is_unchanged(self, spot):
         assert spot.dataset_sql == SPOT_DATASET_SQL
@@ -512,11 +512,11 @@ class TestDashboardSpecs:
 
     def test_metrics_are_derived_from_the_spec_columns_and_unit(self, script, spot, demand):
         assert spot.mae_metric == script.avg_metric("abs_error_jpy_kwh", "MAE (JPY/kWh)")
-        assert demand.mae_metric == script.avg_metric("abs_error_kwh", "MAE (kWh)")
+        assert demand.mae_metric == script.avg_metric("abs_error_mwh", "MAE (MWh)")
         assert spot.bias_metric == script.avg_metric("error_jpy_kwh", "Bias")
-        assert demand.bias_metric["column"]["column_name"] == "error_kwh"
+        assert demand.bias_metric["column"]["column_name"] == "error_mwh"
         assert spot.rmse_metric["sqlExpression"] == "sqrt(avg(power(error_jpy_kwh, 2)))"
-        assert demand.rmse_metric["sqlExpression"] == "sqrt(avg(power(error_kwh, 2)))"
+        assert demand.rmse_metric["sqlExpression"] == "sqrt(avg(power(error_mwh, 2)))"
         assert spot.rmse_metric["optionName"] == "metric_rmse"
         assert spot.rmse_mae_metric["optionName"] == "metric_rmse_mae"
         assert (
@@ -525,14 +525,14 @@ class TestDashboardSpecs:
         )
         assert (
             demand.rmse_mae_metric["sqlExpression"]
-            == "sqrt(avg(power(error_kwh, 2))) / avg(abs_error_kwh)"
+            == "sqrt(avg(power(error_mwh, 2))) / avg(abs_error_mwh)"
         )
         assert spot.wape_metric["sqlExpression"] == (
             "sum(abs_error_jpy_kwh) / sum(actual_price_jpy_kwh)"
         )
-        assert demand.wape_metric["sqlExpression"] == "sum(abs_error_kwh) / sum(actual_demand_kwh)"
+        assert demand.wape_metric["sqlExpression"] == "sum(abs_error_mwh) / sum(actual_demand_mwh)"
         assert spot.p90_metric["sqlExpression"] == "percentile(abs_error_jpy_kwh, 0.90)"
-        assert demand.p90_metric["sqlExpression"] == "percentile(abs_error_kwh, 0.90)"
+        assert demand.p90_metric["sqlExpression"] == "percentile(abs_error_mwh, 0.90)"
         assert spot.p90_metric["optionName"] == "metric_p90_abs_error"
 
 
@@ -688,8 +688,8 @@ class TestChartParams:
     def test_bar_formats_per_spec(self, script, spot, demand):
         assert script.bar_params(spot, 7, "year")["y_axis_format"] == ",.2f"
         assert script.bar_params(spot, 7, "year")["y_axis_title"] == "JPY/kWh"
-        assert script.bar_params(demand, 7, "year")["y_axis_format"] == "SMART_NUMBER"
-        assert script.bar_params(demand, 7, "year")["y_axis_title"] == "kWh"
+        assert script.bar_params(demand, 7, "year")["y_axis_format"] == ",.0f"
+        assert script.bar_params(demand, 7, "year")["y_axis_title"] == "MWh"
 
     def test_heatmap(self, script, spec):
         p = script.heatmap_params(spec, 7, "month")
@@ -726,16 +726,16 @@ class TestChartParams:
 
     def test_calibration_demand(self, script, demand):
         p = script.calibration_params(demand, 7)
-        assert p["x_axis"] == "actual_demand_round_kwh"
-        assert p["x_axis_sort"] == "actual_demand_round_kwh"
+        assert p["x_axis"] == "actual_demand_round_mwh"
+        assert p["x_axis_sort"] == "actual_demand_round_mwh"
         assert [m["column"]["column_name"] for m in p["metrics"]] == [
-            "forecast_demand_kwh",
-            "actual_demand_kwh",
+            "forecast_demand_mwh",
+            "actual_demand_mwh",
         ]
-        assert p["x_axis_title"] == "Actual demand (kWh, rounded to 1 GWh)"
-        assert p["x_axis_number_format"] == "SMART_NUMBER"  # not the default ~g → 1.1e+7
-        assert p["y_axis_title"] == "Forecast (kWh)"
-        assert p["y_axis_format"] == "SMART_NUMBER"
+        assert p["x_axis_title"] == "Actual demand (MWh, rounded to 1,000 MWh)"
+        assert p["x_axis_number_format"] == ",.0f"  # not the default ~g
+        assert p["y_axis_title"] == "Forecast (MWh)"
+        assert p["y_axis_format"] == ",.0f"
 
     def test_histogram(self, script, spec):
         p = script.histogram_params(spec, 7)
@@ -774,8 +774,8 @@ class TestChartParams:
         assert script.leaderboard_params(spot, 7)["column_config"]["Bias"] == {
             "d3NumberFormat": "+,.3f"
         }
-        assert script.leaderboard_params(demand, 7)["column_config"]["MAE (kWh)"] == {
-            "d3NumberFormat": ".4s"
+        assert script.leaderboard_params(demand, 7)["column_config"]["MAE (MWh)"] == {
+            "d3NumberFormat": ",.1f"
         }
 
     def test_worst_days(self, script, spec):
@@ -808,7 +808,7 @@ class TestChartParams:
             "d3NumberFormat": ",.2f"
         }
         assert script.worst_days_params(demand, 7)["column_config"]["Max actual"] == {
-            "d3NumberFormat": ".4s"
+            "d3NumberFormat": ",.0f"
         }
 
     def test_detail(self, script, spec):
@@ -890,6 +890,26 @@ class TestUpsertChart:
         assert methods == [("GET", f"{BASE}/api/v1/chart/"), ("PUT", f"{BASE}/api/v1/chart/42")]
         assert fake.rows["chart"][42]["viz_type"] == "echarts_timeseries_bar"
         assert len(fake.rows["chart"]) == 1
+
+    def test_update_resets_an_explore_saved_query_context(self, script, fake, spot):
+        # A chart saved from Explore carries a query_context snapshot of the
+        # dataset columns of its day; the chart-data API (thumbnails, alerts,
+        # MCP) replays it, so a rebuild after a dataset SQL change must reset
+        # it rather than leave it pointing at dropped columns.
+        fake.seed(
+            "chart",
+            id=42,
+            slice_name="MAE by year",
+            datasource_id=10,
+            query_context='{"queries": [{"columns": ["abs_error_kwh"]}]}',
+        )
+        client = make_client(script, fake)
+
+        script.upsert_chart(client, "MAE by year", 10, script.bar_params(spot, 10, "year"))
+
+        (update,) = [c for c in fake.calls_after_login() if c[0] == "PUT"]
+        assert update[2]["query_context"] is None
+        assert fake.rows["chart"][42]["query_context"] is None
 
     def test_same_name_on_another_dataset_is_a_different_chart(self, script, fake, spot, demand):
         fake.seed("chart", id=42, slice_name="MAE by year", datasource_id=10)
@@ -1226,16 +1246,16 @@ class TestBuildDashboard:
         by_name = {c["slice_name"]: json.loads(c["params"]) for c in charts}
         assert by_name["Overall MAE"]["viz_type"] == "big_number_total"
         assert by_name["Overall MAE"]["metric"] == demand.mae_metric
-        assert by_name["Overall MAE"]["subheader"] == "kWh"
-        assert by_name["Overall MAE"]["y_axis_format"] == ".4s"
-        assert by_name["Bias (mean error)"]["subheader"] == "kWh; + = over-forecast"
-        assert by_name["Bias (mean error)"]["y_axis_format"] == "+.4s"
-        assert by_name["RMSE"]["y_axis_format"] == ".4s"
+        assert by_name["Overall MAE"]["subheader"] == "MWh"
+        assert by_name["Overall MAE"]["y_axis_format"] == ",.1f"
+        assert by_name["Bias (mean error)"]["subheader"] == "MWh; + = over-forecast"
+        assert by_name["Bias (mean error)"]["y_axis_format"] == "+,.1f"
+        assert by_name["RMSE"]["y_axis_format"] == ",.1f"
         assert by_name["RMSE / MAE"]["subheader"] == ">1.3 = spike-heavy errors"
         assert by_name["RMSE / MAE"]["y_axis_format"] == ",.2f"
         assert by_name["WAPE"]["subheader"] == "Σ|error| / Σ actual"
         assert by_name["WAPE"]["y_axis_format"] == ".1%"
-        assert by_name["P90 abs error"]["subheader"] == "kWh"
+        assert by_name["P90 abs error"]["subheader"] == "MWh"
         assert by_name["P90 abs error"]["metric"] == demand.p90_metric
         assert by_name["MAE by time code"]["x_axis"] == "time_code"
         assert by_name["MAE by year and month"]["x_axis"] == "month"
@@ -1243,9 +1263,9 @@ class TestBuildDashboard:
         assert by_name["MAE by actual demand band"]["x_axis"] == "actual_demand_band"
         assert (
             by_name["Calibration: forecast vs actual demand level"]["x_axis"]
-            == "actual_demand_round_kwh"
+            == "actual_demand_round_mwh"
         )
-        assert by_name["Error distribution"]["column"] == "error_kwh"
+        assert by_name["Error distribution"]["column"] == "error_mwh"
         assert by_name["Run leaderboard"]["viz_type"] == "table"
         assert by_name["Forecast vs actual (30-min detail)"]["viz_type"] == (
             "echarts_timeseries_line"

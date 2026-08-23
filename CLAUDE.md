@@ -213,8 +213,9 @@
   Null-demand rows (TSO holes) are dropped at load; a target day whose D-7 lag falls in a hole
   is skipped. Write-back: `pma_ml.demand_forecast` → `stg/std_ml__demand_forecast` →
   `fct_demand_forecast` → `fct_demand_forecast_accuracy` → Superset **Demand Forecast Analysis**
-  dashboard (dataset `demand_forecast_analysis`; kWh with SI number formats, 2-GWh actual-demand
-  bands, calibration x = actual rounded to 1 GWh).
+  dashboard (dataset `demand_forecast_analysis`; the mart's kWh rescaled to MWh in the dataset
+  SQL — `forecast_demand_mwh`, `error_mwh`, … — with plain `,.1f`/`,.0f` formats, 2,000-MWh
+  actual-demand bands (`10000-12000`), calibration x = actual rounded to 1,000 MWh).
 
 ## Gotchas
 
