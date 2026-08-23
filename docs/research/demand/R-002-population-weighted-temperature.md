@@ -1,8 +1,8 @@
 # R-002 — Population-weighted area temperature
 
-- **Status:** In progress
+- **Status:** Supported
 - **Created:** 2026-08-23
-- **Last updated:** 2026-08-23 (E-001 executed)
+- **Last updated:** 2026-08-24 (E-001 decision confirmed by the researcher)
 - **Triggering observations:** None — modeling idea
 - **Related investigations:**
   [R-001 — Forecast temperature as a demand feature](research/demand/R-001-forecast-temperature.md)
@@ -263,16 +263,18 @@ causality.
 
 ### Decision
 
-**Decision:** Keep (provisional — applied mechanically from the decision rule;
-researcher to confirm)
+**Decision:** Keep (confirmed by the researcher on 2026-08-24)
 
 Applying the rule as written: overall MAE is lower, the candidate is better in
 most months (17 of 25), the bootstrap interval of the daily paired difference
 excludes zero, and no day part deteriorates — the "keep" conditions are met.
-The researcher should weigh two things the rule does not capture: the gain is
+Two things the rule does not capture were put to the researcher — the gain is
 small (−2.3 %) and seasonal (summer/autumn; winter/spring flat), and a third of
-it comes from ten days. If the monthly pattern (8 months worse, by up to 4.4 %)
-is read as a "mixed sign", the rule's inconclusive branch applies instead.
+it comes from ten days — and the researcher judged the accuracy gain sufficient
+to keep the weighting strategy. Resulting change: `lightgbm_msm_popw` is the
+demand baseline for later matched experiments and the default of
+`scripts/demand_backtest.py`; `lightgbm` and `lightgbm_msm` stay registered as
+reference strategies.
 
 ### Follow-up ideas
 
@@ -287,9 +289,10 @@ overall MAE by 2.3 % (745,695 → 728,573 kWh; MAPE 4.62 % → 4.52 %). The
 improvement is statistically clear (paired CI over days excludes zero; all day
 parts lower; 17 of 25 months lower) but small and uneven: summer −5.1 % and
 autumn −3.7 %, winter and spring flat, and larger on high-demand days.
-Provisionally **Keep** per the decision rule; the hypothesis that one reference
-location per area is too coarse is supported modestly by this single-area
-experiment.
+**Keep**, confirmed by the researcher on 2026-08-24: the hypothesis that one
+reference location per area is too coarse is supported modestly by this
+single-area experiment, and the population-weighted strategy is now the demand
+baseline.
 
 ## Open questions
 
@@ -299,12 +302,11 @@ experiment.
 
 ## Final disposition
 
-**Investigation status:** In progress (E-001 supports the hypothesis modestly;
-awaiting the researcher's confirmation of the provisional decision)
+**Investigation status:** Supported (E-001; decision confirmed 2026-08-24)
 
-**Recommended action:** Researcher to review the E-001 result and confirm or
-revise the provisional Keep, weighing the small, seasonal size of the gain; if
-confirmed, `lightgbm_msm_popw` becomes the demand baseline for later matched
-experiments.
+**Recommended action:** Done — `lightgbm_msm_popw` is the demand baseline for
+later matched experiments (demand README scope defaults) and the default of
+`scripts/demand_backtest.py`. Later experiments compare against a matched
+`lightgbm_msm_popw` run.
 
 **Superseded by:** —

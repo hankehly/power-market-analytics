@@ -293,7 +293,11 @@ this single-area experiment.
 the researcher's confirmation of the provisional decision)
 
 **Recommended action:** Researcher to review the E-001 result and confirm or
-revise the provisional Keep; if confirmed, `lightgbm_msm` becomes the demand
-baseline that later feature experiments are matched against.
+revise the provisional Keep. Note (2026-08-24): the researcher kept the
+population-weighted variant of this feature
+([R-002](research/demand/R-002-population-weighted-temperature.md)), so the
+forecast temperature is retained in the demand baseline in that form
+(`lightgbm_msm_popw`); `lightgbm_msm` stays registered as R-001's reference
+strategy.
 
 **Superseded by:** —

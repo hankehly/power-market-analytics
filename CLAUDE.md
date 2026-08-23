@@ -62,8 +62,9 @@
   matched two-run comparison (MAE overall / by day part / near the OCCTO peak hour / by
   month / high-price days, plus bias) as markdown; needs
   `just dbt build --select +fct_spot_price_forecast_accuracy` after the runs.
-- `just python scripts/demand_backtest.py --strategy lightgbm --area tokyo` — day-ahead area
-  demand backtest (strategies: `lightgbm`, `lightgbm_msm`, `lightgbm_msm_popw`; areas: `tokyo`,
+- `just python scripts/demand_backtest.py --strategy lightgbm_msm_popw --area tokyo` — day-ahead
+  area demand backtest (strategies: `lightgbm`, `lightgbm_msm`, `lightgbm_msm_popw` = the default
+  and the kept demand baseline since demand/R-002, 2026-08-24; areas: `tokyo`,
   `kansai` = the TSO feeds loaded into `fct_area_demand_generation_actual`); each area also needs its
   representative JMA station's hourly weather loaded and current
   (`dim_area.representative_jma_station_id`: 東京 s47662, 大阪 s47772 — both loaded and current
