@@ -12,7 +12,7 @@ import pandas as pd
 import pytest
 from pyspark.sql import functions as F
 
-from tests.conftest import DEMAND_HOLE_DAY, DEMAND_HOLE_TIME_CODES
+from tests.conftest import DEMAND_HOLE_DAY, DEMAND_HOLE_TIME_CODES, FORECAST_MISSING_DAY
 from tests.support import import_script
 
 FORECAST_TABLE = "pma_ml.demand_forecast"
@@ -137,6 +137,46 @@ class TestBacktestScript:
         assert published["trade_date"].nunique() == 8
         assert pd.Timestamp("2024-04-27").date() not in set(published["trade_date"])
         assert (published["trade_date"] == DEMAND_HOLE_DAY.date()).sum() == 10
+
+    def test_lightgbm_msm_skips_the_day_without_a_temperature_forecast(
+        self, spark, curated_warehouse
+    ):
+        # 2024-05-15 has no MSM forecast rows: the candidate strategy cannot
+        # forecast it and skips it, while the surrounding days are scored.
+        script = import_script("demand_backtest")
+        start = FORECAST_MISSING_DAY - pd.Timedelta(days=1)
+        end = FORECAST_MISSING_DAY + pd.Timedelta(days=1)
+        script.main(
+            [
+                "--strategy",
+                "lightgbm_msm",
+                "--area",
+                "tokyo",
+                "--start-date",
+                str(start.date()),
+                "--end-date",
+                str(end.date()),
+                "--shap-nsamples",
+                "20",
+            ]
+        )
+        run = last_run()
+        assert run.info.status == "FINISHED"
+        assert run.info.run_name == "lightgbm_msm-tokyo"
+        params = run.data.params
+        assert params["strategy"] == "lightgbm_msm"
+        assert params["n_days"] == "2"
+        assert params["n_days_skipped"] == "1"
+        assert params["n_predictions"] == "96"
+        assert params["lgbm_feature_cols"] == (
+            "time_code,month,day_of_week,wavg_temperature_c,lag_7d_demand_kwh,"
+            "forecast_temperature_c"
+        )
+        assert run.data.tags["strategy"] == "lightgbm_msm"
+        published = published_rows(spark, run.info.run_id)
+        assert len(published) == 96
+        assert set(published["strategy"]) == {"lightgbm_msm"}
+        assert FORECAST_MISSING_DAY.date() not in set(published["trade_date"])
 
     def test_days_window_ends_at_the_last_day_in_the_data(self, spark, curated_warehouse):
         script = import_script("demand_backtest")

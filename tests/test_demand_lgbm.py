@@ -1,4 +1,5 @@
-"""Tests for the demand LightGBM baseline (calendar + temperature + D-7 lag).
+"""Tests for the demand LightGBM strategies: the baseline (calendar + temperature +
+D-7 lag) and ``lightgbm_msm`` (baseline + the MSM forecast temperature).
 
 Everything runs for real — feature building, LightGBM fits, TreeSHAP records,
 MLflow logging into the session's temp file store — on a small synthetic
@@ -19,6 +20,7 @@ import pytest
 from power_market_analytics.forecasting.backtest import BacktestRun, run_backtest
 from power_market_analytics.forecasting.strategy import ForecastUnavailableError
 from power_market_analytics.tasks.demand.features import (
+    FORECAST_TEMPERATURE_FEATURE,
     TEMPERATURE_FEATURE,
     TEMPERATURE_HALF_LIFE_DAYS,
     TEMPERATURE_LAG_DAYS,
@@ -27,13 +29,17 @@ from power_market_analytics.tasks.demand.features import (
 from power_market_analytics.tasks.demand.frames import (
     AreaDemand,
     AreaTemperature,
+    AreaTemperatureForecast,
     DemandBacktestResult,
     DemandForecast,
 )
 from power_market_analytics.tasks.demand.strategies.lgbm import (
     DEMAND_LAG_FEATURE,
     FEATURE_COLS,
+    MSM_FEATURE_COLS,
     DemandLightGbmEvalSet,
+    DemandLightGbmMsmEvalSet,
+    LightGbmMsmStrategy,
     LightGbmStrategy,
 )
 
@@ -84,6 +90,26 @@ def make_temperature(days=HISTORY_DAYS) -> AreaTemperature:
     )
 
 
+def forecast_temperature_at(day: pd.Timestamp, hour_ending: int) -> float:
+    return round(temperature_at(day, hour_ending) + 0.3 * math.cos(hour_ending / 3.0), 2)
+
+
+def make_forecast_temperature(days=HISTORY_DAYS) -> AreaTemperatureForecast:
+    return AreaTemperatureForecast.from_df(
+        pd.DataFrame(
+            [
+                {
+                    "trade_date": day,
+                    "hour_ending": h,
+                    "forecast_temperature_c": forecast_temperature_at(day, h),
+                }
+                for day in days
+                for h in range(1, 25)
+            ]
+        ).astype({"hour_ending": "int64"})
+    )
+
+
 def visible(demand: AreaDemand, day: pd.Timestamp) -> AreaDemand:
     """History the strategy may see for target ``day`` (delivery days <= D-2)."""
     return AreaDemand.from_df(demand.df[demand.df["trade_date"] <= day - pd.Timedelta(days=2)])
@@ -110,6 +136,11 @@ def demand() -> AreaDemand:
 @pytest.fixture(scope="module")
 def temperature() -> AreaTemperature:
     return make_temperature()
+
+
+@pytest.fixture(scope="module")
+def forecast_temperature() -> AreaTemperatureForecast:
+    return make_forecast_temperature()
 
 
 class TestClassAttributes:
@@ -259,6 +290,141 @@ class TestBacktestEvalAndEvaluate:
         assert params["lgbm_feature_cols"] == ",".join(FEATURE_COLS)
         assert params["temperature_lag_days"] == "2,3,4,5,6,7,8"
         assert params["temperature_half_life_days"] == "1.0"
+        assert finished.data.metrics["n_refits"] == 2.0
+        artifacts = {a.path for a in mlflow.MlflowClient().list_artifacts(active.info.run_id)}
+        assert {"shap_beeswarm_plot.png", "shap_feature_importance_plot.png"} <= artifacts
+
+
+class TestMsmClassAttributes:
+    def test_features_and_frames(self):
+        assert LightGbmMsmStrategy.name == "lightgbm_msm"
+        assert LightGbmMsmStrategy.task.name == "demand"
+        assert issubclass(LightGbmMsmStrategy, LightGbmStrategy)
+        assert MSM_FEATURE_COLS == (*FEATURE_COLS, FORECAST_TEMPERATURE_FEATURE)
+        assert LightGbmMsmStrategy.feature_cols == MSM_FEATURE_COLS
+        assert LightGbmMsmStrategy.eval_set_cls is DemandLightGbmMsmEvalSet
+        assert LightGbmMsmStrategy.lookback_days == LightGbmStrategy.lookback_days
+        assert issubclass(DemandLightGbmMsmEvalSet, DemandLightGbmEvalSet)
+        assert DemandLightGbmMsmEvalSet.feature_cols == MSM_FEATURE_COLS
+        assert list(DemandLightGbmMsmEvalSet.schema) == [
+            "trade_date",
+            "time_code",
+            "month",
+            "day_of_week",
+            TEMPERATURE_FEATURE,
+            DEMAND_LAG_FEATURE,
+            FORECAST_TEMPERATURE_FEATURE,
+            "actual_demand_kwh",
+            "forecast_demand_kwh",
+        ]
+        assert DemandLightGbmMsmEvalSet.schema[FORECAST_TEMPERATURE_FEATURE] == "float64"
+        assert FORECAST_TEMPERATURE_FEATURE in DemandLightGbmMsmEvalSet.non_null_cols
+
+
+class TestMsmPredict:
+    def test_features_are_the_baselines_plus_the_delivery_day_forecast_temperature(
+        self, demand, temperature, forecast_temperature
+    ):
+        strategy = LightGbmMsmStrategy(temperature, forecast_temperature, train_window_days=30)
+        forecast = strategy.predict(D, visible(demand, D))
+        assert isinstance(forecast, DemandForecast)
+        assert np.isfinite(forecast.df["forecast_demand_kwh"]).all()
+        record = strategy._shap_records[pd.Timestamp(D).as_unit("ns")]
+        assert list(record.columns) == [
+            "trade_date",
+            "time_code",
+            "month",
+            "day_of_week",
+            TEMPERATURE_FEATURE,
+            DEMAND_LAG_FEATURE,
+            FORECAST_TEMPERATURE_FEATURE,
+            *[f"shap_{c}" for c in MSM_FEATURE_COLS],
+            "shap_expected_value",
+        ]
+        # The baseline features are unchanged ...
+        assert record[DEMAND_LAG_FEATURE].tolist() == [
+            demand_at(D - pd.Timedelta(days=7), tc) for tc in range(1, 49)
+        ]
+        np.testing.assert_allclose(
+            record[TEMPERATURE_FEATURE].to_numpy(),
+            [expected_wavg(D, tc) for tc in range(1, 49)],
+        )
+        # ... and the new one is D's own forecast at the hour containing each period.
+        hours = hour_ending_of(pd.Series(range(1, 49), dtype="int64"))
+        assert record[FORECAST_TEMPERATURE_FEATURE].tolist() == [
+            forecast_temperature_at(D, h) for h in hours
+        ]
+        np.testing.assert_allclose(
+            forecast.df["forecast_demand_kwh"].to_numpy(),
+            strategy._model.predict(record[list(MSM_FEATURE_COLS)].astype("float64")),
+        )
+
+    def test_missing_delivery_day_forecast_is_unforecastable(self, demand, temperature):
+        without_d = make_forecast_temperature([day for day in HISTORY_DAYS if day != D])
+        strategy = LightGbmMsmStrategy(temperature, without_d, train_window_days=30)
+        with pytest.raises(
+            ForecastUnavailableError,
+            match=rf"lightgbm_msm: features \['{FORECAST_TEMPERATURE_FEATURE}'\] unavailable "
+            "for 2024-04-10",
+        ):
+            strategy.predict(D, visible(demand, D))
+
+    def test_training_rows_without_a_forecast_are_dropped(self, demand, temperature):
+        # No forecasts before 03-20: the 30-day window before D (03-11 .. 04-08)
+        # keeps only the 20 days 03-20 .. 04-08.
+        late = make_forecast_temperature(pd.date_range("2024-03-20", HISTORY_DAYS[-1]))
+        strategy = LightGbmMsmStrategy(temperature, late, train_window_days=30)
+        strategy.predict(D, visible(demand, D))
+        root = strategy._model.booster_.dump_model()["tree_info"][0]["tree_structure"]
+        n_rows = root["internal_count"] if "internal_count" in root else root["leaf_count"]
+        assert n_rows == 20 * 48
+
+
+class TestMsmBacktestEvalAndEvaluate:
+    @pytest.fixture(scope="class")
+    def backtested(
+        self, demand, temperature, forecast_temperature
+    ) -> tuple[LightGbmMsmStrategy, BacktestRun]:
+        strategy = LightGbmMsmStrategy(
+            temperature, forecast_temperature, train_window_days=30, refit_every_days=7
+        )
+        return strategy, run_backtest(strategy, demand, WINDOW_START, WINDOW_END)
+
+    def test_backtest_covers_the_window(self, backtested):
+        _, run = backtested
+        assert isinstance(run.result, DemandBacktestResult)
+        assert run.skipped_days == ()
+        assert len(run.result) == 14 * 48
+
+    def test_eval_set_carries_the_forecast_temperature(self, backtested, demand):
+        strategy, run = backtested
+        eval_set = strategy.build_eval_set(demand, WINDOW_START, WINDOW_END, run=run)
+        assert type(eval_set) is DemandLightGbmMsmEvalSet
+        assert len(eval_set) == 14 * 48
+        hours = hour_ending_of(eval_set.df["time_code"])
+        expected = [
+            forecast_temperature_at(day, h) for day, h in zip(eval_set.df["trade_date"], hours)
+        ]
+        assert eval_set.df[FORECAST_TEMPERATURE_FEATURE].tolist() == expected
+        merged = eval_set.df.merge(
+            run.result.df,
+            how="inner",
+            on=["trade_date", "time_code"],
+            suffixes=("", "_bt"),
+            validate="one_to_one",
+        )
+        assert merged["forecast_demand_kwh"].equals(merged["forecast_demand_kwh_bt"])
+
+    def test_evaluate_logs_the_extended_feature_list(self, backtested, demand):
+        strategy, run = backtested
+        eval_set = strategy.build_eval_set(demand, WINDOW_START, WINDOW_END, run=run)
+        with mlflow.start_run() as active:
+            evaluation = strategy.evaluate(eval_set, explainability_nsamples=20)
+        finished = mlflow.get_run(active.info.run_id)
+        assert evaluation.metrics["mean_absolute_error"] >= 0
+        params = finished.data.params
+        assert params["lgbm_feature_cols"] == ",".join(MSM_FEATURE_COLS)
+        assert params["temperature_lag_days"] == "2,3,4,5,6,7,8"
         assert finished.data.metrics["n_refits"] == 2.0
         artifacts = {a.path for a in mlflow.MlflowClient().list_artifacts(active.info.run_id)}
         assert {"shap_beeswarm_plot.png", "shap_feature_importance_plot.png"} <= artifacts
