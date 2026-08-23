@@ -28,10 +28,13 @@ narrow them as the question requires.
   `lightgbm_msm` remain as reference strategies); pin `--start-date`,
   `--end-date` and `--train-start` identically for a candidate and its baseline
 - **Primary metric:** MAE (kWh)
-- **Segments reported by the tooling:** Superset **Demand Forecast Analysis**
-  (day part, day type, actual-demand bands, calibration curve, error
-  histogram); there is no matched two-run compare script for this task yet —
-  `scripts/compare_spot_price_runs.py` reads the spot-price accuracy fact only
+- **Segments reported by the tooling:** `scripts/compare_demand_runs.py
+  --baseline <run_id> --candidate <run_id>` (matched two-run tables: overall
+  MAE / MAPE / bias, day part, day type, calendar month, season, 2,000-MWh
+  actual-demand bands, top-10 % demand days, and the daily paired comparison
+  with its seeded bootstrap CI over days; `--mae-by-month-png` writes the
+  by-month figure) and Superset **Demand Forecast Analysis** (day part, day
+  type, actual-demand bands, calibration curve, error histogram)
 - **Evaluation method:** rolling out-of-sample backtest over identical
   delivery dates and training rows for baseline and candidate; accuracy rows
   in `fct_demand_forecast_accuracy` after

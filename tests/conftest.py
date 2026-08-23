@@ -111,12 +111,18 @@ STATION_POPULATION_WEIGHTS = {
     2015: {TOKYO_STATION_ID: 0.5, TOKYO_SECOND_STATION_ID: 0.5},
 }
 KANSAI_AREA_KEY = 2
+CHUBU_AREA_KEY = 3
+
+#: A third area whose station carries TWO forecast vintages for one hour, so the
+#: loaders' fail-fast on blended vintages can be exercised.
+CHUBU_STATION_ID = "s47636"
+TWO_VINTAGE_HOUR = (pd.Timestamp("2024-04-01"), 9)
 
 AREAS = pd.DataFrame(
     {
-        "area_key": [1, 2],
-        "area_code": ["tokyo", "kansai"],
-        "representative_jma_station_id": [TOKYO_STATION_ID, KANSAI_STATION_ID],
+        "area_key": [1, 2, 3],
+        "area_code": ["tokyo", "kansai", "chubu"],
+        "representative_jma_station_id": [TOKYO_STATION_ID, KANSAI_STATION_ID, CHUBU_STATION_ID],
     }
 )
 TOKYO_AREA_KEY = 1
@@ -135,6 +141,23 @@ UNMATCHED_RUN_ID = "run-unmatched"
 UNMATCHED_DAYS = pd.date_range("2024-04-15", "2024-04-20", freq="D")
 #: Delivery days with demand actuals (tokyo only) — the same span as the prices.
 DEMAND_DAYS = PRICE_DAYS
+#: Two matched demand accuracy runs over ACCURACY_DAYS and one over UNMATCHED_DAYS.
+DEMAND_BASELINE_RUN_ID = "demand-run-baseline"
+DEMAND_CANDIDATE_RUN_ID = "demand-run-candidate"
+DEMAND_UNMATCHED_RUN_ID = "demand-run-unmatched"
+#: Signed error of the demand baseline on odd time codes (kWh); even codes carry
+#: minus half of it, so MAE and bias differ. The candidate halves it, the
+#: unmatched run scales it by 0.8.
+DEMAND_BASELINE_ERROR_KWH = 100_000
+#: National holidays inside DEMAND_DAYS (the jpn_national_holidays seed, 2024).
+HOLIDAYS_2024_SPRING = (
+    pd.Timestamp("2024-03-20"),
+    pd.Timestamp("2024-04-29"),
+    pd.Timestamp("2024-05-03"),
+    pd.Timestamp("2024-05-04"),
+    pd.Timestamp("2024-05-05"),
+    pd.Timestamp("2024-05-06"),
+)
 #: One partial-day hole like Tokyo 2025-06-14: time codes 11..48 have null demand.
 DEMAND_HOLE_DAY = pd.Timestamp("2024-04-20")
 DEMAND_HOLE_TIME_CODES = range(11, 49)
@@ -208,15 +231,21 @@ class CuratedWarehouse:
         Contents of ``fct_jma_weather_hourly`` (s47662, hourly,
         ``temperature_c`` NaN for the missing hours).
     weather_forecast : pandas.DataFrame
-        Contents of ``fct_jma_msm_weather_forecast_hourly`` as
+        The tokyo rows of ``fct_jma_msm_weather_forecast_hourly`` as
         (station_id, date_key, hour_ending, forecast_temperature_c) — s47662 and
         ``TOKYO_SECOND_STATION_ID`` (offset by ``SECOND_STATION_FORECAST_OFFSET_C``,
         minus ``SECOND_STATION_MISSING_HOUR``), every ``DEMAND_DAYS`` day except
-        ``FORECAST_MISSING_DAY``.
+        ``FORECAST_MISSING_DAY``. The table also holds chubu's ``CHUBU_STATION_ID``
+        at ``TWO_VINTAGE_HOUR`` under two ``forecast_reference_at`` values.
+    demand_accuracy : pandas.DataFrame
+        Contents of ``fct_demand_forecast_accuracy`` (tokyo; the two matched
+        demand runs over ``ACCURACY_DAYS`` and the unmatched one).
+    dates : pandas.DataFrame
+        Contents of ``dim_date`` over ``DEMAND_DAYS`` (weekend / holiday flags).
     station_weights : pandas.DataFrame
         Contents of ``fct_census_population_jma_station`` (tokyo area, the
-        ``STATION_POPULATION_WEIGHTS`` vintages; plus kansai's single station
-        at weight 1 for 2020, which has no forecast rows).
+        ``STATION_POPULATION_WEIGHTS`` vintages; plus kansai's and chubu's single
+        stations at weight 1 for 2020 — kansai's has no forecast rows).
     """
 
     areas: pd.DataFrame
@@ -228,6 +257,8 @@ class CuratedWarehouse:
     weather: pd.DataFrame
     weather_forecast: pd.DataFrame
     station_weights: pd.DataFrame
+    demand_accuracy: pd.DataFrame
+    dates: pd.DataFrame
 
 
 @pytest.fixture(scope="session")
@@ -292,6 +323,35 @@ def curated_warehouse(spark: SparkSession) -> CuratedWarehouse:
                     }
                 )
     accuracy = pd.DataFrame(accuracy_rows)
+
+    demand_accuracy_rows = []
+    for run_id, days, scale in (
+        (DEMAND_BASELINE_RUN_ID, ACCURACY_DAYS, 1.0),
+        (DEMAND_CANDIDATE_RUN_ID, ACCURACY_DAYS, 0.5),
+        (DEMAND_UNMATCHED_RUN_ID, UNMATCHED_DAYS, 0.8),
+    ):
+        for day in days:
+            for tc in range(1, 49):
+                actual = float(synthetic_demand(day, tc))
+                error = scale * DEMAND_BASELINE_ERROR_KWH * (1 if tc % 2 else -0.5)
+                demand_accuracy_rows.append(
+                    {
+                        "date_key": day.date(),
+                        "time_code": tc,
+                        "area_key": TOKYO_AREA_KEY,
+                        "run_id": run_id,
+                        "actual_demand_kwh": actual,
+                        "forecast_demand_kwh": actual + error,
+                    }
+                )
+    demand_accuracy = pd.DataFrame(demand_accuracy_rows)
+    dates = pd.DataFrame(
+        {
+            "date_key": [day.date() for day in DEMAND_DAYS],
+            "is_weekend": [day.dayofweek >= 5 for day in DEMAND_DAYS],
+            "is_holiday": [day in HOLIDAYS_2024_SPRING for day in DEMAND_DAYS],
+        }
+    )
 
     demand_rows: list[tuple] = []
     demand_records: list[dict] = []
@@ -381,6 +441,22 @@ def curated_warehouse(spark: SparkSession) -> CuratedWarehouse:
                         "forecast_temperature_c": forecast,
                     }
                 )
+    # chubu: one hour forecast by two MSM runs (the D-2 12 UTC one and a later one).
+    day, hour = TWO_VINTAGE_HOUR
+    for reference_at in (
+        day - pd.Timedelta(days=2) + pd.Timedelta(hours=21),
+        day - pd.Timedelta(days=1) + pd.Timedelta(hours=9),
+    ):
+        forecast_rows.append(
+            (
+                CHUBU_STATION_ID,
+                reference_at.to_pydatetime(),
+                (day + pd.Timedelta(hours=hour)).to_pydatetime(),
+                (day + pd.Timedelta(hours=hour - 1)).to_pydatetime(),
+                day.date(),
+                12.0,
+            )
+        )
     weather_forecast = pd.DataFrame(forecast_records)
     station_weights = pd.DataFrame(
         [
@@ -399,13 +475,17 @@ def curated_warehouse(spark: SparkSession) -> CuratedWarehouse:
         + [
             {
                 "census_year": 2020,
-                "station_id": KANSAI_STATION_ID,
-                "area_key": KANSAI_AREA_KEY,
+                "station_id": station_id,
+                "area_key": area_key,
                 "n_meshes": 10,
                 "population_total": 1000,
                 "area_population_total": 1000,
                 "area_population_weight": 1.0,
             }
+            for station_id, area_key in (
+                (KANSAI_STATION_ID, KANSAI_AREA_KEY),
+                (CHUBU_STATION_ID, CHUBU_AREA_KEY),
+            )
         ]
     )
 
@@ -451,6 +531,14 @@ def curated_warehouse(spark: SparkSession) -> CuratedWarehouse:
         "census_year int, station_id string, area_key int, n_meshes int, "
         "population_total bigint, area_population_total bigint, area_population_weight double",
     ).write.mode("overwrite").saveAsTable("pma_curated.fct_census_population_jma_station")
+    spark.createDataFrame(
+        demand_accuracy,
+        "date_key date, time_code int, area_key int, run_id string, "
+        "actual_demand_kwh double, forecast_demand_kwh double",
+    ).write.mode("overwrite").saveAsTable("pma_curated.fct_demand_forecast_accuracy")
+    spark.createDataFrame(
+        dates, "date_key date, is_weekend boolean, is_holiday boolean"
+    ).write.mode("overwrite").saveAsTable("pma_curated.dim_date")
     return CuratedWarehouse(
         areas=AREAS,
         prices=prices,
@@ -461,4 +549,6 @@ def curated_warehouse(spark: SparkSession) -> CuratedWarehouse:
         weather=weather,
         weather_forecast=weather_forecast,
         station_weights=station_weights,
+        demand_accuracy=demand_accuracy,
+        dates=dates,
     )
