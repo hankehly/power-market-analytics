@@ -9,8 +9,10 @@ from power_market_analytics.forecasting.strategy import ForecastStrategy
 from power_market_analytics.tasks.demand.datasets import (
     load_area_temperature,
     load_area_temperature_forecast,
+    load_area_temperature_forecast_population_weighted,
 )
 from power_market_analytics.tasks.demand.strategies.lgbm import (
+    LightGbmMsmPopWeightedStrategy,
     LightGbmMsmStrategy,
     LightGbmStrategy,
 )
@@ -20,6 +22,7 @@ from power_market_analytics.tasks.demand.strategies.lgbm import (
 STRATEGIES: dict[str, type[LightGbmStrategy]] = {
     LightGbmStrategy.name: LightGbmStrategy,
     LightGbmMsmStrategy.name: LightGbmMsmStrategy,
+    LightGbmMsmPopWeightedStrategy.name: LightGbmMsmPopWeightedStrategy,
 }
 
 
@@ -35,8 +38,9 @@ def build_strategy(
     Every registered strategy is a LightGBM model over the area's
     temperature, so the temperature is loaded from the warehouse here and
     ``train_start_date`` forwarded; strategies that also consume the MSM
-    forecast temperature get it loaded too. Callers only deal in registry
-    names.
+    forecast temperature get it loaded too — at the representative station,
+    or population-weighted over the area's stations with the latest census
+    vintage. Callers only deal in registry names.
 
     Parameters
     ----------
@@ -64,6 +68,14 @@ def build_strategy(
     """
     cls = STRATEGIES[name]
     temperature = load_area_temperature(area_code, spark=spark)
+    if issubclass(cls, LightGbmMsmPopWeightedStrategy):
+        weighted = load_area_temperature_forecast_population_weighted(area_code, spark=spark)
+        return cls(
+            temperature,
+            weighted.forecast,
+            census_year=weighted.census_year,
+            train_start_date=train_start_date,
+        )
     if issubclass(cls, LightGbmMsmStrategy):
         forecast = load_area_temperature_forecast(area_code, spark=spark)
         return cls(temperature, forecast, train_start_date=train_start_date)

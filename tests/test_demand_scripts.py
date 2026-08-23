@@ -178,6 +178,34 @@ class TestBacktestScript:
         assert set(published["strategy"]) == {"lightgbm_msm"}
         assert FORECAST_MISSING_DAY.date() not in set(published["trade_date"])
 
+    def test_lightgbm_msm_popw_logs_the_census_year(self, spark, curated_warehouse):
+        script = import_script("demand_backtest")
+        script.main(
+            [
+                "--strategy",
+                "lightgbm_msm_popw",
+                "--start-date",
+                "2024-05-10",
+                "--end-date",
+                "2024-05-11",
+                "--shap-nsamples",
+                "20",
+            ]
+        )
+        run = last_run()
+        assert run.info.status == "FINISHED"
+        assert run.info.run_name == "lightgbm_msm_popw-tokyo"
+        params = run.data.params
+        assert params["n_days"] == "2"
+        assert params["n_predictions"] == "96"
+        assert params["population_weight_census_year"] == "2020"
+        assert params["lgbm_feature_cols"] == (
+            "time_code,month,day_of_week,wavg_temperature_c,lag_7d_demand_kwh,"
+            "popw_forecast_temperature_c"
+        )
+        published = published_rows(spark, run.info.run_id)
+        assert set(published["strategy"]) == {"lightgbm_msm_popw"}
+
     def test_days_window_ends_at_the_last_day_in_the_data(self, spark, curated_warehouse):
         script = import_script("demand_backtest")
         script.main(["--days", "2", "--shap-nsamples", "20"])

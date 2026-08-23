@@ -15,9 +15,11 @@ import pytest
 
 from power_market_analytics.tasks.demand.datasets import (
     AREA_CODES,
+    PopulationWeightedTemperatureForecast,
     load_area_demand,
     load_area_temperature,
     load_area_temperature_forecast,
+    load_area_temperature_forecast_population_weighted,
 )
 from power_market_analytics.tasks.demand.frames import (
     AreaDemand,
@@ -29,7 +31,12 @@ from tests.conftest import (
     DEMAND_HOLE_DAY,
     DEMAND_HOLE_TIME_CODES,
     FORECAST_MISSING_DAY,
+    SECOND_STATION_FORECAST_OFFSET_C,
+    SECOND_STATION_MISSING_HOUR,
+    STATION_POPULATION_WEIGHTS,
     TEMPERATURE_MISSING_HOURS,
+    TOKYO_SECOND_STATION_ID,
+    TOKYO_STATION_ID,
     CuratedWarehouse,
 )
 
@@ -95,10 +102,13 @@ class TestLoadAreaTemperature:
 
 
 def expected_temperature_forecast(warehouse: CuratedWarehouse) -> pd.DataFrame:
+    station = warehouse.weather_forecast[
+        warehouse.weather_forecast["station_id"] == TOKYO_STATION_ID
+    ]
     return (
-        warehouse.weather_forecast.assign(
-            trade_date=lambda d: pd.to_datetime(d["date_key"]).astype("datetime64[ns]")
-        )[["trade_date", "hour_ending", "forecast_temperature_c"]]
+        station.assign(trade_date=lambda d: pd.to_datetime(d["date_key"]).astype("datetime64[ns]"))[
+            ["trade_date", "hour_ending", "forecast_temperature_c"]
+        ]
         .astype({"hour_ending": "int64", "forecast_temperature_c": "float64"})
         .sort_values(["trade_date", "hour_ending"], ignore_index=True)
     )
@@ -123,3 +133,81 @@ class TestLoadAreaTemperatureForecast:
 
     def test_defaults_to_tokyo_and_the_active_session(self, spark, curated_warehouse):
         assert len(load_area_temperature_forecast()) == (len(DEMAND_DAYS) - 1) * 24
+
+
+def expected_population_weighted_forecast(
+    warehouse: CuratedWarehouse, census_year: int
+) -> pd.DataFrame:
+    """Hand-derived weighted mean: w1 * T1 + w2 * (T1 + offset), renormalised where
+    the second station's row is missing."""
+    weights = STATION_POPULATION_WEIGHTS[census_year]
+    first = expected_temperature_forecast(warehouse).rename(
+        columns={"forecast_temperature_c": "t1"}
+    )
+    w1, w2 = weights[TOKYO_STATION_ID], weights[TOKYO_SECOND_STATION_ID]
+    missing_day, missing_hour = SECOND_STATION_MISSING_HOUR
+    second_present = ~(
+        (first["trade_date"] == missing_day) & (first["hour_ending"] == missing_hour)
+    )
+    value = first["t1"] + second_present * (w2 * SECOND_STATION_FORECAST_OFFSET_C) / (w1 + w2)
+    return first.assign(forecast_temperature_c=value.astype("float64")).drop(columns="t1")
+
+
+class TestLoadAreaTemperatureForecastPopulationWeighted:
+    def test_latest_vintage_weights_by_default(self, spark, curated_warehouse):
+        loaded = load_area_temperature_forecast_population_weighted("tokyo", spark=spark)
+        assert isinstance(loaded, PopulationWeightedTemperatureForecast)
+        assert loaded.census_year == 2020
+        assert loaded.n_stations == 2
+        forecast = loaded.forecast
+        assert isinstance(forecast, AreaTemperatureForecast)
+        pd.testing.assert_frame_equal(
+            forecast.df, expected_population_weighted_forecast(curated_warehouse, 2020)
+        )
+        assert len(forecast) == (len(DEMAND_DAYS) - 1) * 24
+        assert FORECAST_MISSING_DAY not in set(forecast.df["trade_date"])
+
+    def test_explicit_census_year(self, spark, curated_warehouse):
+        loaded = load_area_temperature_forecast_population_weighted(
+            "tokyo", census_year=2015, spark=spark
+        )
+        assert loaded.census_year == 2015
+        pd.testing.assert_frame_equal(
+            loaded.forecast.df, expected_population_weighted_forecast(curated_warehouse, 2015)
+        )
+
+    def test_missing_station_hour_is_renormalised_over_the_present_stations(
+        self, spark, curated_warehouse
+    ):
+        forecast = load_area_temperature_forecast_population_weighted("tokyo", spark=spark).forecast
+        day, hour = SECOND_STATION_MISSING_HOUR
+        row = forecast.df[(forecast.df["trade_date"] == day) & (forecast.df["hour_ending"] == hour)]
+        only_first = expected_temperature_forecast(curated_warehouse)
+        t1 = only_first[(only_first["trade_date"] == day) & (only_first["hour_ending"] == hour)]
+        assert row["forecast_temperature_c"].iloc[0] == pytest.approx(
+            t1["forecast_temperature_c"].iloc[0]
+        )
+
+    def test_area_without_weights_raises(self, spark, curated_warehouse):
+        with pytest.raises(
+            ValueError, match="No station population weights found for area_code='hokkaido'$"
+        ):
+            load_area_temperature_forecast_population_weighted("hokkaido", spark=spark)
+
+    def test_weighted_stations_without_forecast_rows_raise(self, spark, curated_warehouse):
+        # kansai has a weighted station (s47772) but no MSM rows for it.
+        with pytest.raises(
+            ValueError,
+            match="No temperature forecasts found for the weighted stations of "
+            r"area_code='kansai' \(census_year=2020\)",
+        ):
+            load_area_temperature_forecast_population_weighted("kansai", spark=spark)
+
+    def test_unknown_census_year_raises(self, spark, curated_warehouse):
+        with pytest.raises(
+            ValueError,
+            match="No station population weights found for area_code='tokyo', census_year=1999",
+        ):
+            load_area_temperature_forecast_population_weighted(
+                "tokyo", census_year=1999, spark=spark
+            )

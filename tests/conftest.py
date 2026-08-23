@@ -95,6 +95,22 @@ def mlflow_store(tmp_path_factory: pytest.TempPathFactory) -> str:
 #: Representative JMA stations written to dim_area; only tokyo's has weather rows.
 TOKYO_STATION_ID = "s47662"
 KANSAI_STATION_ID = "s47772"
+#: A second tokyo-area station: MSM forecast rows only (no observations), weighted
+#: together with TOKYO_STATION_ID in fct_census_population_jma_station.
+TOKYO_SECOND_STATION_ID = "s47670"
+#: Forecast offset of the second station over the first (a constant, so the
+#: population-weighted value is hand-derivable).
+SECOND_STATION_FORECAST_OFFSET_C = 2.0
+#: (delivery day, hour_ending) whose forecast row is missing for the second station only.
+SECOND_STATION_MISSING_HOUR = (pd.Timestamp("2024-05-20"), 12)
+#: Station population weights per census vintage (tokyo area): the latest vintage
+#: is the default; 2015 differs so an explicit census_year is observable. Kansai
+#: has a weight row too (KANSAI_STATION_ID, weight 1) but no forecast rows.
+STATION_POPULATION_WEIGHTS = {
+    2020: {TOKYO_STATION_ID: 0.6, TOKYO_SECOND_STATION_ID: 0.4},
+    2015: {TOKYO_STATION_ID: 0.5, TOKYO_SECOND_STATION_ID: 0.5},
+}
+KANSAI_AREA_KEY = 2
 
 AREAS = pd.DataFrame(
     {
@@ -193,8 +209,14 @@ class CuratedWarehouse:
         ``temperature_c`` NaN for the missing hours).
     weather_forecast : pandas.DataFrame
         Contents of ``fct_jma_msm_weather_forecast_hourly`` as
-        (station_id, date_key, hour_ending, forecast_temperature_c) — s47662,
-        every ``DEMAND_DAYS`` day except ``FORECAST_MISSING_DAY``.
+        (station_id, date_key, hour_ending, forecast_temperature_c) — s47662 and
+        ``TOKYO_SECOND_STATION_ID`` (offset by ``SECOND_STATION_FORECAST_OFFSET_C``,
+        minus ``SECOND_STATION_MISSING_HOUR``), every ``DEMAND_DAYS`` day except
+        ``FORECAST_MISSING_DAY``.
+    station_weights : pandas.DataFrame
+        Contents of ``fct_census_population_jma_station`` (tokyo area, the
+        ``STATION_POPULATION_WEIGHTS`` vintages; plus kansai's single station
+        at weight 1 for 2020, which has no forecast rows).
     """
 
     areas: pd.DataFrame
@@ -205,6 +227,7 @@ class CuratedWarehouse:
     demand: pd.DataFrame
     weather: pd.DataFrame
     weather_forecast: pd.DataFrame
+    station_weights: pd.DataFrame
 
 
 @pytest.fixture(scope="session")
@@ -213,9 +236,9 @@ def curated_warehouse(spark: SparkSession) -> CuratedWarehouse:
 
     Tokyo has prices for every day of ``PRICE_DAYS`` × 48 time codes, OCCTO
     forecasts for ``OCCTO_DAYS``, demand actuals and hourly observed
-    temperature for ``DEMAND_DAYS`` and an MSM forecast temperature for every
-    one of those days but ``FORECAST_MISSING_DAY``; Kansai has an area row
-    but no facts.
+    temperature for ``DEMAND_DAYS`` and an MSM forecast temperature (at two
+    stations, with census population weights) for every one of those days but
+    ``FORECAST_MISSING_DAY``; Kansai has an area row but no facts.
     Two matched accuracy runs (``BASELINE_RUN_ID``, ``CANDIDATE_RUN_ID``)
     score ``ACCURACY_DAYS``; ``UNMATCHED_RUN_ID`` scores ``UNMATCHED_DAYS``.
     """
@@ -331,26 +354,60 @@ def curated_warehouse(spark: SparkSession) -> CuratedWarehouse:
         # The single ingested vintage: the 12 UTC run of D-2 (21:00 JST).
         reference_at = (day - pd.Timedelta(days=2) + pd.Timedelta(hours=21)).to_pydatetime()
         for hour in range(1, 25):
-            forecast = synthetic_forecast_temperature(day, hour)
-            forecast_rows.append(
-                (
-                    TOKYO_STATION_ID,
-                    reference_at,
-                    (day + pd.Timedelta(hours=hour)).to_pydatetime(),
-                    (day + pd.Timedelta(hours=hour - 1)).to_pydatetime(),
-                    day.date(),
-                    forecast,
+            for station_id, offset in (
+                (TOKYO_STATION_ID, 0.0),
+                (TOKYO_SECOND_STATION_ID, SECOND_STATION_FORECAST_OFFSET_C),
+            ):
+                if station_id == TOKYO_SECOND_STATION_ID and (day, hour) == (
+                    SECOND_STATION_MISSING_HOUR
+                ):
+                    continue
+                forecast = synthetic_forecast_temperature(day, hour) + offset
+                forecast_rows.append(
+                    (
+                        station_id,
+                        reference_at,
+                        (day + pd.Timedelta(hours=hour)).to_pydatetime(),
+                        (day + pd.Timedelta(hours=hour - 1)).to_pydatetime(),
+                        day.date(),
+                        forecast,
+                    )
                 )
-            )
-            forecast_records.append(
-                {
-                    "station_id": TOKYO_STATION_ID,
-                    "date_key": day.date(),
-                    "hour_ending": hour,
-                    "forecast_temperature_c": forecast,
-                }
-            )
+                forecast_records.append(
+                    {
+                        "station_id": station_id,
+                        "date_key": day.date(),
+                        "hour_ending": hour,
+                        "forecast_temperature_c": forecast,
+                    }
+                )
     weather_forecast = pd.DataFrame(forecast_records)
+    station_weights = pd.DataFrame(
+        [
+            {
+                "census_year": year,
+                "station_id": station_id,
+                "area_key": TOKYO_AREA_KEY,
+                "n_meshes": 10,
+                "population_total": int(weight * 1000),
+                "area_population_total": 1000,
+                "area_population_weight": weight,
+            }
+            for year, weights in STATION_POPULATION_WEIGHTS.items()
+            for station_id, weight in weights.items()
+        ]
+        + [
+            {
+                "census_year": 2020,
+                "station_id": KANSAI_STATION_ID,
+                "area_key": KANSAI_AREA_KEY,
+                "n_meshes": 10,
+                "population_total": 1000,
+                "area_population_total": 1000,
+                "area_population_weight": 1.0,
+            }
+        ]
+    )
 
     spark.sql("CREATE DATABASE IF NOT EXISTS pma_curated")
     spark.createDataFrame(
@@ -389,6 +446,11 @@ def curated_warehouse(spark: SparkSession) -> CuratedWarehouse:
         "station_id string, forecast_reference_at timestamp, forecast_valid_at timestamp, "
         "forecast_hour_start_at timestamp, date_key date, temperature_c double",
     ).write.mode("overwrite").saveAsTable("pma_curated.fct_jma_msm_weather_forecast_hourly")
+    spark.createDataFrame(
+        station_weights,
+        "census_year int, station_id string, area_key int, n_meshes int, "
+        "population_total bigint, area_population_total bigint, area_population_weight double",
+    ).write.mode("overwrite").saveAsTable("pma_curated.fct_census_population_jma_station")
     return CuratedWarehouse(
         areas=AREAS,
         prices=prices,
@@ -398,4 +460,5 @@ def curated_warehouse(spark: SparkSession) -> CuratedWarehouse:
         demand=demand,
         weather=weather,
         weather_forecast=weather_forecast,
+        station_weights=station_weights,
     )
