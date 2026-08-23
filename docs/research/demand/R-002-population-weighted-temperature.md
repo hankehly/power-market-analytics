@@ -139,18 +139,25 @@ with an interval that excludes zero.
   [`2556e3f2b94c4cf59efc6b2fff1bddef`](http://localhost:5005/#/experiments/2/runs/2556e3f2b94c4cf59efc6b2fff1bddef)
   — same flags, run immediately after; 2020 census weights over 21 stations
   (`population_weight_census_year` on the run)
-- **Code or pull request:** branch `demand-forecast-temperature`
+- **Code or pull request:**
+  [PR #13](https://github.com/hankehly/power-market-analytics/pull/13)
   (`fct_census_population_jma_station`, `LightGbmMsmPopWeightedStrategy`,
-  `load_area_temperature_forecast_population_weighted`); the segment tables
-  below were computed from the two runs' `predictions.csv` artifacts (no
-  demand compare script yet); accuracy rows for both runs are in
+  `load_area_temperature_forecast_population_weighted`); the segment tables,
+  the daily paired comparison and the figure below are the output of
+  `scripts/compare_demand_runs.py --baseline 4bdb6087b6ed4d22948b8faf1d3e9202
+  --candidate 2556e3f2b94c4cf59efc6b2fff1bddef --mae-by-month-png …`
+  (`tasks/demand/compare.py`, reading `fct_demand_forecast_accuracy`; first
+  computed ad hoc from the runs' `predictions.csv` and re-derived with the
+  script on 2026-08-24 — identical); accuracy rows for both runs are in
   `fct_demand_forecast_accuracy` / the **Demand Forecast Analysis** dashboard
 - **Matched window:** the R-001 window — 729 delivery days
   2024-08-18..2026-08-17, identical training rows and refit schedule (one day,
   2025-06-21, skipped by both for its D-7 lag in the 2025-06-14 TSO hole)
-- **Segment definitions:** as in R-001 (day parts per
-  `dim_delivery_period.day_part`; daily paired comparison with a 95 % bootstrap
-  CI over days, 10,000 resamples, seed 0)
+- **Segment definitions:** as in R-001, i.e. as implemented in
+  `tasks/demand/compare.py` (day parts per `dim_delivery_period.day_part`, day
+  types from `dim_date`, 2,000-MWh bands, top-10 % demand days; daily paired
+  comparison = percentile bootstrap of the mean daily-MAE difference over days,
+  10,000 resamples, seed 0)
 
 ### Results
 

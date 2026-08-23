@@ -131,6 +131,12 @@ class TestLoadAreaTemperatureForecast:
         ):
             load_area_temperature_forecast("kansai", spark=spark)
 
+    def test_two_vintages_for_one_hour_fail_fast(self, spark, curated_warehouse):
+        # chubu's station has TWO_VINTAGE_HOUR forecast by two MSM runs: the frame's
+        # unique grain refuses to pick one silently.
+        with pytest.raises(ValueError, match=r"grain .* not unique \(1 duplicate rows\)"):
+            load_area_temperature_forecast("chubu", spark=spark)
+
     def test_defaults_to_tokyo_and_the_active_session(self, spark, curated_warehouse):
         assert len(load_area_temperature_forecast()) == (len(DEMAND_DAYS) - 1) * 24
 
@@ -193,6 +199,16 @@ class TestLoadAreaTemperatureForecastPopulationWeighted:
             ValueError, match="No station population weights found for area_code='hokkaido'$"
         ):
             load_area_temperature_forecast_population_weighted("hokkaido", spark=spark)
+
+    def test_two_vintages_for_one_hour_fail_fast_instead_of_blending(
+        self, spark, curated_warehouse
+    ):
+        with pytest.raises(
+            ValueError,
+            match=r"2 forecast vintages for 1 delivery-day hour\(s\) of area_code='chubu' "
+            r"\(e\.g\. 2024-04-01 hour 9: 2024-03-30 21:00, 2024-03-31 09:00\)",
+        ):
+            load_area_temperature_forecast_population_weighted("chubu", spark=spark)
 
     def test_weighted_stations_without_forecast_rows_raise(self, spark, curated_warehouse):
         # kansai has a weighted station (s47772) but no MSM rows for it.

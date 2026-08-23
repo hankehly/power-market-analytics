@@ -76,6 +76,15 @@
   flags as the spot script
   (`--days` defaults to 365); logs to the MLflow experiment `demand`, publishes to
   `pma_ml.demand_forecast`, then `just dbt build --select +fct_demand_forecast_accuracy`.
+- `just python scripts/compare_demand_runs.py --baseline <run_id> --candidate <run_id>` — the
+  demand task's matched two-run comparison (`tasks/demand/compare.py`): MAE overall / MAPE /
+  bias / by day part, day type, month, season, 2,000-MWh actual-demand band, top-10 % demand
+  days, plus the daily paired comparison (share of days lower, seeded percentile-bootstrap CI
+  over days of the mean daily-MAE difference, share of the gain from the k most-improved days)
+  as markdown; `--mae-by-month-png` also writes the research figure. Reads
+  `fct_demand_forecast_accuracy` (+ `dim_delivery_period`, `dim_date`), so run
+  `just dbt build --select +fct_demand_forecast_accuracy` after the runs. Options:
+  `--high-demand-quantile`, `--band-mwh`, `--resamples`, `--seed`, `--top-days`.
 - `just python scripts/create_forecast_dashboard.py [--task spot_price|demand]` — (re)build the
   Superset forecast-analysis dashboards from the repo (idempotent; no `--task` = all): per task a
   `DashboardSpec` (dataset SQL, unit, formats, band/calibration columns) drives one shared set of

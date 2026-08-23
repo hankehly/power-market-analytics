@@ -11,6 +11,16 @@
 -- (docs/JMA-MSM-GPV-Retrieval.md §9.4); their meshes fall to the next-nearest
 -- lower station instead, so they have no row here.
 --
+-- Okinawa Prefecture is the one populated territory outside every JEPX area and
+-- has no station in dim_jma_station (the seed keeps JEPX-area stations only), so
+-- its meshes would otherwise fall to the nearest Kyushu station (沖永良部, 1.5 M
+-- people on a 12 k island). They are excluded by geography: centroid south of
+-- 28.0°N and west of 132.0°E, except the Kagoshima islands 徳之島・沖永良部・与論
+-- (27.0–28.0°N, 128.35–129.1°E). Ogasawara's 硫黄島/南鳥島 lie east of 132°E and
+-- stay with 父島 (Tokyo area). The excluded population equals the official
+-- census population of Okinawa Prefecture exactly in both vintages (singular
+-- test assert_fct_census_population_jma_station_excludes_okinawa).
+--
 -- area_population_weight is the station's share of its JEPX area's population,
 -- where an area's population is the sum over its weighted stations — so a mesh
 -- belongs to the area of its nearest station, an approximation of the TSO
@@ -33,6 +43,16 @@ with
     {{ ref('fct_census_population_mesh') }} f
     join {{ ref('dim_population_mesh_500m') }} d
       on d.mesh_code = f.mesh_code
+  where
+    -- Okinawa Prefecture (no JEPX area): see the header comment.
+    not (
+      d.centroid_latitude < 28.0
+      and d.centroid_longitude < 132.0
+      and not (
+        d.centroid_latitude >= 27.0
+        and d.centroid_longitude between 128.35 and 129.1
+      )
+    )
   ),
 
   stations as (
