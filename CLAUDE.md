@@ -63,12 +63,14 @@
   month / high-price days, plus bias) as markdown; needs
   `just dbt build --select +fct_spot_price_forecast_accuracy` after the runs.
 - `just python scripts/demand_backtest.py --strategy lightgbm --area tokyo` — day-ahead area
-  demand backtest (strategies: `lightgbm`; areas: `tokyo`, `kansai` = the TSO feeds loaded into
-  `fct_area_demand_generation_actual`); each area also needs its representative JMA station's
-  hourly weather loaded and current (`dim_area.representative_jma_station_id`: 東京 s47662,
-  大阪 s47772 — both loaded and current as of the 2026-08-20 re-scope backfill; keep them fresh
-  with `just refresh-jma`, since a stale window's last days are skipped for lack of a
-  temperature window). Same flags as the spot script
+  demand backtest (strategies: `lightgbm`, `lightgbm_msm`; areas: `tokyo`, `kansai` = the TSO
+  feeds loaded into `fct_area_demand_generation_actual`); each area also needs its
+  representative JMA station's hourly weather loaded and current
+  (`dim_area.representative_jma_station_id`: 東京 s47662, 大阪 s47772 — both loaded and current
+  as of the 2026-08-20 re-scope backfill; keep them fresh with `just refresh-jma`, since a
+  stale window's last days are skipped for lack of a temperature window), and `lightgbm_msm`
+  needs that station's MSM forecast in `fct_jma_msm_weather_forecast_hourly` (`just
+  refresh-msm`; a delivery day without a forecast is skipped). Same flags as the spot script
   (`--days` defaults to 365); logs to the MLflow experiment `demand`, publishes to
   `pma_ml.demand_forecast`, then `just dbt build --select +fct_demand_forecast_accuracy`.
 - `just python scripts/create_forecast_dashboard.py [--task spot_price|demand]` — (re)build the
@@ -211,7 +213,13 @@
   (`dim_area.representative_jma_station_id`, seed `jepx_areas`; hour containing the period =
   `(time_code + 1) // 2`) over D-8..D-2, weights halving per day back (`demand/features.py`).
   Null-demand rows (TSO holes) are dropped at load; a target day whose D-7 lag falls in a hole
-  is skipped. Write-back: `pma_ml.demand_forecast` → `stg/std_ml__demand_forecast` →
+  is skipped. `lightgbm_msm` (`LightGbmMsmStrategy`, research `demand/R-001`) = `lightgbm` +
+  `forecast_temperature_c`: the MSM point forecast for D at the same station
+  (`fct_jma_msm_weather_forecast_hourly`, the D-2 12 UTC vintage, `AreaTemperatureForecast` frame
+  keyed `trade_date × hour_ending`, joined at the hour containing the period); training rows
+  without a forecast are dropped, so its training set starts on the first MSM day (2022-04-01 —
+  the start of the demand history too, so a matched `lightgbm` baseline needs no `--train-start`
+  today). Write-back: `pma_ml.demand_forecast` → `stg/std_ml__demand_forecast` →
   `fct_demand_forecast` → `fct_demand_forecast_accuracy` → Superset **Demand Forecast Analysis**
   dashboard (dataset `demand_forecast_analysis`; the mart's kWh rescaled to MWh in the dataset
   SQL — `forecast_demand_mwh`, `error_mwh`, … — with plain `,.1f`/`,.0f` formats, 2,000-MWh

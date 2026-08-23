@@ -54,6 +54,26 @@ class DemandForecastRecords(ForecastRecords):
     forecast_col = "forecast_demand_kwh"
 
 
+def _check_hour_ending(name: str, df: pd.DataFrame) -> None:
+    """Reject ``hour_ending`` values outside JMA's 1..24 observation hours.
+
+    Parameters
+    ----------
+    name : str
+        Frame name for the error message.
+    df : pandas.DataFrame
+        Frame with an ``hour_ending`` column.
+
+    Raises
+    ------
+    ValueError
+        If any ``hour_ending`` lies outside 1..24.
+    """
+    bad = df.loc[~df["hour_ending"].between(1, 24), "hour_ending"]
+    if not bad.empty:
+        raise ValueError(f"{name}: hour_ending outside 1..24: {sorted(bad.unique())}")
+
+
 class AreaTemperature(DomainFrame):
     """Hourly temperature at an area's representative JMA station.
 
@@ -74,6 +94,32 @@ class AreaTemperature(DomainFrame):
 
     @classmethod
     def _validate_extra(cls, df: pd.DataFrame) -> None:
-        bad = df.loc[~df["hour_ending"].between(1, 24), "hour_ending"]
-        if not bad.empty:
-            raise ValueError(f"{cls.__name__}: hour_ending outside 1..24: {sorted(bad.unique())}")
+        _check_hour_ending(cls.__name__, df)
+
+
+class AreaTemperatureForecast(DomainFrame):
+    """Hourly *forecast* temperature at an area's representative JMA station,
+    keyed by the delivery day it is valid for.
+
+    One row per delivery day and hour-ending 1..24 (the same hour convention
+    as :class:`AreaTemperature`, so both map onto delivery periods through
+    ``hour_ending = (time_code + 1) // 2``). Exactly one forecast vintage per
+    hour: the grain is unique, so a loader that sees two vintages for the
+    same hour fails fast instead of silently picking one. ``forecast_temperature_c``
+    may be null where the forecast source published no value, so it is not a
+    non-null column (a missing hour makes the target day unforecastable for a
+    strategy that needs it).
+
+    Grain: (trade_date, hour_ending).
+    """
+
+    schema = {
+        "trade_date": "datetime64[ns]",
+        "hour_ending": "int64",
+        "forecast_temperature_c": "float64",
+    }
+    keys = ["trade_date", "hour_ending"]
+
+    @classmethod
+    def _validate_extra(cls, df: pd.DataFrame) -> None:
+        _check_hour_ending(cls.__name__, df)

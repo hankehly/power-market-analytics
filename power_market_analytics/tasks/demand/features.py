@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 
 from power_market_analytics.forecasting.frames import GRAIN_COLS
-from power_market_analytics.tasks.demand.frames import AreaTemperature
+from power_market_analytics.tasks.demand.frames import AreaTemperature, AreaTemperatureForecast
 
 #: Days before delivery day D whose same-hour temperature enters the feature:
 #: the seven most recent *complete* observation days at 09:30 D-1 (D-1 is
@@ -15,6 +15,8 @@ TEMPERATURE_LAG_DAYS: tuple[int, ...] = (2, 3, 4, 5, 6, 7, 8)
 #: Weight halves for every ``half_life_days`` further back: D-2 -> 1, D-3 -> 1/2, ... D-8 -> 1/64.
 TEMPERATURE_HALF_LIFE_DAYS = 1.0
 TEMPERATURE_FEATURE = "wavg_temperature_c"
+#: The MSM forecast temperature for the delivery-day hour containing the period.
+FORECAST_TEMPERATURE_FEATURE = "forecast_temperature_c"
 
 
 def hour_ending_of(time_code: pd.Series) -> pd.Series:
@@ -105,3 +107,39 @@ def recency_weighted_temperature(
     with np.errstate(invalid="ignore", divide="ignore"):
         feature = np.where(weight_sum > 0, weighted_sum / weight_sum, np.nan)
     return points.assign(**{name: feature})
+
+
+def join_forecast_temperature(
+    points: pd.DataFrame,
+    forecast: AreaTemperatureForecast,
+    *,
+    name: str = FORECAST_TEMPERATURE_FEATURE,
+) -> pd.DataFrame:
+    """Attach the forecast temperature of the delivery-day hour containing each period.
+
+    For a point (D, time_code) the feature is the station's forecast
+    temperature for delivery day D at ``hour_ending_of(time_code)`` — the
+    same period-to-hour alignment as :func:`recency_weighted_temperature`.
+    It is NaN where the forecast has no row (or a null value) for that hour.
+
+    Parameters
+    ----------
+    points : pandas.DataFrame
+        Rows keyed on (trade_date, time_code); other columns pass through.
+    forecast : AreaTemperatureForecast
+        Hourly forecast temperature at the area's representative station.
+    name : str, optional
+        Name for the new column.
+
+    Returns
+    -------
+    pandas.DataFrame
+        ``points`` plus ``name``, in the original row order.
+    """
+    keyed = points[GRAIN_COLS].assign(hour_ending=hour_ending_of(points["time_code"]))
+    # Two periods share an hour, hence many_to_one; a left merge keeps the
+    # left row order.
+    joined = keyed.merge(
+        forecast.df, how="left", on=["trade_date", "hour_ending"], validate="many_to_one"
+    )
+    return points.assign(**{name: joined["forecast_temperature_c"].to_numpy(dtype="float64")})

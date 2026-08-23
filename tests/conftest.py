@@ -124,6 +124,8 @@ DEMAND_HOLE_DAY = pd.Timestamp("2024-04-20")
 DEMAND_HOLE_TIME_CODES = range(11, 49)
 #: (observation day, hour_ending) pairs whose temperature is null.
 TEMPERATURE_MISSING_HOURS = {(pd.Timestamp("2024-04-25"), 13), (pd.Timestamp("2024-04-25"), 14)}
+#: Delivery day with no MSM forecast rows at all (a day whose GRIB files were never fetched).
+FORECAST_MISSING_DAY = pd.Timestamp("2024-05-15")
 
 
 def synthetic_price(day: pd.Timestamp, time_code: int) -> float:
@@ -163,6 +165,15 @@ def synthetic_temperature(day: pd.Timestamp, hour_ending: int) -> float:
     return round(8.0 + 0.15 * day_index + 5.0 * math.sin(2 * math.pi * (hour_ending - 9) / 24), 1)
 
 
+def synthetic_forecast_temperature(day: pd.Timestamp, hour_ending: int) -> float:
+    """Deterministic MSM point-forecast temperature in °C for a delivery-day hour.
+
+    The observed temperature plus a small hour-dependent forecast error, so the
+    two series are close but never identical.
+    """
+    return round(synthetic_temperature(day, hour_ending) + 0.3 * math.cos(hour_ending / 3.0), 2)
+
+
 @dataclasses.dataclass(frozen=True)
 class CuratedWarehouse:
     """What ``curated_warehouse`` created, as the pandas frames it wrote.
@@ -180,6 +191,10 @@ class CuratedWarehouse:
     weather : pandas.DataFrame
         Contents of ``fct_jma_weather_hourly`` (s47662, hourly,
         ``temperature_c`` NaN for the missing hours).
+    weather_forecast : pandas.DataFrame
+        Contents of ``fct_jma_msm_weather_forecast_hourly`` as
+        (station_id, date_key, hour_ending, forecast_temperature_c) — s47662,
+        every ``DEMAND_DAYS`` day except ``FORECAST_MISSING_DAY``.
     """
 
     areas: pd.DataFrame
@@ -189,14 +204,18 @@ class CuratedWarehouse:
     accuracy: pd.DataFrame
     demand: pd.DataFrame
     weather: pd.DataFrame
+    weather_forecast: pd.DataFrame
 
 
 @pytest.fixture(scope="session")
 def curated_warehouse(spark: SparkSession) -> CuratedWarehouse:
     """Create the ``pma_curated`` tables the spot-price task reads.
 
-    Tokyo has prices for every day of ``PRICE_DAYS`` × 48 time codes and
-    OCCTO forecasts for ``OCCTO_DAYS``; Kansai has an area row but no facts.
+    Tokyo has prices for every day of ``PRICE_DAYS`` × 48 time codes, OCCTO
+    forecasts for ``OCCTO_DAYS``, demand actuals and hourly observed
+    temperature for ``DEMAND_DAYS`` and an MSM forecast temperature for every
+    one of those days but ``FORECAST_MISSING_DAY``; Kansai has an area row
+    but no facts.
     Two matched accuracy runs (``BASELINE_RUN_ID``, ``CANDIDATE_RUN_ID``)
     score ``ACCURACY_DAYS``; ``UNMATCHED_RUN_ID`` scores ``UNMATCHED_DAYS``.
     """
@@ -304,6 +323,34 @@ def curated_warehouse(spark: SparkSession) -> CuratedWarehouse:
                 }
             )
     weather = pd.DataFrame(weather_records).astype({"temperature_c": "float64"})
+    forecast_rows: list[tuple] = []
+    forecast_records: list[dict] = []
+    for day in DEMAND_DAYS:
+        if day == FORECAST_MISSING_DAY:
+            continue
+        # The single ingested vintage: the 12 UTC run of D-2 (21:00 JST).
+        reference_at = (day - pd.Timedelta(days=2) + pd.Timedelta(hours=21)).to_pydatetime()
+        for hour in range(1, 25):
+            forecast = synthetic_forecast_temperature(day, hour)
+            forecast_rows.append(
+                (
+                    TOKYO_STATION_ID,
+                    reference_at,
+                    (day + pd.Timedelta(hours=hour)).to_pydatetime(),
+                    (day + pd.Timedelta(hours=hour - 1)).to_pydatetime(),
+                    day.date(),
+                    forecast,
+                )
+            )
+            forecast_records.append(
+                {
+                    "station_id": TOKYO_STATION_ID,
+                    "date_key": day.date(),
+                    "hour_ending": hour,
+                    "forecast_temperature_c": forecast,
+                }
+            )
+    weather_forecast = pd.DataFrame(forecast_records)
 
     spark.sql("CREATE DATABASE IF NOT EXISTS pma_curated")
     spark.createDataFrame(
@@ -337,6 +384,11 @@ def curated_warehouse(spark: SparkSession) -> CuratedWarehouse:
         "station_id string, observed_at timestamp, observed_hour_start_at timestamp, "
         "date_key date, temperature_c double",
     ).write.mode("overwrite").saveAsTable("pma_curated.fct_jma_weather_hourly")
+    spark.createDataFrame(
+        forecast_rows,
+        "station_id string, forecast_reference_at timestamp, forecast_valid_at timestamp, "
+        "forecast_hour_start_at timestamp, date_key date, temperature_c double",
+    ).write.mode("overwrite").saveAsTable("pma_curated.fct_jma_msm_weather_forecast_hourly")
     return CuratedWarehouse(
         areas=AREAS,
         prices=prices,
@@ -345,4 +397,5 @@ def curated_warehouse(spark: SparkSession) -> CuratedWarehouse:
         accuracy=accuracy,
         demand=demand,
         weather=weather,
+        weather_forecast=weather_forecast,
     )
