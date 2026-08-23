@@ -8,6 +8,7 @@ import pytest
 
 from power_market_analytics.tasks.demand.features import (
     FORECAST_TEMPERATURE_FEATURE,
+    POPW_FORECAST_TEMPERATURE_FEATURE,
     TEMPERATURE_FEATURE,
     TEMPERATURE_HALF_LIFE_DAYS,
     TEMPERATURE_LAG_DAYS,
@@ -58,6 +59,7 @@ class TestConstants:
         assert TEMPERATURE_HALF_LIFE_DAYS == 1.0
         assert TEMPERATURE_FEATURE == "wavg_temperature_c"
         assert FORECAST_TEMPERATURE_FEATURE == "forecast_temperature_c"
+        assert POPW_FORECAST_TEMPERATURE_FEATURE == "popw_forecast_temperature_c"
 
 
 class TestHourEndingOf:

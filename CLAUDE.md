@@ -63,14 +63,16 @@
   month / high-price days, plus bias) as markdown; needs
   `just dbt build --select +fct_spot_price_forecast_accuracy` after the runs.
 - `just python scripts/demand_backtest.py --strategy lightgbm --area tokyo` — day-ahead area
-  demand backtest (strategies: `lightgbm`, `lightgbm_msm`; areas: `tokyo`, `kansai` = the TSO
-  feeds loaded into `fct_area_demand_generation_actual`); each area also needs its
+  demand backtest (strategies: `lightgbm`, `lightgbm_msm`, `lightgbm_msm_popw`; areas: `tokyo`,
+  `kansai` = the TSO feeds loaded into `fct_area_demand_generation_actual`); each area also needs its
   representative JMA station's hourly weather loaded and current
   (`dim_area.representative_jma_station_id`: 東京 s47662, 大阪 s47772 — both loaded and current
   as of the 2026-08-20 re-scope backfill; keep them fresh with `just refresh-jma`, since a
   stale window's last days are skipped for lack of a temperature window), and `lightgbm_msm`
   needs that station's MSM forecast in `fct_jma_msm_weather_forecast_hourly` (`just
-  refresh-msm`; a delivery day without a forecast is skipped). Same flags as the spot script
+  refresh-msm`; a delivery day without a forecast is skipped) and `lightgbm_msm_popw` the MSM
+  forecasts of all the area's weighted stations plus `fct_census_population_jma_station`. Same
+  flags as the spot script
   (`--days` defaults to 365); logs to the MLflow experiment `demand`, publishes to
   `pma_ml.demand_forecast`, then `just dbt build --select +fct_demand_forecast_accuracy`.
 - `just python scripts/create_forecast_dashboard.py [--task spot_price|demand]` — (re)build the
@@ -173,8 +175,14 @@
   centroid decoded from the mesh code; Python reference `estat.decode_mesh_code`) →
   `dim_population_mesh_500m` (one row per mesh across vintages) + `fct_census_population_mesh`
   (`census_year × mesh_code`, `population_total` as published at every mesh — the 秘匿処理 folds only
-  the `*`-suppressed detail columns, never the total; additive across meshes, not across years; no
-  weights). Adding a census = one `VINTAGES` entry + fixtures + the singular dbt test's year list.
+  the `*`-suppressed detail columns, never the total; additive across meshes, not across years) →
+  `fct_census_population_jma_station` (`census_year × station_id`: each mesh assigned to the
+  nearest staffed station ≤ 1,000 m elevation with a JEPX area — haversine `min_by` over a
+  ~0.9 M × 144 cross join, ~80 s per build — `population_total`, `area_population_total`,
+  `area_population_weight` = share within the station's area, summing to 1 per area; the five
+  summit/high-altitude stations 富士山・剣山・伊吹山・奥日光・阿蘇山 are excluded because their MSM
+  grid-point forecast misrepresents the lowland towns nearest to them). Adding a census = one
+  `VINTAGES` entry + fixtures + the singular dbt test's year list.
   Protocol + format: [docs/eStat-Census-Population-Mesh-Retrieval.md](docs/eStat-Census-Population-Mesh-Retrieval.md).
 - dbt (`dbt/`): sources in `models/raw/<source>.yml` → `staging` (as-is) → `standardized`
   (typed time axis) → `curated` (Kimball star: `dim_*`, `fct_*`). Schemas: `pma_<layer>`.
@@ -219,7 +227,13 @@
   keyed `trade_date × hour_ending`, joined at the hour containing the period); training rows
   without a forecast are dropped, so its training set starts on the first MSM day (2022-04-01 —
   the start of the demand history too, so a matched `lightgbm` baseline needs no `--train-start`
-  today). Write-back: `pma_ml.demand_forecast` → `stg/std_ml__demand_forecast` →
+  today). `lightgbm_msm_popw` (`LightGbmMsmPopWeightedStrategy`, research `demand/R-002`) swaps
+  that feature for `popw_forecast_temperature_c`: the same MSM forecast averaged over the area's
+  staffed stations with `fct_census_population_jma_station` weights (latest census vintage,
+  logged as `population_weight_census_year`; `load_area_temperature_forecast_population_weighted`
+  renormalises over the stations that have a value for the hour). The observed
+  `wavg_temperature_c` stays single-station in both. Write-back: `pma_ml.demand_forecast` →
+  `stg/std_ml__demand_forecast` →
   `fct_demand_forecast` → `fct_demand_forecast_accuracy` → Superset **Demand Forecast Analysis**
   dashboard (dataset `demand_forecast_analysis`; the mart's kWh rescaled to MWh in the dataset
   SQL — `forecast_demand_mwh`, `error_mwh`, … — with plain `,.1f`/`,.0f` formats, 2,000-MWh

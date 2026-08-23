@@ -1,0 +1,96 @@
+models:
+  - name: fct_census_population_jma_station
+    config:
+      contract:
+        enforced: true
+    description: >
+      Census population represented by each staffed JMA station — a periodic
+      snapshot fact at the census date, one row per (census_year, station_id),
+      for every vintage in fct_census_population_mesh. Every 500 m census mesh
+      is assigned to the station nearest its centroid (great-circle distance)
+      among the staffed stations that are mapped to a JEPX area and sit at or
+      below 1,000 m elevation (the five higher summit/high-altitude stations —
+      富士山, 剣山, 伊吹山, 奥日光, 阿蘇山 — are excluded because the MSM forecast at
+      their grid points is unrepresentative of the lowland towns that would be
+      nearest to them; see docs/JMA-MSM-GPV-Retrieval.md §9.4); the station's
+      population is the sum over its meshes. area_population_weight is the
+      station's share of its JEPX area's population, the area being the sum
+      over its weighted stations, so a mesh belongs to the area of its nearest
+      station (an approximation of the TSO supply-area boundary that is exact
+      away from area borders). Weights sum to 1 per (census_year, area_key)
+      and are the population weights for an area-wide station average, e.g. a
+      population-weighted area temperature. A station nearest to no populated
+      mesh has no row (weight 0). Not additive across census years.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - census_year
+              - station_id
+    columns:
+      - name: census_year
+        data_type: int
+        description: Census year of the snapshot (degenerate dimension), as in fct_census_population_mesh.
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 2015
+      - name: station_id
+        data_type: string
+        description: Staffed JMA station (FK to dim_jma_station), e.g. s47662 = 東京.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_jma_station')
+                field: station_id
+      - name: area_key
+        data_type: int
+        description: JEPX area of the station (FK to dim_area), from dim_jma_station.area_key.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_area')
+                field: area_key
+      - name: n_meshes
+        data_type: int
+        description: Number of populated 500 m meshes nearest to the station in this vintage.
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 1
+      - name: population_total
+        data_type: bigint
+        description: >
+          Population at census_date of the meshes nearest to the station (persons);
+          additive across stations within a vintage, not across vintages.
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+      - name: area_population_total
+        data_type: bigint
+        description: >
+          Population of the station's JEPX area in this vintage — the sum of
+          population_total over the area's weighted stations (the weight
+          denominator); repeated on every row of the area.
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 1
+      - name: area_population_weight
+        data_type: double
+        description: >
+          population_total / area_population_total — the station's population
+          share of its area; sums to 1 per (census_year, area_key).
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 1
