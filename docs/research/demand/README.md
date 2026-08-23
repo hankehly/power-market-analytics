@@ -38,4 +38,4 @@ narrow them as the question requires.
 
 | ID | Investigation | Status | Current conclusion |
 |---|---|---|---|
-| — | *No investigations yet.* | | |
+| R-001 | [Forecast temperature as a demand feature](research/demand/R-001-forecast-temperature.md) | In progress | E-001 run 2026-08-23: adding the MSM forecast temperature at 東京 s47662 (`lightgbm_msm`) cuts Tokyo MAE 32.4 % (1,103,392 → 745,695 kWh; MAPE 6.82 % → 4.62 %) on the matched 729-day window, lower in 25/25 months and every day part — provisionally Keep, researcher to confirm. |
