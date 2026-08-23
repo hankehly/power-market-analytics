@@ -215,6 +215,15 @@ class TestBacktestScript:
         assert run.data.params["end_date"] == "2024-05-31"
         assert run.data.params["n_predictions"] == "96"
 
+    def test_default_strategy_is_the_kept_population_weighted_model(self, spark, curated_warehouse):
+        # demand/R-002 E-001 (confirmed 2026-08-24): lightgbm_msm_popw is the demand baseline.
+        script = import_script("demand_backtest")
+        script.main(["--days", "1", "--shap-nsamples", "20"])
+        run = last_run()
+        assert run.info.run_name == "lightgbm_msm_popw-tokyo"
+        assert run.data.params["strategy"] == "lightgbm_msm_popw"
+        assert run.data.params["population_weight_census_year"] == "2020"
+
     def test_train_start_reaches_the_strategy(self, spark, curated_warehouse):
         script = import_script("demand_backtest")
         script.main(["--days", "2", "--train-start", "2024-04-01", "--shap-nsamples", "20"])
