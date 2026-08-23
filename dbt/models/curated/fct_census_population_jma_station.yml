@@ -13,7 +13,12 @@ models:
       富士山, 剣山, 伊吹山, 奥日光, 阿蘇山 — are excluded because the MSM forecast at
       their grid points is unrepresentative of the lowland towns that would be
       nearest to them; see docs/JMA-MSM-GPV-Retrieval.md §9.4); the station's
-      population is the sum over its meshes. area_population_weight is the
+      population is the sum over its meshes. Okinawa Prefecture's meshes — the
+      one populated territory outside every JEPX area, with no station in
+      dim_jma_station — are excluded by a geographic rule (south of 28.0°N and
+      west of 132.0°E, except the Kagoshima islands 徳之島・沖永良部・与論), pinned
+      by a singular test to the prefecture's official census population, so no
+      station represents people outside its area. area_population_weight is the
       station's share of its JEPX area's population, the area being the sum
       over its weighted stations, so a mesh belongs to the area of its nearest
       station (an approximation of the TSO supply-area boundary that is exact
