@@ -1,5 +1,5 @@
 # power_market_analytics/tasks/demand/datasets.py
-"""Load demand history and temperature for the demand forecasting task."""
+"""Load demand history, observed and forecast temperature for the demand task."""
 
 from __future__ import annotations
 
@@ -9,7 +9,11 @@ from pyspark.sql import SparkSession
 
 from power_market_analytics.common.warehouse import query_pandas
 from power_market_analytics.forecasting.frames import GRAIN_COLS
-from power_market_analytics.tasks.demand.frames import AreaDemand, AreaTemperature
+from power_market_analytics.tasks.demand.frames import (
+    AreaDemand,
+    AreaTemperature,
+    AreaTemperatureForecast,
+)
 
 # The areas whose TSO actuals feed fct_area_demand_generation_actual (one
 # union branch per TSO). Extend together with that model.
@@ -124,3 +128,61 @@ def load_area_temperature(
         .sort_values(["obs_date", "hour_ending"], ignore_index=True)
     )
     return AreaTemperature.from_df(pdf)
+
+
+def load_area_temperature_forecast(
+    area_code: str = "tokyo", spark: SparkSession | None = None
+) -> AreaTemperatureForecast:
+    """Load the hourly MSM forecast temperature at the area's representative station.
+
+    Reads ``fct_jma_msm_weather_forecast_hourly`` for the station named by
+    ``dim_area.representative_jma_station_id``. The pipeline ingests one
+    vintage per delivery day — the 12 UTC run of D-2 (``forecast_reference_at``
+    = 21:00 JST D-2, leads 28-51), which JMA disseminates a few hours after
+    its reference time and is therefore available well before the task's
+    09:30 JST D-1 issue time; the frame's unique grain fails fast should a
+    second vintage ever be loaded. ``hour_ending`` is derived from
+    ``forecast_hour_start_at`` so the hour valid at next-day 00:00 stays on
+    its delivery day as hour 24, exactly like the observed series.
+
+    Parameters
+    ----------
+    area_code : str, default "tokyo"
+        dim_area.area_code value, e.g. ``tokyo``.
+    spark : pyspark.sql.SparkSession, optional
+        Existing session to reuse.
+
+    Returns
+    -------
+    AreaTemperatureForecast
+
+    Raises
+    ------
+    ValueError
+        If the area has no representative station, the station has no
+        forecast rows, or the result violates the AreaTemperatureForecast
+        contract (e.g. two vintages for one hour).
+    """
+    pdf = query_pandas(
+        f"""
+        select
+          m.date_key as trade_date,
+          hour(m.forecast_hour_start_at) + 1 as hour_ending,
+          m.temperature_c as forecast_temperature_c
+        from pma_curated.fct_jma_msm_weather_forecast_hourly m
+        join pma_curated.dim_area a on m.station_id = a.representative_jma_station_id
+        where a.area_code = '{area_code}'
+        """,
+        spark=spark,
+    )
+    if pdf.empty:
+        raise ValueError(
+            f"No temperature forecasts found for area_code={area_code!r} "
+            "(no representative station, or no MSM forecast rows for it)"
+        )
+    pdf = (
+        pdf.assign(trade_date=lambda d: pd.to_datetime(d["trade_date"]))
+        .astype({"hour_ending": "int64", "forecast_temperature_c": "float64"})
+        .sort_values(["trade_date", "hour_ending"], ignore_index=True)
+    )
+    return AreaTemperatureForecast.from_df(pdf)

@@ -2,9 +2,10 @@
 """Tests for the warehouse readers feeding the demand task.
 
 Read against the synthetic ``pma_curated`` star from ``curated_warehouse``:
-tokyo has demand actuals for ``DEMAND_DAYS`` (with a partial-day hole) and
-hourly temperature at its representative station; kansai has an area row
-and a station id but no facts.
+tokyo has demand actuals for ``DEMAND_DAYS`` (with a partial-day hole),
+hourly temperature at its representative station and an MSM forecast
+temperature for every day but ``FORECAST_MISSING_DAY``; kansai has an area
+row and a station id but no facts.
 """
 
 from __future__ import annotations
@@ -16,12 +17,18 @@ from power_market_analytics.tasks.demand.datasets import (
     AREA_CODES,
     load_area_demand,
     load_area_temperature,
+    load_area_temperature_forecast,
 )
-from power_market_analytics.tasks.demand.frames import AreaDemand, AreaTemperature
+from power_market_analytics.tasks.demand.frames import (
+    AreaDemand,
+    AreaTemperature,
+    AreaTemperatureForecast,
+)
 from tests.conftest import (
     DEMAND_DAYS,
     DEMAND_HOLE_DAY,
     DEMAND_HOLE_TIME_CODES,
+    FORECAST_MISSING_DAY,
     TEMPERATURE_MISSING_HOURS,
     CuratedWarehouse,
 )
@@ -85,3 +92,34 @@ class TestLoadAreaTemperature:
             ValueError, match="No temperature observations found for area_code='kansai'"
         ):
             load_area_temperature("kansai", spark=spark)
+
+
+def expected_temperature_forecast(warehouse: CuratedWarehouse) -> pd.DataFrame:
+    return (
+        warehouse.weather_forecast.assign(
+            trade_date=lambda d: pd.to_datetime(d["date_key"]).astype("datetime64[ns]")
+        )[["trade_date", "hour_ending", "forecast_temperature_c"]]
+        .astype({"hour_ending": "int64", "forecast_temperature_c": "float64"})
+        .sort_values(["trade_date", "hour_ending"], ignore_index=True)
+    )
+
+
+class TestLoadAreaTemperatureForecast:
+    def test_tokyo_forecast_by_delivery_day_and_hour_ending(self, spark, curated_warehouse):
+        forecast = load_area_temperature_forecast("tokyo", spark=spark)
+        assert isinstance(forecast, AreaTemperatureForecast)
+        pd.testing.assert_frame_equal(forecast.df, expected_temperature_forecast(curated_warehouse))
+        # Hour 24 (valid at next-day 00:00) stays on its delivery day as hour_ending 24.
+        assert set(forecast.df["hour_ending"]) == set(range(1, 25))
+        assert len(forecast) == (len(DEMAND_DAYS) - 1) * 24
+        # A day without forecast rows is simply absent, not filled.
+        assert FORECAST_MISSING_DAY not in set(forecast.df["trade_date"])
+
+    def test_area_whose_station_has_no_forecasts_raises(self, spark, curated_warehouse):
+        with pytest.raises(
+            ValueError, match="No temperature forecasts found for area_code='kansai'"
+        ):
+            load_area_temperature_forecast("kansai", spark=spark)
+
+    def test_defaults_to_tokyo_and_the_active_session(self, spark, curated_warehouse):
+        assert len(load_area_temperature_forecast()) == (len(DEMAND_DAYS) - 1) * 24
