@@ -8,6 +8,12 @@ dependencies = [
     "dbt-core>=1.11.10",
     "plotly>=6.0",
     "dbt-spark[pyhive]>=1.10.1",
+    "eccodes>=2.47",
+    # ecCodes' native library: the `eccodes` wheel is pure Python everywhere but
+    # Windows and loads libeccodes at import time, so the binary must be declared
+    # explicitly (uv locks `eccodes` without its own conditional `eccodeslib`
+    # requirement, and eccodeslib publishes no Windows wheel).
+    "eccodeslib>=2.48 ; sys_platform != 'win32'",
     "lightgbm>=4.6",
     # Pinned to match the mlflow server image in docker-compose.yaml; move both together.
     "mlflow==3.14.0",
@@ -46,7 +52,7 @@ disable_error_code = ["annotation-unchecked"]
 
 # Libraries that ship no type stubs or py.typed marker.
 [[tool.mypy.overrides]]
-module = ["plotly.*", "shap.*"]
+module = ["eccodes.*", "gribapi.*", "plotly.*", "shap.*"]
 ignore_missing_imports = true
 
 [tool.ruff]

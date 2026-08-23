@@ -1,0 +1,105 @@
+models:
+  - name: std_jma__msm_surface_forecast
+    config:
+      contract:
+        enforced: true
+    description: >
+      Standardized JMA MSM GPV surface point forecasts
+      (stg_jma__msm_surface_forecast) plus a typed JST time axis. One row
+      per station_id, forecast_reference_at and forecast_valid_at. JST =
+      UTC + 9 h (fixed offset); the raw UTC strings are parsed with
+      to_timestamp and shifted with timestampadd, keeping the wall-clock
+      arithmetic explicit and auditable. forecast_reference_at is the
+      forecast run start (12:00 UTC of delivery day D-2, 21:00 JST).
+      forecast_valid_at marks the END of the represented weather hour
+      (forecast leads 28-51 = JST hour-endings 01:00-24:00 of delivery day
+      D); hour 24:00 is stored as next-day 00:00, the same convention as
+      std_jma__hourly.observed_at. forecast_hour_start_at is
+      forecast_valid_at minus one hour, the start of the accumulation
+      window for precipitation and shortwave/solar radiation; other
+      elements are instantaneous at forecast_valid_at. forecast_date is the
+      hour-start date. Every weather value is the nearest MSM grid point
+      (grid_latitude/grid_longitude/grid_distance_km), not a station
+      forecast.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - station_id
+              - forecast_reference_at
+              - forecast_valid_at
+    columns:
+      - name: station_id
+        data_type: string
+        data_tests:
+          - not_null
+      - name: forecast_reference_at
+        data_type: timestamp
+        data_tests:
+          - not_null
+      - name: forecast_valid_at
+        data_type: timestamp
+        data_tests:
+          - not_null
+      - name: forecast_hour_start_at
+        data_type: timestamp
+        data_tests:
+          - not_null
+      - name: forecast_date
+        data_type: date
+        data_tests:
+          - not_null
+      - name: forecast_lead_hours
+        data_type: int
+        data_tests:
+          - not_null
+      - name: station_latitude
+        data_type: double
+        data_tests:
+          - not_null
+      - name: station_longitude
+        data_type: double
+        data_tests:
+          - not_null
+      - name: grid_latitude
+        data_type: double
+        data_tests:
+          - not_null
+      - name: grid_longitude
+        data_type: double
+        data_tests:
+          - not_null
+      - name: grid_distance_km
+        data_type: double
+        data_tests:
+          - not_null
+      - name: temperature_c
+        data_type: double
+      - name: relative_humidity_pct
+        data_type: double
+      - name: u_wind_ms
+        data_type: double
+      - name: v_wind_ms
+        data_type: double
+      - name: wind_speed_ms
+        data_type: double
+      - name: precipitation_mm
+        data_type: double
+      - name: surface_pressure_hpa
+        data_type: double
+      - name: sea_level_pressure_hpa
+        data_type: double
+      - name: shortwave_radiation_wm2
+        data_type: double
+      - name: solar_radiation_mjm2
+        data_type: double
+      - name: total_cloud_cover_pct
+        data_type: double
+      - name: high_cloud_cover_pct
+        data_type: double
+      - name: middle_cloud_cover_pct
+        data_type: double
+      - name: low_cloud_cover_pct
+        data_type: double
+      - name: source_file_name
+        data_type: string

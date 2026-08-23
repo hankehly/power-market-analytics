@@ -5,6 +5,7 @@
   - [R-001 — Supply and Demand Tightness](research/R-001-supply-demand-tightness.md)
   - [Investigation Template](research/investigation-template.md)
 - [JMA Weather Data Retrieval](JMA-Weather-Data-Retrieval.md)
+- [JMA MSM GPV Retrieval](JMA-MSM-GPV-Retrieval.md)
 - [OCCTO Demand Forecast Retrieval](OCCTO-Demand-Forecast-Retrieval.md)
 - [TEPCO Area Demand & Generation Retrieval](TEPCO-Area-Demand-Generation-Retrieval.md)
 - [Kansai Area Demand & Generation Retrieval](Kansai-Area-Demand-Generation-Retrieval.md)
