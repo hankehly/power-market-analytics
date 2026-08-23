@@ -1,12 +1,11 @@
-# Observation Log
+# Observation Log — spot price
 
-Record notable forecast behavior here before trying to explain it. Record only
-observations and ideas supplied by the researcher or directly established from
-the cited evidence. Do not generate possible explanations or hypotheses on the
-researcher's behalf unless explicitly asked.
-
-Suggested statuses are `Unreviewed`, `Investigating`, `Investigated`, and
-`No action`.
+Record notable spot-price-forecast behavior here before trying to explain it.
+Record only observations and ideas supplied by the researcher or directly
+established from the cited evidence; do not generate possible explanations or
+hypotheses on the researcher's behalf unless explicitly asked. Conventions,
+IDs and statuses: [research README](research/README.md); scope defaults:
+[spot price README](research/spot_price/README.md).
 
 ---
 
@@ -18,7 +17,7 @@ Suggested statuses are `Unreviewed`, `Investigating`, `Investigated`, and
 - **Market area:** Tokyo
 - **MLflow run:** [`0273327f73c04803afd12b6bc0a60799`](http://localhost:5005/#/experiments/1/runs/0273327f73c04803afd12b6bc0a60799)
 - **Status:** Investigating
-- **Related investigations:** [R-001 — Supply and demand tightness signals](research/R-001-supply-demand-tightness.md)
+- **Related investigations:** [R-001 — Supply and demand tightness signals](research/spot_price/R-001-supply-demand-tightness.md)
 
 ### Observation
 
@@ -44,11 +43,11 @@ difference.
 - Superset dashboard: **Spot Price Forecast Analysis** → **MAE by day part**
 - Plot:
 
-  ![MAE by day part](assets/mae-by-day-part-2026-08-16T01-51-59.502Z.jpg)
+  ![MAE by day part](assets/O-001-mae-by-day-part.jpg)
 
 ---
 
 <!--
 Copy the structure above for each new observation. Use the next stable O-XXX
-identifier. Add possible causes only when the researcher supplies them.
+identifier within this task. Add possible causes only when the researcher supplies them.
 -->

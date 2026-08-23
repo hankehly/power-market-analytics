@@ -406,7 +406,8 @@ matches a `lightgbm` baseline to it), then
 prints matched MAE/bias tables by day part, near the OCCTO peak hour, by month
 and for high-price days after `just dbt build --select
 +fct_spot_price_forecast_accuracy`. Experiments are written up under
-[`research/`](research/README.md).
+[`research/spot_price/`](research/spot_price/README.md) (conventions in
+[`research/`](research/README.md)).
 
 Charting happens in Superset (`just open superset`): one forecast-analysis
 dashboard per task — **Spot Price Forecast Analysis** and **Demand Forecast

@@ -3,7 +3,7 @@
 - **Status:** In progress
 - **Created:** 2026-08-16
 - **Last updated:** 2026-08-16 (E-001 executed)
-- **Triggering observation:** [O-001 — Daytime MAE is higher than other day parts](research/observations.md#o-001-daytime-mae-is-higher-than-other-day-parts)
+- **Triggering observation:** [O-001 — Daytime MAE is higher than other day parts](research/spot_price/observations.md#o-001-daytime-mae-is-higher-than-other-day-parts)
 - **Related investigations:** —
 
 ## Question
@@ -15,7 +15,7 @@ Tokyo-area price forecasts?
 
 The LightGBM model's daytime MAE is higher than its MAE during the other
 predefined day parts. See
-[O-001](research/observations.md#o-001-daytime-mae-is-higher-than-other-day-parts).
+[O-001](research/spot_price/observations.md#o-001-daytime-mae-is-higher-than-other-day-parts).
 
 ## Current predictive hypothesis
 

@@ -6,7 +6,8 @@
 - `just refresh-jma` — JMA weather refresh: regenerate the station seed (~5 min, staffed
   stations inside JEPX areas only), download stitched 7-element hourly CSVs (args pass
   through, e.g. `--prefecture 44`; no args = all ~149 staffed stations, ~13.5 h cold),
-  reload `raw`, `dbt build`.
+  reload `raw`, `dbt build`. `--request-interval 3` is proven (2026-08-20 full backfill,
+  ~3,100 requests, zero 429s, ~6 h); 2 s spacing draws 429s.
 - `just refresh-occto` — OCCTO 翌々日 refresh, two datasets: the demand-forecast CSV (~700 KB,
   3 HTTP calls) and the half-hourly area reserve-rate CSV (~20 MB/yr, fetched in 300-day windows
   because the portal caps a download at 150,000 rows), reload `raw`, `dbt build`.
@@ -252,6 +253,15 @@
   2026-05-28 renewal; `requests`/certifi rejects it (browsers/curl tolerate it via AIA chasing)
   — fetch the correct intermediate and pass a combined bundle via `REQUESTS_CA_BUNDLE` until
   RISH fixes it. Details: `docs/JMA-MSM-GPV-Retrieval.md` §5.1/§8.4.
+- Large raw reloads (JMA hourly ≈1.7k files / 1.2 GB; MSM) need the compose default
+  `SPARK_DRIVER_MEMORY=20g` — a 1g driver stalls ("no recent heartbeats"), 8g OOMs in the
+  parquet write; size per `.env.template`. An aborted overwrite leaves the old table intact.
+- Stopping a host-side `just python <script>` (Ctrl-C / background-task stop) only kills the
+  `docker exec` client — the script keeps running in the devcontainer. `just exec pkill -f
+  <script>` and confirm with `just exec pgrep -fl <script>` before relaunching.
+- JMA hourly: 積雪の深さ carries 現象なし情報 at staffed stations and is blank (not 0) with
+  quality 1 when snow is untracked off-season; `wind_direction_quality_flag` is the one
+  nullable flag (阿蘇山 s47821 post-closure padding rows, 2017-12-12..31) — don't tighten either.
 
 ## Claude Code settings
 
@@ -268,6 +278,8 @@
   (contracts + tests) and Python changes with `just lint` + `just mypy` (both also CI
   jobs); loaders/downloaders are
   also checked end-to-end by running their `scripts/` entry point in the devcontainer.
+- Long-running ops (scrapes, raw reloads, `dbt build`) must run as main-session background
+  Bash tasks — a subagent that backgrounds a job and ends its turn gets reaped with the job.
 
 ## Dimensional Modeling
 
@@ -277,12 +289,19 @@
 
 ## Forecasting Research
 
-- Use [docs/research/observations.md](docs/research/observations.md) to record notable forecast
-  behavior and [docs/research/investigation-template.md](docs/research/investigation-template.md)
-  for coherent forecasting questions and their experiments.
+- Research is organised per task under `docs/research/<task>/` (`spot_price`, `demand` —
+  same names as `tasks/<task>/` and the MLflow experiments), each with `README.md` (task index
+  + scope defaults), `observations.md` and `assets/`; shared conventions live in
+  [docs/research/README.md](docs/research/README.md). Record notable forecast behavior in the
+  task's `observations.md`; copy [docs/research/investigation-template.md](docs/research/investigation-template.md)
+  into the task folder for coherent forecasting questions and their experiments.
+- IDs (`O-XXX`, `R-XXX`) are numbered per task — qualify them outside their folder
+  (`spot_price/R-001`, `docs/research/spot_price/R-001-…md`).
 - Do not generate hypotheses, explanations, or initial ideas for the research log unless the
   researcher explicitly asks; record the researcher's thinking faithfully.
-- Update the investigation index in [docs/research/README.md](docs/research/README.md).
+- Update the investigation index in the task's `README.md`.
+- Docs links are docsify site-root-relative (`research/spot_price/observations.md#o-001-…`);
+  image paths are page-relative (`assets/…`).
 - Keep reasoning, interpretations, and decisions in the research documents; keep run-level
   parameters, metrics, code versions, and detailed artifacts in MLflow.
 

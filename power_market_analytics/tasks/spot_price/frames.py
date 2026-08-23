@@ -26,7 +26,7 @@ class OcctoDemandForecast(DomainFrame):
     """OCCTO 翌々日 (day-after-next) demand forecast for one area, as features.
 
     One row per delivery day, carrying only the fields experiment E-001 in
-    docs/research/R-001-supply-demand-tightness.md uses: the forecast peak
+    docs/research/spot_price/R-001-supply-demand-tightness.md uses: the forecast peak
     demand, its hour, and the peak supply capacity. The min-demand fields
     (meaning changed 2025-04-01) and the derived rates are deliberately not
     part of this contract. The forecast for delivery day D is published on
