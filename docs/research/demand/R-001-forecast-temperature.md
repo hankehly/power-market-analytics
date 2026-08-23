@@ -4,7 +4,10 @@
 - **Created:** 2026-08-23
 - **Last updated:** 2026-08-23 (E-001 executed)
 - **Triggering observations:** None — modeling idea
-- **Related investigations:** —
+- **Related investigations:**
+  [R-002 — Population-weighted area temperature](research/demand/R-002-population-weighted-temperature.md)
+  (replaces this investigation's single-station forecast temperature with a
+  population-weighted one)
 
 ## Question
 
@@ -264,6 +267,9 @@ of the "keep" branch is met and neither "inconclusive" condition applies.
 - The researcher's broader framing — forecast *weather* features beyond
   temperature — is the natural continuation if the single feature helps; no
   specific next feature has been recorded yet.
+- The researcher's next idea, a population-weighted area temperature instead of
+  the single representative station, is investigated in
+  [R-002](research/demand/R-002-population-weighted-temperature.md).
 
 ## Current conclusion
 
