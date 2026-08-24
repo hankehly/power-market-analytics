@@ -1,8 +1,10 @@
-"""End-to-end CLI tests for the demand backtest script.
+"""End-to-end CLI tests for the demand scripts.
 
-Runs for real against the synthetic ``pma_curated`` warehouse
-(``curated_warehouse`` fixture) and the session's temp MLflow file store:
-fits/scores, logs the MLflow run and publishes to ``pma_ml.demand_forecast``.
+``demand_backtest.py`` runs for real against the synthetic ``pma_curated``
+warehouse (``curated_warehouse`` fixture) and the session's temp MLflow file
+store: fits/scores, logs the MLflow run and publishes to
+``pma_ml.demand_forecast``; ``compare_demand_runs.py`` reads the synthetic
+``fct_demand_forecast_accuracy`` rows.
 """
 
 from __future__ import annotations
@@ -12,7 +14,13 @@ import pandas as pd
 import pytest
 from pyspark.sql import functions as F
 
-from tests.conftest import DEMAND_HOLE_DAY, DEMAND_HOLE_TIME_CODES, FORECAST_MISSING_DAY
+from tests.conftest import (
+    DEMAND_BASELINE_RUN_ID,
+    DEMAND_CANDIDATE_RUN_ID,
+    DEMAND_HOLE_DAY,
+    DEMAND_HOLE_TIME_CODES,
+    FORECAST_MISSING_DAY,
+)
 from tests.support import import_script
 
 FORECAST_TABLE = "pma_ml.demand_forecast"
@@ -35,6 +43,86 @@ def published_rows(spark, run_id: str) -> pd.DataFrame:
         .toPandas()
         .sort_values(["trade_date", "time_code"], ignore_index=True)
     )
+
+
+# --------------------------------------------------------------------------- compare script
+
+
+class TestCompareScript:
+    def test_both_run_ids_are_required(self):
+        script = import_script("compare_demand_runs")
+        with pytest.raises(SystemExit) as exc:
+            script.main(["--baseline", DEMAND_BASELINE_RUN_ID])
+        assert exc.value.code == 2
+
+    def test_prints_every_section_as_markdown(self, spark, curated_warehouse, capsys):
+        script = import_script("compare_demand_runs")
+        script.main(["--baseline", DEMAND_BASELINE_RUN_ID, "--candidate", DEMAND_CANDIDATE_RUN_ID])
+        out = capsys.readouterr().out
+        lines = out.splitlines()
+
+        assert lines[0] == "Baseline run: `demand-run-baseline`  "
+        assert lines[1] == "Candidate run: `demand-run-candidate`"
+        assert [line for line in lines if line.startswith("### ")] == [
+            "### Overall",
+            "### Mean absolute percentage error",
+            "### Mean error (forecast − actual)",
+            "### By day part",
+            "### By day type",
+            "### By calendar month",
+            "### By season",
+            "### By actual-demand band",
+            "### High-demand days",
+            "### Daily paired comparison (candidate − baseline)",
+        ]
+        assert out.count("| Segment | n | Baseline MAE (kWh) | Candidate MAE (kWh) |") == 7
+        assert out.count("| Segment | n | Baseline MAPE (%) | Candidate MAPE (%) |") == 1
+        assert out.count("| Segment | n | Baseline bias (kWh) | Candidate bias (kWh) |") == 1
+        assert out.count("|---|---:|---:|---:|---:|---:|") == 9
+        # fixture errors: baseline +100,000 / −50,000 alternating (MAE 75,000), candidate half
+        assert "| all | 1,008 | 75,000 | 37,500 | −37,500 | −50.0 % |" in lines
+        assert "| all | 1,008 | +25,000 | +12,500 | −12,500 | — |" in lines
+        assert "| Weekday | 672 |" in out and "| Holiday | 48 |" in out
+        assert "| Spring (Mar–May) | 1,008 |" in out
+        assert "| top 10% demand days (daily mean >=" in out
+        assert "| 2024-04 | 1,008 |" in out
+        assert "- candidate lower on 100.0 % of days (21 of 21)" in lines
+        assert "(10,000 resamples, seed 0)" in out
+        assert "- the 10 most-improved day(s) account for" in out
+
+    def test_options_reach_the_comparison(self, spark, curated_warehouse, capsys, tmp_path):
+        script = import_script("compare_demand_runs")
+        png = tmp_path / "mae-by-month.png"
+        script.main(
+            [
+                "--baseline",
+                DEMAND_BASELINE_RUN_ID,
+                "--candidate",
+                DEMAND_CANDIDATE_RUN_ID,
+                "--high-demand-quantile",
+                "0.5",
+                "--band-mwh",
+                "5000",
+                "--resamples",
+                "200",
+                "--seed",
+                "7",
+                "--top-days",
+                "3",
+                "--mae-by-month-png",
+                str(png),
+            ]
+        )
+        out = capsys.readouterr().out
+        assert "| top 50% demand days (daily mean >=" in out
+        assert "| other 50% of days |" in out
+        assert "| 10,000–15,000 MWh |" in out
+        assert "(200 resamples, seed 7)" in out
+        assert "- the 3 most-improved day(s) account for" in out
+        assert png.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+# --------------------------------------------------------------------------- backtest script
 
 
 class TestBacktestScript:
@@ -178,6 +266,34 @@ class TestBacktestScript:
         assert set(published["strategy"]) == {"lightgbm_msm"}
         assert FORECAST_MISSING_DAY.date() not in set(published["trade_date"])
 
+    def test_lightgbm_msm_popw_logs_the_census_year(self, spark, curated_warehouse):
+        script = import_script("demand_backtest")
+        script.main(
+            [
+                "--strategy",
+                "lightgbm_msm_popw",
+                "--start-date",
+                "2024-05-10",
+                "--end-date",
+                "2024-05-11",
+                "--shap-nsamples",
+                "20",
+            ]
+        )
+        run = last_run()
+        assert run.info.status == "FINISHED"
+        assert run.info.run_name == "lightgbm_msm_popw-tokyo"
+        params = run.data.params
+        assert params["n_days"] == "2"
+        assert params["n_predictions"] == "96"
+        assert params["population_weight_census_year"] == "2020"
+        assert params["lgbm_feature_cols"] == (
+            "time_code,month,day_of_week,wavg_temperature_c,lag_7d_demand_kwh,"
+            "popw_forecast_temperature_c"
+        )
+        published = published_rows(spark, run.info.run_id)
+        assert set(published["strategy"]) == {"lightgbm_msm_popw"}
+
     def test_days_window_ends_at_the_last_day_in_the_data(self, spark, curated_warehouse):
         script = import_script("demand_backtest")
         script.main(["--days", "2", "--shap-nsamples", "20"])
@@ -186,6 +302,15 @@ class TestBacktestScript:
         assert run.data.params["start_date"] == "2024-05-30"
         assert run.data.params["end_date"] == "2024-05-31"
         assert run.data.params["n_predictions"] == "96"
+
+    def test_default_strategy_is_the_kept_population_weighted_model(self, spark, curated_warehouse):
+        # demand/R-002 E-001 (confirmed 2026-08-24): lightgbm_msm_popw is the demand baseline.
+        script = import_script("demand_backtest")
+        script.main(["--days", "1", "--shap-nsamples", "20"])
+        run = last_run()
+        assert run.info.run_name == "lightgbm_msm_popw-tokyo"
+        assert run.data.params["strategy"] == "lightgbm_msm_popw"
+        assert run.data.params["population_weight_census_year"] == "2020"
 
     def test_train_start_reaches_the_strategy(self, spark, curated_warehouse):
         script = import_script("demand_backtest")

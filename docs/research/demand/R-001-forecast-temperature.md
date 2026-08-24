@@ -4,7 +4,10 @@
 - **Created:** 2026-08-23
 - **Last updated:** 2026-08-23 (E-001 executed)
 - **Triggering observations:** None — modeling idea
-- **Related investigations:** —
+- **Related investigations:**
+  [R-002 — Population-weighted area temperature](research/demand/R-002-population-weighted-temperature.md)
+  (replaces this investigation's single-station forecast temperature with a
+  population-weighted one)
 
 ## Question
 
@@ -134,8 +137,12 @@ depends mainly on a few extreme days. Otherwise reject the change.
   [PR #12](https://github.com/hankehly/power-market-analytics/pull/12)
   (`LightGbmMsmStrategy`, `AreaTemperatureForecast`,
   `load_area_temperature_forecast`, `join_forecast_temperature`); the segment
-  tables below were computed from the two runs' `predictions.csv` artifacts
-  (there is no demand compare script yet); accuracy rows for both runs are in
+  tables, the daily paired comparison and the figure below are the output of
+  `scripts/compare_demand_runs.py --baseline 5e217c7ca286479599de63469bd87624
+  --candidate 53dbc56292624f17b7b1167b0e8c1516 --mae-by-month-png …`
+  (`tasks/demand/compare.py`, reading `fct_demand_forecast_accuracy`; first
+  computed ad hoc from the runs' `predictions.csv` and re-derived with the
+  script on 2026-08-24 — identical); accuracy rows for both runs are in
   `fct_demand_forecast_accuracy` / the **Demand Forecast Analysis** dashboard
 - **Matched window:** MSM rows for s47662 cover the whole Tokyo demand history,
   so no `--train-start` was needed: both runs use the same training rows and
@@ -144,10 +151,14 @@ depends mainly on a few extreme days. Otherwise reject the change.
   lag falls in the 2025-06-14 TSO hole). Model parameters, refit cadence and
   the baseline features are unchanged; `forecast_temperature_c` is the only
   difference
-- **Segment definitions:** day parts follow `dim_delivery_period.day_part`
-  (Overnight 00–06, Morning 06–08, Daytime 08–18, Evening 18–24); the daily
-  paired comparison treats each delivery day's MAE as one observation (95 %
-  bootstrap CI over days, 10,000 resamples, seed 0)
+- **Segment definitions:** as implemented in `tasks/demand/compare.py` — day
+  parts follow `dim_delivery_period.day_part` (Overnight 00–06, Morning 06–08,
+  Daytime 08–18, Evening 18–24), day types come from `dim_date`, demand bands
+  are 2,000 MWh wide on the actual, "top 10 % demand days" are the days at or
+  above the 0.9 quantile of the daily mean actual; the daily paired comparison
+  treats each delivery day's MAE as one observation (`daily_paired_comparison`:
+  percentile bootstrap of the mean daily difference over days, 10,000 resamples,
+  seed 0; days treated as exchangeable)
 
 ### Results
 
@@ -159,7 +170,7 @@ MLflow holds the full metric sets).
 | Overall MAE | 1,103,392 | 745,695 | −357,697 | −32.4 % |
 | Overall MAPE | 6.82 % | 4.62 % | −2.20 pp | −32.3 % |
 | Mean error / bias (forecast − actual), overall | +70,294 | −7,858 | −78,151 | — |
-| Mean error / bias, daytime | +135,809 | +8,468 | −127,341 | — |
+| Mean error / bias, daytime | +135,809 | +8,468 | −127,342 | — |
 
 MAE by day part (candidate lower in all four):
 
@@ -264,6 +275,9 @@ of the "keep" branch is met and neither "inconclusive" condition applies.
 - The researcher's broader framing — forecast *weather* features beyond
   temperature — is the natural continuation if the single feature helps; no
   specific next feature has been recorded yet.
+- The researcher's next idea, a population-weighted area temperature instead of
+  the single representative station, is investigated in
+  [R-002](research/demand/R-002-population-weighted-temperature.md).
 
 ## Current conclusion
 
@@ -287,7 +301,11 @@ this single-area experiment.
 the researcher's confirmation of the provisional decision)
 
 **Recommended action:** Researcher to review the E-001 result and confirm or
-revise the provisional Keep; if confirmed, `lightgbm_msm` becomes the demand
-baseline that later feature experiments are matched against.
+revise the provisional Keep. Note (2026-08-24): the researcher kept the
+population-weighted variant of this feature
+([R-002](research/demand/R-002-population-weighted-temperature.md)), so the
+forecast temperature is retained in the demand baseline in that form
+(`lightgbm_msm_popw`); `lightgbm_msm` stays registered as R-001's reference
+strategy.
 
 **Superseded by:** —

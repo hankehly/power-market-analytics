@@ -22,13 +22,19 @@ narrow them as the question requires.
   days ≤ D-2 at the area's representative JMA station
   (`dim_area.representative_jma_station_id`)
 - **Baseline:** a strategy run in the `demand` MLflow experiment —
-  `lightgbm` (`scripts/demand_backtest.py`); pin `--start-date`, `--end-date`
-  and `--train-start` identically for a candidate and its baseline
+  `lightgbm_msm_popw` (the kept baseline since
+  [R-002](research/demand/R-002-population-weighted-temperature.md), 2026-08-24,
+  and the default of `scripts/demand_backtest.py`; `lightgbm` and
+  `lightgbm_msm` remain as reference strategies); pin `--start-date`,
+  `--end-date` and `--train-start` identically for a candidate and its baseline
 - **Primary metric:** MAE (kWh)
-- **Segments reported by the tooling:** Superset **Demand Forecast Analysis**
-  (day part, day type, actual-demand bands, calibration curve, error
-  histogram); there is no matched two-run compare script for this task yet —
-  `scripts/compare_spot_price_runs.py` reads the spot-price accuracy fact only
+- **Segments reported by the tooling:** `scripts/compare_demand_runs.py
+  --baseline <run_id> --candidate <run_id>` (matched two-run tables: overall
+  MAE / MAPE / bias, day part, day type, calendar month, season, 2,000-MWh
+  actual-demand bands, top-10 % demand days, and the daily paired comparison
+  with its seeded bootstrap CI over days; `--mae-by-month-png` writes the
+  by-month figure) and Superset **Demand Forecast Analysis** (day part, day
+  type, actual-demand bands, calibration curve, error histogram)
 - **Evaluation method:** rolling out-of-sample backtest over identical
   delivery dates and training rows for baseline and candidate; accuracy rows
   in `fct_demand_forecast_accuracy` after
@@ -39,3 +45,4 @@ narrow them as the question requires.
 | ID | Investigation | Status | Current conclusion |
 |---|---|---|---|
 | R-001 | [Forecast temperature as a demand feature](research/demand/R-001-forecast-temperature.md) | In progress | E-001 run 2026-08-23: adding the MSM forecast temperature at 東京 s47662 (`lightgbm_msm`) cuts Tokyo MAE 32.4 % (1,103,392 → 745,695 kWh; MAPE 6.82 % → 4.62 %) on the matched 729-day window, lower in 25/25 months and every day part — provisionally Keep, researcher to confirm. |
+| R-002 | [Population-weighted area temperature](research/demand/R-002-population-weighted-temperature.md) | Supported | E-001 run 2026-08-23: population-weighting the MSM forecast temperature over the Tokyo area's 21 stations (`lightgbm_msm_popw`) cuts MAE a further 2.3 % vs `lightgbm_msm` (745,695 → 728,573 kWh), all day parts lower, 17/25 months, CI over days excludes zero, summer/autumn-only and small — Keep, confirmed 2026-08-24; `lightgbm_msm_popw` is now the demand baseline. |
