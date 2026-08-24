@@ -44,8 +44,9 @@ _GRAIN = ["trade_date", "time_code"]
 class RunErrors(DomainFrame):
     """Row-level forecast errors of demand backtest runs, with segment attributes.
 
-    ``day_type`` is ``Holiday`` on a national holiday, else ``Weekend`` on a
-    Saturday/Sunday, else ``Weekday`` (``dim_date``).
+    ``day_type`` is ``Holiday`` on a ``dim_date`` holiday (a national holiday
+    or a customary non-working day: 年末年始, ゴールデンウィーク, お盆), else
+    ``Weekend`` on a Saturday/Sunday, else ``Weekday``.
 
     Grain: (run_id, trade_date, time_code).
     """

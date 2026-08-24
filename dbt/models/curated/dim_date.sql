@@ -28,6 +28,45 @@ with
     spine_bounds
   ),
 
+  -- Customary non-working days that are not 国民の祝日, as fixed month/day
+  -- rules (no seed: every year of the spine gets them automatically):
+  -- 年末年始 and ゴールデンウィーク are the 休日 set shared by the family-A TSO
+  -- 託送供給等約款 (北海道・東京・中部・関西・四国・九州; 東北, 北陸, 中国 and
+  -- 沖縄 use slightly different dates), お盆 has no statutory or tariff basis
+  -- but is observed nationwide.
+  customary_holidays as (
+  select
+    date_key,
+    case
+      when month(date_key) = 12 and day(date_key) in (30, 31) then '年末年始'
+      when month(date_key) = 1 and day(date_key) in (2, 3) then '年末年始'
+      when month(date_key) = 4 and day(date_key) = 30 then 'ゴールデンウィーク'
+      when month(date_key) = 5 and day(date_key) in (1, 2) then 'ゴールデンウィーク'
+      when month(date_key) = 8 and day(date_key) between 13 and 16 then 'お盆'
+    end as holiday_name_ja
+  from
+    date_spine
+  ),
+
+  -- One row per holiday: the seed's 国民の祝日, plus the customary days that
+  -- are not already one (2019-05-01 即位の日 keeps its official name).
+  all_holidays as (
+  select
+    holiday_date,
+    holiday_name_ja
+  from
+    holidays
+  union all
+  select
+    customary_holidays.date_key as holiday_date,
+    customary_holidays.holiday_name_ja
+  from
+    customary_holidays
+    left anti join holidays on customary_holidays.date_key = holidays.holiday_date
+  where
+    customary_holidays.holiday_name_ja is not null
+  ),
+
   final as (
   select
     date_spine.date_key,
@@ -41,12 +80,12 @@ with
     case when month(date_spine.date_key) >= 4 then year(date_spine.date_key) else year(date_spine.date_key) - 1 end as fiscal_year,
     cast((month(date_spine.date_key) + 8) % 12 div 3 + 1 as int) as fiscal_quarter,
     weekday(date_spine.date_key) >= 5 as is_weekend,
-    holidays.holiday_date is not null as is_holiday,
-    coalesce(holidays.holiday_name_ja, 'Not Applicable') as holiday_name_ja,
-    weekday(date_spine.date_key) < 5 and holidays.holiday_date is null as is_business_day
+    all_holidays.holiday_date is not null as is_holiday,
+    coalesce(all_holidays.holiday_name_ja, 'Not Applicable') as holiday_name_ja,
+    weekday(date_spine.date_key) < 5 and all_holidays.holiday_date is null as is_business_day
   from
     date_spine
-    left join holidays on date_spine.date_key = holidays.holiday_date
+    left join all_holidays on date_spine.date_key = all_holidays.holiday_date
   )
 
 select * from final
