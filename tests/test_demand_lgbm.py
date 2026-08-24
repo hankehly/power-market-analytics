@@ -1,5 +1,6 @@
 """Tests for the demand LightGBM strategies: the baseline (calendar + temperature +
-D-7 lag) and ``lightgbm_msm`` (baseline + the MSM forecast temperature).
+D-7 lag), ``lightgbm_msm`` (baseline + the MSM forecast temperature) and
+``lightgbm_msm_popw`` (baseline + the population-weighted MSM forecast temperature).
 
 Everything runs for real — feature building, LightGBM fits, TreeSHAP records,
 MLflow logging into the session's temp file store — on a small synthetic
@@ -21,6 +22,7 @@ from power_market_analytics.forecasting.backtest import BacktestRun, run_backtes
 from power_market_analytics.forecasting.strategy import ForecastUnavailableError
 from power_market_analytics.tasks.demand.features import (
     FORECAST_TEMPERATURE_FEATURE,
+    POPW_FORECAST_TEMPERATURE_FEATURE,
     TEMPERATURE_FEATURE,
     TEMPERATURE_HALF_LIFE_DAYS,
     TEMPERATURE_LAG_DAYS,
@@ -37,8 +39,11 @@ from power_market_analytics.tasks.demand.strategies.lgbm import (
     DEMAND_LAG_FEATURE,
     FEATURE_COLS,
     MSM_FEATURE_COLS,
+    MSM_POPW_FEATURE_COLS,
     DemandLightGbmEvalSet,
     DemandLightGbmMsmEvalSet,
+    DemandLightGbmMsmPopWeightedEvalSet,
+    LightGbmMsmPopWeightedStrategy,
     LightGbmMsmStrategy,
     LightGbmStrategy,
 )
@@ -428,3 +433,75 @@ class TestMsmBacktestEvalAndEvaluate:
         assert finished.data.metrics["n_refits"] == 2.0
         artifacts = {a.path for a in mlflow.MlflowClient().list_artifacts(active.info.run_id)}
         assert {"shap_beeswarm_plot.png", "shap_feature_importance_plot.png"} <= artifacts
+
+
+class TestMsmPopWeightedClassAttributes:
+    def test_features_and_frames(self):
+        assert LightGbmMsmPopWeightedStrategy.name == "lightgbm_msm_popw"
+        assert issubclass(LightGbmMsmPopWeightedStrategy, LightGbmMsmStrategy)
+        assert MSM_POPW_FEATURE_COLS == (*FEATURE_COLS, POPW_FORECAST_TEMPERATURE_FEATURE)
+        assert LightGbmMsmPopWeightedStrategy.feature_cols == MSM_POPW_FEATURE_COLS
+        assert LightGbmMsmPopWeightedStrategy.forecast_feature == POPW_FORECAST_TEMPERATURE_FEATURE
+        assert LightGbmMsmStrategy.forecast_feature == FORECAST_TEMPERATURE_FEATURE
+        assert LightGbmMsmPopWeightedStrategy.eval_set_cls is DemandLightGbmMsmPopWeightedEvalSet
+        assert issubclass(DemandLightGbmMsmPopWeightedEvalSet, DemandLightGbmEvalSet)
+        assert DemandLightGbmMsmPopWeightedEvalSet.feature_cols == MSM_POPW_FEATURE_COLS
+        assert list(DemandLightGbmMsmPopWeightedEvalSet.schema) == [
+            "trade_date",
+            "time_code",
+            "month",
+            "day_of_week",
+            TEMPERATURE_FEATURE,
+            DEMAND_LAG_FEATURE,
+            POPW_FORECAST_TEMPERATURE_FEATURE,
+            "actual_demand_kwh",
+            "forecast_demand_kwh",
+        ]
+        assert FORECAST_TEMPERATURE_FEATURE not in DemandLightGbmMsmPopWeightedEvalSet.schema
+
+
+class TestMsmPopWeightedPredictAndEvaluate:
+    def test_the_weighted_forecast_replaces_the_single_station_feature(
+        self, demand, temperature, forecast_temperature
+    ):
+        strategy = LightGbmMsmPopWeightedStrategy(
+            temperature, forecast_temperature, census_year=2020, train_window_days=30
+        )
+        forecast = strategy.predict(D, visible(demand, D))
+        assert isinstance(forecast, DemandForecast)
+        record = strategy._shap_records[pd.Timestamp(D).as_unit("ns")]
+        assert list(record.columns) == [
+            "trade_date",
+            "time_code",
+            "month",
+            "day_of_week",
+            TEMPERATURE_FEATURE,
+            DEMAND_LAG_FEATURE,
+            POPW_FORECAST_TEMPERATURE_FEATURE,
+            *[f"shap_{c}" for c in MSM_POPW_FEATURE_COLS],
+            "shap_expected_value",
+        ]
+        hours = hour_ending_of(pd.Series(range(1, 49), dtype="int64"))
+        assert record[POPW_FORECAST_TEMPERATURE_FEATURE].tolist() == [
+            forecast_temperature_at(D, h) for h in hours
+        ]
+
+    def test_evaluate_logs_the_census_year_and_feature_list(
+        self, demand, temperature, forecast_temperature
+    ):
+        strategy = LightGbmMsmPopWeightedStrategy(
+            temperature,
+            forecast_temperature,
+            census_year=2020,
+            train_window_days=30,
+            refit_every_days=7,
+        )
+        run = run_backtest(strategy, demand, WINDOW_START, WINDOW_END)
+        eval_set = strategy.build_eval_set(demand, WINDOW_START, WINDOW_END, run=run)
+        assert type(eval_set) is DemandLightGbmMsmPopWeightedEvalSet
+        with mlflow.start_run() as active:
+            strategy.evaluate(eval_set, explainability_nsamples=20)
+        params = mlflow.get_run(active.info.run_id).data.params
+        assert params["lgbm_feature_cols"] == ",".join(MSM_POPW_FEATURE_COLS)
+        assert params["population_weight_census_year"] == "2020"
+        assert params["temperature_lag_days"] == "2,3,4,5,6,7,8"

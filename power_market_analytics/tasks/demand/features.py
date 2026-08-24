@@ -17,6 +17,9 @@ TEMPERATURE_HALF_LIFE_DAYS = 1.0
 TEMPERATURE_FEATURE = "wavg_temperature_c"
 #: The MSM forecast temperature for the delivery-day hour containing the period.
 FORECAST_TEMPERATURE_FEATURE = "forecast_temperature_c"
+#: The same, population-weighted over the area's staffed stations instead of
+#: taken at the representative station.
+POPW_FORECAST_TEMPERATURE_FEATURE = "popw_forecast_temperature_c"
 
 
 def hour_ending_of(time_code: pd.Series) -> pd.Series:

@@ -1,7 +1,11 @@
 """LightGBM strategies for area demand: the calendar + temperature + D-7 lag
-baseline, and the same model plus the MSM forecast temperature."""
+baseline, the same model plus the MSM forecast temperature at the representative
+station, and the same again with that forecast population-weighted over the
+area's stations."""
 
 from __future__ import annotations
+
+from typing import ClassVar
 
 import pandas as pd
 
@@ -15,6 +19,7 @@ from power_market_analytics.forecasting.lgbm import (
 from power_market_analytics.tasks.demand import TASK
 from power_market_analytics.tasks.demand.features import (
     FORECAST_TEMPERATURE_FEATURE,
+    POPW_FORECAST_TEMPERATURE_FEATURE,
     TEMPERATURE_FEATURE,
     TEMPERATURE_HALF_LIFE_DAYS,
     TEMPERATURE_LAG_DAYS,
@@ -26,6 +31,7 @@ from power_market_analytics.tasks.demand.frames import AreaTemperature, AreaTemp
 DEMAND_LAG_FEATURE = "lag_7d_demand_kwh"
 FEATURE_COLS = (*CALENDAR_FEATURE_COLS, TEMPERATURE_FEATURE, DEMAND_LAG_FEATURE)
 MSM_FEATURE_COLS = (*FEATURE_COLS, FORECAST_TEMPERATURE_FEATURE)
+MSM_POPW_FEATURE_COLS = (*FEATURE_COLS, POPW_FORECAST_TEMPERATURE_FEATURE)
 TARGET_COL = TASK.actual_col
 FORECAST_COL = TASK.forecast_col
 
@@ -166,7 +172,11 @@ class LightGbmMsmStrategy(LightGbmStrategy):
 
     name = "lightgbm_msm"
     feature_cols = MSM_FEATURE_COLS
-    eval_set_cls = DemandLightGbmMsmEvalSet
+    # Declared at the demand eval-set base so a subclass may swap in a sibling
+    # design matrix (the population-weighted one) rather than a subclass of this one.
+    eval_set_cls: ClassVar[type[DemandLightGbmEvalSet]] = DemandLightGbmMsmEvalSet
+    #: Column the delivery-day forecast temperature is attached as.
+    forecast_feature: ClassVar[str] = FORECAST_TEMPERATURE_FEATURE
 
     def __init__(
         self,
@@ -190,8 +200,83 @@ class LightGbmMsmStrategy(LightGbmStrategy):
         Returns
         -------
         pandas.DataFrame
-            ``featured`` plus ``MSM_FEATURE_COLS`` (NaN on hours without a
-            forecast).
+            ``featured`` plus this strategy's ``feature_cols`` (the forecast
+            temperature NaN on hours without a forecast).
         """
         featured = super()._add_features(featured, history)
-        return join_forecast_temperature(featured, self.temperature_forecast)
+        return join_forecast_temperature(
+            featured, self.temperature_forecast, name=self.forecast_feature
+        )
+
+
+class DemandLightGbmMsmPopWeightedEvalSet(DemandLightGbmEvalSet):
+    """Design matrix for :class:`LightGbmMsmPopWeightedStrategy`: the baseline
+    features plus the population-weighted MSM forecast temperature.
+
+    Grain: (trade_date, time_code).
+    """
+
+    feature_cols = MSM_POPW_FEATURE_COLS
+    schema = {
+        "trade_date": "datetime64[ns]",
+        "time_code": "int64",
+        "month": "int64",
+        "day_of_week": "int64",
+        TEMPERATURE_FEATURE: "float64",
+        DEMAND_LAG_FEATURE: "float64",
+        POPW_FORECAST_TEMPERATURE_FEATURE: "float64",
+        TARGET_COL: "float64",
+        FORECAST_COL: "float64",
+    }
+    non_null_cols = [*MSM_POPW_FEATURE_COLS, TARGET_COL, FORECAST_COL]
+
+
+class LightGbmMsmPopWeightedStrategy(LightGbmMsmStrategy):
+    """:class:`LightGbmMsmStrategy` with the delivery-day MSM forecast temperature
+    population-weighted over the area's staffed stations instead of taken at the
+    single representative station.
+
+    Experiment E-001 of docs/research/demand/R-002-population-weighted-temperature.md:
+    ``popw_forecast_temperature_c`` replaces ``forecast_temperature_c`` — the
+    weights are each station's share of the area's census population
+    (``fct_census_population_jma_station``, one vintage applied to the whole
+    history). Everything else (model parameters, refit cadence, the baseline
+    features including the single-station observed temperature) is unchanged.
+
+    Parameters
+    ----------
+    temperature : AreaTemperature
+        Hourly observed temperature at the area's representative JMA station.
+    temperature_forecast : AreaTemperatureForecast
+        Population-weighted hourly MSM forecast temperature for the area, by
+        delivery day (``load_area_temperature_forecast_population_weighted``).
+    census_year : int
+        Census vintage of the weights, logged to the MLflow run.
+    **kwargs
+        Forwarded to :class:`LightGbmMsmStrategy`.
+    """
+
+    name = "lightgbm_msm_popw"
+    feature_cols = MSM_POPW_FEATURE_COLS
+    eval_set_cls = DemandLightGbmMsmPopWeightedEvalSet
+    forecast_feature = POPW_FORECAST_TEMPERATURE_FEATURE
+
+    def __init__(
+        self,
+        temperature: AreaTemperature,
+        temperature_forecast: AreaTemperatureForecast,
+        *,
+        census_year: int,
+        **kwargs,
+    ) -> None:
+        super().__init__(temperature, temperature_forecast, **kwargs)
+        self.census_year = census_year
+
+    def _extra_params(self) -> dict[str, object]:
+        """Log the weights' census vintage next to the temperature-window params.
+
+        Returns
+        -------
+        dict of str to object
+        """
+        return {**super()._extra_params(), "population_weight_census_year": self.census_year}
