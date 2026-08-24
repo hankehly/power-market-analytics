@@ -197,7 +197,10 @@
 - dbt (`dbt/`): sources in `models/raw/<source>.yml` → `staging` (as-is) → `standardized`
   (typed time axis) → `curated` (Kimball star: `dim_*`, `fct_*`). Schemas: `pma_<layer>`.
 - Japanese holidays: Cabinet Office CSV → `scripts/update_holidays_seed.py` → seed → `dim_date`
-  (spine end derives from the seed's max year).
+  (spine end derives from the seed's max year). `dim_date.is_holiday` is the seed's 国民の祝日
+  **plus** the customary non-working days computed in SQL — 年末年始 12/30–1/3, ゴールデンウィーク
+  4/30–5/2 (the 休日 set every family-A TSO 託送供給等約款 uses; 東北/北陸/中国/沖縄 differ) and
+  お盆 8/13–16 (convention only) — so `is_business_day` means "working day", not "banks open".
 - Forecast write-back: `scripts/spot_price_backtest.py` logs the run to MLflow AND publishes
   row-level forecasts (`forecasting/publish.py`) to `pma_ml.spot_price_forecast`
   (parquet, partitioned by `run_id`, dynamic partition overwrite = idempotent per run) →
