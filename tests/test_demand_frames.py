@@ -7,9 +7,11 @@ import pandas as pd
 import pytest
 
 from power_market_analytics.tasks.demand.frames import (
+    DAY_TYPE_LEVELS,
     AreaDemand,
     AreaTemperature,
     AreaTemperatureForecast,
+    DayTypeCalendar,
     DemandBacktestResult,
     DemandForecast,
     DemandForecastRecords,
@@ -107,3 +109,36 @@ class TestAreaTemperatureForecast:
     def test_duplicate_day_hour_rejected(self):
         with pytest.raises(ValueError, match="grain .* not unique"):
             AreaTemperatureForecast.from_df(forecast_df([1, 1], [5.0, 6.0]))
+
+
+def calendar_df(days: list[pd.Timestamp], codes: list[int]) -> pd.DataFrame:
+    return pd.DataFrame({"trade_date": days, "day_type": np.array(codes, dtype="int64")})
+
+
+class TestDayTypeCalendar:
+    def test_levels_in_code_order(self):
+        assert DAY_TYPE_LEVELS == ("Weekday", "Weekend", "Holiday")
+
+    def test_grain_is_the_delivery_day(self):
+        assert DayTypeCalendar.schema == {"trade_date": "datetime64[ns]", "day_type": "int64"}
+        assert DayTypeCalendar.keys == ["trade_date"]
+        assert DayTypeCalendar.non_null_cols == ["day_type"]
+        out = DayTypeCalendar.from_df(calendar_df([D1, D1 + pd.Timedelta(days=1)], [0, 2]))
+        assert list(out.df.columns) == ["trade_date", "day_type"]
+        assert len(out) == 2
+
+    @pytest.mark.parametrize("code", [-1, 3])
+    def test_code_outside_the_levels_rejected(self, code):
+        with pytest.raises(
+            ValueError, match=rf"DayTypeCalendar: day_type outside 0\.\.2: \[{code}\]$"
+        ):
+            DayTypeCalendar.from_df(calendar_df([D1], [code]))
+
+    def test_float_codes_rejected(self):
+        df = calendar_df([D1], [1]).astype({"day_type": "float64"})
+        with pytest.raises(ValueError, match="dtype mismatch"):
+            DayTypeCalendar.from_df(df)
+
+    def test_duplicate_day_rejected(self):
+        with pytest.raises(ValueError, match="grain .* not unique"):
+            DayTypeCalendar.from_df(calendar_df([D1, D1], [0, 1]))

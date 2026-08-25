@@ -62,9 +62,10 @@
   matched two-run comparison (MAE overall / by day part / near the OCCTO peak hour / by
   month / high-price days, plus bias) as markdown; needs
   `just dbt build --select +fct_spot_price_forecast_accuracy` after the runs.
-- `just python scripts/demand_backtest.py --strategy lightgbm_msm_popw --area tokyo` — day-ahead
-  area demand backtest (strategies: `lightgbm`, `lightgbm_msm`, `lightgbm_msm_popw` = the default
-  and the kept demand baseline since demand/R-002, 2026-08-24; areas: `tokyo`,
+- `just python scripts/demand_backtest.py --strategy lightgbm_msm_popw_daytype --area tokyo` —
+  day-ahead area demand backtest (strategies: `lightgbm`, `lightgbm_msm`, `lightgbm_msm_popw`,
+  `lightgbm_msm_popw_daytype` = `lightgbm_msm_popw` + the `dim_date` day-type categorical, the
+  default and the kept demand baseline since demand/R-003, 2026-08-26; areas: `tokyo`,
   `kansai` = the TSO feeds loaded into `fct_area_demand_generation_actual`); each area also needs its
   representative JMA station's hourly weather loaded and current
   (`dim_area.representative_jma_station_id`: 東京 s47662, 大阪 s47772 — both loaded and current
@@ -223,7 +224,9 @@
   sees = days ≤ `task.history_cutoff(D)`; a `ForecastUnavailableError` skips the day and is
   reported on `BacktestRun.skipped_days`; forecast points without an actual are dropped),
   `forecasting.lgbm.SlidingWindowLightGbmStrategy` (subclass sets `task`, `feature_cols`,
-  `eval_set_cls`, `lookback_days`, implements `_add_features`), `forecasting.publish`
+  `eval_set_cls`, `lookback_days`, optionally
+  `categorical_feature_cols` — passed to `LGBMRegressor.fit(categorical_feature=…)` and logged as
+  `lgbm_categorical_feature_cols` — implements `_add_features`), `forecasting.publish`
   and `forecasting.plots`. Adding a task = TaskSpec + frames + datasets + strategies +
   script + `pma_ml.<task>_forecast` dbt models.
 - Demand task (`tasks/demand/`): at 09:30 JST on D-1 forecast the 48 half-hourly `demand_kwh`
@@ -245,7 +248,13 @@
   staffed stations with `fct_census_population_jma_station` weights (latest census vintage,
   logged as `population_weight_census_year`; `load_area_temperature_forecast_population_weighted`
   renormalises over the stations that have a value for the hour). The observed
-  `wavg_temperature_c` stays single-station in both. Write-back: `pma_ml.demand_forecast` →
+  `wavg_temperature_c` stays single-station in both.
+  `lightgbm_msm_popw_daytype` (`LightGbmMsmPopWeightedDayTypeStrategy`, research `demand/R-003`; the
+  demand baseline and script default since 2026-08-26) =
+  `lightgbm_msm_popw` + `day_type`: 0 Weekday / 1 Weekend / 2 Holiday from `dim_date`
+  (`is_holiday` wins over `is_weekend`, the compare script's day-type precedence; `load_day_types` →
+  `DayTypeCalendar`, `join_day_type`), declared categorical via `categorical_feature_cols`; a delivery
+  day outside `dim_date` is skipped. Write-back: `pma_ml.demand_forecast` →
   `stg/std_ml__demand_forecast` →
   `fct_demand_forecast` → `fct_demand_forecast_accuracy` → Superset **Demand Forecast Analysis**
   dashboard (dataset `demand_forecast_analysis`; the mart's kWh rescaled to MWh in the dataset

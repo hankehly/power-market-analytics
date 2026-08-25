@@ -3,7 +3,7 @@
 Run inside the devcontainer (needs the Spark warehouse and the MLflow
 server):
 
-    python scripts/demand_backtest.py --strategy lightgbm_msm_popw --area tokyo
+    python scripts/demand_backtest.py --strategy lightgbm_msm_popw_daytype --area tokyo
 
 Pin ``--start-date``/``--end-date`` (and ``--train-start``) when two runs
 must be compared on identical delivery days and training rows, e.g. a
@@ -31,8 +31,10 @@ from power_market_analytics.tasks.demand.strategies import STRATEGIES, build_str
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     # Default = the strategy kept as the demand baseline by research decision
-    # (demand/R-002 E-001, confirmed 2026-08-24).
-    parser.add_argument("--strategy", choices=sorted(STRATEGIES), default="lightgbm_msm_popw")
+    # (demand/R-003 E-001, confirmed 2026-08-26).
+    parser.add_argument(
+        "--strategy", choices=sorted(STRATEGIES), default="lightgbm_msm_popw_daytype"
+    )
     parser.add_argument(
         "--area", choices=AREA_CODES, default="tokyo", help="dim_area.area_code value."
     )

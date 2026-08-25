@@ -1,4 +1,5 @@
-"""Tests for the demand task's temperature features (recency-weighted observed, forecast)."""
+"""Tests for the demand task's features: the temperature features (recency-weighted
+observed, forecast) and the day-type categorical."""
 
 from __future__ import annotations
 
@@ -7,16 +8,24 @@ import pandas as pd
 import pytest
 
 from power_market_analytics.tasks.demand.features import (
+    DAY_TYPE_FEATURE,
+    DAY_TYPE_LEVELS,
     FORECAST_TEMPERATURE_FEATURE,
     POPW_FORECAST_TEMPERATURE_FEATURE,
     TEMPERATURE_FEATURE,
     TEMPERATURE_HALF_LIFE_DAYS,
     TEMPERATURE_LAG_DAYS,
+    day_type_code,
     hour_ending_of,
+    join_day_type,
     join_forecast_temperature,
     recency_weighted_temperature,
 )
-from power_market_analytics.tasks.demand.frames import AreaTemperature, AreaTemperatureForecast
+from power_market_analytics.tasks.demand.frames import (
+    AreaTemperature,
+    AreaTemperatureForecast,
+    DayTypeCalendar,
+)
 
 D = pd.Timestamp("2024-04-10").as_unit("ns")
 
@@ -60,6 +69,8 @@ class TestConstants:
         assert TEMPERATURE_FEATURE == "wavg_temperature_c"
         assert FORECAST_TEMPERATURE_FEATURE == "forecast_temperature_c"
         assert POPW_FORECAST_TEMPERATURE_FEATURE == "popw_forecast_temperature_c"
+        assert DAY_TYPE_FEATURE == "day_type"
+        assert DAY_TYPE_LEVELS == ("Weekday", "Weekend", "Holiday")
 
 
 class TestHourEndingOf:
@@ -152,3 +163,61 @@ class TestJoinForecastTemperature:
         out = join_forecast_temperature(points([1]).assign(month=4), forecast, name="t")
         assert list(out.columns) == ["trade_date", "time_code", "month", "t"]
         assert out["t"].iloc[0] == 10.0
+
+
+class TestDayTypeCode:
+    def test_holiday_wins_over_weekend(self):
+        is_weekend = pd.Series([False, True, False, True])
+        is_holiday = pd.Series([False, False, True, True])
+        out = day_type_code(is_weekend, is_holiday)
+        assert out.tolist() == [0, 1, 2, 2]
+        assert out.dtype == "int64"
+
+    def test_index_is_kept(self):
+        index = [10, 20]
+        out = day_type_code(
+            pd.Series([True, False], index=index), pd.Series([False, False], index=index)
+        )
+        assert out.index.tolist() == index
+        assert out.tolist() == [1, 0]
+
+
+def make_calendar(codes: dict[int, int]) -> DayTypeCalendar:
+    """DayTypeCalendar from {days_after_D: day_type code}."""
+    return DayTypeCalendar.from_df(
+        pd.DataFrame(
+            {
+                "trade_date": [D + pd.Timedelta(days=k) for k in codes],
+                "day_type": np.array(list(codes.values()), dtype="int64"),
+            }
+        )
+    )
+
+
+class TestJoinDayType:
+    def test_each_period_gets_its_days_code_as_float64(self):
+        calendar = make_calendar({0: 2, 1: 0})
+        out = join_day_type(points([1, 2, 48]), calendar)
+        assert list(out.columns) == ["trade_date", "time_code", DAY_TYPE_FEATURE]
+        assert out[DAY_TYPE_FEATURE].tolist() == [2.0, 2.0, 2.0]
+        assert out[DAY_TYPE_FEATURE].dtype == "float64"
+
+    def test_day_without_a_calendar_row_gives_nan(self):
+        calendar = make_calendar({1: 0})  # D+1 only
+        out = join_day_type(points([1]), calendar)
+        assert np.isnan(out[DAY_TYPE_FEATURE].iloc[0])
+
+    def test_row_order_is_kept_across_days(self):
+        next_day = D + pd.Timedelta(days=1)
+        mixed = pd.DataFrame(
+            {"trade_date": [next_day, D, next_day], "time_code": np.array([1, 1, 2], dtype="int64")}
+        )
+        out = join_day_type(mixed, make_calendar({0: 2, 1: 1}))
+        assert out["trade_date"].tolist() == [next_day, D, next_day]
+        assert out["time_code"].tolist() == [1, 1, 2]
+        assert out[DAY_TYPE_FEATURE].tolist() == [1.0, 2.0, 1.0]
+
+    def test_name_is_configurable_and_extra_point_columns_pass_through(self):
+        out = join_day_type(points([1]).assign(month=4), make_calendar({0: 1}), name="dt")
+        assert list(out.columns) == ["trade_date", "time_code", "month", "dt"]
+        assert out["dt"].iloc[0] == 1.0

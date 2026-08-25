@@ -1,4 +1,4 @@
-"""Temperature features for the demand forecasting task."""
+"""Temperature and calendar features for the demand forecasting task."""
 
 from __future__ import annotations
 
@@ -6,7 +6,12 @@ import numpy as np
 import pandas as pd
 
 from power_market_analytics.forecasting.frames import GRAIN_COLS
-from power_market_analytics.tasks.demand.frames import AreaTemperature, AreaTemperatureForecast
+from power_market_analytics.tasks.demand.frames import (
+    DAY_TYPE_LEVELS,
+    AreaTemperature,
+    AreaTemperatureForecast,
+    DayTypeCalendar,
+)
 
 #: Days before delivery day D whose same-hour temperature enters the feature:
 #: the seven most recent *complete* observation days at 09:30 D-1 (D-1 is
@@ -20,6 +25,11 @@ FORECAST_TEMPERATURE_FEATURE = "forecast_temperature_c"
 #: The same, population-weighted over the area's staffed stations instead of
 #: taken at the representative station.
 POPW_FORECAST_TEMPERATURE_FEATURE = "popw_forecast_temperature_c"
+#: The delivery day's type as a LightGBM categorical: the code of its level in
+#: ``DAY_TYPE_LEVELS`` (0 = Weekday, 1 = Weekend, 2 = Holiday).
+DAY_TYPE_FEATURE = "day_type"
+#: Code of each day-type level (its index in ``DAY_TYPE_LEVELS``).
+DAY_TYPE_CODES: dict[str, int] = {level: code for code, level in enumerate(DAY_TYPE_LEVELS)}
 
 
 def hour_ending_of(time_code: pd.Series) -> pd.Series:
@@ -146,3 +156,61 @@ def join_forecast_temperature(
         forecast.df, how="left", on=["trade_date", "hour_ending"], validate="many_to_one"
     )
     return points.assign(**{name: joined["forecast_temperature_c"].to_numpy(dtype="float64")})
+
+
+def day_type_code(is_weekend: pd.Series, is_holiday: pd.Series) -> pd.Series:
+    """Code each day's type from ``dim_date``'s weekend and holiday flags.
+
+    A holiday is ``Holiday`` whatever weekday it falls on; otherwise a
+    Saturday/Sunday is ``Weekend`` and anything else ``Weekday`` — the
+    precedence of the demand compare script's day-type segment.
+
+    Parameters
+    ----------
+    is_weekend, is_holiday : pandas.Series
+        Boolean flags on the same index.
+
+    Returns
+    -------
+    pandas.Series
+        int64 codes (indices into ``DAY_TYPE_LEVELS``) on ``is_holiday``'s index.
+    """
+    codes = np.where(
+        is_holiday.to_numpy(dtype=bool),
+        DAY_TYPE_CODES["Holiday"],
+        np.where(
+            is_weekend.to_numpy(dtype=bool), DAY_TYPE_CODES["Weekend"], DAY_TYPE_CODES["Weekday"]
+        ),
+    )
+    return pd.Series(codes.astype("int64"), index=is_holiday.index)
+
+
+def join_day_type(
+    points: pd.DataFrame, calendar: DayTypeCalendar, *, name: str = DAY_TYPE_FEATURE
+) -> pd.DataFrame:
+    """Attach the delivery day's day-type code to each period.
+
+    The code is NaN where the calendar has no row for the day, so a target
+    day outside ``dim_date`` is unforecastable rather than silently a weekday.
+
+    Parameters
+    ----------
+    points : pandas.DataFrame
+        Rows keyed on (trade_date, time_code); other columns pass through.
+    calendar : DayTypeCalendar
+        Day type of every calendar day.
+    name : str, optional
+        Name for the new column.
+
+    Returns
+    -------
+    pandas.DataFrame
+        ``points`` plus ``name`` (float64: the code, NaN where unavailable),
+        in the original row order.
+    """
+    # The 48 periods of a day share its row, hence many_to_one; a left merge
+    # keeps the left row order.
+    joined = points[["trade_date"]].merge(
+        calendar.df, how="left", on="trade_date", validate="many_to_one"
+    )
+    return points.assign(**{name: joined["day_type"].to_numpy(dtype="float64")})
