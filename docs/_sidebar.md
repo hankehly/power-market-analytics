@@ -11,6 +11,7 @@
     - [Observation Log](research/demand/observations.md)
     - [R-001 — Forecast Temperature](research/demand/R-001-forecast-temperature.md)
     - [R-002 — Population-Weighted Temperature](research/demand/R-002-population-weighted-temperature.md)
+    - [R-003 — Day Type Feature](research/demand/R-003-day-type-feature.md)
 - [JMA Weather Data Retrieval](JMA-Weather-Data-Retrieval.md)
 - [JMA MSM GPV Retrieval](JMA-MSM-GPV-Retrieval.md)
 - [OCCTO Demand Forecast Retrieval](OCCTO-Demand-Forecast-Retrieval.md)

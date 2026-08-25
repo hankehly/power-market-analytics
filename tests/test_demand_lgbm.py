@@ -1,6 +1,7 @@
 """Tests for the demand LightGBM strategies: the baseline (calendar + temperature +
-D-7 lag), ``lightgbm_msm`` (baseline + the MSM forecast temperature) and
-``lightgbm_msm_popw`` (baseline + the population-weighted MSM forecast temperature).
+D-7 lag), ``lightgbm_msm`` (baseline + the MSM forecast temperature),
+``lightgbm_msm_popw`` (baseline + the population-weighted MSM forecast temperature)
+and ``lightgbm_msm_popw_daytype`` (the same plus the day-type categorical).
 
 Everything runs for real — feature building, LightGBM fits, TreeSHAP records,
 MLflow logging into the session's temp file store — on a small synthetic
@@ -21,6 +22,7 @@ import pytest
 from power_market_analytics.forecasting.backtest import BacktestRun, run_backtest
 from power_market_analytics.forecasting.strategy import ForecastUnavailableError
 from power_market_analytics.tasks.demand.features import (
+    DAY_TYPE_FEATURE,
     FORECAST_TEMPERATURE_FEATURE,
     POPW_FORECAST_TEMPERATURE_FEATURE,
     TEMPERATURE_FEATURE,
@@ -32,6 +34,7 @@ from power_market_analytics.tasks.demand.frames import (
     AreaDemand,
     AreaTemperature,
     AreaTemperatureForecast,
+    DayTypeCalendar,
     DemandBacktestResult,
     DemandForecast,
 )
@@ -39,10 +42,13 @@ from power_market_analytics.tasks.demand.strategies.lgbm import (
     DEMAND_LAG_FEATURE,
     FEATURE_COLS,
     MSM_FEATURE_COLS,
+    MSM_POPW_DAY_TYPE_FEATURE_COLS,
     MSM_POPW_FEATURE_COLS,
     DemandLightGbmEvalSet,
     DemandLightGbmMsmEvalSet,
+    DemandLightGbmMsmPopWeightedDayTypeEvalSet,
     DemandLightGbmMsmPopWeightedEvalSet,
+    LightGbmMsmPopWeightedDayTypeStrategy,
     LightGbmMsmPopWeightedStrategy,
     LightGbmMsmStrategy,
     LightGbmStrategy,
@@ -295,6 +301,7 @@ class TestBacktestEvalAndEvaluate:
         assert params["lgbm_feature_cols"] == ",".join(FEATURE_COLS)
         assert params["temperature_lag_days"] == "2,3,4,5,6,7,8"
         assert params["temperature_half_life_days"] == "1.0"
+        assert params["lgbm_categorical_feature_cols"] == "none"
         assert finished.data.metrics["n_refits"] == 2.0
         artifacts = {a.path for a in mlflow.MlflowClient().list_artifacts(active.info.run_id)}
         assert {"shap_beeswarm_plot.png", "shap_feature_importance_plot.png"} <= artifacts
@@ -505,3 +512,233 @@ class TestMsmPopWeightedPredictAndEvaluate:
         assert params["lgbm_feature_cols"] == ",".join(MSM_POPW_FEATURE_COLS)
         assert params["population_weight_census_year"] == "2020"
         assert params["temperature_lag_days"] == "2,3,4,5,6,7,8"
+
+
+#: Holidays inside HISTORY_DAYS: 春分の日 2024-03-20 (a Wednesday) and 昭和の日
+#: 2024-04-29 (a Monday) — the real ones.
+HOLIDAYS = (pd.Timestamp("2024-03-20"), pd.Timestamp("2024-04-29"))
+
+
+def day_type_at(day: pd.Timestamp) -> int:
+    if day in HOLIDAYS:
+        return 2
+    return 1 if day.dayofweek >= 5 else 0
+
+
+def make_day_types(days=HISTORY_DAYS) -> DayTypeCalendar:
+    return DayTypeCalendar.from_df(
+        pd.DataFrame(
+            {
+                "trade_date": list(days),
+                "day_type": np.array([day_type_at(day) for day in days], dtype="int64"),
+            }
+        )
+    )
+
+
+@pytest.fixture(scope="module")
+def day_types() -> DayTypeCalendar:
+    return make_day_types()
+
+
+class TestMsmPopWeightedDayTypeClassAttributes:
+    def test_features_and_frames(self):
+        assert LightGbmMsmPopWeightedDayTypeStrategy.name == "lightgbm_msm_popw_daytype"
+        assert issubclass(LightGbmMsmPopWeightedDayTypeStrategy, LightGbmMsmPopWeightedStrategy)
+        assert MSM_POPW_DAY_TYPE_FEATURE_COLS == (*MSM_POPW_FEATURE_COLS, DAY_TYPE_FEATURE)
+        assert LightGbmMsmPopWeightedDayTypeStrategy.feature_cols == MSM_POPW_DAY_TYPE_FEATURE_COLS
+        assert LightGbmMsmPopWeightedDayTypeStrategy.categorical_feature_cols == (DAY_TYPE_FEATURE,)
+        assert (
+            LightGbmMsmPopWeightedDayTypeStrategy.forecast_feature
+            == POPW_FORECAST_TEMPERATURE_FEATURE
+        )
+        assert LightGbmMsmPopWeightedDayTypeStrategy.lookback_days == LightGbmStrategy.lookback_days
+        assert (
+            LightGbmMsmPopWeightedDayTypeStrategy.eval_set_cls
+            is DemandLightGbmMsmPopWeightedDayTypeEvalSet
+        )
+        assert issubclass(
+            DemandLightGbmMsmPopWeightedDayTypeEvalSet, DemandLightGbmMsmPopWeightedEvalSet
+        )
+        assert (
+            DemandLightGbmMsmPopWeightedDayTypeEvalSet.feature_cols
+            == MSM_POPW_DAY_TYPE_FEATURE_COLS
+        )
+        assert list(DemandLightGbmMsmPopWeightedDayTypeEvalSet.schema) == [
+            "trade_date",
+            "time_code",
+            "month",
+            "day_of_week",
+            TEMPERATURE_FEATURE,
+            DEMAND_LAG_FEATURE,
+            POPW_FORECAST_TEMPERATURE_FEATURE,
+            DAY_TYPE_FEATURE,
+            "actual_demand_kwh",
+            "forecast_demand_kwh",
+        ]
+        assert DemandLightGbmMsmPopWeightedDayTypeEvalSet.schema[DAY_TYPE_FEATURE] == "int64"
+        assert DAY_TYPE_FEATURE in DemandLightGbmMsmPopWeightedDayTypeEvalSet.non_null_cols
+
+    def test_the_other_strategies_declare_no_categorical_features(self):
+        for cls in (LightGbmStrategy, LightGbmMsmStrategy, LightGbmMsmPopWeightedStrategy):
+            assert cls.categorical_feature_cols == ()
+
+
+class TestMsmPopWeightedDayTypePredict:
+    def make_strategy(self, temperature, forecast_temperature, day_types, **kwargs):
+        return LightGbmMsmPopWeightedDayTypeStrategy(
+            temperature,
+            forecast_temperature,
+            day_types,
+            census_year=2020,
+            train_window_days=30,
+            **kwargs,
+        )
+
+    def test_features_are_the_weighted_ones_plus_the_delivery_days_type(
+        self, demand, temperature, forecast_temperature, day_types
+    ):
+        strategy = self.make_strategy(temperature, forecast_temperature, day_types)
+        forecast = strategy.predict(D, visible(demand, D))
+        assert isinstance(forecast, DemandForecast)
+        assert np.isfinite(forecast.df["forecast_demand_kwh"]).all()
+        record = strategy._shap_records[pd.Timestamp(D).as_unit("ns")]
+        assert list(record.columns) == [
+            "trade_date",
+            "time_code",
+            "month",
+            "day_of_week",
+            TEMPERATURE_FEATURE,
+            DEMAND_LAG_FEATURE,
+            POPW_FORECAST_TEMPERATURE_FEATURE,
+            DAY_TYPE_FEATURE,
+            *[f"shap_{c}" for c in MSM_POPW_DAY_TYPE_FEATURE_COLS],
+            "shap_expected_value",
+        ]
+        # D is a plain Wednesday.
+        assert record[DAY_TYPE_FEATURE].eq(0).all()
+        hours = hour_ending_of(pd.Series(range(1, 49), dtype="int64"))
+        assert record[POPW_FORECAST_TEMPERATURE_FEATURE].tolist() == [
+            forecast_temperature_at(D, h) for h in hours
+        ]
+        assert record[DEMAND_LAG_FEATURE].tolist() == [
+            demand_at(D - pd.Timedelta(days=7), tc) for tc in range(1, 49)
+        ]
+        np.testing.assert_allclose(
+            forecast.df["forecast_demand_kwh"].to_numpy(),
+            strategy._model.predict(record[list(MSM_POPW_DAY_TYPE_FEATURE_COLS)].astype("float64")),
+        )
+        reconstructed = record[list(strategy.shap_cols)].sum(axis=1) + record["shap_expected_value"]
+        np.testing.assert_allclose(
+            reconstructed.to_numpy(), forecast.df["forecast_demand_kwh"].to_numpy(), atol=1e-3
+        )
+
+    def test_a_holiday_is_coded_2_and_a_weekend_day_1(
+        self, demand, temperature, forecast_temperature, day_types
+    ):
+        strategy = self.make_strategy(temperature, forecast_temperature, day_types)
+        holiday = pd.Timestamp("2024-04-29")  # 昭和の日, a Monday
+        strategy.predict(holiday, visible(demand, holiday))
+        assert strategy._shap_records[holiday][DAY_TYPE_FEATURE].eq(2).all()
+        saturday = pd.Timestamp("2024-04-27")
+        strategy.predict(saturday, visible(demand, saturday))
+        assert strategy._shap_records[saturday][DAY_TYPE_FEATURE].eq(1).all()
+
+    def test_lightgbm_is_told_day_type_is_categorical(
+        self, demand, temperature, forecast_temperature, day_types
+    ):
+        strategy = self.make_strategy(temperature, forecast_temperature, day_types)
+        strategy.predict(D, visible(demand, D))
+        booster = strategy._model.booster_
+        assert booster.dump_model()["feature_names"] == list(MSM_POPW_DAY_TYPE_FEATURE_COLS)
+        assert booster.params["categorical_column"] == [
+            MSM_POPW_DAY_TYPE_FEATURE_COLS.index(DAY_TYPE_FEATURE)
+        ]
+
+    def test_the_baseline_strategies_fit_without_categorical_columns(self, demand, temperature):
+        strategy = LightGbmStrategy(temperature, train_window_days=30)
+        strategy.predict(D, visible(demand, D))
+        assert "categorical_column" not in strategy._model.booster_.params
+
+    def test_missing_calendar_day_is_unforecastable(
+        self, demand, temperature, forecast_temperature
+    ):
+        without_d = make_day_types([day for day in HISTORY_DAYS if day != D])
+        strategy = self.make_strategy(temperature, forecast_temperature, without_d)
+        with pytest.raises(
+            ForecastUnavailableError,
+            match=rf"lightgbm_msm_popw_daytype: features \['{DAY_TYPE_FEATURE}'\] unavailable "
+            "for 2024-04-10",
+        ):
+            strategy.predict(D, visible(demand, D))
+
+    def test_training_rows_without_a_calendar_day_are_dropped(
+        self, demand, temperature, forecast_temperature
+    ):
+        # No calendar before 03-20: the 30-day window before D (03-11 .. 04-08)
+        # keeps only the 20 days 03-20 .. 04-08.
+        late = make_day_types(pd.date_range("2024-03-20", HISTORY_DAYS[-1]))
+        strategy = self.make_strategy(temperature, forecast_temperature, late)
+        strategy.predict(D, visible(demand, D))
+        root = strategy._model.booster_.dump_model()["tree_info"][0]["tree_structure"]
+        n_rows = root["internal_count"] if "internal_count" in root else root["leaf_count"]
+        assert n_rows == 20 * 48
+
+
+class TestMsmPopWeightedDayTypeBacktestEvalAndEvaluate:
+    @pytest.fixture(scope="class")
+    def backtested(
+        self, demand, temperature, forecast_temperature, day_types
+    ) -> tuple[LightGbmMsmPopWeightedDayTypeStrategy, BacktestRun]:
+        strategy = LightGbmMsmPopWeightedDayTypeStrategy(
+            temperature,
+            forecast_temperature,
+            day_types,
+            census_year=2020,
+            train_window_days=30,
+            refit_every_days=7,
+        )
+        return strategy, run_backtest(strategy, demand, WINDOW_START, WINDOW_END)
+
+    def test_backtest_covers_the_window(self, backtested):
+        _, run = backtested
+        assert isinstance(run.result, DemandBacktestResult)
+        assert run.skipped_days == ()
+        assert len(run.result) == 14 * 48
+
+    def test_eval_set_carries_the_day_type_as_int64(self, backtested, demand):
+        strategy, run = backtested
+        eval_set = strategy.build_eval_set(demand, WINDOW_START, WINDOW_END, run=run)
+        assert type(eval_set) is DemandLightGbmMsmPopWeightedDayTypeEvalSet
+        assert len(eval_set) == 14 * 48
+        assert eval_set.df[DAY_TYPE_FEATURE].dtype == "int64"
+        assert eval_set.df[DAY_TYPE_FEATURE].tolist() == [
+            day_type_at(day) for day in eval_set.df["trade_date"]
+        ]
+        # The window (04-01 .. 04-14) has weekdays and weekends but no holiday.
+        assert set(eval_set.df[DAY_TYPE_FEATURE]) == {0, 1}
+        merged = eval_set.df.merge(
+            run.result.df,
+            how="inner",
+            on=["trade_date", "time_code"],
+            suffixes=("", "_bt"),
+            validate="one_to_one",
+        )
+        assert merged["forecast_demand_kwh"].equals(merged["forecast_demand_kwh_bt"])
+
+    def test_evaluate_logs_the_categorical_feature_and_its_levels(self, backtested, demand):
+        strategy, run = backtested
+        eval_set = strategy.build_eval_set(demand, WINDOW_START, WINDOW_END, run=run)
+        with mlflow.start_run() as active:
+            evaluation = strategy.evaluate(eval_set, explainability_nsamples=20)
+        finished = mlflow.get_run(active.info.run_id)
+        assert evaluation.metrics["mean_absolute_error"] >= 0
+        params = finished.data.params
+        assert params["lgbm_feature_cols"] == ",".join(MSM_POPW_DAY_TYPE_FEATURE_COLS)
+        assert params["lgbm_categorical_feature_cols"] == DAY_TYPE_FEATURE
+        assert params["day_type_levels"] == "0=Weekday,1=Weekend,2=Holiday"
+        assert params["population_weight_census_year"] == "2020"
+        assert params["temperature_lag_days"] == "2,3,4,5,6,7,8"
+        assert finished.data.metrics["n_refits"] == 2.0
+        artifacts = {a.path for a in mlflow.MlflowClient().list_artifacts(active.info.run_id)}
+        assert {"shap_beeswarm_plot.png", "shap_feature_importance_plot.png"} <= artifacts

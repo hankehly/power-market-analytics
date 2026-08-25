@@ -311,9 +311,10 @@ baseline.
 
 **Investigation status:** Supported (E-001; decision confirmed 2026-08-24)
 
-**Recommended action:** Done — `lightgbm_msm_popw` is the demand baseline for
-later matched experiments (demand README scope defaults) and the default of
-`scripts/demand_backtest.py`. Later experiments compare against a matched
-`lightgbm_msm_popw` run.
+**Recommended action:** Done — `lightgbm_msm_popw` became the demand baseline
+for later matched experiments (demand README scope defaults) and the default of
+`scripts/demand_backtest.py` on 2026-08-24; since 2026-08-26 both roles have
+passed to [R-003](research/demand/R-003-day-type-feature.md)'s
+`lightgbm_msm_popw_daytype`, which keeps the population-weighted feature.
 
 **Superseded by:** —
