@@ -163,7 +163,8 @@ MAE is not lower or overall MAE is higher with an interval that excludes zero.
 - **Code or pull request:** branch `demand-day-type-feature`
   (`DayTypeCalendar`, `load_day_types`, `day_type_code`, `join_day_type`,
   `SlidingWindowLightGbmStrategy.categorical_feature_cols`,
-  `LightGbmMsmPopWeightedDayTypeStrategy`); pull request pending. The segment
+  `LightGbmMsmPopWeightedDayTypeStrategy`) —
+  [PR #15](https://github.com/hankehly/power-market-analytics/pull/15). The segment
   tables, the daily paired comparison and the figure below are the output of
   `scripts/compare_demand_runs.py --baseline 2556e3f2b94c4cf59efc6b2fff1bddef
   --candidate 7ce891253f584ed39f179f76a7a8c7c9 --mae-by-month-png …`; the
