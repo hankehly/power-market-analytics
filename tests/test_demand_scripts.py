@@ -294,6 +294,38 @@ class TestBacktestScript:
         published = published_rows(spark, run.info.run_id)
         assert set(published["strategy"]) == {"lightgbm_msm_popw"}
 
+    def test_lightgbm_msm_popw_daytype_logs_the_categorical_feature(self, spark, curated_warehouse):
+        # 2024-05-03..06 are all holidays (憲法記念日, みどりの日, こどもの日, 休日).
+        script = import_script("demand_backtest")
+        script.main(
+            [
+                "--strategy",
+                "lightgbm_msm_popw_daytype",
+                "--start-date",
+                "2024-05-03",
+                "--end-date",
+                "2024-05-06",
+                "--shap-nsamples",
+                "20",
+            ]
+        )
+        run = last_run()
+        assert run.info.status == "FINISHED"
+        assert run.info.run_name == "lightgbm_msm_popw_daytype-tokyo"
+        params = run.data.params
+        assert params["n_days"] == "4"
+        assert params["n_predictions"] == "192"
+        assert params["population_weight_census_year"] == "2020"
+        assert params["lgbm_feature_cols"] == (
+            "time_code,month,day_of_week,wavg_temperature_c,lag_7d_demand_kwh,"
+            "popw_forecast_temperature_c,day_type"
+        )
+        assert params["lgbm_categorical_feature_cols"] == "day_type"
+        assert params["day_type_levels"] == "0=Weekday,1=Weekend,2=Holiday"
+        published = published_rows(spark, run.info.run_id)
+        assert len(published) == 192
+        assert set(published["strategy"]) == {"lightgbm_msm_popw_daytype"}
+
     def test_days_window_ends_at_the_last_day_in_the_data(self, spark, curated_warehouse):
         script = import_script("demand_backtest")
         script.main(["--days", "2", "--shap-nsamples", "20"])
@@ -303,13 +335,15 @@ class TestBacktestScript:
         assert run.data.params["end_date"] == "2024-05-31"
         assert run.data.params["n_predictions"] == "96"
 
-    def test_default_strategy_is_the_kept_population_weighted_model(self, spark, curated_warehouse):
-        # demand/R-002 E-001 (confirmed 2026-08-24): lightgbm_msm_popw is the demand baseline.
+    def test_default_strategy_is_the_kept_day_type_model(self, spark, curated_warehouse):
+        # demand/R-003 E-001 (confirmed 2026-08-26): lightgbm_msm_popw_daytype is the demand
+        # baseline.
         script = import_script("demand_backtest")
         script.main(["--days", "1", "--shap-nsamples", "20"])
         run = last_run()
-        assert run.info.run_name == "lightgbm_msm_popw-tokyo"
-        assert run.data.params["strategy"] == "lightgbm_msm_popw"
+        assert run.info.run_name == "lightgbm_msm_popw_daytype-tokyo"
+        assert run.data.params["strategy"] == "lightgbm_msm_popw_daytype"
+        assert run.data.params["lgbm_categorical_feature_cols"] == "day_type"
         assert run.data.params["population_weight_census_year"] == "2020"
 
     def test_train_start_reaches_the_strategy(self, spark, curated_warehouse):

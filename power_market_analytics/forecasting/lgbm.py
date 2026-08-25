@@ -1,7 +1,8 @@
 """Sliding-window LightGBM strategy base shared by every task.
 
 A concrete strategy sets ``task``, ``name``, ``feature_cols``,
-``eval_set_cls`` and ``lookback_days`` and implements ``_add_features`` (lags,
+``eval_set_cls`` and ``lookback_days`` (and ``categorical_feature_cols`` when
+some features are categories) and implements ``_add_features`` (lags,
 exogenous columns); everything else — the calendar features, periodic refits
 on a trailing window, TreeSHAP recording per forecast day, replaying the
 walk-forward forecasts through MLflow's static-dataset evaluation and the SHAP
@@ -111,6 +112,11 @@ class SlidingWindowLightGbmStrategy(ForecastStrategy[HalfHourlySeries, LightGbmE
     lookback_days : int
         Extra days of history before the training window's first day that
         its features need (the longest lag).
+    categorical_feature_cols : tuple of str
+        The members of ``feature_cols`` LightGBM should treat as categorical
+        (integer codes, held as float64 like every feature; LightGBM casts
+        them to int32 and splits on category sets rather than on an ordinal
+        threshold). Empty by default.
 
     Parameters
     ----------
@@ -129,6 +135,7 @@ class SlidingWindowLightGbmStrategy(ForecastStrategy[HalfHourlySeries, LightGbmE
     feature_cols: ClassVar[tuple[str, ...]]
     eval_set_cls: ClassVar[type[LightGbmEvalSetBase]]
     lookback_days: ClassVar[int]
+    categorical_feature_cols: ClassVar[tuple[str, ...]] = ()
 
     def __init__(
         self,
@@ -362,6 +369,7 @@ class SlidingWindowLightGbmStrategy(ForecastStrategy[HalfHourlySeries, LightGbmE
                     "none" if self.train_start_date is None else str(self.train_start_date.date())
                 ),
                 "lgbm_feature_cols": ",".join(self.feature_cols),
+                "lgbm_categorical_feature_cols": ",".join(self.categorical_feature_cols) or "none",
                 **self._extra_params(),
             }
         )
@@ -487,7 +495,13 @@ class SlidingWindowLightGbmStrategy(ForecastStrategy[HalfHourlySeries, LightGbmE
                 f"{self.train_window_days} days before {target_date.date()}"
             )
         model = lightgbm.LGBMRegressor(**LGBM_PARAMS)
-        model.fit(train[list(self.feature_cols)].astype("float64"), train[self.target_col])
+        # Categorical columns are named; an empty list is LightGBM's default
+        # for a float64 frame and leaves the fit unchanged.
+        model.fit(
+            train[list(self.feature_cols)].astype("float64"),
+            train[self.target_col],
+            categorical_feature=list(self.categorical_feature_cols),
+        )
         trained_through = train["trade_date"].max()
         self._model = model
         self._trained_through = trained_through

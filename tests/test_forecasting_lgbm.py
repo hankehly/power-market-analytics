@@ -89,3 +89,17 @@ class TestSlidingWindowLightGbmStrategy:
                 return featured
 
         assert Minimal()._extra_params() == {}
+
+    def test_categorical_feature_cols_default_to_none(self):
+        class Minimal(SlidingWindowLightGbmStrategy):
+            name = "m"
+            task = TASK
+            feature_cols = CALENDAR_FEATURE_COLS
+            eval_set_cls = LightGbmEvalSetBase
+            lookback_days = 0
+
+            def _add_features(self, featured, history_df):
+                return featured
+
+        assert SlidingWindowLightGbmStrategy.categorical_feature_cols == ()
+        assert Minimal().categorical_feature_cols == ()

@@ -1,5 +1,6 @@
 # power_market_analytics/tasks/demand/datasets.py
-"""Load demand history, observed and forecast temperature for the demand task."""
+"""Load demand history, observed and forecast temperature and the day-type
+calendar for the demand task."""
 
 from __future__ import annotations
 
@@ -11,10 +12,13 @@ from pyspark.sql import SparkSession
 
 from power_market_analytics.common.warehouse import query_pandas
 from power_market_analytics.forecasting.frames import GRAIN_COLS
+from power_market_analytics.tasks.demand.features import day_type_code
 from power_market_analytics.tasks.demand.frames import (
+    DAY_TYPE_LEVELS,
     AreaDemand,
     AreaTemperature,
     AreaTemperatureForecast,
+    DayTypeCalendar,
 )
 
 # The areas whose TSO actuals feed fct_area_demand_generation_actual (one
@@ -330,3 +334,55 @@ def load_area_temperature_forecast_population_weighted(
     return PopulationWeightedTemperatureForecast(
         forecast=AreaTemperatureForecast.from_df(pdf), census_year=year, n_stations=len(used)
     )
+
+
+def load_day_types(spark: SparkSession | None = None) -> DayTypeCalendar:
+    """Load the day type of every calendar day in ``dim_date``.
+
+    Codes each day with :func:`day_type_code` from the dimension's
+    ``is_weekend`` / ``is_holiday`` flags, so ``is_holiday``'s definition (the
+    国民の祝日 plus the customary 年末年始 / ゴールデンウィーク / お盆 days) is
+    the feature's. The whole spine is returned (2016 through the end of the
+    holiday seed's last year); a delivery day beyond it has no day type and is
+    unforecastable for a strategy that needs one.
+
+    Parameters
+    ----------
+    spark : pyspark.sql.SparkSession, optional
+        Existing session to reuse.
+
+    Returns
+    -------
+    DayTypeCalendar
+
+    Raises
+    ------
+    ValueError
+        If ``dim_date`` returns no rows or the result violates the
+        DayTypeCalendar contract.
+    """
+    pdf = query_pandas(
+        """
+        select
+          d.date_key as trade_date,
+          d.is_weekend,
+          d.is_holiday
+        from pma_curated.dim_date d
+        """,
+        spark=spark,
+    )
+    if pdf.empty:
+        raise ValueError("No calendar days found in dim_date")
+    pdf = pdf.assign(
+        trade_date=lambda d: pd.to_datetime(d["trade_date"]),
+        day_type=lambda d: day_type_code(d["is_weekend"], d["is_holiday"]),
+    ).sort_values("trade_date", ignore_index=True)
+    counts = pdf["day_type"].value_counts()
+    logger.info(
+        "load_day_types: {} days ({})",
+        len(pdf),
+        ", ".join(
+            f"{level}={int(counts.get(code, 0))}" for code, level in enumerate(DAY_TYPE_LEVELS)
+        ),
+    )
+    return DayTypeCalendar.from_df(pdf)

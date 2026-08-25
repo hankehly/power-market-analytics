@@ -1,7 +1,7 @@
 """LightGBM strategies for area demand: the calendar + temperature + D-7 lag
 baseline, the same model plus the MSM forecast temperature at the representative
-station, and the same again with that forecast population-weighted over the
-area's stations."""
+station, the same again with that forecast population-weighted over the area's
+stations, and that one plus the delivery day's type as a categorical."""
 
 from __future__ import annotations
 
@@ -18,20 +18,28 @@ from power_market_analytics.forecasting.lgbm import (
 )
 from power_market_analytics.tasks.demand import TASK
 from power_market_analytics.tasks.demand.features import (
+    DAY_TYPE_FEATURE,
     FORECAST_TEMPERATURE_FEATURE,
     POPW_FORECAST_TEMPERATURE_FEATURE,
     TEMPERATURE_FEATURE,
     TEMPERATURE_HALF_LIFE_DAYS,
     TEMPERATURE_LAG_DAYS,
+    join_day_type,
     join_forecast_temperature,
     recency_weighted_temperature,
 )
-from power_market_analytics.tasks.demand.frames import AreaTemperature, AreaTemperatureForecast
+from power_market_analytics.tasks.demand.frames import (
+    DAY_TYPE_LEVELS,
+    AreaTemperature,
+    AreaTemperatureForecast,
+    DayTypeCalendar,
+)
 
 DEMAND_LAG_FEATURE = "lag_7d_demand_kwh"
 FEATURE_COLS = (*CALENDAR_FEATURE_COLS, TEMPERATURE_FEATURE, DEMAND_LAG_FEATURE)
 MSM_FEATURE_COLS = (*FEATURE_COLS, FORECAST_TEMPERATURE_FEATURE)
 MSM_POPW_FEATURE_COLS = (*FEATURE_COLS, POPW_FORECAST_TEMPERATURE_FEATURE)
+MSM_POPW_DAY_TYPE_FEATURE_COLS = (*MSM_POPW_FEATURE_COLS, DAY_TYPE_FEATURE)
 TARGET_COL = TASK.actual_col
 FORECAST_COL = TASK.forecast_col
 
@@ -280,3 +288,102 @@ class LightGbmMsmPopWeightedStrategy(LightGbmMsmStrategy):
         dict of str to object
         """
         return {**super()._extra_params(), "population_weight_census_year": self.census_year}
+
+
+class DemandLightGbmMsmPopWeightedDayTypeEvalSet(DemandLightGbmMsmPopWeightedEvalSet):
+    """Design matrix for :class:`LightGbmMsmPopWeightedDayTypeStrategy`: the
+    population-weighted design matrix plus the day-type code.
+
+    Grain: (trade_date, time_code).
+    """
+
+    feature_cols = MSM_POPW_DAY_TYPE_FEATURE_COLS
+    schema = {
+        "trade_date": "datetime64[ns]",
+        "time_code": "int64",
+        "month": "int64",
+        "day_of_week": "int64",
+        TEMPERATURE_FEATURE: "float64",
+        DEMAND_LAG_FEATURE: "float64",
+        POPW_FORECAST_TEMPERATURE_FEATURE: "float64",
+        DAY_TYPE_FEATURE: "int64",
+        TARGET_COL: "float64",
+        FORECAST_COL: "float64",
+    }
+    non_null_cols = [*MSM_POPW_DAY_TYPE_FEATURE_COLS, TARGET_COL, FORECAST_COL]
+
+
+class LightGbmMsmPopWeightedDayTypeStrategy(LightGbmMsmPopWeightedStrategy):
+    """:class:`LightGbmMsmPopWeightedStrategy` plus the delivery day's type as a
+    LightGBM categorical feature.
+
+    Experiment E-001 of docs/research/demand/R-003-day-type-feature.md:
+    ``day_type`` — 0 = Weekday, 1 = Weekend, 2 = Holiday per ``dim_date``
+    (``DAY_TYPE_LEVELS``; a holiday whatever weekday it falls on, the customary
+    年末年始 / ゴールデンウィーク / お盆 days included) — joins the
+    population-weighted feature set and is declared to LightGBM as a
+    categorical column, so a tree splits on the category set directly rather
+    than on an ordinal threshold. Everything else (model parameters, refit
+    cadence, the other features) is unchanged. Training rows without a
+    calendar day are dropped and a target day without one is unforecastable.
+
+    Parameters
+    ----------
+    temperature : AreaTemperature
+        Hourly observed temperature at the area's representative JMA station.
+    temperature_forecast : AreaTemperatureForecast
+        Population-weighted hourly MSM forecast temperature for the area, by
+        delivery day.
+    day_types : DayTypeCalendar
+        Day type of every calendar day (``load_day_types``).
+    census_year : int
+        Census vintage of the population weights, logged to the MLflow run.
+    **kwargs
+        Forwarded to :class:`LightGbmMsmPopWeightedStrategy`.
+    """
+
+    name = "lightgbm_msm_popw_daytype"
+    feature_cols = MSM_POPW_DAY_TYPE_FEATURE_COLS
+    categorical_feature_cols = (DAY_TYPE_FEATURE,)
+    eval_set_cls = DemandLightGbmMsmPopWeightedDayTypeEvalSet
+
+    def __init__(
+        self,
+        temperature: AreaTemperature,
+        temperature_forecast: AreaTemperatureForecast,
+        day_types: DayTypeCalendar,
+        *,
+        census_year: int,
+        **kwargs,
+    ) -> None:
+        super().__init__(temperature, temperature_forecast, census_year=census_year, **kwargs)
+        self.day_types = day_types
+
+    def _add_features(self, featured: pd.DataFrame, history: pd.DataFrame) -> pd.DataFrame:
+        """Attach the population-weighted strategy's features, then the day-type code.
+
+        Parameters
+        ----------
+        featured : pandas.DataFrame
+            Rows keyed on (trade_date, time_code) with the calendar features.
+        history : pandas.DataFrame
+            Demand history in the ``AreaDemand`` layout.
+
+        Returns
+        -------
+        pandas.DataFrame
+            ``featured`` plus this strategy's ``feature_cols`` (the day type
+            NaN on days the calendar lacks).
+        """
+        featured = super()._add_features(featured, history)
+        return join_day_type(featured, self.day_types, name=DAY_TYPE_FEATURE)
+
+    def _extra_params(self) -> dict[str, object]:
+        """Log the day-type coding next to the inherited params.
+
+        Returns
+        -------
+        dict of str to object
+        """
+        levels = ",".join(f"{code}={level}" for code, level in enumerate(DAY_TYPE_LEVELS))
+        return {**super()._extra_params(), "day_type_levels": levels}

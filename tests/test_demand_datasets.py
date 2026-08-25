@@ -5,7 +5,8 @@ Read against the synthetic ``pma_curated`` star from ``curated_warehouse``:
 tokyo has demand actuals for ``DEMAND_DAYS`` (with a partial-day hole),
 hourly temperature at its representative station and an MSM forecast
 temperature for every day but ``FORECAST_MISSING_DAY``; kansai has an area
-row and a station id but no facts.
+row and a station id but no facts. ``dim_date`` covers ``DEMAND_DAYS`` with
+its weekend / holiday flags.
 """
 
 from __future__ import annotations
@@ -20,17 +21,20 @@ from power_market_analytics.tasks.demand.datasets import (
     load_area_temperature,
     load_area_temperature_forecast,
     load_area_temperature_forecast_population_weighted,
+    load_day_types,
 )
 from power_market_analytics.tasks.demand.frames import (
     AreaDemand,
     AreaTemperature,
     AreaTemperatureForecast,
+    DayTypeCalendar,
 )
 from tests.conftest import (
     DEMAND_DAYS,
     DEMAND_HOLE_DAY,
     DEMAND_HOLE_TIME_CODES,
     FORECAST_MISSING_DAY,
+    HOLIDAYS_2024_SPRING,
     SECOND_STATION_FORECAST_OFFSET_C,
     SECOND_STATION_MISSING_HOUR,
     STATION_POPULATION_WEIGHTS,
@@ -227,3 +231,37 @@ class TestLoadAreaTemperatureForecastPopulationWeighted:
             load_area_temperature_forecast_population_weighted(
                 "tokyo", census_year=1999, spark=spark
             )
+
+
+def expected_day_type(day: pd.Timestamp) -> int:
+    if day in HOLIDAYS_2024_SPRING:
+        return 2
+    return 1 if day.dayofweek >= 5 else 0
+
+
+class TestLoadDayTypes:
+    def test_codes_every_day_of_dim_date(self, spark, curated_warehouse):
+        calendar = load_day_types(spark=spark)
+        assert isinstance(calendar, DayTypeCalendar)
+        assert calendar.df["trade_date"].tolist() == list(DEMAND_DAYS)
+        assert calendar.df["day_type"].tolist() == [expected_day_type(day) for day in DEMAND_DAYS]
+        assert set(calendar.df["day_type"]) == {0, 1, 2}
+
+    def test_a_holiday_on_a_weekend_is_a_holiday(self, spark, curated_warehouse):
+        # 2024-05-04 みどりの日 (Saturday) and 2024-05-05 こどもの日 (Sunday) are holidays,
+        # 2024-05-11 is a plain Saturday.
+        by_day = load_day_types(spark=spark).df.set_index("trade_date")["day_type"]
+        assert by_day[pd.Timestamp("2024-05-04")] == 2
+        assert by_day[pd.Timestamp("2024-05-05")] == 2
+        assert by_day[pd.Timestamp("2024-05-11")] == 1
+        assert by_day[pd.Timestamp("2024-05-10")] == 0
+
+    def test_empty_calendar_raises(self, monkeypatch):
+        monkeypatch.setattr(
+            "power_market_analytics.tasks.demand.datasets.query_pandas",
+            lambda sql, spark=None: pd.DataFrame(
+                columns=["trade_date", "is_weekend", "is_holiday"]
+            ),
+        )
+        with pytest.raises(ValueError, match="No calendar days found in dim_date"):
+            load_day_types()

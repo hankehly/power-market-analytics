@@ -123,3 +123,39 @@ class AreaTemperatureForecast(DomainFrame):
     @classmethod
     def _validate_extra(cls, df: pd.DataFrame) -> None:
         _check_hour_ending(cls.__name__, df)
+
+
+#: Day-type categories in code order (``day_type`` = the level's index): a
+#: working weekday, a Saturday/Sunday, or a ``dim_date`` holiday — the same
+#: labels as the demand compare script's day-type segment.
+DAY_TYPE_LEVELS: tuple[str, ...] = ("Weekday", "Weekend", "Holiday")
+
+
+class DayTypeCalendar(DomainFrame):
+    """Day type of every calendar day, as the integer code LightGBM is given.
+
+    ``day_type`` is the index into :data:`DAY_TYPE_LEVELS`: 0 = Weekday (a
+    Monday-Friday that is not a holiday), 1 = Weekend (a Saturday/Sunday that
+    is not a holiday), 2 = Holiday (``dim_date.is_holiday``: a 国民の祝日 or a
+    customary non-working day — 年末年始, ゴールデンウィーク, お盆 — whatever
+    weekday it falls on). Holiday takes precedence over Weekend, as in the
+    compare script's ``day_type`` segment, so the model's categories line up
+    with the research tables.
+
+    Grain: (trade_date).
+    """
+
+    schema = {
+        "trade_date": "datetime64[ns]",
+        "day_type": "int64",
+    }
+    keys = ["trade_date"]
+    non_null_cols = ["day_type"]
+
+    @classmethod
+    def _validate_extra(cls, df: pd.DataFrame) -> None:
+        last = len(DAY_TYPE_LEVELS) - 1
+        bad = df.loc[~df["day_type"].between(0, last), "day_type"]
+        if not bad.empty:
+            codes = sorted(int(code) for code in bad.unique())
+            raise ValueError(f"{cls.__name__}: day_type outside 0..{last}: {codes}")
