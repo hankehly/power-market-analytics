@@ -85,3 +85,24 @@ class TestTaskSpec:
             r"\['forecast_load_mw', 'forecast_something_else'\]",
         ):
             make_spec(records_cls=OtherRecords)
+
+    def test_contribution_table_and_column_derive_from_the_forecast_ones(self):
+        spec = make_spec()
+        assert spec.contribution_table == "pma_ml.load_forecast_contribution"
+        assert spec.contribution_col == "contribution_load_mw"
+
+    def test_forecast_column_must_carry_the_forecast_prefix(self):
+        class BareForecast(DayAheadForecast):
+            forecast_col = "yhat_load_mw"
+
+        class BareResult(BacktestResult):
+            actual_col = "actual_load_mw"
+            forecast_col = "yhat_load_mw"
+
+        class BareRecords(ForecastRecords):
+            forecast_col = "yhat_load_mw"
+
+        with pytest.raises(
+            ValueError, match="load: forecast column 'yhat_load_mw' must start with 'forecast_'"
+        ):
+            make_spec(forecast_cls=BareForecast, result_cls=BareResult, records_cls=BareRecords)

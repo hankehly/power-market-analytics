@@ -35,3 +35,7 @@ class TestSpotPriceTask:
 
     def test_history_visible_at_9_55_on_d_minus_1_ends_at_d_minus_1(self):
         assert TASK.history_cutoff(pd.Timestamp("2024-04-10")) == pd.Timestamp("2024-04-09")
+
+    def test_contribution_names(self):
+        assert TASK.contribution_table == "pma_ml.spot_price_forecast_contribution"
+        assert TASK.contribution_col == "contribution_price_jpy_kwh"
