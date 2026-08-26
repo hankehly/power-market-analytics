@@ -264,6 +264,8 @@ class TestBacktestScript:
         run = last_run()
         assert run.info.status == "FINISHED"
         assert "contribution_table" not in run.data.tags
+        if spark.catalog.tableExists(CONTRIBUTION_TABLE):
+            assert published_contribution_rows(spark, run.info.run_id).empty
 
     def test_hole_day_is_partly_scored_and_its_d7_successor_skipped(self, spark, curated_warehouse):
         # 2024-04-20 has actuals for time codes 1..10 only (48 forecasts, 10 scored);
