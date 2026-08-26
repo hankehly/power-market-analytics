@@ -103,3 +103,19 @@ class TestSlidingWindowLightGbmStrategy:
 
         assert SlidingWindowLightGbmStrategy.categorical_feature_cols == ()
         assert Minimal().categorical_feature_cols == ()
+
+    def test_contributions_need_a_prediction_first(self):
+        class Minimal(SlidingWindowLightGbmStrategy):
+            name = "m"
+            task = TASK
+            feature_cols = CALENDAR_FEATURE_COLS
+            eval_set_cls = LightGbmEvalSetBase
+            lookback_days = 0
+
+            def _add_features(self, featured, history_df):
+                return featured
+
+        with pytest.raises(
+            RuntimeError, match="m: no recorded contributions; run the backtest first"
+        ):
+            Minimal().contributions()

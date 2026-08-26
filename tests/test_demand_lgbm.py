@@ -20,6 +20,7 @@ import pandas as pd
 import pytest
 
 from power_market_analytics.forecasting.backtest import BacktestRun, run_backtest
+from power_market_analytics.forecasting.frames import BASE_COMPONENT, ForecastContributions
 from power_market_analytics.forecasting.strategy import ForecastUnavailableError
 from power_market_analytics.tasks.demand.features import (
     DAY_TYPE_FEATURE,
@@ -256,6 +257,53 @@ class TestPredict:
         n_rows = root["internal_count"] if "internal_count" in root else root["leaf_count"]
         assert n_rows == 29 * 48  # 03-11 .. 04-08 inclusive
         assert strategy._trained_through == pd.Timestamp("2024-04-08")
+
+    def test_contributions_melt_the_records_into_one_row_per_component(self, demand, temperature):
+        strategy = LightGbmStrategy(temperature, train_window_days=30)
+        forecast = strategy.predict(D, visible(demand, D))
+
+        contributions = strategy.contributions()
+
+        assert isinstance(contributions, ForecastContributions)
+        df = contributions.df
+        assert len(df) == 48 * (1 + len(FEATURE_COLS))
+        assert df["trade_date"].eq(D).all()
+        # Sorted by period, then the base and the features in feature order.
+        first_period = df[df["time_code"] == 1]
+        assert first_period["component"].tolist() == [BASE_COMPONENT, *FEATURE_COLS]
+        assert first_period["component_order"].tolist() == list(range(len(FEATURE_COLS) + 1))
+        record = strategy._shap_records[pd.Timestamp(D).as_unit("ns")]
+        # Feature values are the recorded features, time_code (a key column) included.
+        assert df.loc[df["component"] == "time_code", "feature_value"].tolist() == [
+            float(tc) for tc in range(1, 49)
+        ]
+        np.testing.assert_allclose(
+            df.loc[df["component"] == DEMAND_LAG_FEATURE, "feature_value"].to_numpy(),
+            record[DEMAND_LAG_FEATURE].to_numpy(),
+        )
+        base = df[df["component"] == BASE_COMPONENT]
+        assert base["feature_value"].isna().all()
+        np.testing.assert_allclose(
+            base["contribution"].to_numpy(), record["shap_expected_value"].to_numpy()
+        )
+        # Additivity: per period the components sum to the forecast.
+        np.testing.assert_allclose(
+            df.groupby("time_code")["contribution"].sum().to_numpy(),
+            forecast.df["forecast_demand_kwh"].to_numpy(),
+            atol=1e-3,
+        )
+
+    def test_contributions_cover_every_predicted_day_once(self, demand, temperature):
+        strategy = LightGbmStrategy(temperature, train_window_days=30)
+        next_day = D + pd.Timedelta(days=1)
+        strategy.predict(D, visible(demand, D))
+        strategy.predict(next_day, visible(demand, next_day))
+        strategy.predict(D, visible(demand, D))  # a re-predicted day overwrites its record
+
+        df = strategy.contributions().df
+
+        assert df["trade_date"].drop_duplicates().tolist() == [D, next_day]
+        assert df.groupby("trade_date").size().eq(48 * (1 + len(FEATURE_COLS))).all()
 
 
 WINDOW_START = pd.Timestamp("2024-04-01")

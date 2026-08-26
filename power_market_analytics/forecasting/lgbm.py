@@ -4,9 +4,10 @@ A concrete strategy sets ``task``, ``name``, ``feature_cols``,
 ``eval_set_cls`` and ``lookback_days`` (and ``categorical_feature_cols`` when
 some features are categories) and implements ``_add_features`` (lags,
 exogenous columns); everything else — the calendar features, periodic refits
-on a trailing window, TreeSHAP recording per forecast day, replaying the
-walk-forward forecasts through MLflow's static-dataset evaluation and the SHAP
-summary plots — lives here.
+on a trailing window, TreeSHAP recording per forecast day and their melt into
+``contributions()`` for the warehouse, replaying the walk-forward forecasts
+through MLflow's static-dataset evaluation and the SHAP summary plots — lives
+here.
 """
 
 from __future__ import annotations
@@ -27,9 +28,11 @@ from power_market_analytics.common.frames import DomainFrame
 from power_market_analytics.common.tracking import evaluate_predictions
 from power_market_analytics.forecasting.backtest import BacktestRun
 from power_market_analytics.forecasting.frames import (
+    BASE_COMPONENT,
     GRAIN_COLS,
     N_PERIODS,
     DayAheadForecast,
+    ForecastContributions,
     HalfHourlySeries,
 )
 from power_market_analytics.forecasting.strategy import ForecastStrategy, ForecastUnavailableError
@@ -311,6 +314,53 @@ class SlidingWindowLightGbmStrategy(ForecastStrategy[HalfHourlySeries, LightGbmE
             "{} eval set: {} rows, {} features", self.name, len(merged), len(self.feature_cols)
         )
         return self.eval_set_cls.from_df(merged)
+
+    def contributions(self) -> ForecastContributions:
+        """The TreeSHAP decomposition of every forecast made so far.
+
+        Melts the per-day records of :meth:`predict` into one row per period
+        and component: the base (``shap_expected_value``, order 0, no feature
+        value) and each feature in ``feature_cols`` order (its value as the
+        model saw it and its ``shap_<feature>`` contribution). Per period the
+        rows sum to the published forecast — LightGBM's ``pred_contrib`` is
+        exact.
+
+        Returns
+        -------
+        ForecastContributions
+            Sorted by period, then ``component_order``.
+
+        Raises
+        ------
+        RuntimeError
+            If no day has been predicted yet.
+        """
+        if not self._shap_records:
+            raise RuntimeError(f"{self.name}: no recorded contributions; run the backtest first")
+        pooled = pd.concat(self._shap_records.values(), ignore_index=True)
+        parts = [
+            pooled[GRAIN_COLS].assign(
+                component=BASE_COMPONENT,
+                component_order=0,
+                feature_value=np.nan,
+                contribution=pooled["shap_expected_value"],
+            )
+        ]
+        for order, feature in enumerate(self.feature_cols, start=1):
+            parts.append(
+                pooled[GRAIN_COLS].assign(
+                    component=feature,
+                    component_order=order,
+                    feature_value=pooled[feature].astype("float64"),
+                    contribution=pooled[f"shap_{feature}"],
+                )
+            )
+        melted = (
+            pd.concat(parts, ignore_index=True)
+            .astype({"component_order": "int64"})
+            .sort_values([*GRAIN_COLS, "component_order"], ignore_index=True)
+        )
+        return ForecastContributions.from_df(melted)
 
     def evaluate(
         self,
