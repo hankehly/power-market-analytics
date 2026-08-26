@@ -1032,6 +1032,67 @@ class TestChartParams:
         assert p["y_axis_format"] == "SMART_NUMBER"
         assert p["y_axis_title"] == spec.unit
 
+    def test_waterfall(self, script, spec):
+        p = script.waterfall_params(spec, 7)
+        assert p["datasource"] == "7__table"
+        assert p["viz_type"] == "waterfall"
+        assert p["x_axis"] == "component_label"
+        assert p["groupby"] == []
+        assert p["metric"] == spec.contribution_metric
+        assert p["adhoc_filters"] == [script.NOT_BASE_FILTER]
+        assert p["show_total"] is True
+        assert p["total_label"] == "Net effect"
+        assert p["increase_label"] == "Pushes forecast up"
+        assert p["decrease_label"] == "Pushes forecast down"
+        assert p["show_value"] is True
+        assert p["y_axis_format"] == spec.axis_format
+        assert p["y_axis_label"] == spec.unit
+        assert p["row_limit"] == 100
+        assert p["extra_form_data"] == {}
+
+    def test_not_base_filter_is_a_sql_where_clause(self, script):
+        assert script.NOT_BASE_FILTER == {
+            "expressionType": "SQL",
+            "sqlExpression": "not is_base",
+            "clause": "WHERE",
+            "filterOptionName": "filter_not_is_base",
+        }
+
+    def test_feature_table(self, script, spec):
+        p = script.feature_table_params(spec, 7)
+        assert p["datasource"] == "7__table"
+        assert p["viz_type"] == "table"
+        assert p["query_mode"] == "aggregate"
+        assert p["groupby"] == ["component_label"]
+        order, value, contribution = p["metrics"]
+        assert order == script.sql_metric("min(component_order)", "Order")
+        assert value == script.sql_metric("avg(feature_value)", "Feature value")
+        assert contribution == spec.contribution_metric
+        assert p["timeseries_limit_metric"] == order
+        assert p["order_desc"] is False
+        assert p["adhoc_filters"] == []  # the base row stays: the column sums to the forecast
+        assert p["column_config"] == {
+            "Order": {"d3NumberFormat": ",d"},
+            "Feature value": {"d3NumberFormat": ",.2~f"},
+            f"Contribution ({spec.unit})": {"d3NumberFormat": spec.contribution_format},
+        }
+
+    def test_contribution_by_period(self, script, spec):
+        p = script.contribution_by_period_params(spec, 7)
+        assert p["datasource"] == "7__table"
+        assert p["viz_type"] == "echarts_timeseries_bar"
+        assert p["x_axis"] == "time_code"
+        assert p["groupby"] == ["component_label"]
+        assert p["metrics"] == [spec.contribution_metric]
+        assert p["stack"] == "Stack"
+        assert p["adhoc_filters"] == [script.NOT_BASE_FILTER]
+        assert p["x_axis_sort_asc"] is True
+        assert p["order_desc"] is False
+        assert p["show_legend"] is True
+        assert p["y_axis_format"] == spec.axis_format
+        assert p["y_axis_title"] == spec.unit
+        assert p["row_limit"] == 10000
+
     def test_every_builder_targets_the_dataset_and_starts_unfiltered(self, script, spec):
         builders = [
             lambda: script.big_number_params(12, spec.mae_metric, "x", ",.1f"),
@@ -1042,6 +1103,7 @@ class TestChartParams:
             lambda: script.leaderboard_params(spec, 12),
             lambda: script.worst_days_params(spec, 12),
             lambda: script.detail_params(spec, 12),
+            lambda: script.feature_table_params(spec, 12),
         ]
         for build in builders:
             p = build()

@@ -1027,6 +1027,142 @@ def detail_params(spec: DashboardSpec, dataset_id: int) -> dict:
     }
 
 
+# Ad-hoc WHERE clause that drops the base row: the waterfall and the stacked
+# bars show feature contributions only (Superset's value axis always includes
+# zero, so a base bar ~30x the contributions would flatten them; the base is
+# a KPI tile instead).
+NOT_BASE_FILTER = {
+    "expressionType": "SQL",
+    "sqlExpression": "not is_base",
+    "clause": "WHERE",
+    "filterOptionName": "filter_not_is_base",
+}
+
+
+def waterfall_params(spec: DashboardSpec, dataset_id: int) -> dict:
+    """Params for the SHAP waterfall of the selected day / period.
+
+    One bar per model feature in the model's feature order (the chart sorts
+    by x-axis label, hence ``component_label``'s zero-padded order prefix),
+    each the mean contribution per period of the selection; the Total bar is
+    forecast − base. The base row is filtered out (see ``NOT_BASE_FILTER``).
+
+    Parameters
+    ----------
+    spec : DashboardSpec
+    dataset_id : int
+        The explanation dataset.
+
+    Returns
+    -------
+    dict
+    """
+    return {
+        "datasource": f"{dataset_id}__table",
+        "viz_type": "waterfall",
+        "x_axis": "component_label",
+        "time_grain_sqla": None,
+        "groupby": [],
+        "metric": spec.contribution_metric,
+        "adhoc_filters": [NOT_BASE_FILTER],
+        "row_limit": 100,
+        "show_value": True,
+        "show_legend": True,
+        "increase_label": "Pushes forecast up",
+        "decrease_label": "Pushes forecast down",
+        "show_total": True,
+        "total_label": "Net effect",
+        "x_axis_label": "Component (model feature order)",
+        "x_axis_time_format": "smart_date",
+        "x_ticks_layout": "auto",
+        "y_axis_label": spec.unit,
+        "y_axis_format": spec.axis_format,
+        "extra_form_data": {},
+    }
+
+
+def feature_table_params(spec: DashboardSpec, dataset_id: int) -> dict:
+    """Params for the component table: order, mean feature value, mean contribution.
+
+    Keeps the base row (order 00, no feature value), so the contribution
+    column sums to the forecast; sorted by ``Order`` to read in the model's
+    feature order.
+
+    Parameters
+    ----------
+    spec : DashboardSpec
+    dataset_id : int
+        The explanation dataset.
+
+    Returns
+    -------
+    dict
+    """
+    order = sql_metric("min(component_order)", "Order")
+    contribution = spec.contribution_metric
+    return {
+        "datasource": f"{dataset_id}__table",
+        "viz_type": "table",
+        "query_mode": "aggregate",
+        "groupby": ["component_label"],
+        "metrics": [order, sql_metric("avg(feature_value)", "Feature value"), contribution],
+        "adhoc_filters": [],
+        "timeseries_limit_metric": order,
+        "order_desc": False,
+        "row_limit": 100,
+        "server_page_length": 20,
+        "table_timestamp_format": "smart_date",
+        "column_config": {
+            "Order": {"d3NumberFormat": ",d"},
+            "Feature value": {"d3NumberFormat": ",.2~f"},
+            contribution["label"]: {"d3NumberFormat": spec.contribution_format},
+        },
+        "extra_form_data": {},
+    }
+
+
+def contribution_by_period_params(spec: DashboardSpec, dataset_id: int) -> dict:
+    """Params for the stacked bars of each feature's contribution over the day's 48 periods.
+
+    Excluded from the Period filter by the caller, so it keeps the whole
+    selected day as context when one period is selected.
+
+    Parameters
+    ----------
+    spec : DashboardSpec
+    dataset_id : int
+        The explanation dataset.
+
+    Returns
+    -------
+    dict
+    """
+    return {
+        "datasource": f"{dataset_id}__table",
+        "viz_type": "echarts_timeseries_bar",
+        "x_axis": "time_code",
+        "time_grain_sqla": None,
+        "x_axis_sort_asc": True,
+        "metrics": [spec.contribution_metric],
+        "groupby": ["component_label"],
+        "adhoc_filters": [NOT_BASE_FILTER],
+        "order_desc": False,
+        "row_limit": 10000,
+        "stack": "Stack",
+        "show_legend": True,
+        "legendType": "scroll",
+        "legendOrientation": "top",
+        "rich_tooltip": True,
+        "y_axis_format": spec.axis_format,
+        "y_axis_title": spec.unit,
+        "y_axis_title_margin": 30,
+        "truncateYAxis": False,
+        "color_scheme": "supersetColors",
+        "x_axis_time_format": "smart_date",
+        "extra_form_data": {},
+    }
+
+
 def upsert_chart(client: SupersetClient, name: str, dataset_id: int, params: dict) -> int:
     """Create or update a chart (matched by name within its dataset) and return its id.
 
