@@ -26,8 +26,8 @@ narrow them as the question requires.
 - **Segments reported by the tooling:** day part, periods near the OCCTO
   forecast peak hour, calendar month, high-price days, bias
   (`scripts/compare_spot_price_runs.py`); actual-price bands, the calibration
-  curve, the error histogram, and the per-day / per-period SHAP waterfall of
-  the **Explanation (SHAP)** section (Day / Period filters)
+  curve, the error histogram, and the per-day SHAP waterfall (mean per
+  period) of the **Explanation (SHAP)** tab (Day filter)
   (Superset **Spot Price Forecast Analysis**)
 - **Evaluation method:** rolling out-of-sample backtest over identical
   delivery dates and training rows for baseline and candidate; accuracy rows

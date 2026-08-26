@@ -80,7 +80,7 @@
   (`--days` defaults to 365); logs to the MLflow experiment `demand`, publishes to
   `pma_ml.demand_forecast`, then `just dbt build --select +fct_demand_forecast_accuracy
   +fct_demand_forecast_contribution` (the second selector materialises the run's TreeSHAP
-  contributions for the dashboard's Explanation section; the first is what its Run filter
+  contributions for the dashboard's Explanation (SHAP) tab; the first is what its Run filter
   reads).
 - `just python scripts/compare_demand_runs.py --baseline <run_id> --candidate <run_id>` — the
   demand task's matched two-run comparison (`tasks/demand/compare.py`): MAE overall / MAPE /
@@ -98,21 +98,22 @@
   share chart names. Rerun after `docker compose down -v` or after editing a spec.
   Each dashboard has two virtual datasets — `<task>_forecast_analysis` (the accuracy mart) and
   `<task>_forecast_explanation` (`fct_<task>_forecast_contribution` joined to the accuracy mart:
-  one row per period × component, so AVG-only metrics) — and ends with an **Explanation (SHAP)**
-  section: **Day** / **Period** native filters (scoped to that section; Day cascades from Run,
-  defaults to the default run's last day; Period empty = the whole day, mean per period) drive
-  base / forecast / actual / net-effect tiles, a `waterfall` of the mean per-period feature
-  contributions (the base is a tile, not a bar: Superset's value axis always includes zero; bars
-  sort by label, hence the `00 base`, `01 time_code`… `component_label` prefix), the component
-  table and stacked contributions by period. Runs published before 2026-08-26 have no
-  contributions and show an empty section until re-run. After a backtest run, both marts must be
-  rebuilt before the dashboards make sense — `just dbt build --select
-  +fct_<task>_forecast_accuracy +fct_<task>_forecast_contribution`;
+  one row per period × component, so AVG-only metrics) — and two top-level tabs: **Accuracy**
+  (KPI tiles, error structure, calibration & distribution, runs & drilldown) and
+  **Explanation (SHAP)**, where a **Day** native filter (scoped to that tab; cascades from Run,
+  defaults to the default run's last day; empty = the run's mean decomposition; every value is
+  a mean per period) drives base / forecast / actual / net-effect tiles, a `waterfall` of the
+  mean per-period feature contributions (the base is a tile, not a bar: Superset's value axis
+  always includes zero; bars sort by label, hence the `00 base`, `01 time_code`…
+  `component_label` prefix), the component table and stacked contributions by period. Runs
+  published before 2026-08-26 have no contributions and show an empty tab until re-run. After a
+  backtest run, both marts must be rebuilt before the dashboards make sense — `just dbt build
+  --select +fct_<task>_forecast_accuracy +fct_<task>_forecast_contribution`;
   `+fct_<task>_forecast_contribution` alone does not refresh the accuracy mart (which the Run
   filter reads) nor the forecast fact the additivity test joins to, and the Run filter then never
-  lists the new run. Clicking a date in **Worst days** cross-filters the section (and the 30-min
-  detail chart) to that day — it combines with the Day filter, so clear Day (or pick the same
-  day) first.
+  lists the new run. Clicking a date in **Worst days** (Accuracy tab) cross-filters the
+  Explanation tab (and the 30-min detail chart) to that day — cross-filters persist across tabs,
+  and it combines with the Day filter, so clear Day (or pick the same day) first.
 - Host-side dbt also works: `cd dbt && DBT_THRIFT_HOST=localhost uv run dbt <cmd>`.
 - Anything that creates a SparkSession MUST run in the devcontainer (metastore/warehouse only
   resolve on the compose network); plain python and dbt work from the host too.
@@ -297,7 +298,7 @@
   SQL — `forecast_demand_mwh`, `error_mwh`, … — with plain `,.1f`/`,.0f` formats, 2,000-MWh
   actual-demand bands (`10000-12000`), calibration x = actual rounded to 1,000 MWh);
   contributions to `pma_ml.demand_forecast_contribution` → `fct_demand_forecast_contribution` →
-  the dashboard's Explanation (SHAP) section.
+  the dashboard's Explanation (SHAP) tab.
 
 ## Gotchas
 

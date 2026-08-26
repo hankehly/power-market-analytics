@@ -3,9 +3,9 @@
 ## Objective
 
 Let a user of the Superset forecast-analysis dashboards select one delivery day of a
-backtest run — and optionally one 30-minute period of that day — and see the forecast
-decomposed into per-feature SHAP contributions as a waterfall chart, next to the feature
-values, the model's base value, the forecast and the actual.
+backtest run and see the forecast decomposed into per-feature SHAP contributions (mean per
+period over the day) as a waterfall chart, next to the feature values, the model's base value,
+the forecast and the actual.
 
 The feature applies to both forecasting tasks (`spot_price`, `demand`): the capture,
 write-back and dashboard code is shared by the framework and parametrised per task, as
@@ -23,8 +23,11 @@ everything else in `power_market_analytics/forecasting/` and
    ~15,000 MWh would squash ±500 MWh feature bars. The waterfall therefore starts at zero
    ("deviation from the base value") and its Total bar is `forecast − base`.
 3. **Both tasks**, not demand only.
-4. **Selection via native Day / Period filters** scoped to the new section; a cross-filter from
-   the existing Worst-days table is an optional extra (§5.3).
+4. **Selection via a native Day filter** scoped to the new tab; a cross-filter from the
+   existing Worst-days table is an optional extra (§5.3). *Revised 2026-08-26 after PR review:
+   the section became its own top-level tab (the existing sections moved onto an **Accuracy**
+   tab) and the single-period (Period) filter was dropped — the tab explains a day as its mean
+   per-period decomposition.*
 
 ## Background: what exists today
 
@@ -53,11 +56,12 @@ everything else in `power_market_analytics/forecasting/` and
 
 In scope: capturing the contributions as a framework output, publishing them next to the
 forecasts, dbt models and tests for both tasks, a second Superset dataset per dashboard, the
-new dashboard section with its two filters, tests, documentation.
+new dashboard tab with its Day filter, tests, documentation.
 
 Out of scope: SHAP interaction values, logging per-day models, any change to the strategies'
 features/parameters/metrics or to the existing MLflow artifacts, changes to the existing
-dashboard sections beyond filter scoping, a Python/Plotly waterfall.
+dashboard sections beyond moving them onto the Accuracy tab and filter scoping, a Python/Plotly
+waterfall.
 
 ## Design
 
@@ -248,12 +252,15 @@ column: `contribution_mwh` / `contribution_jpy_kwh`) and `contribution_format` (
 `net_effect_metric` (`avg(<forecast_col>) - avg(case when is_base then <contribution_col> end)`
 = the sum of the per-feature mean contributions = the waterfall's Total).
 
-### 5. Dashboard section "Explanation (SHAP)"
+### 5. Dashboard tab "Explanation (SHAP)"
 
 #### 5.1 Charts
 
-Appended as the last section of both dashboards; all charts read the explanation dataset and,
-as today, share their names across the two dashboards.
+The second top-level tab of both dashboards — the existing sections move onto the first tab,
+**Accuracy** (`build_position_json` writes the shape Superset itself produces for a tabbed
+dashboard: `ROOT_ID → TABS-0 → TAB-0 / TAB-1`, the grid left empty, every component with its
+full `parents` chain, which is what the frontend resolves filter scopes through). All charts
+read the explanation dataset and, as today, share their names across the two dashboards.
 
 Row 1 — four KPI tiles (`big_number_total`, width 3, height 24), each the mean per period of
 the current selection: **Base value** (`base_value_metric`; subheader
@@ -276,13 +283,12 @@ Row 3 — **Contributions by period** (`echarts_timeseries_bar`, width 12, heigh
 `x_axis = time_code`, `groupby = [component_label]`, `metrics = [contribution_metric]`,
 `stack = "Stack"`, filter `not is_base`, legend at the top, `y_axis_format = axis_format`,
 `y_axis_title = unit`, `row_limit = 10000`, x axis ascending. Shows how each feature's push
-varies over the selected day; it is excluded from the Period filter so it keeps the whole day
-as context when one period is selected.
+varies over the selected day.
 
 #### 5.2 Native filters
 
-`build_native_filters` returns Run (unchanged), then Day, then Period; the two new filters
-target the explanation dataset:
+`build_native_filters` returns Run (unchanged), then Day; the new filter targets the
+explanation dataset:
 
 - **Day** — `filter_select` on `trade_date_label`, single-select, optional
   (`enableEmptyFilter = false`: no day = the run-wide mean decomposition),
@@ -291,17 +297,17 @@ target the explanation dataset:
   SQL Lab lookup that resolves the default run (`latest_run_label`) is generalised to
   `latest_run`, returning `(run_label, last_day)` with `last_day = max(date_key)` of that run
   formatted `yyyy-MM-dd`; when the lookup fails both filters fall back to `defaultToFirstItem`.
-  Scope: `rootPath = ["ROOT_ID"]`, `excluded` = every chart outside the section.
-- **Period** — `filter_select` on `period_label`, single-select, optional, no default,
-  `sortAscending = true`. Scope: the section's charts except **Contributions by period**.
+  Scope: `rootPath = ["ROOT_ID"]`, `excluded` = every chart outside the tab (on the Accuracy
+  tab Superset lists it under "Filters out of scope").
 
 #### 5.3 Optional extra: cross-filter from Worst days
 
 Add a `json_metadata.chart_configuration` entry scoping the Worst-days table's cross-filter to
-the section's charts plus the 30-minute detail chart, so clicking a date row selects that day.
+the Explanation tab's charts plus the 30-minute detail chart, so clicking a date row selects
+that day (cross-filters persist across tabs: click a day on Accuracy, switch to Explanation).
 Implemented last and only kept if it behaves in the live dashboard. Known caveats to verify
-there: a cross-filter and the Day native filter combine (AND) — if they disagree the section
-shows no data until one is cleared — and the value a table emits for a `DATE` cell must filter
+there: a cross-filter and the Day native filter combine (AND) — if they disagree the tab shows
+no data until one is cleared — and the value a table emits for a `DATE` cell must filter
 `date_key` correctly.
 
 ### 6. Testing
@@ -316,30 +322,29 @@ shows no data until one is cleared — and the value a table emits for a `DATE` 
   session's temp warehouse), the scripts (rows land in `pma_ml.<task>_forecast_contribution`
   with the `contribution_table` tag; spot `previous_day` publishes nothing and sets no tag),
   and the dashboard builder against `FakeSupersetSession` (explanation SQL and columns, every
-  new param builder, the three filters' targets / scopes / cascade / defaults, `latest_run`,
-  `build_dashboard` creating two datasets and the seven new charts in the new section,
-  idempotent rebuild).
+  new param builder, the two filters' targets / scopes / cascade / defaults, `latest_run`,
+  `build_dashboard` creating two datasets, the two tabs and the seven new charts on the new
+  tab, idempotent rebuild).
 - `just lint`, `just mypy`, `just checkov` unchanged in scope.
 - dbt: `just dbt build` (contracts, generic and singular tests) after a real run.
 - End to end in the devcontainer: `just python scripts/demand_backtest.py --days 30`,
   `just dbt build --select +fct_demand_forecast_accuracy +fct_demand_forecast_contribution`,
-  `just python scripts/create_forecast_dashboard.py`, open the Demand dashboard, pick a day
-  and a period, screenshot the section (Playwright): waterfall bars and Total, the four tiles
-  (Base + Net effect = Forecast), the table, and the other sections unchanged by the new
-  filters.
+  `just python scripts/create_forecast_dashboard.py`, open the Demand dashboard, pick a day,
+  screenshot the tab (Playwright): waterfall bars and Total, the four tiles (Base + Net effect
+  = Forecast), the table, and the Accuracy tab unchanged by the new filter.
 
 ### 7. Documentation
 
-- `CLAUDE.md`: the `create_forecast_dashboard.py` bullet (new section, Day/Period filters, two
+- `CLAUDE.md`: the `create_forecast_dashboard.py` bullet (the two tabs, the Day filter, two
   datasets per dashboard), the forecast write-back paragraphs (the contribution tables,
   `contributions()`, the `contribution_table` tag), the demand task paragraph.
 - `docs/research/demand/README.md` and `docs/research/spot_price/README.md`, "Segments reported
-  by the tooling": the per-day / per-period SHAP waterfall.
+  by the tooling": the per-day SHAP waterfall.
 - This spec and its implementation plan under `docs/superpowers/`.
 
 ### 8. Rollout
 
-Runs published before this change have no contributions, so the section is empty for them.
+Runs published before this change have no contributions, so the tab is empty for them.
 After merge: re-run the kept demand baseline (`lightgbm_msm_popw_daytype`, tokyo) over the
 R-003 window with the same `--start-date` / `--end-date` / `--train-start` as its E-001 run,
 and the spot `lightgbm` baseline; `just dbt build`; rebuild both dashboards.

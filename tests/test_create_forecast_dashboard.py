@@ -437,7 +437,6 @@ select
   date_format(c.date_key, 'yyyy-MM-dd') as trade_date_label,
   c.trade_datetime,
   c.time_code,
-  concat(p.period_start_time, '-', p.period_end_time) as period_label,
   p.hour_of_day,
   p.day_part,
   d.day_name,
@@ -507,7 +506,6 @@ EXPLANATION_COLUMNS_HEAD = [
     ("trade_date_label", "STRING", False),
     ("trade_datetime", "TIMESTAMP", True),
     ("time_code", "INT", False),
-    ("period_label", "STRING", False),
     ("hour_of_day", "INT", False),
     ("day_part", "STRING", False),
     ("day_name", "STRING", False),
@@ -1209,95 +1207,146 @@ class TestUpsertChart:
 
 # --------------------------------------------------------------------------- layout
 class TestBuildPositionJson:
-    def test_headed_and_unheaded_sections(self, script, spot):
-        sections = [
-            {"header": None, "rows": [[(1, "A", 6, 24), (2, "B", 6, 24)]]},
-            {"header": "Sec", "rows": [[(3, "C", 12, 40)]]},
+    def test_tabs_of_headed_and_unheaded_sections(self, script, spot):
+        tabs = [
+            {
+                "title": "Accuracy",
+                "sections": [
+                    {"header": None, "rows": [[(1, "A", 6, 24), (2, "B", 6, 24)]]},
+                    {"header": "Sec", "rows": [[(3, "C", 12, 40)]]},
+                ],
+            },
+            {
+                "title": "Explanation (SHAP)",
+                "sections": [{"header": None, "rows": [[(4, "D", 12, 30)]]}],
+            },
         ]
         row_meta = {"background": "BACKGROUND_TRANSPARENT"}
-        assert script.build_position_json(spot, sections) == {
+        tab_meta = {"defaultText": "Tab title", "placeholder": "Tab title"}
+        assert script.build_position_json(spot, tabs) == {
             "DASHBOARD_VERSION_KEY": "v2",
-            "ROOT_ID": {"type": "ROOT", "id": "ROOT_ID", "children": ["GRID_ID"]},
-            "GRID_ID": {
-                "type": "GRID",
-                "id": "GRID_ID",
-                "children": ["ROW-0-0", "HEADER-1", "ROW-1-0"],
+            "ROOT_ID": {"type": "ROOT", "id": "ROOT_ID", "children": ["TABS-0"]},
+            "TABS-0": {
+                "type": "TABS",
+                "id": "TABS-0",
+                "children": ["TAB-0", "TAB-1"],
                 "parents": ["ROOT_ID"],
+                "meta": {},
             },
+            "GRID_ID": {"type": "GRID", "id": "GRID_ID", "children": [], "parents": ["ROOT_ID"]},
             "HEADER_ID": {
                 "type": "HEADER",
                 "id": "HEADER_ID",
                 "meta": {"text": "Spot Price Forecast Analysis"},
             },
-            "ROW-0-0": {
+            "TAB-0": {
+                "type": "TAB",
+                "id": "TAB-0",
+                "children": ["ROW-0-0-0", "HEADER-0-1", "ROW-0-1-0"],
+                "parents": ["ROOT_ID", "TABS-0"],
+                "meta": {"text": "Accuracy", **tab_meta},
+            },
+            "ROW-0-0-0": {
                 "type": "ROW",
-                "id": "ROW-0-0",
+                "id": "ROW-0-0-0",
                 "children": ["CHART-1", "CHART-2"],
-                "parents": ["ROOT_ID", "GRID_ID"],
+                "parents": ["ROOT_ID", "TABS-0", "TAB-0"],
                 "meta": row_meta,
             },
             "CHART-1": {
                 "type": "CHART",
                 "id": "CHART-1",
                 "children": [],
-                "parents": ["ROOT_ID", "GRID_ID", "ROW-0-0"],
+                "parents": ["ROOT_ID", "TABS-0", "TAB-0", "ROW-0-0-0"],
                 "meta": {"chartId": 1, "width": 6, "height": 24, "sliceName": "A"},
             },
             "CHART-2": {
                 "type": "CHART",
                 "id": "CHART-2",
                 "children": [],
-                "parents": ["ROOT_ID", "GRID_ID", "ROW-0-0"],
+                "parents": ["ROOT_ID", "TABS-0", "TAB-0", "ROW-0-0-0"],
                 "meta": {"chartId": 2, "width": 6, "height": 24, "sliceName": "B"},
             },
-            "HEADER-1": {
+            "HEADER-0-1": {
                 "type": "HEADER",
-                "id": "HEADER-1",
+                "id": "HEADER-0-1",
                 "children": [],
-                "parents": ["ROOT_ID", "GRID_ID"],
+                "parents": ["ROOT_ID", "TABS-0", "TAB-0"],
                 "meta": {
                     "text": "Sec",
                     "headerSize": "MEDIUM_HEADER",
                     "background": "BACKGROUND_TRANSPARENT",
                 },
             },
-            "ROW-1-0": {
+            "ROW-0-1-0": {
                 "type": "ROW",
-                "id": "ROW-1-0",
+                "id": "ROW-0-1-0",
                 "children": ["CHART-3"],
-                "parents": ["ROOT_ID", "GRID_ID"],
+                "parents": ["ROOT_ID", "TABS-0", "TAB-0"],
                 "meta": row_meta,
             },
             "CHART-3": {
                 "type": "CHART",
                 "id": "CHART-3",
                 "children": [],
-                "parents": ["ROOT_ID", "GRID_ID", "ROW-1-0"],
+                "parents": ["ROOT_ID", "TABS-0", "TAB-0", "ROW-0-1-0"],
                 "meta": {"chartId": 3, "width": 12, "height": 40, "sliceName": "C"},
+            },
+            "TAB-1": {
+                "type": "TAB",
+                "id": "TAB-1",
+                "children": ["ROW-1-0-0"],
+                "parents": ["ROOT_ID", "TABS-0"],
+                "meta": {"text": "Explanation (SHAP)", **tab_meta},
+            },
+            "ROW-1-0-0": {
+                "type": "ROW",
+                "id": "ROW-1-0-0",
+                "children": ["CHART-4"],
+                "parents": ["ROOT_ID", "TABS-0", "TAB-1"],
+                "meta": row_meta,
+            },
+            "CHART-4": {
+                "type": "CHART",
+                "id": "CHART-4",
+                "children": [],
+                "parents": ["ROOT_ID", "TABS-0", "TAB-1", "ROW-1-0-0"],
+                "meta": {"chartId": 4, "width": 12, "height": 30, "sliceName": "D"},
             },
         }
 
-    def test_multiple_rows_in_one_section_are_numbered_per_section(self, script, spot):
-        sections = [{"header": "H", "rows": [[(1, "A", 12, 10)], [(2, "B", 12, 10)]]}]
-        position = script.build_position_json(spot, sections)
-        assert position["GRID_ID"]["children"] == ["HEADER-0", "ROW-0-0", "ROW-0-1"]
-        assert position["ROW-0-1"]["children"] == ["CHART-2"]
-        assert position["CHART-2"]["parents"] == ["ROOT_ID", "GRID_ID", "ROW-0-1"]
+    def test_sections_and_rows_are_numbered_per_tab(self, script, spot):
+        tabs = [
+            {
+                "title": "A",
+                "sections": [{"header": "H", "rows": [[(1, "A", 12, 10)], [(2, "B", 12, 10)]]}],
+            },
+            {"title": "B", "sections": [{"header": "H2", "rows": [[(3, "C", 12, 10)]]}]},
+        ]
+        position = script.build_position_json(spot, tabs)
+        assert position["TAB-0"]["children"] == ["HEADER-0-0", "ROW-0-0-0", "ROW-0-0-1"]
+        assert position["ROW-0-0-1"]["children"] == ["CHART-2"]
+        assert position["CHART-2"]["parents"] == ["ROOT_ID", "TABS-0", "TAB-0", "ROW-0-0-1"]
+        assert position["TAB-1"]["children"] == ["HEADER-1-0", "ROW-1-0-0"]
+        assert position["HEADER-1-0"]["meta"]["text"] == "H2"
+        assert position["CHART-3"]["parents"] == ["ROOT_ID", "TABS-0", "TAB-1", "ROW-1-0-0"]
 
     def test_dashboard_header_carries_the_spec_title(self, script, demand):
         position = script.build_position_json(demand, [])
         assert position["HEADER_ID"]["meta"] == {"text": "Demand Forecast Analysis"}
+        assert position["ROOT_ID"]["children"] == ["TABS-0"]
+        assert position["TABS-0"]["children"] == []
         assert position["GRID_ID"]["children"] == []
 
 
 # --------------------------------------------------------------------------- native filters
 class TestBuildNativeFilters:
     def test_explicit_defaults_apply_on_load(self, script):
-        run, day, period = script.build_native_filters(
-            10, [27], DEFAULT_LABEL, 11, [12, 13], [12, 13, 37], DEFAULT_LAST_DAY
+        run, day = script.build_native_filters(
+            10, [27], DEFAULT_LABEL, 11, [12, 13], DEFAULT_LAST_DAY
         )
-        assert [f["type"] for f in (run, day, period)] == ["NATIVE_FILTER"] * 3
-        assert [f["filterType"] for f in (run, day, period)] == ["filter_select"] * 3
+        assert [f["type"] for f in (run, day)] == ["NATIVE_FILTER"] * 2
+        assert [f["filterType"] for f in (run, day)] == ["filter_select"] * 2
 
         assert run["id"] == "NATIVE_FILTER-run"
         assert run["name"] == "Run"
@@ -1340,30 +1389,13 @@ class TestBuildNativeFilters:
         assert day["scope"] == {"rootPath": ["ROOT_ID"], "excluded": [12, 13]}
         assert "Worst days" in day["description"]
 
-        assert period["id"] == "NATIVE_FILTER-period"
-        assert period["name"] == "Period"
-        assert period["targets"] == [{"column": {"name": "period_label"}, "datasetId": 11}]
-        assert period["defaultDataMask"] == {"extraFormData": {}, "filterState": {}}
-        assert period["controlValues"] == {
-            "multiSelect": False,
-            "enableEmptyFilter": False,
-            "defaultToFirstItem": False,
-            "inverseSelection": False,
-            "searchAllOptions": False,
-            "sortAscending": True,
-        }
-        assert period["cascadeParentIds"] == []
-        assert period["scope"] == {"rootPath": ["ROOT_ID"], "excluded": [12, 13, 37]}
-
     def test_no_defaults_fall_back_to_first_item(self, script):
-        run, day, period = script.build_native_filters(10, [], None, 11, [], [], None)
+        run, day = script.build_native_filters(10, [], None, 11, [], None)
         assert run["defaultDataMask"] == {"extraFormData": {}, "filterState": {}}
         assert run["controlValues"]["defaultToFirstItem"] is True
         assert run["scope"] == {"rootPath": ["ROOT_ID"], "excluded": []}
         assert day["defaultDataMask"] == {"extraFormData": {}, "filterState": {}}
         assert day["controlValues"]["defaultToFirstItem"] is True
-        # The period filter never pre-selects: empty means the whole day.
-        assert period["controlValues"]["defaultToFirstItem"] is False
 
 
 # --------------------------------------------------------------------------- dashboard
@@ -1383,7 +1415,7 @@ class TestUpsertDashboard:
     def test_creates_then_writes_layout_and_metadata(self, script, fake, spec):
         client = make_client(script, fake)
         position = {"DASHBOARD_VERSION_KEY": "v2", "ROOT_ID": {"children": ["GRID_ID"]}}
-        filters = script.build_native_filters(10, [27], None, 11, [], [], None)
+        filters = script.build_native_filters(10, [27], None, 11, [], None)
 
         dashboard_id = script.upsert_dashboard(client, spec, position, filters, {})
 
@@ -1496,25 +1528,22 @@ EXPLANATION_CHART_NAMES = [
     "Feature values & contributions",
     "Contributions by period",
 ]
-EXPECTED_GRID_CHILDREN = [
-    "ROW-0-0",
-    "HEADER-1",
-    "ROW-1-0",
-    "ROW-1-1",
-    "ROW-1-2",
-    "ROW-1-3",
-    "HEADER-2",
-    "ROW-2-0",
-    "ROW-2-1",
-    "HEADER-3",
-    "ROW-3-0",
-    "ROW-3-1",
-    "ROW-3-2",
-    "HEADER-4",
-    "ROW-4-0",
-    "ROW-4-1",
-    "ROW-4-2",
+EXPECTED_ACCURACY_TAB_CHILDREN = [
+    "ROW-0-0-0",
+    "HEADER-0-1",
+    "ROW-0-1-0",
+    "ROW-0-1-1",
+    "ROW-0-1-2",
+    "ROW-0-1-3",
+    "HEADER-0-2",
+    "ROW-0-2-0",
+    "ROW-0-2-1",
+    "HEADER-0-3",
+    "ROW-0-3-0",
+    "ROW-0-3-1",
+    "ROW-0-3-2",
 ]
+EXPECTED_EXPLANATION_TAB_CHILDREN = ["ROW-1-0-0", "ROW-1-0-1", "ROW-1-0-2"]
 
 
 def bind_fake_session(script, fake: FakeSupersetSession, monkeypatch) -> None:
@@ -1645,60 +1674,60 @@ class TestBuildDashboard:
         assert dashboard["published"] is True
         metadata = json.loads(dashboard["json_metadata"])
         assert set(metadata) == EXPECTED_JSON_METADATA_KEYS
-        run_filter, day_filter, period_filter = metadata["native_filter_configuration"]
+        run_filter, day_filter = metadata["native_filter_configuration"]
         assert run_filter["targets"] == [{"column": {"name": "run_label"}, "datasetId": 10}]
         leaderboard_id = superset.id_of("chart", "slice_name", "Run leaderboard")
         assert leaderboard_id == 28
         assert run_filter["scope"]["excluded"] == [leaderboard_id]
         assert run_filter["defaultDataMask"]["filterState"]["value"] == [DEFAULT_LABEL]
         assert run_filter["controlValues"]["defaultToFirstItem"] is False
-        # Day / Period apply to the explanation section only
+        # Day applies to the Explanation tab only
         analysis_ids = list(range(12, 31))
         assert day_filter["targets"] == [{"column": {"name": "trade_date_label"}, "datasetId": 11}]
         assert day_filter["scope"]["excluded"] == analysis_ids
         assert day_filter["cascadeParentIds"] == ["NATIVE_FILTER-run"]
         assert day_filter["defaultDataMask"]["filterState"]["value"] == [DEFAULT_LAST_DAY]
-        assert period_filter["targets"] == [{"column": {"name": "period_label"}, "datasetId": 11}]
-        assert period_filter["scope"]["excluded"] == [
-            *analysis_ids,
-            37,
-        ]  # + Contributions by period
-        assert period_filter["defaultDataMask"] == {"extraFormData": {}, "filterState": {}}
 
         position = json.loads(dashboard["position_json"])
         assert position["HEADER_ID"]["meta"]["text"] == "Demand Forecast Analysis"
         chart_keys = sorted(k for k in position if k.startswith("CHART-"))
         assert chart_keys == sorted(f"CHART-{i}" for i in range(12, 38))
-        assert position["GRID_ID"]["children"] == EXPECTED_GRID_CHILDREN
+        assert position["ROOT_ID"]["children"] == ["TABS-0"]
+        assert position["TABS-0"]["children"] == ["TAB-0", "TAB-1"]
+        assert [position[t]["meta"]["text"] for t in ("TAB-0", "TAB-1")] == [
+            "Accuracy",
+            "Explanation (SHAP)",
+        ]
+        assert position["TAB-0"]["children"] == EXPECTED_ACCURACY_TAB_CHILDREN
+        assert position["TAB-1"]["children"] == EXPECTED_EXPLANATION_TAB_CHILDREN
         assert [
-            position[h]["meta"]["text"] for h in ("HEADER-1", "HEADER-2", "HEADER-3", "HEADER-4")
+            position[h]["meta"]["text"] for h in ("HEADER-0-1", "HEADER-0-2", "HEADER-0-3")
         ] == [
             "Error structure",
             "Calibration & distribution",
             "Runs & drilldown",
-            "Explanation (SHAP)",
         ]
-        assert position["ROW-0-0"]["children"] == [f"CHART-{i}" for i in range(12, 18)]
+        assert position["ROW-0-0-0"]["children"] == [f"CHART-{i}" for i in range(12, 18)]
         assert position["CHART-12"]["meta"] == {
             "chartId": 12,
             "width": 2,
             "height": 24,
             "sliceName": "Overall MAE",
         }
-        assert position["ROW-2-0"]["children"] == ["CHART-25", "CHART-26"]
+        assert position["ROW-0-2-0"]["children"] == ["CHART-25", "CHART-26"]
         assert position["CHART-25"]["meta"]["sliceName"] == "MAE by actual demand band"
         assert position["CHART-25"]["meta"]["width"] == 5
         assert position["CHART-26"]["meta"]["width"] == 7
-        assert position["ROW-3-0"]["children"] == [f"CHART-{leaderboard_id}"]
+        assert position["ROW-0-3-0"]["children"] == [f"CHART-{leaderboard_id}"]
         assert position["CHART-30"]["meta"]["height"] == 60  # 30-min detail
-        assert position["ROW-4-0"]["children"] == [f"CHART-{i}" for i in range(31, 35)]
+        assert position["ROW-1-0-0"]["children"] == [f"CHART-{i}" for i in range(31, 35)]
         assert position["CHART-31"]["meta"] == {
             "chartId": 31,
             "width": 3,
             "height": 24,
             "sliceName": "Base value",
         }
-        assert position["ROW-4-1"]["children"] == ["CHART-35", "CHART-36"]
+        assert position["ROW-1-0-1"]["children"] == ["CHART-35", "CHART-36"]
         assert (position["CHART-35"]["meta"]["width"], position["CHART-35"]["meta"]["height"]) == (
             8,
             46,
@@ -1707,8 +1736,10 @@ class TestBuildDashboard:
             4,
             46,
         )
-        assert position["ROW-4-2"]["children"] == ["CHART-37"]
+        assert position["ROW-1-0-2"]["children"] == ["CHART-37"]
         assert position["CHART-37"]["meta"]["height"] == 44
+        # Superset resolves filter scopes through each chart's parents chain
+        assert position["CHART-37"]["parents"] == ["ROOT_ID", "TABS-0", "TAB-1", "ROW-1-0-2"]
 
         # every chart is linked to the dashboard
         assert all(c["dashboards"] == [38] for c in charts)
@@ -1746,9 +1777,11 @@ class TestBuildDashboard:
         assert dashboard["slug"] == "spot-price-forecast-analysis"
         position = json.loads(dashboard["position_json"])
         assert position["HEADER_ID"]["meta"]["text"] == "Spot Price Forecast Analysis"
-        assert position["GRID_ID"]["children"] == EXPECTED_GRID_CHILDREN
-        assert position["ROW-3-0"]["children"] == ["CHART-28"]  # Run leaderboard
-        run_filter, _, _ = json.loads(dashboard["json_metadata"])["native_filter_configuration"]
+        assert position["TABS-0"]["children"] == ["TAB-0", "TAB-1"]
+        assert position["TAB-0"]["children"] == EXPECTED_ACCURACY_TAB_CHILDREN
+        assert position["TAB-1"]["children"] == EXPECTED_EXPLANATION_TAB_CHILDREN
+        assert position["ROW-0-3-0"]["children"] == ["CHART-28"]  # Run leaderboard
+        run_filter, _ = json.loads(dashboard["json_metadata"])["native_filter_configuration"]
         assert run_filter["scope"]["excluded"] == [28]
 
     def test_two_dashboards_coexist_with_their_own_datasets_and_charts(
@@ -1781,10 +1814,9 @@ class TestBuildDashboard:
                     c["dashboards"] == [dashboard_id] for c in charts_of(superset, dataset_id)
                 )
             metadata = json.loads(superset.rows["dashboard"][dashboard_id]["json_metadata"])
-            run_filter, day_filter, period_filter = metadata["native_filter_configuration"]
+            run_filter, day_filter = metadata["native_filter_configuration"]
             assert run_filter["targets"][0]["datasetId"] == dataset_ids[0]
             assert day_filter["targets"][0]["datasetId"] == dataset_ids[1]
-            assert period_filter["targets"][0]["datasetId"] == dataset_ids[1]
             position = json.loads(superset.rows["dashboard"][dashboard_id]["position_json"])
             chart_ids = sorted(int(k[6:]) for k in position if k.startswith("CHART-"))
             assert chart_ids == sorted(c["id"] for d in dataset_ids for c in charts_of(superset, d))
@@ -1804,7 +1836,7 @@ class TestBuildDashboard:
         assert method_counts(superset.calls, "chart") == {"GET": 26, "PUT": 52}
         assert method_counts(superset.calls, "dashboard") == {"GET": 1, "PUT": 1}
         (dashboard,) = superset.rows["dashboard"].values()
-        run_filter, day_filter, _ = json.loads(dashboard["json_metadata"])[
+        run_filter, day_filter = json.loads(dashboard["json_metadata"])[
             "native_filter_configuration"
         ]
         assert run_filter["defaultDataMask"] == {"extraFormData": {}, "filterState": {}}
@@ -1814,7 +1846,7 @@ class TestBuildDashboard:
         assert day_filter["controlValues"]["defaultToFirstItem"] is True
         assert all(c["dashboards"] == [38] for c in superset.rows["chart"].values())
 
-    def test_worst_days_cross_filter_is_scoped_to_the_explanation_section(
+    def test_worst_days_cross_filter_is_scoped_to_the_explanation_tab(
         self, script, superset, demand
     ):
         client = make_client(script, superset)
