@@ -10,6 +10,7 @@ store: fits/scores, logs the MLflow run and publishes to
 from __future__ import annotations
 
 import mlflow
+import numpy as np
 import pandas as pd
 import pytest
 from pyspark.sql import functions as F
@@ -24,6 +25,7 @@ from tests.conftest import (
 from tests.support import import_script
 
 FORECAST_TABLE = "pma_ml.demand_forecast"
+CONTRIBUTION_TABLE = "pma_ml.demand_forecast_contribution"
 
 
 def last_run() -> mlflow.entities.Run:
@@ -42,6 +44,15 @@ def published_rows(spark, run_id: str) -> pd.DataFrame:
         .filter(F.col("run_id") == run_id)
         .toPandas()
         .sort_values(["trade_date", "time_code"], ignore_index=True)
+    )
+
+
+def published_contribution_rows(spark, run_id: str) -> pd.DataFrame:
+    return (
+        spark.table(CONTRIBUTION_TABLE)
+        .filter(F.col("run_id") == run_id)
+        .toPandas()
+        .sort_values(["trade_date", "time_code", "component_order"], ignore_index=True)
     )
 
 
@@ -199,6 +210,61 @@ class TestBacktestScript:
         # Issued at 09:30 JST the day before delivery.
         assert first["forecast_issued_ts"] == pd.Timestamp("2024-04-09 09:30")
 
+        # The run's TreeSHAP decomposition lands next to the forecasts.
+        assert run.data.tags["contribution_table"] == CONTRIBUTION_TABLE
+        contributions = published_contribution_rows(spark, run.info.run_id)
+        assert list(contributions.columns) == [
+            "strategy",
+            "area_code",
+            "forecast_issued_ts",
+            "trade_date",
+            "time_code",
+            "component",
+            "component_order",
+            "feature_value",
+            "contribution_demand_kwh",
+            "published_at",
+            "run_id",
+        ]
+        assert len(contributions) == 144 * 6  # base + the 5 lightgbm features per scored period
+        assert set(contributions["component"]) == {
+            "base",
+            "time_code",
+            "month",
+            "day_of_week",
+            "wavg_temperature_c",
+            "lag_7d_demand_kwh",
+        }
+        assert contributions["published_at"].nunique() == 1
+        assert contributions["published_at"].iloc[0] == published["published_at"].iloc[0]
+        assert contributions.loc[contributions["component"] == "base", "feature_value"].isna().all()
+        # Per period the components sum to the published forecast.
+        sums = contributions.groupby(["trade_date", "time_code"])["contribution_demand_kwh"].sum()
+        forecasts = published.set_index(["trade_date", "time_code"])["forecast_demand_kwh"]
+        np.testing.assert_allclose(
+            sums.reindex(forecasts.index).to_numpy(), forecasts.to_numpy(), rtol=1e-9, atol=1e-3
+        )
+
+    def test_strategy_without_contributions_skips_publishing(
+        self, spark, curated_warehouse, monkeypatch
+    ):
+        # Every registered demand strategy is LightGBM-based and always explains itself
+        # (unlike spot_price's previous_day); simulate a non-explaining strategy here so
+        # the "nothing to publish" branch is exercised too.
+        script = import_script("demand_backtest")
+        real_build_strategy = script.build_strategy
+
+        def build_strategy_without_contributions(*args, **kwargs):
+            strategy = real_build_strategy(*args, **kwargs)
+            monkeypatch.setattr(strategy, "contributions", lambda: None)
+            return strategy
+
+        monkeypatch.setattr(script, "build_strategy", build_strategy_without_contributions)
+        script.main(["--days", "1", "--shap-nsamples", "20"])
+        run = last_run()
+        assert run.info.status == "FINISHED"
+        assert "contribution_table" not in run.data.tags
+
     def test_hole_day_is_partly_scored_and_its_d7_successor_skipped(self, spark, curated_warehouse):
         # 2024-04-20 has actuals for time codes 1..10 only (48 forecasts, 10 scored);
         # 2024-04-27 cannot be forecast (its D-7 lag is the hole) and is skipped.
@@ -225,6 +291,10 @@ class TestBacktestScript:
         assert published["trade_date"].nunique() == 8
         assert pd.Timestamp("2024-04-27").date() not in set(published["trade_date"])
         assert (published["trade_date"] == DEMAND_HOLE_DAY.date()).sum() == 10
+
+        # Contributions exist for exactly the scored periods (the hole day's 10, no skipped day).
+        contributions = published_contribution_rows(spark, run.info.run_id)
+        assert contributions.groupby(["trade_date", "time_code"]).ngroups == len(published)
 
     def test_lightgbm_msm_skips_the_day_without_a_temperature_forecast(
         self, spark, curated_warehouse
