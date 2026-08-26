@@ -1384,7 +1384,7 @@ class TestUpsertDashboard:
         position = {"DASHBOARD_VERSION_KEY": "v2", "ROOT_ID": {"children": ["GRID_ID"]}}
         filters = script.build_native_filters(10, [27], None, 11, [], [], None)
 
-        dashboard_id = script.upsert_dashboard(client, spec, position, filters)
+        dashboard_id = script.upsert_dashboard(client, spec, position, filters, {})
 
         assert dashboard_id == 10
         find, create, update = fake.calls_after_login()
@@ -1413,12 +1413,13 @@ class TestUpsertDashboard:
         assert metadata["cross_filters_enabled"] is True
         assert metadata["refresh_frequency"] == 0
         assert metadata["color_scheme"] == ""
+        assert metadata["chart_configuration"] == {}
 
     def test_updates_existing_dashboard_without_creating(self, script, fake, spot):
         fake.seed("dashboard", id=8, dashboard_title="Spot Price Forecast Analysis")
         client = make_client(script, fake)
 
-        assert script.upsert_dashboard(client, spot, {"k": 1}, []) == 8
+        assert script.upsert_dashboard(client, spot, {"k": 1}, [], {}) == 8
 
         methods = [(c[0], c[1]) for c in fake.calls_after_login()]
         assert methods == [
@@ -1428,6 +1429,8 @@ class TestUpsertDashboard:
         assert fake.rows["dashboard"][8]["slug"] == "spot-price-forecast-analysis"
         assert fake.rows["dashboard"][8]["published"] is True
         assert len(fake.rows["dashboard"]) == 1
+        metadata = json.loads(fake.rows["dashboard"][8]["json_metadata"])
+        assert metadata["chart_configuration"] == {}
 
 
 class TestAttachCharts:
@@ -1809,6 +1812,24 @@ class TestBuildDashboard:
         assert day_filter["defaultDataMask"] == {"extraFormData": {}, "filterState": {}}
         assert day_filter["controlValues"]["defaultToFirstItem"] is True
         assert all(c["dashboards"] == [38] for c in superset.rows["chart"].values())
+
+    def test_worst_days_cross_filter_is_scoped_to_the_explanation_section(
+        self, script, superset, demand
+    ):
+        client = make_client(script, superset)
+        script.build_dashboard(client, 3, demand)
+        (dashboard,) = superset.rows["dashboard"].values()
+        configuration = json.loads(dashboard["json_metadata"])["chart_configuration"]
+        worst_days = superset.id_of("chart", "slice_name", "Worst days")
+        detail = superset.id_of("chart", "slice_name", "Forecast vs actual (30-min detail)")
+        assert list(configuration) == [str(worst_days)]
+        entry = configuration[str(worst_days)]
+        assert entry["id"] == worst_days
+        assert entry["crossFilters"]["chartsInScope"] == [detail, *range(31, 38)]
+        assert entry["crossFilters"]["scope"] == {
+            "rootPath": ["ROOT_ID"],
+            "excluded": [i for i in range(12, 31) if i != detail],
+        }
 
 
 class TestMain:
