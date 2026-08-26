@@ -1,0 +1,94 @@
+models:
+  - name: fct_demand_forecast_contribution
+    config:
+      contract:
+        enforced: true
+    description: >
+      Per-component decomposition (exact TreeSHAP) of the demand forecasts in
+      fct_demand_forecast. Grain: one row per MLflow run x delivery period
+      (trade date x 30-minute time code) x area x component, where component
+      is the model's base value ('base', component_order 0, is_base) or one
+      model feature in the model's feature order (component_order 1..n).
+      component is a degenerate dimension like strategy; feature_value is the
+      feature as the model saw it (units vary per feature, null on the base
+      row) and is NON-ADDITIVE; contribution_demand_kwh is additive across the
+      components of one period only — base + the feature rows reproduce that
+      period's forecast_demand_kwh (see the singular tests) — never across
+      runs. Drill across to fct_demand_forecast / fct_demand_forecast_accuracy
+      on (run_id, date_key, time_code, area_key). Only strategies that explain
+      themselves (the LightGBM ones) have rows here.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - run_id
+              - date_key
+              - time_code
+              - area_key
+              - component
+    columns:
+      - name: date_key
+        data_type: date
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_date')
+                field: date_key
+      - name: time_code
+        data_type: int
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_delivery_period')
+                field: time_code
+      - name: area_key
+        data_type: int
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_area')
+                field: area_key
+      - name: run_id
+        data_type: string
+        data_tests:
+          - not_null
+      - name: strategy
+        data_type: string
+        data_tests:
+          - not_null
+      - name: component
+        data_type: string
+        data_tests:
+          - not_null
+      - name: component_order
+        data_type: int
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+      - name: is_base
+        data_type: boolean
+        data_tests:
+          - not_null
+      - name: trade_datetime
+        data_type: timestamp
+        data_tests:
+          - not_null
+      - name: forecast_issued_ts
+        data_type: timestamp
+        data_tests:
+          - not_null
+      - name: feature_value
+        data_type: double
+      - name: contribution_demand_kwh
+        data_type: double
+        data_tests:
+          - not_null
+      - name: published_at
+        data_type: timestamp
+        data_tests:
+          - not_null
