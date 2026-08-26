@@ -1338,6 +1338,7 @@ class TestBuildNativeFilters:
         }
         assert day["cascadeParentIds"] == ["NATIVE_FILTER-run"]
         assert day["scope"] == {"rootPath": ["ROOT_ID"], "excluded": [12, 13]}
+        assert "Worst days" in day["description"]
 
         assert period["id"] == "NATIVE_FILTER-period"
         assert period["name"] == "Period"
