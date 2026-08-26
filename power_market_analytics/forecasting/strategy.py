@@ -9,7 +9,11 @@ import pandas as pd
 from mlflow.models import EvaluationResult
 
 from power_market_analytics.common.frames import DomainFrame
-from power_market_analytics.forecasting.frames import DayAheadForecast, HalfHourlySeries
+from power_market_analytics.forecasting.frames import (
+    DayAheadForecast,
+    ForecastContributions,
+    HalfHourlySeries,
+)
 from power_market_analytics.forecasting.task import TaskSpec
 
 if TYPE_CHECKING:  # pragma: no cover - import cycle guard, types only
@@ -123,3 +127,19 @@ class ForecastStrategy[HistoryT: HalfHourlySeries, EvalSetT: DomainFrame](ABC):
         -------
         mlflow.models.EvaluationResult
         """
+
+    def contributions(self) -> ForecastContributions | None:
+        """Additive per-component decomposition of every forecast made so far.
+
+        Optional. A strategy that can attribute its forecasts to its inputs
+        (a LightGBM model, via TreeSHAP) returns one row per predicted
+        delivery period and component — the base plus each feature — summing
+        to that period's forecast. The default, for strategies with nothing
+        to attribute (a naive rule), is ``None``: the backtest scripts then
+        publish no contributions for the run.
+
+        Returns
+        -------
+        ForecastContributions or None
+        """
+        return None
