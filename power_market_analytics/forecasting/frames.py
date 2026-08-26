@@ -142,6 +142,86 @@ class ForecastRecords(DomainFrame):
         cls.non_null_cols = ["strategy", "forecast_issued_ts", forecast_col, "published_at"]
 
 
+#: The base component of a forecast decomposition: the model's expected value
+#: (TreeSHAP's intercept), to which the per-feature contributions add.
+BASE_COMPONENT = "base"
+
+
+class ForecastContributions(DomainFrame):
+    """Additive per-component decomposition of every forecast a strategy has made.
+
+    One row per delivery period and *component* — a model feature, or the
+    base (:data:`BASE_COMPONENT`, the model's expected value). Per period the
+    contributions sum to the forecast: ``base + Σ features = forecast``.
+    ``component_order`` is 0 for the base and ``i + 1`` for the strategy's
+    ``feature_cols[i]``, so consumers can keep the model's feature order.
+    ``feature_value`` is the feature as the model saw it, null on the base
+    row only (a prediction exists only when every feature does).
+    Contributions are in the task's forecast unit.
+
+    Grain: (trade_date, time_code, component).
+    """
+
+    schema = {
+        "trade_date": "datetime64[ns]",
+        "time_code": "int64",
+        "component": "object",
+        "component_order": "int64",
+        "feature_value": "float64",
+        "contribution": "float64",
+    }
+    keys = ["trade_date", "time_code", "component"]
+    non_null_cols = ["component_order", "contribution"]
+
+    @classmethod
+    def _validate_extra(cls, df: pd.DataFrame) -> None:
+        is_base = df["component"] == BASE_COMPONENT
+        # The grain is unique per component, so a period has at most one base
+        # row: the base-row count is the number of periods that have one.
+        n_periods = df.groupby(GRAIN_COLS).ngroups
+        n_missing = n_periods - int(is_base.sum())
+        if n_missing:
+            raise ValueError(
+                f"{cls.__name__}: {n_missing} period(s) without a {BASE_COMPONENT!r} row"
+            )
+        if (is_base != (df["component_order"] == 0)).any():
+            raise ValueError(f"{cls.__name__}: component_order must be 0 exactly on the base rows")
+        if (is_base != df["feature_value"].isna()).any():
+            raise ValueError(f"{cls.__name__}: feature_value must be null exactly on the base rows")
+
+
+class ForecastContributionRecords(DomainFrame):
+    """One backtest run's forecast contributions shaped for the task's
+    contribution write-back table.
+
+    Grain: (run_id, area_code, trade_date, time_code, component). The
+    contribution column keeps its generic name here; the publisher writes it
+    under the task's unit-suffixed ``TaskSpec.contribution_col``.
+    """
+
+    schema = {
+        "run_id": "object",
+        "strategy": "object",
+        "area_code": "object",
+        "forecast_issued_ts": "datetime64[ns]",
+        "trade_date": "datetime64[ns]",
+        "time_code": "int64",
+        "component": "object",
+        "component_order": "int64",
+        "feature_value": "float64",
+        "contribution": "float64",
+        "published_at": "datetime64[ns]",
+    }
+    keys = ["run_id", "area_code", "trade_date", "time_code", "component"]
+    non_null_cols = [
+        "strategy",
+        "forecast_issued_ts",
+        "component_order",
+        "contribution",
+        "published_at",
+    ]
+
+
 class MetricByYearTimeCode(DomainFrame):
     """One error-metric value per calendar year and time code.
 
