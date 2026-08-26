@@ -6,16 +6,23 @@ One dashboard per forecasting task — "Spot Price Forecast Analysis" and
 REST API, so everything is reproducible from the repo after a
 ``docker compose down -v``:
 
-- a virtual dataset ``<task>_forecast_analysis`` — the task's forecast
-  accuracy mart joined to dim_area / dim_delivery_period / dim_date, plus
-  presentation columns (``run_label``, actual-value bands, day types)
-- charts in four sections: KPI tiles (MAE, bias, RMSE, RMSE/MAE, WAPE, P90),
+- two virtual datasets per dashboard: ``<task>_forecast_analysis`` — the
+  task's forecast accuracy mart joined to dim_area / dim_delivery_period /
+  dim_date, plus presentation columns (``run_label``, actual-value bands, day
+  types) — and ``<task>_forecast_explanation`` — the contribution fact, one
+  row per period x component, joined to the accuracy mart
+- charts in five sections: KPI tiles (MAE, bias, RMSE, RMSE/MAE, WAPE, P90),
   error structure (bars + heatmaps + day-type slices), calibration &
   distribution (actual-value-band MAE, calibration curve, error histogram),
-  and runs & drilldown (run leaderboard, worst days, 30-minute detail)
+  runs & drilldown (run leaderboard, worst days, 30-minute detail), and
+  Explanation (SHAP) (base / forecast / actual / net-effect tiles, the
+  waterfall of mean per-period feature contributions, the component table,
+  stacked contributions by period)
 - the dashboard, with a required single-select Run filter (all charts except
-  the cross-run leaderboard); the 30-minute detail chart carries its own
-  data-zoom slider for navigating the backtest window
+  the cross-run leaderboard) plus Day and Period filters scoped to the
+  Explanation section (Day cascades from Run; both optional); the 30-minute
+  detail chart carries its own data-zoom slider for navigating the backtest
+  window
 
 The two dashboards share chart names (a chart is identified by its name
 *within its dataset*), differing only where the quantity shows through: the
@@ -653,12 +660,15 @@ def upsert_dataset(
     return dataset_id
 
 
-def latest_run_label(client: SupersetClient, database_id: int, spec: DashboardSpec) -> str | None:
-    """Newest run's label, for the Run filter's on-load default.
+def latest_run(
+    client: SupersetClient, database_id: int, spec: DashboardSpec
+) -> tuple[str, str] | None:
+    """Newest run's label and its last delivery day, for the filters' on-load defaults.
 
-    ``defaultToFirstItem`` only stages the value (charts render unfiltered,
-    mixing runs, until Apply is clicked); an explicit default applies on page
-    load. Must build the label exactly like the dataset's ``run_label``.
+    ``defaultToFirstItem`` only stages a value (charts render unfiltered until
+    Apply is clicked); an explicit default applies on page load. The label
+    must be built exactly like the datasets' ``run_label``; the day like the
+    explanation dataset's ``trade_date_label``.
 
     Parameters
     ----------
@@ -668,9 +678,9 @@ def latest_run_label(client: SupersetClient, database_id: int, spec: DashboardSp
 
     Returns
     -------
-    str or None
-        None when the query fails or the mart is empty (falls back to
-        ``defaultToFirstItem``).
+    tuple of (str, str) or None
+        ``(run_label, last_day)``; None when the query fails or the mart is
+        empty (both filters then fall back to ``defaultToFirstItem``).
     """
     sql = f"""\
 select
@@ -678,9 +688,11 @@ select
     date_format(f.published_at, 'yyyy-MM-dd HH:mm'),
     ' | ', a.area_code,
     ' | ', substring(f.run_id, 1, 8)
-  ) as run_label
+  ) as run_label,
+  date_format(max(f.date_key), 'yyyy-MM-dd') as last_day
 from {spec.accuracy_table} f
 join pma_curated.dim_area a on f.area_key = a.area_key
+group by f.run_id, f.published_at, a.area_code
 order by f.published_at desc
 limit 1
 """
@@ -689,7 +701,8 @@ limit 1
             "/api/v1/sqllab/execute/",
             {"database_id": database_id, "sql": sql, "runAsync": False},
         )
-        return result["data"][0]["run_label"]
+        row = result["data"][0]
+        return row["run_label"], row["last_day"]
     except (requests.HTTPError, KeyError, IndexError):
         return None
 
@@ -1266,57 +1279,149 @@ def build_position_json(spec: DashboardSpec, sections: list[dict]) -> dict:
     return position
 
 
+def _select_filter(
+    filter_id: str,
+    name: str,
+    column: str,
+    dataset_id: int,
+    *,
+    excluded: list[int],
+    default: str | None,
+    default_to_first: bool,
+    required: bool,
+    sort_ascending: bool,
+    cascade_parent_ids: list[str],
+    description: str,
+) -> dict:
+    """One single-select native filter on ``column`` of ``dataset_id``.
+
+    Parameters
+    ----------
+    filter_id, name : str
+        Stable id (``NATIVE_FILTER-…``) and the label shown in the filter bar.
+    column : str
+        Dataset column the filter reads its values from and filters on; a
+        chart on another dataset is filtered too when that dataset has a
+        column of the same name.
+    dataset_id : int
+    excluded : list of int
+        Charts the filter must NOT apply to.
+    default : str or None
+        Explicit on-load value; None falls back to ``default_to_first``.
+    default_to_first : bool
+        Stage the first option when there is no explicit default.
+    required : bool
+        Whether a value must be selected (``enableEmptyFilter``).
+    sort_ascending : bool
+    cascade_parent_ids : list of str
+        Filters whose selection restricts this filter's options.
+    description : str
+
+    Returns
+    -------
+    dict
+    """
+    default_mask: dict[str, Any]
+    if default is None:
+        default_mask = {"extraFormData": {}, "filterState": {}}
+    else:
+        default_mask = {
+            "extraFormData": {"filters": [{"col": column, "op": "IN", "val": [default]}]},
+            "filterState": {"value": [default], "label": default},
+        }
+    return {
+        "id": filter_id,
+        "name": name,
+        "filterType": "filter_select",
+        "targets": [{"column": {"name": column}, "datasetId": dataset_id}],
+        "defaultDataMask": default_mask,
+        "controlValues": {
+            "multiSelect": False,
+            "enableEmptyFilter": required,
+            "defaultToFirstItem": default is None and default_to_first,
+            "inverseSelection": False,
+            "searchAllOptions": False,
+            "sortAscending": sort_ascending,
+        },
+        "cascadeParentIds": cascade_parent_ids,
+        "scope": {"rootPath": ["ROOT_ID"], "excluded": excluded},
+        "type": "NATIVE_FILTER",
+        "description": description,
+    }
+
+
 def build_native_filters(
     dataset_id: int,
     run_excluded: list[int],
     default_run_label: str | None,
+    explanation_dataset_id: int,
+    day_excluded: list[int],
+    period_excluded: list[int],
+    default_day_label: str | None,
 ) -> list[dict]:
-    """Native filter configuration: the Run picker.
+    """Native filter configuration: Run (whole dashboard), then Day and Period
+    (the Explanation section only).
 
     Parameters
     ----------
     dataset_id : int
-        Dataset the run_label filter reads its values from.
+        Analysis dataset the Run filter reads ``run_label`` from.
     run_excluded : list of int
         Charts the Run filter must NOT apply to (the cross-run leaderboard).
     default_run_label : str or None
-        Explicit on-load default for the Run filter; None falls back to
-        ``defaultToFirstItem`` (which needs one manual Apply click).
+        Explicit on-load run; None falls back to ``defaultToFirstItem``.
+    explanation_dataset_id : int
+        Explanation dataset the Day / Period filters read their values from.
+    day_excluded, period_excluded : list of int
+        Charts outside each filter's scope (everything but the explanation
+        section; the Period filter also skips "Contributions by period").
+    default_day_label : str or None
+        Explicit on-load day (the default run's last delivery day).
 
     Returns
     -------
     list of dict
     """
-    run_default_mask: dict[str, Any]
-    if default_run_label is None:
-        run_default_mask = {"extraFormData": {}, "filterState": {}}
-    else:
-        run_default_mask = {
-            "extraFormData": {
-                "filters": [{"col": "run_label", "op": "IN", "val": [default_run_label]}]
-            },
-            "filterState": {"value": [default_run_label], "label": default_run_label},
-        }
     return [
-        {
-            "id": "NATIVE_FILTER-run",
-            "name": "Run",
-            "filterType": "filter_select",
-            "targets": [{"column": {"name": "run_label"}, "datasetId": dataset_id}],
-            "defaultDataMask": run_default_mask,
-            "controlValues": {
-                "multiSelect": False,
-                "enableEmptyFilter": True,
-                "defaultToFirstItem": default_run_label is None,
-                "inverseSelection": False,
-                "searchAllOptions": False,
-                "sortAscending": False,
-            },
-            "cascadeParentIds": [],
-            "scope": {"rootPath": ["ROOT_ID"], "excluded": run_excluded},
-            "type": "NATIVE_FILTER",
-            "description": "published_at | area | run_id prefix (newest first)",
-        },
+        _select_filter(
+            "NATIVE_FILTER-run",
+            "Run",
+            "run_label",
+            dataset_id,
+            excluded=run_excluded,
+            default=default_run_label,
+            default_to_first=True,
+            required=True,
+            sort_ascending=False,
+            cascade_parent_ids=[],
+            description="published_at | area | run_id prefix (newest first)",
+        ),
+        _select_filter(
+            "NATIVE_FILTER-day",
+            "Day",
+            "trade_date_label",
+            explanation_dataset_id,
+            excluded=day_excluded,
+            default=default_day_label,
+            default_to_first=True,
+            required=False,
+            sort_ascending=False,
+            cascade_parent_ids=["NATIVE_FILTER-run"],
+            description="Delivery day explained (empty = the run's mean decomposition)",
+        ),
+        _select_filter(
+            "NATIVE_FILTER-period",
+            "Period",
+            "period_label",
+            explanation_dataset_id,
+            excluded=period_excluded,
+            default=None,
+            default_to_first=False,
+            required=False,
+            sort_ascending=True,
+            cascade_parent_ids=[],
+            description="30-minute period of the day (empty = the whole day, mean per period)",
+        ),
     ]
 
 
@@ -1399,9 +1504,17 @@ def build_dashboard(client: SupersetClient, database_id: int, spec: DashboardSpe
         client, database_id, spec.dataset_name, spec.dataset_sql, spec.dataset_columns
     )
     logger.info("dataset {}: id={}", spec.dataset_name, dataset_id)
+    explanation_id = upsert_dataset(
+        client,
+        database_id,
+        spec.explanation_dataset_name,
+        spec.explanation_dataset_sql,
+        spec.explanation_dataset_columns,
+    )
+    logger.info("dataset {}: id={}", spec.explanation_dataset_name, explanation_id)
 
-    def chart(name: str, params: dict) -> int:
-        chart_id = upsert_chart(client, name, dataset_id, params)
+    def chart(name: str, params: dict, on: int = dataset_id) -> int:
+        chart_id = upsert_chart(client, name, on, params)
         logger.info("chart {}: {}", chart_id, name)
         return chart_id
 
@@ -1443,6 +1556,50 @@ def build_dashboard(client: SupersetClient, database_id: int, spec: DashboardSpe
     leaderboard = chart("Run leaderboard", leaderboard_params(spec, dataset_id))
     worst_days = chart("Worst days", worst_days_params(spec, dataset_id))
     detail = chart("Forecast vs actual (30-min detail)", detail_params(spec, dataset_id))
+
+    # Explanation (SHAP): the contribution fact, filtered by Run + Day (+ Period)
+    per_period = f"{unit}; mean per period"
+    kpi_base = chart(
+        "Base value",
+        big_number_params(
+            explanation_id,
+            spec.base_value_metric,
+            f"{unit}; model expected value, mean per period",
+            fmt,
+        ),
+        explanation_id,
+    )
+    kpi_forecast = chart(
+        "Forecast (selection)",
+        big_number_params(
+            explanation_id, avg_metric(spec.forecast_col, "Forecast"), per_period, fmt
+        ),
+        explanation_id,
+    )
+    kpi_actual = chart(
+        "Actual (selection)",
+        big_number_params(explanation_id, avg_metric(spec.actual_col, "Actual"), per_period, fmt),
+        explanation_id,
+    )
+    kpi_net = chart(
+        "Net feature effect",
+        big_number_params(
+            explanation_id,
+            spec.net_effect_metric,
+            f"{unit}; forecast − base",
+            spec.signed_number_format,
+        ),
+        explanation_id,
+    )
+    waterfall = chart("SHAP waterfall", waterfall_params(spec, explanation_id), explanation_id)
+    feature_table = chart(
+        "Feature values & contributions", feature_table_params(spec, explanation_id), explanation_id
+    )
+    by_period = chart(
+        "Contributions by period",
+        contribution_by_period_params(spec, explanation_id),
+        explanation_id,
+    )
 
     sections: list[dict[str, Any]] = [
         {
@@ -1489,8 +1646,24 @@ def build_dashboard(client: SupersetClient, database_id: int, spec: DashboardSpe
                 [(detail, "Forecast vs actual (30-min detail)", 12, 60)],
             ],
         },
+        {
+            "header": "Explanation (SHAP)",
+            "rows": [
+                [
+                    (kpi_base, "Base value", 3, 24),
+                    (kpi_forecast, "Forecast (selection)", 3, 24),
+                    (kpi_actual, "Actual (selection)", 3, 24),
+                    (kpi_net, "Net feature effect", 3, 24),
+                ],
+                [
+                    (waterfall, "SHAP waterfall", 8, 46),
+                    (feature_table, "Feature values & contributions", 4, 46),
+                ],
+                [(by_period, "Contributions by period", 12, 44)],
+            ],
+        },
     ]
-    all_charts = [
+    analysis_charts = [
         kpi_mae,
         kpi_bias,
         kpi_rmse,
@@ -1511,9 +1684,20 @@ def build_dashboard(client: SupersetClient, database_id: int, spec: DashboardSpe
         worst_days,
         detail,
     ]
+    explanation_charts = [
+        kpi_base,
+        kpi_forecast,
+        kpi_actual,
+        kpi_net,
+        waterfall,
+        feature_table,
+        by_period,
+    ]
+    all_charts = [*analysis_charts, *explanation_charts]
 
-    default_run = latest_run_label(client, database_id, spec)
-    logger.info("default run: {}", default_run)
+    latest = latest_run(client, database_id, spec)
+    default_run, default_day = (None, None) if latest is None else latest
+    logger.info("default run: {} (last day: {})", default_run, default_day)
     dashboard_id = upsert_dashboard(
         client,
         spec,
@@ -1522,6 +1706,10 @@ def build_dashboard(client: SupersetClient, database_id: int, spec: DashboardSpe
             dataset_id,
             run_excluded=[leaderboard],
             default_run_label=default_run,
+            explanation_dataset_id=explanation_id,
+            day_excluded=analysis_charts,
+            period_excluded=[*analysis_charts, by_period],
+            default_day_label=default_day,
         ),
     )
     attach_charts(client, dashboard_id, all_charts)
