@@ -11,18 +11,17 @@ REST API, so everything is reproducible from the repo after a
   dim_date, plus presentation columns (``run_label``, actual-value bands, day
   types) — and ``<task>_forecast_explanation`` — the contribution fact, one
   row per period x component, joined to the accuracy mart
-- charts in five sections: KPI tiles (MAE, bias, RMSE, RMSE/MAE, WAPE, P90),
-  error structure (bars + heatmaps + day-type slices), calibration &
-  distribution (actual-value-band MAE, calibration curve, error histogram),
-  runs & drilldown (run leaderboard, worst days, 30-minute detail), and
-  Explanation (SHAP) (base / forecast / actual / net-effect tiles, the
-  waterfall of mean per-period feature contributions, the component table,
-  stacked contributions by period)
+- charts on two tabs: **Accuracy** — KPI tiles (MAE, bias, RMSE, RMSE/MAE,
+  WAPE, P90), error structure (bars + heatmaps + day-type slices),
+  calibration & distribution (actual-value-band MAE, calibration curve, error
+  histogram), runs & drilldown (run leaderboard, worst days, 30-minute
+  detail) — and **Explanation (SHAP)** — base / forecast / actual /
+  net-effect tiles, the waterfall of mean per-period feature contributions,
+  the component table, stacked contributions by period
 - the dashboard, with a required single-select Run filter (all charts except
-  the cross-run leaderboard) plus Day and Period filters scoped to the
-  Explanation section (Day cascades from Run; both optional); the 30-minute
-  detail chart carries its own data-zoom slider for navigating the backtest
-  window
+  the cross-run leaderboard) plus an optional Day filter scoped to the
+  Explanation tab (cascading from Run); the 30-minute detail chart carries
+  its own data-zoom slider for navigating the backtest window
 
 The two dashboards share chart names (a chart is identified by its name
 *within its dataset*), differing only where the quantity shows through: the
@@ -132,7 +131,7 @@ COMMON_DATASET_COLUMNS = (
 # Shared skeleton of every task's explanation dataset: the contribution fact
 # (one row per period x component) with calendar / period / area context,
 # the same run_label construction as the analysis dataset (so the Run filter
-# selects both), sortable Day / Period / component labels, then the task's
+# selects both), sortable Day / component labels, then the task's
 # value block — the contribution and, from the accuracy mart, the period's
 # forecast and actual (repeated on each component row: AVG-only metrics).
 EXPLANATION_DATASET_SQL_TEMPLATE = """\
@@ -141,7 +140,6 @@ select
   date_format(c.date_key, 'yyyy-MM-dd') as trade_date_label,
   c.trade_datetime,
   c.time_code,
-  concat(p.period_start_time, '-', p.period_end_time) as period_label,
   p.hour_of_day,
   p.day_part,
   d.day_name,
@@ -182,7 +180,6 @@ COMMON_EXPLANATION_COLUMNS = (
     ("trade_date_label", "STRING", False),
     ("trade_datetime", "TIMESTAMP", True),
     ("time_code", "INT", False),
-    ("period_label", "STRING", False),
     ("hour_of_day", "INT", False),
     ("day_part", "STRING", False),
     ("day_name", "STRING", False),
@@ -1137,9 +1134,6 @@ def feature_table_params(spec: DashboardSpec, dataset_id: int) -> dict:
 def contribution_by_period_params(spec: DashboardSpec, dataset_id: int) -> dict:
     """Params for the stacked bars of each feature's contribution over the day's 48 periods.
 
-    Excluded from the Period filter by the caller, so it keeps the whole
-    selected day as context when one period is selected.
-
     Parameters
     ----------
     spec : DashboardSpec
@@ -1214,68 +1208,93 @@ def upsert_chart(client: SupersetClient, name: str, dataset_id: int, params: dic
     return chart_id
 
 
-def build_position_json(spec: DashboardSpec, sections: list[dict]) -> dict:
-    """Dashboard layout: sections of rows, each section optionally headed.
+def build_position_json(spec: DashboardSpec, tabs: list[dict]) -> dict:
+    """Dashboard layout: top-level tabs, each a list of optionally headed sections of rows.
+
+    Emits the shape Superset itself writes for a tabbed dashboard: the tabs
+    container replaces the grid as the root's child (the grid stays, empty)
+    and every component carries its full ``parents`` chain — the frontend
+    resolves native-filter and cross-filter scopes through those chains.
 
     Parameters
     ----------
     spec : DashboardSpec
         Supplies the dashboard header text.
-    sections : list of dict
-        Each ``{"header": str | None, "rows": [[(chart_id, name, width,
-        height), ...], ...]}``. Widths within a row should sum to 12; height
-        is in dashboard grid units (~8 px each).
+    tabs : list of dict
+        Each ``{"title": str, "sections": [...]}``; a section is
+        ``{"header": str | None, "rows": [[(chart_id, name, width, height),
+        ...], ...]}``. Widths within a row should sum to 12; height is in
+        dashboard grid units (~8 px each).
 
     Returns
     -------
     dict
     """
+    tabs_key = "TABS-0"
     position: dict[str, Any] = {
         "DASHBOARD_VERSION_KEY": "v2",
-        "ROOT_ID": {"type": "ROOT", "id": "ROOT_ID", "children": ["GRID_ID"]},
+        "ROOT_ID": {"type": "ROOT", "id": "ROOT_ID", "children": [tabs_key]},
+        tabs_key: {
+            "type": "TABS",
+            "id": tabs_key,
+            "children": [],
+            "parents": ["ROOT_ID"],
+            "meta": {},
+        },
         "GRID_ID": {"type": "GRID", "id": "GRID_ID", "children": [], "parents": ["ROOT_ID"]},
         "HEADER_ID": {"type": "HEADER", "id": "HEADER_ID", "meta": {"text": spec.dashboard_title}},
     }
-    for s, section in enumerate(sections):
-        if section["header"]:
-            header_key = f"HEADER-{s}"
-            position["GRID_ID"]["children"].append(header_key)
-            position[header_key] = {
-                "type": "HEADER",
-                "id": header_key,
-                "children": [],
-                "parents": ["ROOT_ID", "GRID_ID"],
-                "meta": {
-                    "text": section["header"],
-                    "headerSize": "MEDIUM_HEADER",
-                    "background": "BACKGROUND_TRANSPARENT",
-                },
-            }
-        for r, row in enumerate(section["rows"]):
-            row_key = f"ROW-{s}-{r}"
-            position["GRID_ID"]["children"].append(row_key)
-            position[row_key] = {
-                "type": "ROW",
-                "id": row_key,
-                "children": [],
-                "parents": ["ROOT_ID", "GRID_ID"],
-                "meta": {"background": "BACKGROUND_TRANSPARENT"},
-            }
-            for chart_id, name, width, height in row:
-                chart_key = f"CHART-{chart_id}"
-                position[row_key]["children"].append(chart_key)
-                position[chart_key] = {
-                    "type": "CHART",
-                    "id": chart_key,
+    for t, tab in enumerate(tabs):
+        tab_key = f"TAB-{t}"
+        position[tabs_key]["children"].append(tab_key)
+        position[tab_key] = {
+            "type": "TAB",
+            "id": tab_key,
+            "children": [],
+            "parents": ["ROOT_ID", tabs_key],
+            "meta": {"text": tab["title"], "defaultText": "Tab title", "placeholder": "Tab title"},
+        }
+        parents = ["ROOT_ID", tabs_key, tab_key]
+        for s, section in enumerate(tab["sections"]):
+            if section["header"]:
+                header_key = f"HEADER-{t}-{s}"
+                position[tab_key]["children"].append(header_key)
+                position[header_key] = {
+                    "type": "HEADER",
+                    "id": header_key,
                     "children": [],
-                    "parents": ["ROOT_ID", "GRID_ID", row_key],
+                    "parents": parents,
                     "meta": {
-                        "chartId": chart_id,
-                        "width": width,
-                        "height": height,
-                        "sliceName": name,
+                        "text": section["header"],
+                        "headerSize": "MEDIUM_HEADER",
+                        "background": "BACKGROUND_TRANSPARENT",
                     },
                 }
+            for r, row in enumerate(section["rows"]):
+                row_key = f"ROW-{t}-{s}-{r}"
+                position[tab_key]["children"].append(row_key)
+                position[row_key] = {
+                    "type": "ROW",
+                    "id": row_key,
+                    "children": [],
+                    "parents": parents,
+                    "meta": {"background": "BACKGROUND_TRANSPARENT"},
+                }
+                for chart_id, name, width, height in row:
+                    chart_key = f"CHART-{chart_id}"
+                    position[row_key]["children"].append(chart_key)
+                    position[chart_key] = {
+                        "type": "CHART",
+                        "id": chart_key,
+                        "children": [],
+                        "parents": [*parents, row_key],
+                        "meta": {
+                            "chartId": chart_id,
+                            "width": width,
+                            "height": height,
+                            "sliceName": name,
+                        },
+                    }
     return position
 
 
@@ -1356,11 +1375,10 @@ def build_native_filters(
     default_run_label: str | None,
     explanation_dataset_id: int,
     day_excluded: list[int],
-    period_excluded: list[int],
     default_day_label: str | None,
 ) -> list[dict]:
-    """Native filter configuration: Run (whole dashboard), then Day and Period
-    (the Explanation section only).
+    """Native filter configuration: Run (whole dashboard), then Day (the
+    Explanation tab only).
 
     Parameters
     ----------
@@ -1371,10 +1389,10 @@ def build_native_filters(
     default_run_label : str or None
         Explicit on-load run; None falls back to ``defaultToFirstItem``.
     explanation_dataset_id : int
-        Explanation dataset the Day / Period filters read their values from.
-    day_excluded, period_excluded : list of int
-        Charts outside each filter's scope (everything but the explanation
-        section; the Period filter also skips "Contributions by period").
+        Explanation dataset the Day filter reads its values from.
+    day_excluded : list of int
+        Charts outside the Day filter's scope (everything on the Accuracy
+        tab).
     default_day_label : str or None
         Explicit on-load day (the default run's last delivery day).
 
@@ -1413,25 +1431,12 @@ def build_native_filters(
                 "combine"
             ),
         ),
-        _select_filter(
-            "NATIVE_FILTER-period",
-            "Period",
-            "period_label",
-            explanation_dataset_id,
-            excluded=period_excluded,
-            default=None,
-            default_to_first=False,
-            required=False,
-            sort_ascending=True,
-            cascade_parent_ids=[],
-            description="30-minute period of the day (empty = the whole day, mean per period)",
-        ),
     ]
 
 
 def build_chart_configuration(worst_days: int, in_scope: list[int], excluded: list[int]) -> dict:
     """Per-chart cross-filter scopes: clicking a Worst-days row selects that day
-    in the explanation section (and the 30-minute detail chart) only.
+    on the Explanation tab (and in the 30-minute detail chart) only.
 
     Parameters
     ----------
@@ -1596,7 +1601,7 @@ def build_dashboard(client: SupersetClient, database_id: int, spec: DashboardSpe
     worst_days = chart("Worst days", worst_days_params(spec, dataset_id))
     detail = chart("Forecast vs actual (30-min detail)", detail_params(spec, dataset_id))
 
-    # Explanation (SHAP): the contribution fact, filtered by Run + Day (+ Period)
+    # Explanation (SHAP): the contribution fact, filtered by Run + Day
     per_period = f"{unit}; mean per period"
     kpi_base = chart(
         "Base value",
@@ -1640,7 +1645,7 @@ def build_dashboard(client: SupersetClient, database_id: int, spec: DashboardSpe
         explanation_id,
     )
 
-    sections: list[dict[str, Any]] = [
+    accuracy_sections: list[dict[str, Any]] = [
         {
             "header": None,
             "rows": [
@@ -1685,8 +1690,10 @@ def build_dashboard(client: SupersetClient, database_id: int, spec: DashboardSpe
                 [(detail, "Forecast vs actual (30-min detail)", 12, 60)],
             ],
         },
+    ]
+    explanation_sections: list[dict[str, Any]] = [
         {
-            "header": "Explanation (SHAP)",
+            "header": None,
             "rows": [
                 [
                     (kpi_base, "Base value", 3, 24),
@@ -1701,6 +1708,10 @@ def build_dashboard(client: SupersetClient, database_id: int, spec: DashboardSpe
                 [(by_period, "Contributions by period", 12, 44)],
             ],
         },
+    ]
+    tabs = [
+        {"title": "Accuracy", "sections": accuracy_sections},
+        {"title": "Explanation (SHAP)", "sections": explanation_sections},
     ]
     analysis_charts = [
         kpi_mae,
@@ -1746,14 +1757,13 @@ def build_dashboard(client: SupersetClient, database_id: int, spec: DashboardSpe
     dashboard_id = upsert_dashboard(
         client,
         spec,
-        build_position_json(spec, sections),
+        build_position_json(spec, tabs),
         build_native_filters(
             dataset_id,
             run_excluded=[leaderboard],
             default_run_label=default_run,
             explanation_dataset_id=explanation_id,
             day_excluded=analysis_charts,
-            period_excluded=[*analysis_charts, by_period],
             default_day_label=default_day,
         ),
         chart_configuration,
