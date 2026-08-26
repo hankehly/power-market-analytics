@@ -1425,8 +1425,41 @@ def build_native_filters(
     ]
 
 
+def build_chart_configuration(worst_days: int, in_scope: list[int], excluded: list[int]) -> dict:
+    """Per-chart cross-filter scopes: clicking a Worst-days row selects that day
+    in the explanation section (and the 30-minute detail chart) only.
+
+    Parameters
+    ----------
+    worst_days : int
+        The Worst-days table's chart id (the emitter).
+    in_scope : list of int
+        Charts that receive its cross-filter.
+    excluded : list of int
+        Every other chart on the dashboard.
+
+    Returns
+    -------
+    dict
+        ``json_metadata["chart_configuration"]``.
+    """
+    return {
+        str(worst_days): {
+            "id": worst_days,
+            "crossFilters": {
+                "scope": {"rootPath": ["ROOT_ID"], "excluded": excluded},
+                "chartsInScope": in_scope,
+            },
+        }
+    }
+
+
 def upsert_dashboard(
-    client: SupersetClient, spec: DashboardSpec, position: dict, native_filters: list[dict]
+    client: SupersetClient,
+    spec: DashboardSpec,
+    position: dict,
+    native_filters: list[dict],
+    chart_configuration: dict,
 ) -> int:
     """Create or update the dashboard and return its id.
 
@@ -1439,6 +1472,8 @@ def upsert_dashboard(
         ``position_json`` layout from :func:`build_position_json`.
     native_filters : list of dict
         ``native_filter_configuration`` from :func:`build_native_filters`.
+    chart_configuration : dict
+        Per-chart cross-filter scopes from :func:`build_chart_configuration`.
 
     Returns
     -------
@@ -1453,7 +1488,7 @@ def upsert_dashboard(
     json_metadata = {
         "native_filter_configuration": native_filters,
         "cross_filters_enabled": True,
-        "chart_configuration": {},
+        "chart_configuration": chart_configuration,
         "color_scheme": "",
         "expanded_slices": {},
         "label_colors": {},
@@ -1694,6 +1729,12 @@ def build_dashboard(client: SupersetClient, database_id: int, spec: DashboardSpe
         by_period,
     ]
     all_charts = [*analysis_charts, *explanation_charts]
+    cross_filter_targets = [detail, *explanation_charts]
+    chart_configuration = build_chart_configuration(
+        worst_days,
+        in_scope=cross_filter_targets,
+        excluded=[c for c in analysis_charts if c != detail],
+    )
 
     latest = latest_run(client, database_id, spec)
     default_run, default_day = (None, None) if latest is None else latest
@@ -1711,6 +1752,7 @@ def build_dashboard(client: SupersetClient, database_id: int, spec: DashboardSpe
             period_excluded=[*analysis_charts, by_period],
             default_day_label=default_day,
         ),
+        chart_configuration,
     )
     attach_charts(client, dashboard_id, all_charts)
     logger.info("dashboard: id={}", dashboard_id)
