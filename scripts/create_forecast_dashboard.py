@@ -122,6 +122,77 @@ COMMON_DATASET_COLUMNS = (
     ("horizon_hours", "DOUBLE", False),
 )
 
+# Shared skeleton of every task's explanation dataset: the contribution fact
+# (one row per period x component) with calendar / period / area context,
+# the same run_label construction as the analysis dataset (so the Run filter
+# selects both), sortable Day / Period / component labels, then the task's
+# value block — the contribution and, from the accuracy mart, the period's
+# forecast and actual (repeated on each component row: AVG-only metrics).
+EXPLANATION_DATASET_SQL_TEMPLATE = """\
+select
+  c.date_key,
+  date_format(c.date_key, 'yyyy-MM-dd') as trade_date_label,
+  c.trade_datetime,
+  c.time_code,
+  concat(p.period_start_time, '-', p.period_end_time) as period_label,
+  p.hour_of_day,
+  p.day_part,
+  d.day_name,
+  case
+    when d.is_holiday then 'Holiday'
+    when d.is_weekend then 'Weekend'
+    else 'Weekday'
+  end as day_type,
+  a.area_code,
+  a.area_name_en,
+  c.run_id,
+  concat(
+    date_format(c.published_at, 'yyyy-MM-dd HH:mm'),
+    ' | ', a.area_code,
+    ' | ', substring(c.run_id, 1, 8)
+  ) as run_label,
+  c.strategy,
+  c.published_at,
+  c.component,
+  c.component_order,
+  concat(lpad(cast(c.component_order as string), 2, '0'), ' ', c.component) as component_label,
+  c.is_base,
+  c.feature_value,
+{explanation_value_columns_sql}
+from {contribution_table} c
+join pma_curated.dim_area a on c.area_key = a.area_key
+join pma_curated.dim_delivery_period p on c.time_code = p.time_code
+join pma_curated.dim_date d on c.date_key = d.date_key
+left join {accuracy_table} f
+  on c.run_id = f.run_id
+  and c.date_key = f.date_key
+  and c.time_code = f.time_code
+  and c.area_key = f.area_key
+"""
+
+COMMON_EXPLANATION_COLUMNS = (
+    ("date_key", "DATE", True),
+    ("trade_date_label", "STRING", False),
+    ("trade_datetime", "TIMESTAMP", True),
+    ("time_code", "INT", False),
+    ("period_label", "STRING", False),
+    ("hour_of_day", "INT", False),
+    ("day_part", "STRING", False),
+    ("day_name", "STRING", False),
+    ("day_type", "STRING", False),
+    ("area_code", "STRING", False),
+    ("area_name_en", "STRING", False),
+    ("run_id", "STRING", False),
+    ("run_label", "STRING", False),
+    ("strategy", "STRING", False),
+    ("published_at", "TIMESTAMP", True),
+    ("component", "STRING", False),
+    ("component_order", "INT", False),
+    ("component_label", "STRING", False),
+    ("is_base", "BOOLEAN", False),
+    ("feature_value", "DOUBLE", False),
+)
+
 
 def _slug(label: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", label.lower()).strip("_")
@@ -212,6 +283,16 @@ class DashboardSpec:
         or ``SMART_NUMBER`` to avoid ``1e+7``).
     worst_days_max_format : str
         d3 format for the worst-days table's ``Max |error|`` / ``Max actual``.
+    explanation_dataset_name, contribution_table : str
+        The explanation dataset and the contribution fact it reads.
+    contribution_col : str
+        The *dataset* column of a component's contribution (rescaled like the
+        value columns).
+    contribution_format : str
+        Signed d3 format for contributions.
+    explanation_value_columns_sql, explanation_value_columns : str, tuple of (str, str, bool)
+        The value block — contribution, forecast, actual — two-space
+        indented, the last line without a trailing comma.
     """
 
     task: str
@@ -236,6 +317,12 @@ class DashboardSpec:
     calibration_x_format: str
     calibration_y_format: str
     worst_days_max_format: str
+    explanation_dataset_name: str
+    contribution_table: str
+    contribution_col: str
+    contribution_format: str
+    explanation_value_columns_sql: str
+    explanation_value_columns: tuple[tuple[str, str, bool], ...]
 
     @property
     def dataset_sql(self) -> str:
@@ -286,6 +373,38 @@ class DashboardSpec:
     def p90_metric(self) -> dict:
         return sql_metric(f"percentile({self.abs_error_col}, 0.90)", "P90 abs error")
 
+    @property
+    def explanation_dataset_sql(self) -> str:
+        """The explanation dataset's SQL: the shared template around this task's value block."""
+        return EXPLANATION_DATASET_SQL_TEMPLATE.format(
+            explanation_value_columns_sql=self.explanation_value_columns_sql,
+            contribution_table=self.contribution_table,
+            accuracy_table=self.accuracy_table,
+        )
+
+    @property
+    def explanation_dataset_columns(self) -> list[tuple[str, str, bool]]:
+        """(column_name, generic type, is temporal) for every explanation column, in select order."""
+        return [*COMMON_EXPLANATION_COLUMNS, *self.explanation_value_columns]
+
+    @property
+    def contribution_metric(self) -> dict:
+        """Mean contribution per period of the selection (SHAP is additive, so the
+        per-period mean is a valid decomposition of the mean forecast)."""
+        return avg_metric(self.contribution_col, f"Contribution ({self.unit})")
+
+    @property
+    def base_value_metric(self) -> dict:
+        return sql_metric(f"avg(case when is_base then {self.contribution_col} end)", "Base value")
+
+    @property
+    def net_effect_metric(self) -> dict:
+        """forecast − base = the sum of the feature contributions (the waterfall's Total)."""
+        return sql_metric(
+            f"avg({self.forecast_col}) - avg(case when is_base then {self.contribution_col} end)",
+            "Net feature effect",
+        )
+
 
 SPOT_PRICE = DashboardSpec(
     task="spot_price",
@@ -332,6 +451,19 @@ SPOT_PRICE = DashboardSpec(
     calibration_x_format="~g",
     calibration_y_format=",.1f",
     worst_days_max_format=",.2f",
+    explanation_dataset_name="spot_price_forecast_explanation",
+    contribution_table="pma_curated.fct_spot_price_forecast_contribution",
+    contribution_col="contribution_price_jpy_kwh",
+    contribution_format="+,.3f",
+    explanation_value_columns_sql="""\
+  c.contribution_price_jpy_kwh,
+  f.forecast_price_jpy_kwh,
+  f.actual_price_jpy_kwh""",
+    explanation_value_columns=(
+        ("contribution_price_jpy_kwh", "DOUBLE", False),
+        ("forecast_price_jpy_kwh", "DOUBLE", False),
+        ("actual_price_jpy_kwh", "DOUBLE", False),
+    ),
 )
 
 # Demand is 30分kWh as the TSOs publish it and as the mart stores it (Tokyo
@@ -384,6 +516,19 @@ DEMAND = DashboardSpec(
     calibration_x_format=",.0f",
     calibration_y_format=",.0f",
     worst_days_max_format=",.0f",
+    explanation_dataset_name="demand_forecast_explanation",
+    contribution_table="pma_curated.fct_demand_forecast_contribution",
+    contribution_col="contribution_mwh",
+    contribution_format="+,.0f",
+    explanation_value_columns_sql="""\
+  c.contribution_demand_kwh / 1000 as contribution_mwh,
+  f.forecast_demand_kwh / 1000 as forecast_demand_mwh,
+  f.actual_demand_kwh / 1000 as actual_demand_mwh""",
+    explanation_value_columns=(
+        ("contribution_mwh", "DOUBLE", False),
+        ("forecast_demand_mwh", "DOUBLE", False),
+        ("actual_demand_mwh", "DOUBLE", False),
+    ),
 )
 
 DASHBOARDS: dict[str, DashboardSpec] = {spec.task: spec for spec in (SPOT_PRICE, DEMAND)}
@@ -465,39 +610,44 @@ class SupersetClient:
         return result[0]["id"] if result else None
 
 
-def upsert_dataset(client: SupersetClient, database_id: int, spec: DashboardSpec) -> int:
-    """Create or update the task's virtual dataset and return its id.
+def upsert_dataset(
+    client: SupersetClient,
+    database_id: int,
+    name: str,
+    sql: str,
+    columns: list[tuple[str, str, bool]],
+) -> int:
+    """Create or update a virtual dataset and return its id.
 
     Parameters
     ----------
     client : SupersetClient
     database_id : int
         Superset id of the Spark Thriftserver connection.
-    spec : DashboardSpec
+    name : str
+        ``table_name`` of the virtual dataset (matched on reruns).
+    sql : str
+        The dataset SQL.
+    columns : list of (str, str, bool)
+        (column_name, generic type, is temporal) for every output column, in
+        select order; overrides any stale column metadata on reruns.
 
     Returns
     -------
     int
     """
-    columns = [
-        {
-            "column_name": name,
-            "type": dtype,
-            "is_dttm": is_dttm,
-            "groupby": True,
-            "filterable": True,
-        }
-        for name, dtype, is_dttm in spec.dataset_columns
+    column_payload = [
+        {"column_name": col, "type": dtype, "is_dttm": is_dttm, "groupby": True, "filterable": True}
+        for col, dtype, is_dttm in columns
     ]
-    dataset_id = client.find_one("dataset", table_name=spec.dataset_name)
+    dataset_id = client.find_one("dataset", table_name=name)
     if dataset_id is None:
         dataset_id = client._post_json(
-            "/api/v1/dataset/",
-            {"database": database_id, "table_name": spec.dataset_name, "sql": spec.dataset_sql},
+            "/api/v1/dataset/", {"database": database_id, "table_name": name, "sql": sql}
         )["id"]
     client._put_json(
         f"/api/v1/dataset/{dataset_id}",
-        {"sql": spec.dataset_sql, "main_dttm_col": "trade_datetime", "columns": columns},
+        {"sql": sql, "main_dttm_col": "trade_datetime", "columns": column_payload},
         params={"override_columns": "true"},
     )
     return dataset_id
@@ -1109,7 +1259,9 @@ def build_dashboard(client: SupersetClient, database_id: int, spec: DashboardSpe
     -------
     int
     """
-    dataset_id = upsert_dataset(client, database_id, spec)
+    dataset_id = upsert_dataset(
+        client, database_id, spec.dataset_name, spec.dataset_sql, spec.dataset_columns
+    )
     logger.info("dataset {}: id={}", spec.dataset_name, dataset_id)
 
     def chart(name: str, params: dict) -> int:
