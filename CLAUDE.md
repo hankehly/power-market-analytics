@@ -91,6 +91,21 @@
   `DashboardSpec` (dataset SQL, unit, formats, band/calibration columns) drives one shared set of
   chart/layout builders; charts are matched by name *within their dataset*, so both dashboards
   share chart names. Rerun after `docker compose down -v` or after editing a spec.
+  Each dashboard has two virtual datasets — `<task>_forecast_analysis` (the accuracy mart) and
+  `<task>_forecast_explanation` (`fct_<task>_forecast_contribution` joined to the accuracy mart:
+  one row per period × component, so AVG-only metrics) — and ends with an **Explanation (SHAP)**
+  section: **Day** / **Period** native filters (scoped to that section; Day cascades from Run,
+  defaults to the default run's last day; Period empty = the whole day, mean per period) drive
+  base / forecast / actual / net-effect tiles, a `waterfall` of the mean per-period feature
+  contributions (the base is a tile, not a bar: Superset's value axis always includes zero; bars
+  sort by label, hence the `00 base`, `01 time_code`… `component_label` prefix), the component
+  table and stacked contributions by period. Runs published before 2026-08-26 have no
+  contributions and show an empty section until re-run. After a backtest run, both marts must be
+  rebuilt before the dashboards make sense — `just dbt build --select
+  +fct_<task>_forecast_accuracy +fct_<task>_forecast_contribution`;
+  `+fct_<task>_forecast_contribution` alone does not refresh the accuracy mart (which the Run
+  filter reads) nor the forecast fact the additivity test joins to, and the Run filter then never
+  lists the new run.
 - Host-side dbt also works: `cd dbt && DBT_THRIFT_HOST=localhost uv run dbt <cmd>`.
 - Anything that creates a SparkSession MUST run in the devcontainer (metastore/warehouse only
   resolve on the compose network); plain python and dbt work from the host too.
@@ -210,6 +225,20 @@
   **Spot Price Forecast Analysis** dashboard via the `spot_price_forecast_analysis` dataset).
   `run_id` links warehouse rows to the MLflow run; the run's `warehouse_table` tag points back.
   `tasks/spot_price/compare.py` reads the accuracy fact back for run-vs-run segment tables.
+- Explanations: every `SlidingWindowLightGbmStrategy` records exact TreeSHAP values per predicted
+  row; `strategy.contributions()` (`None` for strategies with nothing to attribute — spot
+  `previous_day`) melts them into `ForecastContributions` (one row per period × component: `base`
+  = the expected value, `component_order` 0, then the features in `feature_cols` order; per
+  period `base + Σ features = forecast`; `feature_value` = the feature as the model saw it, null
+  on the base row) and the backtest scripts publish them right after the forecasts
+  (`publish.build_contribution_records` aligned to the scored periods, the forecast rows'
+  `published_at` reused so `run_label` matches; `publish_contribution_records` →
+  `pma_ml.<task>_forecast_contribution` = `TaskSpec.contribution_table`, column
+  `TaskSpec.contribution_col` = `contribution_demand_kwh` / `contribution_price_jpy_kwh`; MLflow
+  tag `contribution_table`) → `stg/std_ml__<task>_forecast_contribution` (+ `trade_datetime`,
+  `is_base`) → `fct_<task>_forecast_contribution` (grain run × period × area × component;
+  singular tests: one base row per period, Σ contributions = the forecast within 1e-6) → Superset
+  dataset `<task>_forecast_explanation`.
 - Exogenous features: `LightGbmOcctoStrategy` joins `OcctoDemandForecast`
   (`datasets.load_occto_demand_forecast`, from `fct_occto_demand_supply_forecast_daily`) to each
   delivery day's rows via the `_join_daily_features` hook; its training set therefore
@@ -259,7 +288,9 @@
   `fct_demand_forecast` → `fct_demand_forecast_accuracy` → Superset **Demand Forecast Analysis**
   dashboard (dataset `demand_forecast_analysis`; the mart's kWh rescaled to MWh in the dataset
   SQL — `forecast_demand_mwh`, `error_mwh`, … — with plain `,.1f`/`,.0f` formats, 2,000-MWh
-  actual-demand bands (`10000-12000`), calibration x = actual rounded to 1,000 MWh).
+  actual-demand bands (`10000-12000`), calibration x = actual rounded to 1,000 MWh);
+  contributions to `pma_ml.demand_forecast_contribution` → `fct_demand_forecast_contribution` →
+  the dashboard's Explanation (SHAP) section.
 
 ## Gotchas
 
