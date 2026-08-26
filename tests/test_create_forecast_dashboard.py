@@ -1045,6 +1045,8 @@ class TestChartParams:
         assert p["increase_label"] == "Pushes forecast up"
         assert p["decrease_label"] == "Pushes forecast down"
         assert p["show_value"] is True
+        assert p["show_legend"] is True
+        assert p["x_ticks_layout"] == "auto"
         assert p["y_axis_format"] == spec.axis_format
         assert p["y_axis_label"] == spec.unit
         assert p["row_limit"] == 100
@@ -1089,9 +1091,11 @@ class TestChartParams:
         assert p["x_axis_sort_asc"] is True
         assert p["order_desc"] is False
         assert p["show_legend"] is True
+        assert p["legendOrientation"] == "top"
         assert p["y_axis_format"] == spec.axis_format
         assert p["y_axis_title"] == spec.unit
         assert p["row_limit"] == 10000
+        assert p["extra_form_data"] == {}
 
     def test_every_builder_targets_the_dataset_and_starts_unfiltered(self, script, spec):
         builders = [
