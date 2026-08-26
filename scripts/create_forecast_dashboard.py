@@ -6,16 +6,22 @@ One dashboard per forecasting task — "Spot Price Forecast Analysis" and
 REST API, so everything is reproducible from the repo after a
 ``docker compose down -v``:
 
-- a virtual dataset ``<task>_forecast_analysis`` — the task's forecast
-  accuracy mart joined to dim_area / dim_delivery_period / dim_date, plus
-  presentation columns (``run_label``, actual-value bands, day types)
-- charts in four sections: KPI tiles (MAE, bias, RMSE, RMSE/MAE, WAPE, P90),
-  error structure (bars + heatmaps + day-type slices), calibration &
-  distribution (actual-value-band MAE, calibration curve, error histogram),
-  and runs & drilldown (run leaderboard, worst days, 30-minute detail)
+- two virtual datasets per dashboard: ``<task>_forecast_analysis`` — the
+  task's forecast accuracy mart joined to dim_area / dim_delivery_period /
+  dim_date, plus presentation columns (``run_label``, actual-value bands, day
+  types) — and ``<task>_forecast_explanation`` — the contribution fact, one
+  row per period x component, joined to the accuracy mart
+- charts on two tabs: **Accuracy** — KPI tiles (MAE, bias, RMSE, RMSE/MAE,
+  WAPE, P90), error structure (bars + heatmaps + day-type slices),
+  calibration & distribution (actual-value-band MAE, calibration curve, error
+  histogram), runs & drilldown (run leaderboard, worst days, 30-minute
+  detail) — and **Explanation (SHAP)** — base / forecast / actual /
+  net-effect tiles, the waterfall of mean per-period feature contributions,
+  the component table, stacked contributions by period
 - the dashboard, with a required single-select Run filter (all charts except
-  the cross-run leaderboard); the 30-minute detail chart carries its own
-  data-zoom slider for navigating the backtest window
+  the cross-run leaderboard) plus an optional Day filter scoped to the
+  Explanation tab (cascading from Run); the 30-minute detail chart carries
+  its own data-zoom slider for navigating the backtest window
 
 The two dashboards share chart names (a chart is identified by its name
 *within its dataset*), differing only where the quantity shows through: the
@@ -122,6 +128,75 @@ COMMON_DATASET_COLUMNS = (
     ("horizon_hours", "DOUBLE", False),
 )
 
+# Shared skeleton of every task's explanation dataset: the contribution fact
+# (one row per period x component) with calendar / period / area context,
+# the same run_label construction as the analysis dataset (so the Run filter
+# selects both), sortable Day / component labels, then the task's
+# value block — the contribution and, from the accuracy mart, the period's
+# forecast and actual (repeated on each component row: AVG-only metrics).
+EXPLANATION_DATASET_SQL_TEMPLATE = """\
+select
+  c.date_key,
+  date_format(c.date_key, 'yyyy-MM-dd') as trade_date_label,
+  c.trade_datetime,
+  c.time_code,
+  p.hour_of_day,
+  p.day_part,
+  d.day_name,
+  case
+    when d.is_holiday then 'Holiday'
+    when d.is_weekend then 'Weekend'
+    else 'Weekday'
+  end as day_type,
+  a.area_code,
+  a.area_name_en,
+  c.run_id,
+  concat(
+    date_format(c.published_at, 'yyyy-MM-dd HH:mm'),
+    ' | ', a.area_code,
+    ' | ', substring(c.run_id, 1, 8)
+  ) as run_label,
+  c.strategy,
+  c.published_at,
+  c.component,
+  c.component_order,
+  concat(lpad(cast(c.component_order as string), 2, '0'), ' ', c.component) as component_label,
+  c.is_base,
+  c.feature_value,
+{explanation_value_columns_sql}
+from {contribution_table} c
+join pma_curated.dim_area a on c.area_key = a.area_key
+join pma_curated.dim_delivery_period p on c.time_code = p.time_code
+join pma_curated.dim_date d on c.date_key = d.date_key
+left join {accuracy_table} f
+  on c.run_id = f.run_id
+  and c.date_key = f.date_key
+  and c.time_code = f.time_code
+  and c.area_key = f.area_key
+"""
+
+COMMON_EXPLANATION_COLUMNS = (
+    ("date_key", "DATE", True),
+    ("trade_date_label", "STRING", False),
+    ("trade_datetime", "TIMESTAMP", True),
+    ("time_code", "INT", False),
+    ("hour_of_day", "INT", False),
+    ("day_part", "STRING", False),
+    ("day_name", "STRING", False),
+    ("day_type", "STRING", False),
+    ("area_code", "STRING", False),
+    ("area_name_en", "STRING", False),
+    ("run_id", "STRING", False),
+    ("run_label", "STRING", False),
+    ("strategy", "STRING", False),
+    ("published_at", "TIMESTAMP", True),
+    ("component", "STRING", False),
+    ("component_order", "INT", False),
+    ("component_label", "STRING", False),
+    ("is_base", "BOOLEAN", False),
+    ("feature_value", "DOUBLE", False),
+)
+
 
 def _slug(label: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", label.lower()).strip("_")
@@ -212,6 +287,16 @@ class DashboardSpec:
         or ``SMART_NUMBER`` to avoid ``1e+7``).
     worst_days_max_format : str
         d3 format for the worst-days table's ``Max |error|`` / ``Max actual``.
+    explanation_dataset_name, contribution_table : str
+        The explanation dataset and the contribution fact it reads.
+    contribution_col : str
+        The *dataset* column of a component's contribution (rescaled like the
+        value columns).
+    contribution_format : str
+        Signed d3 format for contributions.
+    explanation_value_columns_sql, explanation_value_columns : str, tuple of (str, str, bool)
+        The value block — contribution, forecast, actual — two-space
+        indented, the last line without a trailing comma.
     """
 
     task: str
@@ -236,6 +321,12 @@ class DashboardSpec:
     calibration_x_format: str
     calibration_y_format: str
     worst_days_max_format: str
+    explanation_dataset_name: str
+    contribution_table: str
+    contribution_col: str
+    contribution_format: str
+    explanation_value_columns_sql: str
+    explanation_value_columns: tuple[tuple[str, str, bool], ...]
 
     @property
     def dataset_sql(self) -> str:
@@ -286,6 +377,38 @@ class DashboardSpec:
     def p90_metric(self) -> dict:
         return sql_metric(f"percentile({self.abs_error_col}, 0.90)", "P90 abs error")
 
+    @property
+    def explanation_dataset_sql(self) -> str:
+        """The explanation dataset's SQL: the shared template around this task's value block."""
+        return EXPLANATION_DATASET_SQL_TEMPLATE.format(
+            explanation_value_columns_sql=self.explanation_value_columns_sql,
+            contribution_table=self.contribution_table,
+            accuracy_table=self.accuracy_table,
+        )
+
+    @property
+    def explanation_dataset_columns(self) -> list[tuple[str, str, bool]]:
+        """(column_name, generic type, is temporal) for every explanation column, in select order."""
+        return [*COMMON_EXPLANATION_COLUMNS, *self.explanation_value_columns]
+
+    @property
+    def contribution_metric(self) -> dict:
+        """Mean contribution per period of the selection (SHAP is additive, so the
+        per-period mean is a valid decomposition of the mean forecast)."""
+        return avg_metric(self.contribution_col, f"Contribution ({self.unit})")
+
+    @property
+    def base_value_metric(self) -> dict:
+        return sql_metric(f"avg(case when is_base then {self.contribution_col} end)", "Base value")
+
+    @property
+    def net_effect_metric(self) -> dict:
+        """forecast − base = the sum of the feature contributions (the waterfall's Total)."""
+        return sql_metric(
+            f"avg({self.forecast_col}) - avg(case when is_base then {self.contribution_col} end)",
+            "Net feature effect",
+        )
+
 
 SPOT_PRICE = DashboardSpec(
     task="spot_price",
@@ -332,6 +455,19 @@ SPOT_PRICE = DashboardSpec(
     calibration_x_format="~g",
     calibration_y_format=",.1f",
     worst_days_max_format=",.2f",
+    explanation_dataset_name="spot_price_forecast_explanation",
+    contribution_table="pma_curated.fct_spot_price_forecast_contribution",
+    contribution_col="contribution_price_jpy_kwh",
+    contribution_format="+,.3f",
+    explanation_value_columns_sql="""\
+  c.contribution_price_jpy_kwh,
+  f.forecast_price_jpy_kwh,
+  f.actual_price_jpy_kwh""",
+    explanation_value_columns=(
+        ("contribution_price_jpy_kwh", "DOUBLE", False),
+        ("forecast_price_jpy_kwh", "DOUBLE", False),
+        ("actual_price_jpy_kwh", "DOUBLE", False),
+    ),
 )
 
 # Demand is 30分kWh as the TSOs publish it and as the mart stores it (Tokyo
@@ -384,6 +520,19 @@ DEMAND = DashboardSpec(
     calibration_x_format=",.0f",
     calibration_y_format=",.0f",
     worst_days_max_format=",.0f",
+    explanation_dataset_name="demand_forecast_explanation",
+    contribution_table="pma_curated.fct_demand_forecast_contribution",
+    contribution_col="contribution_mwh",
+    contribution_format="+,.0f",
+    explanation_value_columns_sql="""\
+  c.contribution_demand_kwh / 1000 as contribution_mwh,
+  f.forecast_demand_kwh / 1000 as forecast_demand_mwh,
+  f.actual_demand_kwh / 1000 as actual_demand_mwh""",
+    explanation_value_columns=(
+        ("contribution_mwh", "DOUBLE", False),
+        ("forecast_demand_mwh", "DOUBLE", False),
+        ("actual_demand_mwh", "DOUBLE", False),
+    ),
 )
 
 DASHBOARDS: dict[str, DashboardSpec] = {spec.task: spec for spec in (SPOT_PRICE, DEMAND)}
@@ -465,50 +614,58 @@ class SupersetClient:
         return result[0]["id"] if result else None
 
 
-def upsert_dataset(client: SupersetClient, database_id: int, spec: DashboardSpec) -> int:
-    """Create or update the task's virtual dataset and return its id.
+def upsert_dataset(
+    client: SupersetClient,
+    database_id: int,
+    name: str,
+    sql: str,
+    columns: list[tuple[str, str, bool]],
+) -> int:
+    """Create or update a virtual dataset and return its id.
 
     Parameters
     ----------
     client : SupersetClient
     database_id : int
         Superset id of the Spark Thriftserver connection.
-    spec : DashboardSpec
+    name : str
+        ``table_name`` of the virtual dataset (matched on reruns).
+    sql : str
+        The dataset SQL.
+    columns : list of (str, str, bool)
+        (column_name, generic type, is temporal) for every output column, in
+        select order; overrides any stale column metadata on reruns.
 
     Returns
     -------
     int
     """
-    columns = [
-        {
-            "column_name": name,
-            "type": dtype,
-            "is_dttm": is_dttm,
-            "groupby": True,
-            "filterable": True,
-        }
-        for name, dtype, is_dttm in spec.dataset_columns
+    column_payload = [
+        {"column_name": col, "type": dtype, "is_dttm": is_dttm, "groupby": True, "filterable": True}
+        for col, dtype, is_dttm in columns
     ]
-    dataset_id = client.find_one("dataset", table_name=spec.dataset_name)
+    dataset_id = client.find_one("dataset", table_name=name)
     if dataset_id is None:
         dataset_id = client._post_json(
-            "/api/v1/dataset/",
-            {"database": database_id, "table_name": spec.dataset_name, "sql": spec.dataset_sql},
+            "/api/v1/dataset/", {"database": database_id, "table_name": name, "sql": sql}
         )["id"]
     client._put_json(
         f"/api/v1/dataset/{dataset_id}",
-        {"sql": spec.dataset_sql, "main_dttm_col": "trade_datetime", "columns": columns},
+        {"sql": sql, "main_dttm_col": "trade_datetime", "columns": column_payload},
         params={"override_columns": "true"},
     )
     return dataset_id
 
 
-def latest_run_label(client: SupersetClient, database_id: int, spec: DashboardSpec) -> str | None:
-    """Newest run's label, for the Run filter's on-load default.
+def latest_run(
+    client: SupersetClient, database_id: int, spec: DashboardSpec
+) -> tuple[str, str] | None:
+    """Newest run's label and its last delivery day, for the filters' on-load defaults.
 
-    ``defaultToFirstItem`` only stages the value (charts render unfiltered,
-    mixing runs, until Apply is clicked); an explicit default applies on page
-    load. Must build the label exactly like the dataset's ``run_label``.
+    ``defaultToFirstItem`` only stages a value (charts render unfiltered until
+    Apply is clicked); an explicit default applies on page load. The label
+    must be built exactly like the datasets' ``run_label``; the day like the
+    explanation dataset's ``trade_date_label``.
 
     Parameters
     ----------
@@ -518,9 +675,9 @@ def latest_run_label(client: SupersetClient, database_id: int, spec: DashboardSp
 
     Returns
     -------
-    str or None
-        None when the query fails or the mart is empty (falls back to
-        ``defaultToFirstItem``).
+    tuple of (str, str) or None
+        ``(run_label, last_day)``; None when the query fails or the mart is
+        empty (both filters then fall back to ``defaultToFirstItem``).
     """
     sql = f"""\
 select
@@ -528,9 +685,11 @@ select
     date_format(f.published_at, 'yyyy-MM-dd HH:mm'),
     ' | ', a.area_code,
     ' | ', substring(f.run_id, 1, 8)
-  ) as run_label
+  ) as run_label,
+  date_format(max(f.date_key), 'yyyy-MM-dd') as last_day
 from {spec.accuracy_table} f
 join pma_curated.dim_area a on f.area_key = a.area_key
+group by f.run_id, f.published_at, a.area_code
 order by f.published_at desc
 limit 1
 """
@@ -539,7 +698,8 @@ limit 1
             "/api/v1/sqllab/execute/",
             {"database_id": database_id, "sql": sql, "runAsync": False},
         )
-        return result["data"][0]["run_label"]
+        row = result["data"][0]
+        return row["run_label"], row["last_day"]
     except (requests.HTTPError, KeyError, IndexError):
         return None
 
@@ -877,6 +1037,139 @@ def detail_params(spec: DashboardSpec, dataset_id: int) -> dict:
     }
 
 
+# Ad-hoc WHERE clause that drops the base row: the waterfall and the stacked
+# bars show feature contributions only (Superset's value axis always includes
+# zero, so a base bar ~30x the contributions would flatten them; the base is
+# a KPI tile instead).
+NOT_BASE_FILTER = {
+    "expressionType": "SQL",
+    "sqlExpression": "not is_base",
+    "clause": "WHERE",
+    "filterOptionName": "filter_not_is_base",
+}
+
+
+def waterfall_params(spec: DashboardSpec, dataset_id: int) -> dict:
+    """Params for the SHAP waterfall of the selected day / period.
+
+    One bar per model feature in the model's feature order (the chart sorts
+    by x-axis label, hence ``component_label``'s zero-padded order prefix),
+    each the mean contribution per period of the selection; the Total bar is
+    forecast − base. The base row is filtered out (see ``NOT_BASE_FILTER``).
+
+    Parameters
+    ----------
+    spec : DashboardSpec
+    dataset_id : int
+        The explanation dataset.
+
+    Returns
+    -------
+    dict
+    """
+    return {
+        "datasource": f"{dataset_id}__table",
+        "viz_type": "waterfall",
+        "x_axis": "component_label",
+        "time_grain_sqla": None,
+        "groupby": [],
+        "metric": spec.contribution_metric,
+        "adhoc_filters": [NOT_BASE_FILTER],
+        "row_limit": 100,
+        "show_value": True,
+        "show_legend": True,
+        "increase_label": "Pushes forecast up",
+        "decrease_label": "Pushes forecast down",
+        "show_total": True,
+        "total_label": "Net effect",
+        "x_axis_label": "Component (model feature order)",
+        "x_axis_time_format": "smart_date",
+        "x_ticks_layout": "auto",
+        "y_axis_label": spec.unit,
+        "y_axis_format": spec.axis_format,
+        "extra_form_data": {},
+    }
+
+
+def feature_table_params(spec: DashboardSpec, dataset_id: int) -> dict:
+    """Params for the component table: order, mean feature value, mean contribution.
+
+    Keeps the base row (order 00, no feature value), so the contribution
+    column sums to the forecast; sorted by ``Order`` to read in the model's
+    feature order.
+
+    Parameters
+    ----------
+    spec : DashboardSpec
+    dataset_id : int
+        The explanation dataset.
+
+    Returns
+    -------
+    dict
+    """
+    order = sql_metric("min(component_order)", "Order")
+    contribution = spec.contribution_metric
+    return {
+        "datasource": f"{dataset_id}__table",
+        "viz_type": "table",
+        "query_mode": "aggregate",
+        "groupby": ["component_label"],
+        "metrics": [order, sql_metric("avg(feature_value)", "Feature value"), contribution],
+        "adhoc_filters": [],
+        "timeseries_limit_metric": order,
+        "order_desc": False,
+        "row_limit": 100,
+        "server_page_length": 20,
+        "table_timestamp_format": "smart_date",
+        "column_config": {
+            "Order": {"d3NumberFormat": ",d"},
+            "Feature value": {"d3NumberFormat": ",.2~f"},
+            contribution["label"]: {"d3NumberFormat": spec.contribution_format},
+        },
+        "extra_form_data": {},
+    }
+
+
+def contribution_by_period_params(spec: DashboardSpec, dataset_id: int) -> dict:
+    """Params for the stacked bars of each feature's contribution over the day's 48 periods.
+
+    Parameters
+    ----------
+    spec : DashboardSpec
+    dataset_id : int
+        The explanation dataset.
+
+    Returns
+    -------
+    dict
+    """
+    return {
+        "datasource": f"{dataset_id}__table",
+        "viz_type": "echarts_timeseries_bar",
+        "x_axis": "time_code",
+        "time_grain_sqla": None,
+        "x_axis_sort_asc": True,
+        "metrics": [spec.contribution_metric],
+        "groupby": ["component_label"],
+        "adhoc_filters": [NOT_BASE_FILTER],
+        "order_desc": False,
+        "row_limit": 10000,
+        "stack": "Stack",
+        "show_legend": True,
+        "legendType": "scroll",
+        "legendOrientation": "top",
+        "rich_tooltip": True,
+        "y_axis_format": spec.axis_format,
+        "y_axis_title": spec.unit,
+        "y_axis_title_margin": 30,
+        "truncateYAxis": False,
+        "color_scheme": "supersetColors",
+        "x_axis_time_format": "smart_date",
+        "extra_form_data": {},
+    }
+
+
 def upsert_chart(client: SupersetClient, name: str, dataset_id: int, params: dict) -> int:
     """Create or update a chart (matched by name within its dataset) and return its id.
 
@@ -915,127 +1208,267 @@ def upsert_chart(client: SupersetClient, name: str, dataset_id: int, params: dic
     return chart_id
 
 
-def build_position_json(spec: DashboardSpec, sections: list[dict]) -> dict:
-    """Dashboard layout: sections of rows, each section optionally headed.
+def build_position_json(spec: DashboardSpec, tabs: list[dict]) -> dict:
+    """Dashboard layout: top-level tabs, each a list of optionally headed sections of rows.
+
+    Emits the shape Superset itself writes for a tabbed dashboard: the tabs
+    container replaces the grid as the root's child (the grid stays, empty)
+    and every component carries its full ``parents`` chain — the frontend
+    resolves native-filter and cross-filter scopes through those chains.
 
     Parameters
     ----------
     spec : DashboardSpec
         Supplies the dashboard header text.
-    sections : list of dict
-        Each ``{"header": str | None, "rows": [[(chart_id, name, width,
-        height), ...], ...]}``. Widths within a row should sum to 12; height
-        is in dashboard grid units (~8 px each).
+    tabs : list of dict
+        Each ``{"title": str, "sections": [...]}``; a section is
+        ``{"header": str | None, "rows": [[(chart_id, name, width, height),
+        ...], ...]}``. Widths within a row should sum to 12; height is in
+        dashboard grid units (~8 px each).
 
     Returns
     -------
     dict
     """
+    tabs_key = "TABS-0"
     position: dict[str, Any] = {
         "DASHBOARD_VERSION_KEY": "v2",
-        "ROOT_ID": {"type": "ROOT", "id": "ROOT_ID", "children": ["GRID_ID"]},
+        "ROOT_ID": {"type": "ROOT", "id": "ROOT_ID", "children": [tabs_key]},
+        tabs_key: {
+            "type": "TABS",
+            "id": tabs_key,
+            "children": [],
+            "parents": ["ROOT_ID"],
+            "meta": {},
+        },
         "GRID_ID": {"type": "GRID", "id": "GRID_ID", "children": [], "parents": ["ROOT_ID"]},
         "HEADER_ID": {"type": "HEADER", "id": "HEADER_ID", "meta": {"text": spec.dashboard_title}},
     }
-    for s, section in enumerate(sections):
-        if section["header"]:
-            header_key = f"HEADER-{s}"
-            position["GRID_ID"]["children"].append(header_key)
-            position[header_key] = {
-                "type": "HEADER",
-                "id": header_key,
-                "children": [],
-                "parents": ["ROOT_ID", "GRID_ID"],
-                "meta": {
-                    "text": section["header"],
-                    "headerSize": "MEDIUM_HEADER",
-                    "background": "BACKGROUND_TRANSPARENT",
-                },
-            }
-        for r, row in enumerate(section["rows"]):
-            row_key = f"ROW-{s}-{r}"
-            position["GRID_ID"]["children"].append(row_key)
-            position[row_key] = {
-                "type": "ROW",
-                "id": row_key,
-                "children": [],
-                "parents": ["ROOT_ID", "GRID_ID"],
-                "meta": {"background": "BACKGROUND_TRANSPARENT"},
-            }
-            for chart_id, name, width, height in row:
-                chart_key = f"CHART-{chart_id}"
-                position[row_key]["children"].append(chart_key)
-                position[chart_key] = {
-                    "type": "CHART",
-                    "id": chart_key,
+    for t, tab in enumerate(tabs):
+        tab_key = f"TAB-{t}"
+        position[tabs_key]["children"].append(tab_key)
+        position[tab_key] = {
+            "type": "TAB",
+            "id": tab_key,
+            "children": [],
+            "parents": ["ROOT_ID", tabs_key],
+            "meta": {"text": tab["title"], "defaultText": "Tab title", "placeholder": "Tab title"},
+        }
+        parents = ["ROOT_ID", tabs_key, tab_key]
+        for s, section in enumerate(tab["sections"]):
+            if section["header"]:
+                header_key = f"HEADER-{t}-{s}"
+                position[tab_key]["children"].append(header_key)
+                position[header_key] = {
+                    "type": "HEADER",
+                    "id": header_key,
                     "children": [],
-                    "parents": ["ROOT_ID", "GRID_ID", row_key],
+                    "parents": parents,
                     "meta": {
-                        "chartId": chart_id,
-                        "width": width,
-                        "height": height,
-                        "sliceName": name,
+                        "text": section["header"],
+                        "headerSize": "MEDIUM_HEADER",
+                        "background": "BACKGROUND_TRANSPARENT",
                     },
                 }
+            for r, row in enumerate(section["rows"]):
+                row_key = f"ROW-{t}-{s}-{r}"
+                position[tab_key]["children"].append(row_key)
+                position[row_key] = {
+                    "type": "ROW",
+                    "id": row_key,
+                    "children": [],
+                    "parents": parents,
+                    "meta": {"background": "BACKGROUND_TRANSPARENT"},
+                }
+                for chart_id, name, width, height in row:
+                    chart_key = f"CHART-{chart_id}"
+                    position[row_key]["children"].append(chart_key)
+                    position[chart_key] = {
+                        "type": "CHART",
+                        "id": chart_key,
+                        "children": [],
+                        "parents": [*parents, row_key],
+                        "meta": {
+                            "chartId": chart_id,
+                            "width": width,
+                            "height": height,
+                            "sliceName": name,
+                        },
+                    }
     return position
+
+
+def _select_filter(
+    filter_id: str,
+    name: str,
+    column: str,
+    dataset_id: int,
+    *,
+    excluded: list[int],
+    default: str | None,
+    default_to_first: bool,
+    required: bool,
+    sort_ascending: bool,
+    cascade_parent_ids: list[str],
+    description: str,
+) -> dict:
+    """One single-select native filter on ``column`` of ``dataset_id``.
+
+    Parameters
+    ----------
+    filter_id, name : str
+        Stable id (``NATIVE_FILTER-…``) and the label shown in the filter bar.
+    column : str
+        Dataset column the filter reads its values from and filters on; a
+        chart on another dataset is filtered too when that dataset has a
+        column of the same name.
+    dataset_id : int
+    excluded : list of int
+        Charts the filter must NOT apply to.
+    default : str or None
+        Explicit on-load value; None falls back to ``default_to_first``.
+    default_to_first : bool
+        Stage the first option when there is no explicit default.
+    required : bool
+        Whether a value must be selected (``enableEmptyFilter``).
+    sort_ascending : bool
+    cascade_parent_ids : list of str
+        Filters whose selection restricts this filter's options.
+    description : str
+
+    Returns
+    -------
+    dict
+    """
+    default_mask: dict[str, Any]
+    if default is None:
+        default_mask = {"extraFormData": {}, "filterState": {}}
+    else:
+        default_mask = {
+            "extraFormData": {"filters": [{"col": column, "op": "IN", "val": [default]}]},
+            "filterState": {"value": [default], "label": default},
+        }
+    return {
+        "id": filter_id,
+        "name": name,
+        "filterType": "filter_select",
+        "targets": [{"column": {"name": column}, "datasetId": dataset_id}],
+        "defaultDataMask": default_mask,
+        "controlValues": {
+            "multiSelect": False,
+            "enableEmptyFilter": required,
+            "defaultToFirstItem": default is None and default_to_first,
+            "inverseSelection": False,
+            "searchAllOptions": False,
+            "sortAscending": sort_ascending,
+        },
+        "cascadeParentIds": cascade_parent_ids,
+        "scope": {"rootPath": ["ROOT_ID"], "excluded": excluded},
+        "type": "NATIVE_FILTER",
+        "description": description,
+    }
 
 
 def build_native_filters(
     dataset_id: int,
     run_excluded: list[int],
     default_run_label: str | None,
+    explanation_dataset_id: int,
+    day_excluded: list[int],
+    default_day_label: str | None,
 ) -> list[dict]:
-    """Native filter configuration: the Run picker.
+    """Native filter configuration: Run (whole dashboard), then Day (the
+    Explanation tab only).
 
     Parameters
     ----------
     dataset_id : int
-        Dataset the run_label filter reads its values from.
+        Analysis dataset the Run filter reads ``run_label`` from.
     run_excluded : list of int
         Charts the Run filter must NOT apply to (the cross-run leaderboard).
     default_run_label : str or None
-        Explicit on-load default for the Run filter; None falls back to
-        ``defaultToFirstItem`` (which needs one manual Apply click).
+        Explicit on-load run; None falls back to ``defaultToFirstItem``.
+    explanation_dataset_id : int
+        Explanation dataset the Day filter reads its values from.
+    day_excluded : list of int
+        Charts outside the Day filter's scope (everything on the Accuracy
+        tab).
+    default_day_label : str or None
+        Explicit on-load day (the default run's last delivery day).
 
     Returns
     -------
     list of dict
     """
-    run_default_mask: dict[str, Any]
-    if default_run_label is None:
-        run_default_mask = {"extraFormData": {}, "filterState": {}}
-    else:
-        run_default_mask = {
-            "extraFormData": {
-                "filters": [{"col": "run_label", "op": "IN", "val": [default_run_label]}]
-            },
-            "filterState": {"value": [default_run_label], "label": default_run_label},
-        }
     return [
-        {
-            "id": "NATIVE_FILTER-run",
-            "name": "Run",
-            "filterType": "filter_select",
-            "targets": [{"column": {"name": "run_label"}, "datasetId": dataset_id}],
-            "defaultDataMask": run_default_mask,
-            "controlValues": {
-                "multiSelect": False,
-                "enableEmptyFilter": True,
-                "defaultToFirstItem": default_run_label is None,
-                "inverseSelection": False,
-                "searchAllOptions": False,
-                "sortAscending": False,
-            },
-            "cascadeParentIds": [],
-            "scope": {"rootPath": ["ROOT_ID"], "excluded": run_excluded},
-            "type": "NATIVE_FILTER",
-            "description": "published_at | area | run_id prefix (newest first)",
-        },
+        _select_filter(
+            "NATIVE_FILTER-run",
+            "Run",
+            "run_label",
+            dataset_id,
+            excluded=run_excluded,
+            default=default_run_label,
+            default_to_first=True,
+            required=True,
+            sort_ascending=False,
+            cascade_parent_ids=[],
+            description="published_at | area | run_id prefix (newest first)",
+        ),
+        _select_filter(
+            "NATIVE_FILTER-day",
+            "Day",
+            "trade_date_label",
+            explanation_dataset_id,
+            excluded=day_excluded,
+            default=default_day_label,
+            default_to_first=True,
+            required=False,
+            sort_ascending=False,
+            cascade_parent_ids=["NATIVE_FILTER-run"],
+            description=(
+                "Delivery day explained (empty = the run's mean decomposition); clear Day, "
+                "or pick the same day, before following a Worst days click — the two filters "
+                "combine"
+            ),
+        ),
     ]
 
 
+def build_chart_configuration(worst_days: int, in_scope: list[int], excluded: list[int]) -> dict:
+    """Per-chart cross-filter scopes: clicking a Worst-days row selects that day
+    on the Explanation tab (and in the 30-minute detail chart) only.
+
+    Parameters
+    ----------
+    worst_days : int
+        The Worst-days table's chart id (the emitter).
+    in_scope : list of int
+        Charts that receive its cross-filter.
+    excluded : list of int
+        Every other chart on the dashboard.
+
+    Returns
+    -------
+    dict
+        ``json_metadata["chart_configuration"]``.
+    """
+    return {
+        str(worst_days): {
+            "id": worst_days,
+            "crossFilters": {
+                "scope": {"rootPath": ["ROOT_ID"], "excluded": excluded},
+                "chartsInScope": in_scope,
+            },
+        }
+    }
+
+
 def upsert_dashboard(
-    client: SupersetClient, spec: DashboardSpec, position: dict, native_filters: list[dict]
+    client: SupersetClient,
+    spec: DashboardSpec,
+    position: dict,
+    native_filters: list[dict],
+    chart_configuration: dict,
 ) -> int:
     """Create or update the dashboard and return its id.
 
@@ -1048,6 +1481,8 @@ def upsert_dashboard(
         ``position_json`` layout from :func:`build_position_json`.
     native_filters : list of dict
         ``native_filter_configuration`` from :func:`build_native_filters`.
+    chart_configuration : dict
+        Per-chart cross-filter scopes from :func:`build_chart_configuration`.
 
     Returns
     -------
@@ -1062,7 +1497,7 @@ def upsert_dashboard(
     json_metadata = {
         "native_filter_configuration": native_filters,
         "cross_filters_enabled": True,
-        "chart_configuration": {},
+        "chart_configuration": chart_configuration,
         "color_scheme": "",
         "expanded_slices": {},
         "label_colors": {},
@@ -1109,11 +1544,21 @@ def build_dashboard(client: SupersetClient, database_id: int, spec: DashboardSpe
     -------
     int
     """
-    dataset_id = upsert_dataset(client, database_id, spec)
+    dataset_id = upsert_dataset(
+        client, database_id, spec.dataset_name, spec.dataset_sql, spec.dataset_columns
+    )
     logger.info("dataset {}: id={}", spec.dataset_name, dataset_id)
+    explanation_id = upsert_dataset(
+        client,
+        database_id,
+        spec.explanation_dataset_name,
+        spec.explanation_dataset_sql,
+        spec.explanation_dataset_columns,
+    )
+    logger.info("dataset {}: id={}", spec.explanation_dataset_name, explanation_id)
 
-    def chart(name: str, params: dict) -> int:
-        chart_id = upsert_chart(client, name, dataset_id, params)
+    def chart(name: str, params: dict, on: int = dataset_id) -> int:
+        chart_id = upsert_chart(client, name, on, params)
         logger.info("chart {}: {}", chart_id, name)
         return chart_id
 
@@ -1156,7 +1601,51 @@ def build_dashboard(client: SupersetClient, database_id: int, spec: DashboardSpe
     worst_days = chart("Worst days", worst_days_params(spec, dataset_id))
     detail = chart("Forecast vs actual (30-min detail)", detail_params(spec, dataset_id))
 
-    sections: list[dict[str, Any]] = [
+    # Explanation (SHAP): the contribution fact, filtered by Run + Day
+    per_period = f"{unit}; mean per period"
+    kpi_base = chart(
+        "Base value",
+        big_number_params(
+            explanation_id,
+            spec.base_value_metric,
+            f"{unit}; model expected value, mean per period",
+            fmt,
+        ),
+        explanation_id,
+    )
+    kpi_forecast = chart(
+        "Forecast (selection)",
+        big_number_params(
+            explanation_id, avg_metric(spec.forecast_col, "Forecast"), per_period, fmt
+        ),
+        explanation_id,
+    )
+    kpi_actual = chart(
+        "Actual (selection)",
+        big_number_params(explanation_id, avg_metric(spec.actual_col, "Actual"), per_period, fmt),
+        explanation_id,
+    )
+    kpi_net = chart(
+        "Net feature effect",
+        big_number_params(
+            explanation_id,
+            spec.net_effect_metric,
+            f"{unit}; forecast − base",
+            spec.signed_number_format,
+        ),
+        explanation_id,
+    )
+    waterfall = chart("SHAP waterfall", waterfall_params(spec, explanation_id), explanation_id)
+    feature_table = chart(
+        "Feature values & contributions", feature_table_params(spec, explanation_id), explanation_id
+    )
+    by_period = chart(
+        "Contributions by period",
+        contribution_by_period_params(spec, explanation_id),
+        explanation_id,
+    )
+
+    accuracy_sections: list[dict[str, Any]] = [
         {
             "header": None,
             "rows": [
@@ -1202,7 +1691,29 @@ def build_dashboard(client: SupersetClient, database_id: int, spec: DashboardSpe
             ],
         },
     ]
-    all_charts = [
+    explanation_sections: list[dict[str, Any]] = [
+        {
+            "header": None,
+            "rows": [
+                [
+                    (kpi_base, "Base value", 3, 24),
+                    (kpi_forecast, "Forecast (selection)", 3, 24),
+                    (kpi_actual, "Actual (selection)", 3, 24),
+                    (kpi_net, "Net feature effect", 3, 24),
+                ],
+                [
+                    (waterfall, "SHAP waterfall", 8, 46),
+                    (feature_table, "Feature values & contributions", 4, 46),
+                ],
+                [(by_period, "Contributions by period", 12, 44)],
+            ],
+        },
+    ]
+    tabs = [
+        {"title": "Accuracy", "sections": accuracy_sections},
+        {"title": "Explanation (SHAP)", "sections": explanation_sections},
+    ]
+    analysis_charts = [
         kpi_mae,
         kpi_bias,
         kpi_rmse,
@@ -1223,18 +1734,39 @@ def build_dashboard(client: SupersetClient, database_id: int, spec: DashboardSpe
         worst_days,
         detail,
     ]
+    explanation_charts = [
+        kpi_base,
+        kpi_forecast,
+        kpi_actual,
+        kpi_net,
+        waterfall,
+        feature_table,
+        by_period,
+    ]
+    all_charts = [*analysis_charts, *explanation_charts]
+    cross_filter_targets = [detail, *explanation_charts]
+    chart_configuration = build_chart_configuration(
+        worst_days,
+        in_scope=cross_filter_targets,
+        excluded=[c for c in analysis_charts if c != detail],
+    )
 
-    default_run = latest_run_label(client, database_id, spec)
-    logger.info("default run: {}", default_run)
+    latest = latest_run(client, database_id, spec)
+    default_run, default_day = (None, None) if latest is None else latest
+    logger.info("default run: {} (last day: {})", default_run, default_day)
     dashboard_id = upsert_dashboard(
         client,
         spec,
-        build_position_json(spec, sections),
+        build_position_json(spec, tabs),
         build_native_filters(
             dataset_id,
             run_excluded=[leaderboard],
             default_run_label=default_run,
+            explanation_dataset_id=explanation_id,
+            day_excluded=analysis_charts,
+            default_day_label=default_day,
         ),
+        chart_configuration,
     )
     attach_charts(client, dashboard_id, all_charts)
     logger.info("dashboard: id={}", dashboard_id)

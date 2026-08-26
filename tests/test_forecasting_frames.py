@@ -7,10 +7,13 @@ import pandas as pd
 import pytest
 
 from power_market_analytics.forecasting.frames import (
+    BASE_COMPONENT,
     GRAIN_COLS,
     N_PERIODS,
     BacktestResult,
     DayAheadForecast,
+    ForecastContributionRecords,
+    ForecastContributions,
     ForecastRecords,
     HalfHourlySeries,
     MetricByYearTimeCode,
@@ -245,3 +248,136 @@ class TestMetricByYearTimeCode:
         assert matrix.columns.tolist() == [1, 2]
         assert matrix.loc[2024, 2] == 3.0
         assert np.isnan(matrix.loc[2023, 2])
+
+
+def contributions_df() -> pd.DataFrame:
+    """Two periods of D1, each a base row plus two feature rows."""
+    rows = []
+    for tc in (1, 2):
+        rows.append(
+            {
+                "trade_date": D1,
+                "time_code": tc,
+                "component": "base",
+                "component_order": 0,
+                "feature_value": np.nan,
+                "contribution": 10.0,
+            }
+        )
+        rows.append(
+            {
+                "trade_date": D1,
+                "time_code": tc,
+                "component": "time_code",
+                "component_order": 1,
+                "feature_value": float(tc),
+                "contribution": 0.5,
+            }
+        )
+        rows.append(
+            {
+                "trade_date": D1,
+                "time_code": tc,
+                "component": "x",
+                "component_order": 2,
+                "feature_value": 3.0,
+                "contribution": -0.25,
+            }
+        )
+    return pd.DataFrame(rows).astype({"time_code": "int64", "component_order": "int64"})
+
+
+class TestForecastContributions:
+    def test_grain_schema_and_base_constant(self):
+        assert BASE_COMPONENT == "base"
+        assert ForecastContributions.keys == ["trade_date", "time_code", "component"]
+        assert list(ForecastContributions.schema) == [
+            "trade_date",
+            "time_code",
+            "component",
+            "component_order",
+            "feature_value",
+            "contribution",
+        ]
+        assert ForecastContributions.non_null_cols == ["component_order", "contribution"]
+        assert len(ForecastContributions.from_df(contributions_df())) == 6
+
+    def test_period_without_a_base_row_rejected(self):
+        df = contributions_df()
+        df = df[~((df["time_code"] == 2) & (df["component"] == "base"))]
+        with pytest.raises(ValueError, match=r"1 period\(s\) without a 'base' row"):
+            ForecastContributions.from_df(df)
+
+    def test_component_order_zero_exactly_on_the_base(self):
+        df = contributions_df()
+        df.loc[df["component"] == "x", "component_order"] = 0
+        with pytest.raises(ValueError, match="component_order must be 0 exactly on the base rows"):
+            ForecastContributions.from_df(df)
+
+    def test_feature_value_null_exactly_on_the_base(self):
+        df = contributions_df()
+        df.loc[(df["component"] == "x") & (df["time_code"] == 1), "feature_value"] = np.nan
+        with pytest.raises(ValueError, match="feature_value must be null exactly on the base rows"):
+            ForecastContributions.from_df(df)
+
+    def test_null_contribution_rejected(self):
+        df = contributions_df()
+        df.loc[0, "contribution"] = np.nan
+        with pytest.raises(ValueError, match="'contribution' has 1 null values"):
+            ForecastContributions.from_df(df)
+
+
+def contribution_records_df() -> pd.DataFrame:
+    return contributions_df().assign(
+        run_id="r",
+        strategy="s",
+        area_code="tokyo",
+        forecast_issued_ts=pd.Timestamp("2023-12-31 09:30").as_unit("ns"),
+        published_at=pd.Timestamp("2024-01-05 12:00").as_unit("ns"),
+    )
+
+
+class TestForecastContributionRecords:
+    def test_grain_and_schema(self):
+        assert ForecastContributionRecords.keys == [
+            "run_id",
+            "area_code",
+            "trade_date",
+            "time_code",
+            "component",
+        ]
+        assert list(ForecastContributionRecords.schema) == [
+            "run_id",
+            "strategy",
+            "area_code",
+            "forecast_issued_ts",
+            "trade_date",
+            "time_code",
+            "component",
+            "component_order",
+            "feature_value",
+            "contribution",
+            "published_at",
+        ]
+        assert ForecastContributionRecords.non_null_cols == [
+            "strategy",
+            "forecast_issued_ts",
+            "component_order",
+            "contribution",
+            "published_at",
+        ]
+        records = ForecastContributionRecords.from_df(contribution_records_df())
+        assert len(records) == 6
+        assert list(records.df.columns) == list(ForecastContributionRecords.schema)
+
+    def test_same_component_twice_in_a_period_rejected(self):
+        df = contribution_records_df()
+        df = pd.concat([df, df.iloc[[1]]], ignore_index=True)
+        with pytest.raises(ValueError, match="grain .* not unique"):
+            ForecastContributionRecords.from_df(df)
+
+    def test_null_strategy_rejected(self):
+        df = contribution_records_df()
+        df.loc[0, "strategy"] = None
+        with pytest.raises(ValueError, match="'strategy' has 1 null values"):
+            ForecastContributionRecords.from_df(df)
