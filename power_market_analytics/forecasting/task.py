@@ -19,6 +19,9 @@ class TaskSpec:
     """Everything the generic engine, strategies, publish and plots need to know
     about one modeling task.
 
+    The contribution table and column are derived (``contribution_table``,
+    ``contribution_col``) rather than stored.
+
     Column names are not stored twice: they are read off the frame classes,
     which own the contracts.
 
@@ -39,8 +42,6 @@ class TaskSpec:
     history_cls, forecast_cls, result_cls, records_cls : type
         The task's ``HalfHourlySeries``, ``DayAheadForecast``,
         ``BacktestResult`` and ``ForecastRecords`` subclasses.
-    The contribution table and column are derived (``contribution_table``,
-    ``contribution_col``) rather than stored.
     """
 
     name: str

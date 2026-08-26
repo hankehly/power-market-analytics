@@ -1407,7 +1407,11 @@ def build_native_filters(
             required=False,
             sort_ascending=False,
             cascade_parent_ids=["NATIVE_FILTER-run"],
-            description="Delivery day explained (empty = the run's mean decomposition)",
+            description=(
+                "Delivery day explained (empty = the run's mean decomposition); clear Day, "
+                "or pick the same day, before following a Worst days click — the two filters "
+                "combine"
+            ),
         ),
         _select_filter(
             "NATIVE_FILTER-period",

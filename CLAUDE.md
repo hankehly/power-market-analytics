@@ -53,7 +53,9 @@
 - `just python scripts/spot_price_backtest.py --strategy lightgbm --area tokyo` — day-ahead
   backtest (strategies: `previous_day`, `lightgbm`, `lightgbm_occto`; areas =
   `dim_area.area_code`). Logs to MLflow (`just open mlflow`) and publishes forecasts to the
-  warehouse. `--start-date/--end-date` pin the evaluation window and `--train-start` the
+  warehouse (and, for the LightGBM strategies, their TreeSHAP contributions to
+  `pma_ml.spot_price_forecast_contribution` — build `+fct_spot_price_forecast_accuracy
+  +fct_spot_price_forecast_contribution` afterwards). `--start-date/--end-date` pin the
   first training row — set all three identically for a feature experiment and its matched
   baseline. New strategies subclass `ForecastStrategy`, register in `STRATEGIES`, and get
   their inputs wired in `build_strategy`
@@ -76,7 +78,10 @@
   forecasts of all the area's weighted stations plus `fct_census_population_jma_station`. Same
   flags as the spot script
   (`--days` defaults to 365); logs to the MLflow experiment `demand`, publishes to
-  `pma_ml.demand_forecast`, then `just dbt build --select +fct_demand_forecast_accuracy`.
+  `pma_ml.demand_forecast`, then `just dbt build --select +fct_demand_forecast_accuracy
+  +fct_demand_forecast_contribution` (the second selector materialises the run's TreeSHAP
+  contributions for the dashboard's Explanation section; the first is what its Run filter
+  reads).
 - `just python scripts/compare_demand_runs.py --baseline <run_id> --candidate <run_id>` — the
   demand task's matched two-run comparison (`tasks/demand/compare.py`): MAE overall / MAPE /
   bias / by day part, day type, month, season, 2,000-MWh actual-demand band, top-10 % demand
@@ -105,7 +110,9 @@
   +fct_<task>_forecast_accuracy +fct_<task>_forecast_contribution`;
   `+fct_<task>_forecast_contribution` alone does not refresh the accuracy mart (which the Run
   filter reads) nor the forecast fact the additivity test joins to, and the Run filter then never
-  lists the new run.
+  lists the new run. Clicking a date in **Worst days** cross-filters the section (and the 30-min
+  detail chart) to that day — it combines with the Day filter, so clear Day (or pick the same
+  day) first.
 - Host-side dbt also works: `cd dbt && DBT_THRIFT_HOST=localhost uv run dbt <cmd>`.
 - Anything that creates a SparkSession MUST run in the devcontainer (metastore/warehouse only
   resolve on the compose network); plain python and dbt work from the host too.

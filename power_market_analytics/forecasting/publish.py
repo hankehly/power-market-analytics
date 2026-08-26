@@ -282,7 +282,7 @@ def publish_contribution_records(
         F.col("time_code").cast("int"),
         F.col("component").cast("string"),
         F.col("component_order").cast("int"),
-        # pandas NaN arrives as a double NaN, which is not SQL null.
+        # pandas NaN may arrive as a double NaN (Arrow off, or the Arrow fallback), which is not SQL null.
         F.when(F.isnan(feature_value), F.lit(None)).otherwise(feature_value).alias("feature_value"),
         F.col("contribution").cast("double").alias(task.contribution_col),
         F.col("published_at").cast("timestamp"),
