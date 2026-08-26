@@ -105,3 +105,122 @@ sources:
               one value per run, refreshed if a run is republished.
             data_tests:
               - not_null
+      - name: demand_forecast_contribution
+        description: >
+          Per-component decomposition of the forecasts in demand_forecast,
+          written by the same backtest run (scripts/demand_backtest.py;
+          SlidingWindowLightGbmStrategy.contributions — exact TreeSHAP from
+          LightGBM's pred_contrib). One row per MLflow run, area, 30-minute
+          delivery period and component: the model's base value (component
+          'base', component_order 0) or one feature. Per period, base + the sum
+          of the feature contributions = forecast_demand_kwh. Partitioned by
+          run_id and overwritten per run like demand_forecast; a strategy that
+          cannot explain its forecasts writes nothing here.
+        columns:
+          - name: run_id
+            description: MLflow run id (experiment demand); the run's tag contribution_table points back here.
+            data_tests:
+              - not_null
+          - name: strategy
+            description: Strategy registry key, e.g. lightgbm_msm_popw_daytype.
+            data_tests:
+              - not_null
+          - name: area_code
+            description: Bidding zone, joins to dim_area.area_code.
+            data_tests:
+              - not_null
+          - name: forecast_issued_ts
+            description: When the forecast was made (09:30 JST on D-1), as on demand_forecast.
+            data_tests:
+              - not_null
+          - name: trade_date
+            description: Target delivery date.
+            data_tests:
+              - not_null
+          - name: time_code
+            description: 30-minute delivery period of the day, 1-48.
+            data_tests:
+              - not_null
+          - name: component
+            description: >
+              'base' for the model's expected value, else the feature name as
+              listed in the run's lgbm_feature_cols param (time_code, month,
+              day_of_week, wavg_temperature_c, lag_7d_demand_kwh, ...).
+            data_tests:
+              - not_null
+          - name: component_order
+            description: 0 for the base, then the feature's 1-based position in the model's feature list.
+            data_tests:
+              - not_null
+          - name: feature_value
+            description: >
+              The feature's value as the model saw it (units vary per feature:
+              a time code, a month, degrees C, kWh, a day-type code); null on
+              the base row.
+          - name: contribution_demand_kwh
+            description: The component's additive contribution to the forecast, kWh per 30-minute period.
+            data_tests:
+              - not_null
+          - name: published_at
+            description: Same instant as the run's demand_forecast rows (naive JST).
+            data_tests:
+              - not_null
+      - name: spot_price_forecast_contribution
+        description: >
+          Per-component decomposition of the forecasts in spot_price_forecast,
+          written by the same backtest run (scripts/spot_price_backtest.py;
+          SlidingWindowLightGbmStrategy.contributions — exact TreeSHAP from
+          LightGBM's pred_contrib). One row per MLflow run, area, 30-minute
+          delivery period and component: the model's base value (component
+          'base', component_order 0) or one feature. Per period, base + the sum
+          of the feature contributions = forecast_price_jpy_kwh. Partitioned by
+          run_id and overwritten per run like spot_price_forecast; a strategy
+          that cannot explain its forecasts (previous_day) writes nothing here.
+        columns:
+          - name: run_id
+            description: MLflow run id (experiment spot_price); the run's tag contribution_table points back here.
+            data_tests:
+              - not_null
+          - name: strategy
+            description: Strategy registry key, e.g. lightgbm.
+            data_tests:
+              - not_null
+          - name: area_code
+            description: Bidding zone, joins to dim_area.area_code.
+            data_tests:
+              - not_null
+          - name: forecast_issued_ts
+            description: When the forecast was made (9:55 JST on D-1), as on spot_price_forecast.
+            data_tests:
+              - not_null
+          - name: trade_date
+            description: Target delivery date.
+            data_tests:
+              - not_null
+          - name: time_code
+            description: 30-minute delivery period of the day, 1-48.
+            data_tests:
+              - not_null
+          - name: component
+            description: >
+              'base' for the model's expected value, else the feature name as
+              listed in the run's lgbm_feature_cols param (time_code, month,
+              day_of_week, the price lags, ...).
+            data_tests:
+              - not_null
+          - name: component_order
+            description: 0 for the base, then the feature's 1-based position in the model's feature list.
+            data_tests:
+              - not_null
+          - name: feature_value
+            description: >
+              The feature's value as the model saw it (units vary per feature:
+              a time code, a month, JPY/kWh, MW); null on the base row.
+          - name: contribution_price_jpy_kwh
+            description: The component's additive contribution to the forecast, JPY/kWh.
+            data_tests:
+              - not_null
+          - name: published_at
+            description: Same instant as the run's spot_price_forecast rows (naive JST).
+            data_tests:
+              - not_null

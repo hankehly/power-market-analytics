@@ -34,7 +34,9 @@ narrow them as the question requires.
   actual-demand bands, top-10 % demand days, and the daily paired comparison
   with its seeded bootstrap CI over days; `--mae-by-month-png` writes the
   by-month figure) and Superset **Demand Forecast Analysis** (day part, day
-  type, actual-demand bands, calibration curve, error histogram)
+  type, actual-demand bands, calibration curve, error histogram, and the
+  per-day SHAP waterfall (mean per period) of the **Explanation (SHAP)** tab
+  (Day filter))
 - **Evaluation method:** rolling out-of-sample backtest over identical
   delivery dates and training rows for baseline and candidate; accuracy rows
   in `fct_demand_forecast_accuracy` after

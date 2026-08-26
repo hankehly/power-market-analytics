@@ -9,10 +9,19 @@ from __future__ import annotations
 
 import dataclasses
 
+import numpy as np
 import pandas as pd
+import pytest
 
+from power_market_analytics.forecasting.frames import (
+    BASE_COMPONENT,
+    ForecastContributionRecords,
+    ForecastContributions,
+)
 from power_market_analytics.forecasting.publish import (
+    build_contribution_records,
     build_forecast_records,
+    publish_contribution_records,
     publish_forecast_records,
 )
 from power_market_analytics.tasks.spot_price import TASK
@@ -219,3 +228,196 @@ class TestPublishForecastRecords:
         assert rows[
             ["area_code", "trade_date", "time_code", "forecast_price_jpy_kwh"]
         ].values.tolist() == [["kansai", "2024-04-10", 7, 10.7]]
+
+
+CONTRIBUTION_TABLE = TASK.contribution_table  # pma_ml.spot_price_forecast_contribution
+PUBLISHED_AT = pd.Timestamp("2026-08-26 10:00:00")
+
+
+def make_contributions(
+    days: list[str], time_codes: list[int], base: float = 10.0
+) -> ForecastContributions:
+    """Contributions matching ``make_result``: the base plus one feature contributing tc / 10."""
+    rows = []
+    for day in days:
+        for tc in time_codes:
+            rows.append(
+                {
+                    "trade_date": pd.Timestamp(day),
+                    "time_code": tc,
+                    "component": BASE_COMPONENT,
+                    "component_order": 0,
+                    "feature_value": np.nan,
+                    "contribution": base,
+                }
+            )
+            rows.append(
+                {
+                    "trade_date": pd.Timestamp(day),
+                    "time_code": tc,
+                    "component": "time_code",
+                    "component_order": 1,
+                    "feature_value": float(tc),
+                    "contribution": tc / 10,
+                }
+            )
+    return ForecastContributions.from_df(
+        pd.DataFrame(rows).astype({"time_code": "int64", "component_order": "int64"})
+    )
+
+
+class TestBuildContributionRecords:
+    def test_keeps_the_scored_periods_and_stamps_the_run(self):
+        result = make_result(["2024-04-10"], [1, 2])
+        # More predicted periods than scored ones: only the scored survive.
+        contributions = make_contributions(["2024-04-10", "2024-04-11"], [1, 2, 3])
+
+        records = build_contribution_records(
+            TASK,
+            contributions,
+            result,
+            run_id="run-123",
+            strategy="lightgbm",
+            area_code="tokyo",
+            published_at=PUBLISHED_AT,
+        )
+
+        assert isinstance(records, ForecastContributionRecords)
+        assert list(records.df.columns) == list(ForecastContributionRecords.schema)
+        assert len(records) == 4  # 2 periods x (base + 1 feature)
+        assert set(zip(records.df["trade_date"], records.df["time_code"])) == {
+            (pd.Timestamp("2024-04-10"), 1),
+            (pd.Timestamp("2024-04-10"), 2),
+        }
+        assert records.df["run_id"].eq("run-123").all()
+        assert records.df["strategy"].eq("lightgbm").all()
+        assert records.df["area_code"].eq("tokyo").all()
+        assert records.df["forecast_issued_ts"].eq(pd.Timestamp("2024-04-09 09:55")).all()
+        assert records.df["published_at"].eq(PUBLISHED_AT).all()
+        assert records.df["published_at"].dtype == "datetime64[ns]"
+        sums = records.df.groupby("time_code")["contribution"].sum()
+        assert sums.to_dict() == pytest.approx({1: 10.1, 2: 10.2})
+
+    def test_a_scored_period_without_contributions_is_an_error(self):
+        result = make_result(["2024-04-10"], [1, 2, 48])
+        contributions = make_contributions(["2024-04-10"], [1, 2])
+        with pytest.raises(
+            ValueError,
+            match=r"spot_price: 1 scored period\(s\) have no contributions, "
+            r"e\.g\. 2024-04-10 time_code 48",
+        ):
+            build_contribution_records(
+                TASK,
+                contributions,
+                result,
+                run_id="r",
+                strategy="s",
+                area_code="tokyo",
+                published_at=PUBLISHED_AT,
+            )
+
+
+def published_contribution_rows(spark, run_id: str) -> pd.DataFrame:
+    """Rows of ``CONTRIBUTION_TABLE`` for one run, timestamps rendered in the session tz."""
+    return (
+        spark.sql(
+            f"""
+            select
+              strategy, area_code,
+              date_format(forecast_issued_ts, 'yyyy-MM-dd HH:mm') as forecast_issued_ts,
+              cast(trade_date as string) as trade_date,
+              time_code, component, component_order, feature_value,
+              contribution_price_jpy_kwh,
+              date_format(published_at, 'yyyy-MM-dd HH:mm:ss') as published_at,
+              run_id
+            from {CONTRIBUTION_TABLE}
+            where run_id = '{run_id}'
+            order by trade_date, time_code, component_order
+            """
+        )
+        .toPandas()
+        .reset_index(drop=True)
+    )
+
+
+def contribution_records(days, time_codes, *, run_id, base=10.0, strategy="lightgbm"):
+    return build_contribution_records(
+        TASK,
+        make_contributions(days, time_codes, base=base),
+        make_result(days, time_codes, base=base),
+        run_id=run_id,
+        strategy=strategy,
+        area_code="tokyo",
+        published_at=PUBLISHED_AT,
+    )
+
+
+class TestPublishContributionRecords:
+    def test_creates_the_partitioned_table_and_writes_the_rows(self, spark):
+        records = contribution_records(["2024-04-10"], [1, 2], run_id="contrib-create")
+
+        assert publish_contribution_records(TASK, records, spark=spark) == 4
+
+        assert spark.catalog.tableExists(CONTRIBUTION_TABLE)
+        columns = {c.name: c for c in spark.catalog.listColumns(CONTRIBUTION_TABLE)}
+        assert {name: c.dataType for name, c in columns.items()} == {
+            "strategy": "string",
+            "area_code": "string",
+            "forecast_issued_ts": "timestamp",
+            "trade_date": "date",
+            "time_code": "int",
+            "component": "string",
+            "component_order": "int",
+            "feature_value": "double",
+            "contribution_price_jpy_kwh": "double",
+            "published_at": "timestamp",
+            "run_id": "string",
+        }
+        assert [name for name, c in columns.items() if c.isPartition] == ["run_id"]
+        rows = published_contribution_rows(spark, "contrib-create")
+        assert rows[
+            ["trade_date", "time_code", "component", "component_order"]
+        ].values.tolist() == [
+            ["2024-04-10", 1, "base", 0],
+            ["2024-04-10", 1, "time_code", 1],
+            ["2024-04-10", 2, "base", 0],
+            ["2024-04-10", 2, "time_code", 1],
+        ]
+        assert rows["contribution_price_jpy_kwh"].tolist() == [10.0, 0.1, 10.0, 0.2]
+        assert rows["feature_value"].tolist()[1::2] == [1.0, 2.0]
+        # The base row's feature value is a SQL null, not a NaN double.
+        n_null = spark.sql(
+            f"select count(*) as n from {CONTRIBUTION_TABLE} "
+            "where run_id = 'contrib-create' and feature_value is null"
+        ).collect()[0]["n"]
+        assert n_null == 2
+        assert rows["forecast_issued_ts"].eq("2024-04-09 09:55").all()
+        assert rows["published_at"].eq("2026-08-26 10:00:00").all()
+        assert rows["strategy"].eq("lightgbm").all()
+        assert rows["area_code"].eq("tokyo").all()
+
+    def test_republishing_a_run_replaces_only_that_runs_partition(self, spark):
+        keep = contribution_records(["2024-04-10"], [1], run_id="contrib-keep", base=20.0)
+        first = contribution_records(["2024-04-10", "2024-04-11"], [1], run_id="contrib-replace")
+        publish_contribution_records(TASK, keep, spark=spark)
+        assert publish_contribution_records(TASK, first, spark=spark) == 4
+
+        second = contribution_records(["2024-04-12"], [1], run_id="contrib-replace", base=30.0)
+        assert publish_contribution_records(TASK, second, spark=spark) == 2
+
+        replaced = published_contribution_rows(spark, "contrib-replace")
+        assert replaced[
+            ["trade_date", "component", "contribution_price_jpy_kwh"]
+        ].values.tolist() == [
+            ["2024-04-12", "base", 30.0],
+            ["2024-04-12", "time_code", 0.1],
+        ]
+        kept = published_contribution_rows(spark, "contrib-keep")
+        assert kept["contribution_price_jpy_kwh"].tolist() == [20.0, 0.1]
+
+    def test_defaults_to_the_active_spark_session(self, spark):
+        records = contribution_records(["2024-04-10"], [7], run_id="contrib-default-session")
+        assert publish_contribution_records(TASK, records) == 2
+        assert published_contribution_rows(spark, "contrib-default-session")[
+            "time_code"
+        ].tolist() == [7, 7]

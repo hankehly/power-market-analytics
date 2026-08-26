@@ -25,8 +25,10 @@ narrow them as the question requires.
 - **Primary metric:** MAE (JPY/kWh)
 - **Segments reported by the tooling:** day part, periods near the OCCTO
   forecast peak hour, calendar month, high-price days, bias
-  (`scripts/compare_spot_price_runs.py`); actual-price bands and the
-  calibration curve (Superset **Spot Price Forecast Analysis**)
+  (`scripts/compare_spot_price_runs.py`); actual-price bands, the calibration
+  curve, the error histogram, and the per-day SHAP waterfall (mean per
+  period) of the **Explanation (SHAP)** tab (Day filter)
+  (Superset **Spot Price Forecast Analysis**)
 - **Evaluation method:** rolling out-of-sample backtest over identical
   delivery dates and training rows for baseline and candidate; accuracy rows
   in `fct_spot_price_forecast_accuracy` after

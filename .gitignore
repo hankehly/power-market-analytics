@@ -58,3 +58,6 @@ tmp/
 # Claude Code
 .claude/worktrees/
 .claude/settings.local.json
+
+# Subagent-driven-development scratch (ledgers, briefs, review packages)
+.superpowers/

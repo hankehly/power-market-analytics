@@ -8,6 +8,9 @@ server):
 Pin ``--start-date``/``--end-date`` (and ``--train-start`` for model
 strategies) when two runs must be compared on identical delivery days and
 training rows, e.g. a feature experiment against its matched baseline.
+
+Strategies that explain their forecasts (the LightGBM ones) also publish
+their TreeSHAP contributions to ``pma_ml.spot_price_forecast_contribution``.
 """
 
 import argparse
@@ -20,7 +23,9 @@ from power_market_analytics.common.tracking import MAPE_METRIC_NAME, log_datafra
 from power_market_analytics.forecasting.backtest import daily_metrics, run_backtest
 from power_market_analytics.forecasting.plots import error_heatmaps
 from power_market_analytics.forecasting.publish import (
+    build_contribution_records,
     build_forecast_records,
+    publish_contribution_records,
     publish_forecast_records,
 )
 from power_market_analytics.tasks.spot_price import MLFLOW_EXPERIMENT, TASK
@@ -117,6 +122,21 @@ def main(argv: list[str] | None = None) -> None:
         )
         publish_forecast_records(TASK, records)
         mlflow.set_tag("warehouse_table", TASK.forecast_table)
+        contributions = strategy.contributions()
+        if contributions is None:
+            logger.info("{}: strategy produces no contributions; nothing to publish", args.strategy)
+        else:
+            contribution_records = build_contribution_records(
+                TASK,
+                contributions,
+                result,
+                run_id=mlflow_run.info.run_id,
+                strategy=args.strategy,
+                area_code=args.area,
+                published_at=records.df["published_at"].iloc[0],
+            )
+            publish_contribution_records(TASK, contribution_records)
+            mlflow.set_tag("contribution_table", TASK.contribution_table)
         heatmaps = error_heatmaps(
             TASK, result, title=f"Error by year and time code — {args.strategy}, {args.area}"
         )
@@ -149,6 +169,10 @@ def main(argv: list[str] | None = None) -> None:
     logger.info("MLflow evaluation artifacts: {}", ", ".join(sorted(evaluation.artifacts)))
     logger.info("MLflow run: {} (experiment: {})", run_id, MLFLOW_EXPERIMENT)
     logger.info("Forecasts written to {} (partition run_id={})", TASK.forecast_table, run_id)
+    if contributions is not None:
+        logger.info(
+            "Contributions written to {} (partition run_id={})", TASK.contribution_table, run_id
+        )
 
 
 if __name__ == "__main__":

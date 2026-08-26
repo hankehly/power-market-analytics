@@ -40,3 +40,7 @@ class TestDemandTask:
 
     def test_experiment_is_distinct_from_spot_price(self):
         assert demand.MLFLOW_EXPERIMENT != spot_price.MLFLOW_EXPERIMENT
+
+    def test_contribution_names(self):
+        assert TASK.contribution_table == "pma_ml.demand_forecast_contribution"
+        assert TASK.contribution_col == "contribution_demand_kwh"

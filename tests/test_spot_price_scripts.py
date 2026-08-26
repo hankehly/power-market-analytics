@@ -18,6 +18,7 @@ from tests.conftest import BASELINE_RUN_ID, CANDIDATE_RUN_ID, synthetic_price
 from tests.support import import_script
 
 FORECAST_TABLE = "pma_ml.spot_price_forecast"
+CONTRIBUTION_TABLE = "pma_ml.spot_price_forecast_contribution"
 
 
 def last_run() -> mlflow.entities.Run:
@@ -37,6 +38,15 @@ def published_rows(spark, run_id: str) -> pd.DataFrame:
         .filter(F.col("run_id") == run_id)
         .toPandas()
         .sort_values(["trade_date", "time_code"], ignore_index=True)
+    )
+
+
+def published_contribution_rows(spark, run_id: str) -> pd.DataFrame:
+    return (
+        spark.table(CONTRIBUTION_TABLE)
+        .filter(F.col("run_id") == run_id)
+        .toPandas()
+        .sort_values(["trade_date", "time_code", "component_order"], ignore_index=True)
     )
 
 
@@ -136,6 +146,10 @@ class TestBacktestScript:
         assert run.data.tags["strategy"] == "previous_day"
         assert run.data.tags["area"] == "tokyo"
         assert run.data.tags["warehouse_table"] == "pma_ml.spot_price_forecast"
+        # A naive rule has nothing to attribute: no contributions, no tag.
+        assert "contribution_table" not in run.data.tags
+        if spark.catalog.tableExists(CONTRIBUTION_TABLE):
+            assert published_contribution_rows(spark, run.info.run_id).empty
 
         artifacts = artifact_names(run.info.run_id)
         assert {
@@ -221,6 +235,11 @@ class TestBacktestScript:
         published = published_rows(spark, run.info.run_id)
         assert len(published) == 96
         assert set(published["strategy"]) == {"lightgbm"}
+        assert run.data.tags["contribution_table"] == CONTRIBUTION_TABLE
+        contributions = published_contribution_rows(spark, run.info.run_id)
+        assert contributions.groupby(["trade_date", "time_code"]).ngroups == 96
+        assert {"base", "time_code", "month", "day_of_week"} <= set(contributions["component"])
+        assert set(contributions["strategy"]) == {"lightgbm"}
 
     def test_end_date_after_the_data_is_rejected(self, spark, curated_warehouse):
         script = import_script("spot_price_backtest")

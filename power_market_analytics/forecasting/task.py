@@ -19,6 +19,9 @@ class TaskSpec:
     """Everything the generic engine, strategies, publish and plots need to know
     about one modeling task.
 
+    The contribution table and column are derived (``contribution_table``,
+    ``contribution_col``) rather than stored.
+
     Column names are not stored twice: they are read off the frame classes,
     which own the contracts.
 
@@ -63,6 +66,11 @@ class TaskSpec:
             raise ValueError(
                 f"{self.name}: forecast column differs across frames: {sorted(forecast_cols)}"
             )
+        if not self.forecast_col.startswith("forecast_"):
+            raise ValueError(
+                f"{self.name}: forecast column {self.forecast_col!r} must start with "
+                "'forecast_' (the contribution column is derived from it)"
+            )
 
     @property
     def value_col(self) -> str:
@@ -78,6 +86,25 @@ class TaskSpec:
     def actual_col(self) -> str:
         """Actual-value column of the backtest result."""
         return self.result_cls.actual_col
+
+    @property
+    def contribution_table(self) -> str:
+        """Warehouse table the run's forecast contributions are published to.
+
+        ``forecast_table`` with a ``_contribution`` suffix, e.g.
+        ``pma_ml.demand_forecast_contribution``.
+        """
+        return f"{self.forecast_table}_contribution"
+
+    @property
+    def contribution_col(self) -> str:
+        """Warehouse column of a component's contribution to the forecast.
+
+        ``forecast_col`` with its ``forecast_`` prefix swapped for
+        ``contribution_``, e.g. ``contribution_demand_kwh`` — same unit as the
+        forecast.
+        """
+        return "contribution_" + self.forecast_col.removeprefix("forecast_")
 
     def history_cutoff(self, target_date: pd.Timestamp) -> pd.Timestamp:
         """Newest delivery day a strategy may see when forecasting ``target_date``.

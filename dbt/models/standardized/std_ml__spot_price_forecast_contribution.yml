@@ -1,0 +1,69 @@
+models:
+  - name: std_ml__spot_price_forecast_contribution
+    config:
+      contract:
+        enforced: true
+    description: >
+      stg_ml__spot_price_forecast_contribution with the typed time axis
+      (trade_datetime, the start of the 30-minute delivery period, as in
+      std_ml__spot_price_forecast) and is_base (component = 'base').
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - run_id
+              - area_code
+              - trade_date
+              - time_code
+              - component
+    columns:
+      - name: run_id
+        data_type: string
+        data_tests:
+          - not_null
+      - name: strategy
+        data_type: string
+        data_tests:
+          - not_null
+      - name: area_code
+        data_type: string
+        data_tests:
+          - not_null
+      - name: trade_date
+        data_type: date
+        data_tests:
+          - not_null
+      - name: time_code
+        data_type: int
+        data_tests:
+          - not_null
+      - name: trade_datetime
+        data_type: timestamp
+        data_tests:
+          - not_null
+      - name: forecast_issued_ts
+        data_type: timestamp
+        data_tests:
+          - not_null
+      - name: component
+        data_type: string
+        data_tests:
+          - not_null
+      - name: component_order
+        data_type: int
+        data_tests:
+          - not_null
+      - name: is_base
+        data_type: boolean
+        data_tests:
+          - not_null
+      - name: feature_value
+        data_type: double
+      - name: contribution_price_jpy_kwh
+        data_type: double
+        data_tests:
+          - not_null
+      - name: published_at
+        data_type: timestamp
+        data_tests:
+          - not_null
