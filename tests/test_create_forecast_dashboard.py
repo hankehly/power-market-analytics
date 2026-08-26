@@ -428,6 +428,110 @@ DEMAND_COLUMNS = COMMON_COLUMNS_HEAD + [
     ("abs_pct_error", "DOUBLE", False),
 ]
 
+EXPLANATION_SQL_HEAD = """\
+select
+  c.date_key,
+  date_format(c.date_key, 'yyyy-MM-dd') as trade_date_label,
+  c.trade_datetime,
+  c.time_code,
+  concat(p.period_start_time, '-', p.period_end_time) as period_label,
+  p.hour_of_day,
+  p.day_part,
+  d.day_name,
+  case
+    when d.is_holiday then 'Holiday'
+    when d.is_weekend then 'Weekend'
+    else 'Weekday'
+  end as day_type,
+  a.area_code,
+  a.area_name_en,
+  c.run_id,
+  concat(
+    date_format(c.published_at, 'yyyy-MM-dd HH:mm'),
+    ' | ', a.area_code,
+    ' | ', substring(c.run_id, 1, 8)
+  ) as run_label,
+  c.strategy,
+  c.published_at,
+  c.component,
+  c.component_order,
+  concat(lpad(cast(c.component_order as string), 2, '0'), ' ', c.component) as component_label,
+  c.is_base,
+  c.feature_value,
+"""
+
+
+def explanation_sql_tail(contribution_table: str, accuracy_table: str) -> str:
+    return f"""\
+from {contribution_table} c
+join pma_curated.dim_area a on c.area_key = a.area_key
+join pma_curated.dim_delivery_period p on c.time_code = p.time_code
+join pma_curated.dim_date d on c.date_key = d.date_key
+left join {accuracy_table} f
+  on c.run_id = f.run_id
+  and c.date_key = f.date_key
+  and c.time_code = f.time_code
+  and c.area_key = f.area_key
+"""
+
+
+SPOT_EXPLANATION_SQL = (
+    EXPLANATION_SQL_HEAD
+    + """\
+  c.contribution_price_jpy_kwh,
+  f.forecast_price_jpy_kwh,
+  f.actual_price_jpy_kwh
+"""
+    + explanation_sql_tail(
+        "pma_curated.fct_spot_price_forecast_contribution",
+        "pma_curated.fct_spot_price_forecast_accuracy",
+    )
+)
+DEMAND_EXPLANATION_SQL = (
+    EXPLANATION_SQL_HEAD
+    + """\
+  c.contribution_demand_kwh / 1000 as contribution_mwh,
+  f.forecast_demand_kwh / 1000 as forecast_demand_mwh,
+  f.actual_demand_kwh / 1000 as actual_demand_mwh
+"""
+    + explanation_sql_tail(
+        "pma_curated.fct_demand_forecast_contribution",
+        "pma_curated.fct_demand_forecast_accuracy",
+    )
+)
+EXPLANATION_COLUMNS_HEAD = [
+    ("date_key", "DATE", True),
+    ("trade_date_label", "STRING", False),
+    ("trade_datetime", "TIMESTAMP", True),
+    ("time_code", "INT", False),
+    ("period_label", "STRING", False),
+    ("hour_of_day", "INT", False),
+    ("day_part", "STRING", False),
+    ("day_name", "STRING", False),
+    ("day_type", "STRING", False),
+    ("area_code", "STRING", False),
+    ("area_name_en", "STRING", False),
+    ("run_id", "STRING", False),
+    ("run_label", "STRING", False),
+    ("strategy", "STRING", False),
+    ("published_at", "TIMESTAMP", True),
+    ("component", "STRING", False),
+    ("component_order", "INT", False),
+    ("component_label", "STRING", False),
+    ("is_base", "BOOLEAN", False),
+    ("feature_value", "DOUBLE", False),
+]
+SPOT_EXPLANATION_COLUMNS = EXPLANATION_COLUMNS_HEAD + [
+    ("contribution_price_jpy_kwh", "DOUBLE", False),
+    ("forecast_price_jpy_kwh", "DOUBLE", False),
+    ("actual_price_jpy_kwh", "DOUBLE", False),
+]
+DEMAND_EXPLANATION_COLUMNS = EXPLANATION_COLUMNS_HEAD + [
+    ("contribution_mwh", "DOUBLE", False),
+    ("forecast_demand_mwh", "DOUBLE", False),
+    ("actual_demand_mwh", "DOUBLE", False),
+]
+
 
 class TestDashboardSpecs:
     def test_registry_lists_spot_price_then_demand_keyed_by_task(self, script):
@@ -535,13 +639,70 @@ class TestDashboardSpecs:
         assert demand.p90_metric["sqlExpression"] == "percentile(abs_error_mwh, 0.90)"
         assert spot.p90_metric["optionName"] == "metric_p90_abs_error"
 
+    def test_explanation_identity(self, spot, demand):
+        assert spot.explanation_dataset_name == "spot_price_forecast_explanation"
+        assert spot.contribution_table == "pma_curated.fct_spot_price_forecast_contribution"
+        assert spot.contribution_col == "contribution_price_jpy_kwh"
+        assert spot.contribution_format == "+,.3f"
+        assert demand.explanation_dataset_name == "demand_forecast_explanation"
+        assert demand.contribution_table == "pma_curated.fct_demand_forecast_contribution"
+        assert demand.contribution_col == "contribution_mwh"
+        assert demand.contribution_format == "+,.0f"
+
+    def test_explanation_dataset_sql(self, spot, demand):
+        assert spot.explanation_dataset_sql == SPOT_EXPLANATION_SQL
+        assert demand.explanation_dataset_sql == DEMAND_EXPLANATION_SQL
+
+    def test_explanation_columns_follow_the_sql(self, spot, demand):
+        assert spot.explanation_dataset_columns == SPOT_EXPLANATION_COLUMNS
+        assert demand.explanation_dataset_columns == DEMAND_EXPLANATION_COLUMNS
+
+    def test_explanation_columns_match_the_sql_select_list_in_order(self, spec):
+        select_list = spec.explanation_dataset_sql.split("\nfrom ", 1)[0].splitlines()[1:]
+        output_names = []
+        for line in select_list:
+            if m := re.fullmatch(r"\s+[cfpda]\.(\w+),?", line):
+                output_names.append(m.group(1))
+            elif m := re.search(r"\bas (\w+),?$", line):
+                output_names.append(m.group(1))
+        assert [name for name, _, _ in spec.explanation_dataset_columns] == output_names
+        assert [n for n, _, is_dttm in spec.explanation_dataset_columns if is_dttm] == [
+            "date_key",
+            "trade_datetime",
+            "published_at",
+        ]
+
+    def test_explanation_metrics(self, script, spot, demand):
+        assert spot.contribution_metric == script.avg_metric(
+            "contribution_price_jpy_kwh", "Contribution (JPY/kWh)"
+        )
+        assert demand.contribution_metric == script.avg_metric(
+            "contribution_mwh", "Contribution (MWh)"
+        )
+        assert spot.base_value_metric == script.sql_metric(
+            "avg(case when is_base then contribution_price_jpy_kwh end)", "Base value"
+        )
+        assert demand.base_value_metric["sqlExpression"] == (
+            "avg(case when is_base then contribution_mwh end)"
+        )
+        assert spot.net_effect_metric["sqlExpression"] == (
+            "avg(forecast_price_jpy_kwh) - avg(case when is_base then contribution_price_jpy_kwh end)"
+        )
+        assert demand.net_effect_metric["sqlExpression"] == (
+            "avg(forecast_demand_mwh) - avg(case when is_base then contribution_mwh end)"
+        )
+        assert demand.net_effect_metric["label"] == "Net feature effect"
+        assert demand.net_effect_metric["optionName"] == "metric_net_feature_effect"
+
 
 # --------------------------------------------------------------------------- dataset
 class TestUpsertDataset:
     def test_creates_then_overrides_columns(self, script, fake, spec):
         client = make_client(script, fake)
 
-        dataset_id = script.upsert_dataset(client, 3, spec)
+        dataset_id = script.upsert_dataset(
+            client, 3, spec.dataset_name, spec.dataset_sql, spec.dataset_columns
+        )
 
         assert dataset_id == 10
         find, create, update = fake.calls_after_login()
@@ -579,7 +740,12 @@ class TestUpsertDataset:
         fake.seed("dataset", id=5, table_name="spot_price_forecast_analysis", database=3)
         client = make_client(script, fake)
 
-        assert script.upsert_dataset(client, 3, spot) == 5
+        assert (
+            script.upsert_dataset(
+                client, 3, spot.dataset_name, spot.dataset_sql, spot.dataset_columns
+            )
+            == 5
+        )
 
         methods = [(c[0], c[1]) for c in fake.calls_after_login()]
         assert methods == [("GET", f"{BASE}/api/v1/dataset/"), ("PUT", f"{BASE}/api/v1/dataset/5")]
@@ -588,13 +754,51 @@ class TestUpsertDataset:
 
     def test_the_two_datasets_do_not_collide(self, script, fake, spot, demand):
         client = make_client(script, fake)
-        assert script.upsert_dataset(client, 3, spot) == 10
-        assert script.upsert_dataset(client, 3, demand) == 11
-        assert script.upsert_dataset(client, 3, spot) == 10
+        assert (
+            script.upsert_dataset(
+                client, 3, spot.dataset_name, spot.dataset_sql, spot.dataset_columns
+            )
+            == 10
+        )
+        assert (
+            script.upsert_dataset(
+                client, 3, demand.dataset_name, demand.dataset_sql, demand.dataset_columns
+            )
+            == 11
+        )
+        assert (
+            script.upsert_dataset(
+                client, 3, spot.dataset_name, spot.dataset_sql, spot.dataset_columns
+            )
+            == 10
+        )
         assert {r["table_name"] for r in fake.rows["dataset"].values()} == {
             "spot_price_forecast_analysis",
             "demand_forecast_analysis",
         }
+
+    def test_explanation_dataset_is_a_second_dataset_on_the_same_database(
+        self, script, fake, demand
+    ):
+        client = make_client(script, fake)
+        analysis_id = script.upsert_dataset(
+            client, 3, demand.dataset_name, demand.dataset_sql, demand.dataset_columns
+        )
+        explanation_id = script.upsert_dataset(
+            client,
+            3,
+            demand.explanation_dataset_name,
+            demand.explanation_dataset_sql,
+            demand.explanation_dataset_columns,
+        )
+        assert (analysis_id, explanation_id) == (10, 11)
+        row = fake.rows["dataset"][11]
+        assert row["table_name"] == "demand_forecast_explanation"
+        assert row["sql"] == DEMAND_EXPLANATION_SQL
+        assert row["main_dttm_col"] == "trade_datetime"
+        assert [(c["column_name"], c["type"], c["is_dttm"]) for c in row["columns"]] == (
+            DEMAND_EXPLANATION_COLUMNS
+        )
 
 
 # --------------------------------------------------------------------------- run label
