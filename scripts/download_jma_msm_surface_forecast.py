@@ -2,7 +2,7 @@
 
 Each delivery day costs one archive of three GRIB2 files, roughly 157 MB
 total (~54 GiB for a full year); downloads are sequential and throttled
-(``power_market_analytics.msm_grib.MsmDownloader``) out of politeness toward
+(``power_market_analytics.msm.MsmDownloader``) out of politeness toward
 RISH, an academic mirror with no published rate limit of its own — a full
 historical backfill is correspondingly slow and should be run detached.
 
@@ -21,8 +21,12 @@ from pathlib import Path
 
 from loguru import logger
 
-from power_market_analytics.msm import DEFAULT_BACKFILL_START, default_end_date, load_stations
-from power_market_analytics.msm_grib import MsmDownloader
+from power_market_analytics.msm import (
+    DEFAULT_BACKFILL_START,
+    MsmDownloader,
+    default_end_date,
+    load_stations,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 

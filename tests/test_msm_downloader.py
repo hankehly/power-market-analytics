@@ -22,17 +22,19 @@ from pathlib import Path
 import pytest
 import requests
 
-from power_market_analytics import msm_grib
+from power_market_analytics import msm
 from power_market_analytics.msm import (
     EARLIEST_DELIVERY_DATE,
     MSM_SURFACE_ELEMENTS,
     RAW_CSV_COLUMNS,
+    MsmDownloader,
+    MsmDownloadError,
+    MsmExtractError,
     MsmGrid,
     MsmStation,
     reference_at_for,
     source_files_for,
 )
-from power_market_analytics.msm_grib import MsmDownloader, MsmDownloadError, MsmExtractError
 from tests.msm_grib_support import build_message, day_messages
 
 DELIVERY_DATE = datetime.date(2026, 8, 19)
@@ -191,7 +193,7 @@ class TestDownloadFile:
     def test_streams_content_spanning_multiple_chunks(self, tmp_path):
         # Real archive members are far larger than one 1 MiB chunk; pad past
         # the magic-bytes header so streaming actually spans several reads.
-        content = sample_message_bytes() + b"\x00" * (2 * msm_grib.DOWNLOAD_CHUNK_BYTES)
+        content = sample_message_bytes() + b"\x00" * (2 * msm.DOWNLOAD_CHUNK_BYTES)
         sf = SOURCE_FILES[0]
         session = FakeSession({sf.url: FakeResponse(content)})
         dl = MsmDownloader(data_dir=tmp_path, session=session, request_interval=0)
@@ -346,8 +348,8 @@ class TestRetryBackoff:
             return clock["t"]
 
         sleeps: list[float] = []
-        monkeypatch.setattr(msm_grib.time, "monotonic", fake_monotonic)
-        monkeypatch.setattr(msm_grib.time, "sleep", lambda s: sleeps.append(s))
+        monkeypatch.setattr(msm.time, "monotonic", fake_monotonic)
+        monkeypatch.setattr(msm.time, "sleep", lambda s: sleeps.append(s))
         return sleeps
 
     def test_one_retry_sleeps_interval_times_one(self, tmp_path, no_throttle_sleeps):
@@ -389,8 +391,8 @@ class TestThrottle:
     def test_consecutive_requests_are_spaced_by_the_interval(self, tmp_path, monkeypatch):
         clock = {"now": 100.0}
         sleeps: list[float] = []
-        monkeypatch.setattr(msm_grib.time, "monotonic", lambda: clock["now"])
-        monkeypatch.setattr(msm_grib.time, "sleep", lambda s: sleeps.append(s))
+        monkeypatch.setattr(msm.time, "monotonic", lambda: clock["now"])
+        monkeypatch.setattr(msm.time, "sleep", lambda s: sleeps.append(s))
         sf0, sf1, sf2 = SOURCE_FILES
         session = FakeSession(
             {
@@ -563,7 +565,7 @@ class TestExtractDay:
     def test_record_count_mismatch_raises(self, tmp_path, monkeypatch):
         session = complete_session()
         dl = MsmDownloader(data_dir=tmp_path, session=session, request_interval=0)
-        monkeypatch.setattr(msm_grib, "extract_station_records", lambda *a, **k: [])
+        monkeypatch.setattr(msm, "extract_station_records", lambda *a, **k: [])
 
         with pytest.raises(MsmExtractError, match="expected 48"):
             dl.extract_day(DELIVERY_DATE, STATIONS)
@@ -597,7 +599,7 @@ class TestExtractDay:
             raise OSError("disk full")
 
         with monkeypatch.context() as m:
-            m.setattr(msm_grib.gzip, "open", boom)
+            m.setattr(msm.gzip, "open", boom)
             with pytest.raises(OSError):
                 dl.extract_day(DELIVERY_DATE, STATIONS)
 
@@ -614,7 +616,7 @@ class TestExtractDay:
             raise TypeError("not serializable")
 
         with monkeypatch.context() as m:
-            m.setattr(msm_grib.json, "dumps", boom)
+            m.setattr(msm.json, "dumps", boom)
             with pytest.raises(TypeError):
                 dl.extract_day(DELIVERY_DATE, STATIONS)
 

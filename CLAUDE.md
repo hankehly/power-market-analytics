@@ -23,7 +23,8 @@
   download + decode the three RISH GRIB2 files covering the 12 UTC D-2 run (args pass through,
   e.g. `--start-date`, `--force`, `--keep-grib`; ~157 MB per delivery day, ~54 GiB/yr), reload
   `raw`, `dbt build`. Needs a devcontainer image rebuild (`docker compose build devcontainer`)
-  for the eccodes dependency before it can run end-to-end in-container; see
+  for the eccodes dependency before it can run in-container — the load step too, since
+  `power_market_analytics/msm.py` imports eccodes at module level; see
   [docs/JMA-MSM-GPV-Retrieval.md](docs/JMA-MSM-GPV-Retrieval.md) §8.
 - `just test [pytest args]` — Python unit tests (host-side pytest, ~1 min) with a `pytest-cov`
   term-missing report over `power_market_analytics/` + `scripts/` (config in `pyproject.toml`
@@ -140,11 +141,12 @@
 - JMA MSM GPV surface forecast (one vintage per delivery day D — the 12 UTC D-2 run, leads
   28-51 = JST hour-endings 01:00-24:00 of D, safely before the demand model's 09:30 JST D-1
   cutoff): `scripts/download_jma_msm_surface_forecast.py` (`MsmDownloader` in
-  `power_market_analytics/msm_grib.py`, GRIB2 decode via eccodes with per-call
-  `codes_grib_multi_support_on()` — JMA packs many fields per message; three RISH GRIB2
-  files/day, deleted after a successful extract by default) → `data/jma/msm_surface_forecast/`
-  (one `csv.gz` extract + manifest per delivery day) → `scripts/load_jma_msm_surface_forecast.py`
-  (`MsmForecastCsvLoader` in `power_market_analytics/msm.py`, eccodes-free, contract
+  `power_market_analytics/msm.py` — the single MSM module: vintage/grid logic, the eccodes
+  GRIB2 decoder with per-call `codes_grib_multi_support_on()` — JMA packs many fields per
+  message — the downloader and the raw loader; three RISH GRIB2 files/day, deleted after a
+  successful extract by default) → `data/jma/msm_surface_forecast/` (one `csv.gz` extract +
+  manifest per delivery day) → `scripts/load_jma_msm_surface_forecast.py`
+  (`MsmForecastCsvLoader`, same module, so it needs eccodes installed too; contract
   `conf/schemas/jma_msm_surface_forecast.yaml`) → `pma_raw.jma_msm_surface_forecast` →
   `stg/std_jma__msm_surface_forecast` (JST conversion, raw UTC kept as ISO strings) →
   `fct_jma_msm_weather_forecast_hourly` (grain station_id × forecast_reference_at ×
