@@ -171,13 +171,20 @@ class AreaActualsDownloader:
         """
         return self.zip_dir / self.source.zip_name(year, month)
 
-    def download(self, year: int, month: int) -> list[Path]:
+    def download(self, year: int, month: int, today: datetime.date | None = None) -> list[Path]:
         """Download one month's archive and extract its actuals files.
 
         Parameters
         ----------
         year, month : int
             Calendar year and month of the archive.
+        today : datetime.date, optional
+            Reference date for the completeness check (default: the current
+            local date). A month whose last day is before yesterday is
+            *settled* and must hold every day; a month still being
+            published may be partial (day D's file appears on D+1 — for
+            でんき予報 at ~06:00 — so the previous month can still lack its
+            last day on the 1st).
 
         Returns
         -------
@@ -187,7 +194,10 @@ class AreaActualsDownloader:
         Raises
         ------
         AreaActualsDownloadError
-            If the response is not a zip archive or contains no actuals files.
+            If the response is not a zip archive, contains no actuals files,
+            holds a member dated outside the month (or without a date in its
+            name), or is a settled month missing a day — a valid archive with
+            one day absent would otherwise load as a silent history gap.
         requests.HTTPError
             If the TSO responds with an error status (e.g. 404 for a month
             that is not published).
@@ -212,6 +222,7 @@ class AreaActualsDownloader:
         partial.write_bytes(content)
         partial.replace(dest)
         extracted = self._extract_actuals(dest)
+        self._check_month_coverage(dest, year, month, extracted, today or datetime.date.today())
         logger.info(
             "Saved {} ({} bytes); extracted {} actuals file(s) to {}",
             dest,
@@ -220,6 +231,38 @@ class AreaActualsDownloader:
             self.csv_dir,
         )
         return extracted
+
+    @staticmethod
+    def _check_month_coverage(
+        zip_path: Path, year: int, month: int, extracted: list[Path], today: datetime.date
+    ) -> None:
+        first = datetime.date(year, month, 1)
+        month_end = (first.replace(day=28) + datetime.timedelta(days=4)).replace(
+            day=1
+        ) - datetime.timedelta(days=1)
+        found: set[datetime.date] = set()
+        for path in extracted:
+            match = _MEMBER_DATE_RE.search(path.name)
+            if match is None:
+                raise AreaActualsDownloadError(
+                    f"{zip_path}: member {path.name} has no yyyymmdd date"
+                )
+            day = datetime.datetime.strptime(match.group(0), "%Y%m%d").date()
+            if not first <= day <= month_end:
+                raise AreaActualsDownloadError(
+                    f"{zip_path}: member {path.name} is dated {day:%Y%m%d}, outside {year}-{month:02d}"
+                )
+            found.add(day)
+        if month_end < today - datetime.timedelta(days=1):
+            expected = {
+                first + datetime.timedelta(days=i) for i in range((month_end - first).days + 1)
+            }
+            missing = sorted(expected - found)
+            if missing:
+                raise AreaActualsDownloadError(
+                    f"{zip_path}: settled month {year}-{month:02d} is missing {len(missing)} day(s): "
+                    f"{[d.strftime('%Y%m%d') for d in missing[:5]]}"
+                )
 
     def download_all(self, today: datetime.date | None = None) -> list[Path]:
         """Download every month from the source's earliest month through the last one with a finished day.
@@ -255,7 +298,7 @@ class AreaActualsDownloader:
             return []
         extracted: list[Path] = []
         for year, month in month_range(first, last):
-            extracted.extend(self.download(year, month))
+            extracted.extend(self.download(year, month, today=today))
         logger.info(
             "Downloaded {} {}-{:02d}..{}-{:02d}: {} actuals file(s)",
             self.source.code,
@@ -295,6 +338,11 @@ COLUMN_COUNT = 7
 
 #: Contract ``source`` name for the file update timestamp injected by the loader.
 FILE_UPDATED_AT_SOURCE = "__file_updated_at"
+
+#: Every daily member carries its delivery date in the file name
+#: (``AREA_JISEKI_20250715.csv``, ``20250701_jisseki.csv``,
+#: ``jukyu_jisseki_20251225_06.csv``, ``20220401_power_usage.csv``).
+_MEMBER_DATE_RE = re.compile(r"\d{8}")
 
 #: A data row starts with a date — ``yyyymmdd`` (TEPCO, Kansai until
 #: 2025-12-24) or ``yyyy/mm/dd`` (Kansai from 2025-12-25) — and a time code.
