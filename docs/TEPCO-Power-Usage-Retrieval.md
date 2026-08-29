@@ -133,7 +133,8 @@ read — drops yearly rows on/after 2022-04-01, and hands the contract
 an unknown header line fails the load. Entry points:
 `scripts/download_tepco_power_usage.py` (`--force-yearly`) and
 `scripts/load_tepco_power_usage.py`; `just refresh-tepco-power-usage` runs both
-and `dbt build`. Downstream: `stg_tepco__power_usage_hourly`.
+and `dbt build` (`just refresh-tepco` refreshes this and the A-1 actuals
+together). Downstream: `stg_tepco__power_usage_hourly`.
 
 ## 7. Not ingested: the 5-minute table
 
