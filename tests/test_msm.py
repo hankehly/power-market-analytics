@@ -1,8 +1,9 @@
 """Tests for the pure MSM GPV core (run mapping, grid selection, conversions).
 
-No HTTP, no eccodes, no GRIB here — only date/time arithmetic, unit
-conversions, nearest-grid-point selection and the station-seed loader. The
-GRIB decode layer and downloader (later tasks) import these names verbatim.
+No HTTP, no GRIB here — only date/time arithmetic, unit conversions,
+nearest-grid-point selection, the station-seed loader and the raw CSV loader.
+The GRIB2 decoder and downloader in the same module are covered by
+``test_msm_grib.py`` and ``test_msm_downloader.py``.
 """
 
 from __future__ import annotations

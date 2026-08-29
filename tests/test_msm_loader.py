@@ -1,7 +1,7 @@
 """Tests for the MSM forecast raw load contract.
 
 Files are written the way :meth:`MsmDownloader.extract_day` writes them
-(``power_market_analytics.msm_grib``): gzip CSV, header ``RAW_CSV_COLUMNS``,
+(``power_market_analytics.msm``): gzip CSV, header ``RAW_CSV_COLUMNS``,
 floats as ``str(round(v, 6))``, timestamps as ``"...Z"`` strings, ``None`` as
 an empty cell — loaded through the real
 ``conf/schemas/jma_msm_surface_forecast.yaml`` contract and
