@@ -1,0 +1,50 @@
+models:
+  - name: stg_tepco__power_usage_hourly
+    config:
+      contract:
+        enforced: true
+    description: >
+      As-is representation of pma_raw.tepco_power_usage_hourly (TEPCO でんき予報
+      hourly 電力使用状況: Tokyo-area 1時間平均 demand in 万kW, 2016-04-01 →).
+      One row per target_date and hour_start. Column documentation lives on
+      the source (models/raw/tepco.yml).
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - target_date
+              - hour_start
+    columns:
+      - name: target_date
+        data_type: date
+        data_tests:
+          - not_null
+      - name: hour_start
+        data_type: int
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 23
+      - name: demand_mankw
+        data_type: double
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+      - name: forecast_mankw
+        data_type: double
+      - name: usage_rate_pct
+        data_type: double
+      - name: supply_capacity_mankw
+        data_type: double
+      - name: file_updated_at
+        data_type: timestamp
+        data_tests:
+          - not_null
+      - name: source_file
+        data_type: string
+        data_tests:
+          - not_null
