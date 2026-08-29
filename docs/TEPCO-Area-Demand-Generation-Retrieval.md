@@ -120,6 +120,13 @@ downloader.download_all()                    # 2022-04 .. current month
 # csvs  -> data/tepco/area_demand_generation/csv/AREA_JISEKI_YYYYMMDD.csv
 ```
 
+The downloader also checks each archive's member dates: every member must be
+dated inside its month, and a *settled* month (last day before yesterday) must
+hold every day — an archive that is valid but omits a day would otherwise load
+as a silent gap the grain tests cannot see. The running month may be partial,
+and on the 1st the running month is skipped altogether (nothing is finished
+yet).
+
 The loader reads the CSVs positionally (`_c0`..`_c6`, contract
 `conf/schemas/tepco_area_demand_generation_actual.yaml`), verifies each
 file's column-header line against the spec, filters to the 48 data rows,

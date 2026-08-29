@@ -125,7 +125,8 @@ hours each, since a cached gap would survive every refresh without
 `--force-yearly` — and `download_all(force_yearly=False)` runs the yearly
 files then the monthly archives, whose daily members are extracted into the
 same `csv/` folder (on the 1st of a month the running month is skipped: it
-has no finished day yet). `TepcoPowerUsageCsvLoader` (a `CsvLoader`) reads
+has no finished day yet; a settled month — last day before yesterday — must
+hold a member for every day, the running month may be partial). `TepcoPowerUsageCsvLoader` (a `CsvLoader`) reads
 each file with `parse_hourly` — the hourly table under the first accepted
 header line, ending at the first blank line, so the 5-minute table is never
 read; every day in the block must cover hours 0–23 exactly once and a daily

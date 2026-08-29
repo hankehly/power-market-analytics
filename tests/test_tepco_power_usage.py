@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import datetime
+import io
 import re
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -288,6 +290,22 @@ def yearly_response(year: int) -> FakeResponse:
     return FakeResponse(full_year_text(year).encode("cp932"), content_type="text/csv")
 
 
+def month_zip(year: int, month: int, through: int | None = None) -> bytes:
+    """A monthly archive with one daily member per day (all days unless ``through``)."""
+    last = (
+        through
+        or (datetime.date(year + month // 12, month % 12 + 1, 1) - datetime.timedelta(days=1)).day
+    )
+    return make_zip(
+        {
+            f"{year}{month:02d}{day:02d}_power_usage.csv": daily_file_text(
+                date=f"{year}/{month}/{day}", updated=f"{year}/{month}/{day} 23:55"
+            ).encode("cp932")
+            for day in range(1, last + 1)
+        }
+    )
+
+
 YEARLY_2016 = full_year_text(2016).encode("cp932")
 
 
@@ -366,15 +384,20 @@ class TestTepcoPowerUsageDownloader:
             dl.download_yearly(2016)
         assert not (tmp_path / "csv" / "juyo-2016.csv").exists()
 
+    def test_download_all_rejects_a_settled_month_with_a_missing_day(self, tmp_path):
+        responses = {yearly_url(y): yearly_response(y) for y in YEARLY_YEARS}
+        april = zipfile.ZipFile(io.BytesIO(month_zip(2022, 4)))
+        members = {n: april.read(n) for n in april.namelist() if n != "20220415_power_usage.csv"}
+        responses[TEPCO_POWER_USAGE.zip_url(2022, 4)] = FakeResponse(make_zip(members))
+        dl = TepcoPowerUsageDownloader(data_dir=tmp_path, session=RoutingSession(responses))
+
+        with pytest.raises(AreaActualsDownloadError, match="20220415"):
+            dl.download_all(today=datetime.date(2022, 5, 15))
+
     def test_download_all_fetches_every_yearly_file_then_every_month(self, tmp_path):
         responses = {yearly_url(y): yearly_response(y) for y in YEARLY_YEARS}
-        daily = daily_file_text().encode("cp932")
-        responses[TEPCO_POWER_USAGE.zip_url(2022, 4)] = FakeResponse(
-            make_zip({"20220401_power_usage.csv": daily})
-        )
-        responses[TEPCO_POWER_USAGE.zip_url(2022, 5)] = FakeResponse(
-            make_zip({"20220501_power_usage.csv": daily})
-        )
+        responses[TEPCO_POWER_USAGE.zip_url(2022, 4)] = FakeResponse(month_zip(2022, 4))
+        responses[TEPCO_POWER_USAGE.zip_url(2022, 5)] = FakeResponse(month_zip(2022, 5, through=14))
         session = RoutingSession(responses)
         dl = TepcoPowerUsageDownloader(data_dir=tmp_path, session=session)
 
@@ -385,17 +408,16 @@ class TestTepcoPowerUsageDownloader:
             TEPCO_POWER_USAGE.zip_url(2022, 4),
             TEPCO_POWER_USAGE.zip_url(2022, 5),
         ]
-        assert paths == [
-            *(tmp_path / "csv" / f"juyo-{y}.csv" for y in YEARLY_YEARS),
-            tmp_path / "csv" / "20220401_power_usage.csv",
-            tmp_path / "csv" / "20220501_power_usage.csv",
+        assert paths[: len(YEARLY_YEARS)] == [
+            tmp_path / "csv" / f"juyo-{y}.csv" for y in YEARLY_YEARS
         ]
+        assert paths[len(YEARLY_YEARS)] == tmp_path / "csv" / "20220401_power_usage.csv"
+        assert paths[-1] == tmp_path / "csv" / "20220514_power_usage.csv"
+        assert len(paths) == len(YEARLY_YEARS) + 30 + 14
 
     def test_download_all_can_force_the_yearly_files(self, tmp_path):
         responses = {yearly_url(y): yearly_response(y) for y in YEARLY_YEARS}
-        responses[TEPCO_POWER_USAGE.zip_url(2022, 4)] = FakeResponse(
-            make_zip({"20220401_power_usage.csv": daily_file_text().encode("cp932")})
-        )
+        responses[TEPCO_POWER_USAGE.zip_url(2022, 4)] = FakeResponse(month_zip(2022, 4, through=9))
         session = RoutingSession(responses)
         dl = TepcoPowerUsageDownloader(data_dir=tmp_path, session=session)
         dl.download_all(today=datetime.date(2022, 4, 10))
@@ -409,9 +431,8 @@ class TestTepcoPowerUsageDownloader:
 
     def test_download_all_skips_the_current_month_on_day_one(self, tmp_path):
         responses = {yearly_url(y): yearly_response(y) for y in YEARLY_YEARS}
-        responses[TEPCO_POWER_USAGE.zip_url(2022, 4)] = FakeResponse(
-            make_zip({"20220401_power_usage.csv": daily_file_text().encode("cp932")})
-        )
+        # The previous month may still lack its last day on the 1st (posted ~06:00).
+        responses[TEPCO_POWER_USAGE.zip_url(2022, 4)] = FakeResponse(month_zip(2022, 4, through=29))
         session = RoutingSession(responses)
         dl = TepcoPowerUsageDownloader(data_dir=tmp_path, session=session)
 
@@ -419,7 +440,7 @@ class TestTepcoPowerUsageDownloader:
 
         assert [url for url, _ in session.calls][-1] == TEPCO_POWER_USAGE.zip_url(2022, 4)
         assert TEPCO_POWER_USAGE.zip_url(2022, 5) not in [url for url, _ in session.calls]
-        assert paths[-1] == tmp_path / "csv" / "20220401_power_usage.csv"
+        assert paths[-1] == tmp_path / "csv" / "20220429_power_usage.csv"
 
 
 # --- load contract + loader -------------------------------------------------
