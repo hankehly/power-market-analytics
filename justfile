@@ -89,6 +89,15 @@ refresh-tepco: ingest-tepco
     just dbt build
 
 [private]
+ingest-tepco-power-usage *args:
+    just python scripts/download_tepco_power_usage.py {{args}}
+    just python scripts/load_tepco_power_usage.py
+
+[doc("Refresh TEPCO でんき予報 hourly 電力使用実績: fetch the yearly files (cached; args pass through, e.g. --force-yearly), redownload all monthly archives, reload raw, rebuild + test dbt")]
+refresh-tepco-power-usage *args: (ingest-tepco-power-usage args)
+    just dbt build
+
+[private]
 ingest-kansai:
     just python scripts/download_kansai_area_demand_generation.py
     just python scripts/load_kansai_area_demand_generation.py
@@ -116,7 +125,7 @@ refresh-msm *args: (ingest-msm args)
     just dbt build
 
 [doc("Refresh every data source (JEPX, JMA hourly, OCCTO, TEPCO, Kansai, e-Stat, MSM) with a single dbt build at the end: each ingest step runs with its defaults (no args forwarded; warm caches make it ~1.5 h, dominated by JMA's current-year files); a failing step aborts before the build")]
-refresh-all: ingest-jepx ingest-jma ingest-occto ingest-tepco ingest-kansai ingest-estat ingest-msm
+refresh-all: ingest-jepx ingest-jma ingest-occto ingest-tepco ingest-tepco-power-usage ingest-kansai ingest-estat ingest-msm
     just dbt build
 
 [doc("Run the Python unit tests with a coverage report (pytest, host-side; uses a local SparkSession)")]

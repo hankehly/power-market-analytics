@@ -1,0 +1,28 @@
+description: >
+  TEPCO Power Grid でんき予報 過去の電力使用実績 — Tokyo-area hourly 電力使用状況:
+  the 1時間平均 demand of each hour in 万kW (1 万kW = 10 MW), as published on
+  https://www.tepco.co.jp/forecast/html/download-j.html. Two packagings feed
+  one table: the yearly juyo-YYYY.csv files (2016 … 2022; DATE,TIME,実績(万kW))
+  and, from 2022-04-01, the daily YYYYMMDD_power_usage.csv members of the
+  monthly YYYYMM_power_usage.zip archives, whose hourly table also carries
+  予測値 (the day's last intraday forecast, not a day-ahead one), 使用率 and
+  供給力. The daily files hold a 5-minute table as well; it is a separate
+  速報 measurement and is not loaded. Files are pre-parsed in Python by
+  TepcoPowerUsageCsvLoader (multi-section layout; contract sources are the
+  __-prefixed names it emits); yearly rows on or after 2022-04-01 are dropped
+  so the daily files win. file_updated_at is the file's UPDATE stamp. TEPCO
+  writes 0 for hours not yet 確定 (none in the archives); std nulls them.
+  Format, quirks and the comparison against the A-1 series:
+  docs/TEPCO-Power-Usage-Retrieval.md.
+
+grain: [target_date, hour_start]
+
+columns:
+  - { name: target_date, source: __target_date, type: date, format: yyyyMMdd, nullable: false }
+  - { name: hour_start, source: __hour_start, type: int, nullable: false }
+  - { name: demand_mankw, source: __demand_mankw, type: double, nullable: false }
+  - { name: forecast_mankw, source: __forecast_mankw, type: double }
+  - { name: usage_rate_pct, source: __usage_rate_pct, type: double }
+  - { name: supply_capacity_mankw, source: __supply_capacity_mankw, type: double }
+  - { name: file_updated_at, source: __file_updated_at, type: timestamp, format: yyyyMMdd HH:mm:ss, nullable: false }
+  - { name: source_file, source: __source_file, type: string, nullable: false }
