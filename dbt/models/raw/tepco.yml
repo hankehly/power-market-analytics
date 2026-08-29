@@ -2,13 +2,18 @@ sources:
   - name: tepco
     schema: pma_raw
     description: >
-      TEPCO Power Grid (東京電力パワーグリッド) public エリア需要・発電情報 for the
-      Tokyo service area, downloaded from the monthly archives linked on
+      TEPCO Power Grid (東京電力パワーグリッド) public datasets for the Tokyo
+      service area, one table per dataset: the エリア需要・発電情報 30-minute
+      actuals downloaded from the monthly archives linked on
       https://www.tepco.co.jp/forecast/html/area-download-j.html by
       scripts/download_tepco_area_demand_generation.py and loaded by
-      scripts/load_tepco_area_demand_generation.py (full reload). Archive
-      layout, CSV format and quirks are documented in
-      docs/TEPCO-Area-Demand-Generation-Retrieval.md.
+      scripts/load_tepco_area_demand_generation.py (full reload; archive
+      layout, CSV format and quirks in
+      docs/TEPCO-Area-Demand-Generation-Retrieval.md), and the でんき予報
+      hourly 電力使用実績 from
+      https://www.tepco.co.jp/forecast/html/download-j.html
+      (scripts/download_tepco_power_usage.py / load_tepco_power_usage.py;
+      docs/TEPCO-Power-Usage-Retrieval.md).
     tables:
       - name: tepco_area_demand_generation_actual
         description: >
@@ -58,5 +63,61 @@ sources:
               File creation timestamp from the file's metadata line
               (ファイル更新日 + ファイル更新時間); ~00:05 on target_date + 1 for
               nearly every day, later for the few days TEPCO re-issued.
+            data_tests:
+              - not_null
+      - name: tepco_power_usage_hourly
+        description: >
+          でんき予報 過去の電力使用実績: Tokyo-area hourly 電力使用状況 — the
+          1時間平均 demand of each hour in 万kW (1 万kW = 10 MW) — from the
+          yearly juyo-YYYY.csv files (2016-04-01 → 2022-03-31) and, from
+          2022-04-01, the hourly table of the daily YYYYMMDD_power_usage.csv
+          members of the monthly YYYYMM_power_usage.zip archives (downloaded
+          by scripts/download_tepco_power_usage.py, loaded by
+          scripts/load_tepco_power_usage.py, full reload). The daily files also
+          hold a 5-minute table (当日実績 + 太陽光); it is not loaded. One row
+          per target date and hour (0-23); grain enforced at load time.
+          History starts 2016-04-01 and runs through yesterday. A display
+          series distinct from the A-1 actuals (integer 万kW, never revised;
+          differs from A-1 by ~0.05 % MAE over their overlap). Load contract:
+          conf/schemas/tepco_power_usage_hourly.yaml; format, quirks and the
+          A-1 comparison in docs/TEPCO-Power-Usage-Retrieval.md.
+        columns:
+          - name: target_date
+            description: Delivery date (DATE).
+            data_tests:
+              - not_null
+          - name: hour_start
+            description: >
+              Hour the value covers, 0-23: TIME "h:00" is the hour from h:00
+              to h+1:00 (JEPX time codes 2h+1 and 2h+2).
+            data_tests:
+              - not_null
+          - name: demand_mankw
+            description: >
+              Area demand averaged over the hour (実績 / 当日実績), in 万kW.
+              TEPCO writes 0 for hours not yet 確定 (none in the archives).
+            data_tests:
+              - not_null
+          - name: forecast_mankw
+            description: >
+              TEPCO's hourly demand forecast (予測値) as of the file's UPDATE
+              stamp — the day's last intraday revision, not a day-ahead
+              forecast; null before 2022-04-01 (yearly files carry the actual
+              only).
+          - name: usage_rate_pct
+            description: 使用率(%) for the hour; null before 2022-04-01.
+          - name: supply_capacity_mankw
+            description: 供給力(万kW) for the hour; null before 2022-04-01.
+          - name: file_updated_at
+            description: >
+              The file's UPDATE stamp (first line): typically 23:55 of the
+              target day for the daily files, the generation date of a yearly
+              file (e.g. 2018-01-01 18:10 for juyo-2016.csv).
+            data_tests:
+              - not_null
+          - name: source_file
+            description: >
+              File the row was read from (juyo-YYYY.csv or
+              YYYYMMDD_power_usage.csv).
             data_tests:
               - not_null

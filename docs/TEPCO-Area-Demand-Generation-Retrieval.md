@@ -104,8 +104,8 @@ reason the loader checks the header text of every file it reads.
 The download/extract and the positional load are the shared
 `AreaActualsDownloader` / `AreaActualsCsvLoader` in
 `power_market_analytics/area_actuals.py`, driven by a per-TSO
-`AreaActualsSource` spec; `power_market_analytics/tepco.py` supplies the
-`TEPCO` spec (URL template, 2022-04, `AREA_JISEKI_*` member regex, the one
+`AreaActualsSource` spec; `power_market_analytics/tepco/area_demand_generation.py`
+(re-exported by the `tepco` package) supplies the `TEPCO` spec (URL template, 2022-04, `AREA_JISEKI_*` member regex, the one
 accepted column-header line) plus thin `TepcoAreaDownloader` and
 `TepcoAreaCsvLoader` subclasses. The Kansai feed reuses the
 same classes ([Kansai doc](Kansai-Area-Demand-Generation-Retrieval.md)).
@@ -120,6 +120,13 @@ downloader.download_all()                    # 2022-04 .. current month
 # csvs  -> data/tepco/area_demand_generation/csv/AREA_JISEKI_YYYYMMDD.csv
 ```
 
+The downloader also checks each archive's member dates: every member must be
+dated inside its month, and a *settled* month (last day before yesterday) must
+hold every day — an archive that is valid but omits a day would otherwise load
+as a silent gap the grain tests cannot see. The running month may be partial,
+and on the 1st the running month is skipped altogether (nothing is finished
+yet).
+
 The loader reads the CSVs positionally (`_c0`..`_c6`, contract
 `conf/schemas/tepco_area_demand_generation_actual.yaml`), verifies each
 file's column-header line against the spec, filters to the 48 data rows,
@@ -127,7 +134,7 @@ injects `file_updated_at` from the metadata line, and full-reloads
 `pma_raw.tepco_area_demand_generation_actual`. End to end:
 
 ```bash
-just refresh-tepco
+just refresh-tepco-area-demand-generation
 # = just python scripts/download_tepco_area_demand_generation.py
 #   just python scripts/load_tepco_area_demand_generation.py
 #   just dbt build

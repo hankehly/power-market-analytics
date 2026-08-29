@@ -142,6 +142,35 @@ class TestDownloadTepcoAreaDemandGeneration:
         assert seen == {"data_dir": Path("data/tepco/area_demand_generation"), "download_all": True}
 
 
+class TestDownloadTepcoPowerUsage:
+    @pytest.fixture
+    def fake(self, monkeypatch):
+        module = import_script("download_tepco_power_usage")
+        seen: dict = {}
+
+        class FakeDownloader:
+            def __init__(self, data_dir):
+                seen["data_dir"] = data_dir
+                self.csv_dir = Path(data_dir) / "csv"
+
+            def download_all(self, force_yearly=False):
+                seen["force_yearly"] = force_yearly
+                return [self.csv_dir / "juyo-2016.csv", self.csv_dir / "20220401_power_usage.csv"]
+
+        monkeypatch.setattr(module, "TepcoPowerUsageDownloader", FakeDownloader)
+        return module, seen
+
+    def test_default_data_dir_and_cached_yearly_files(self, fake):
+        module, seen = fake
+        module.main([])
+        assert seen == {"data_dir": Path("data/tepco/power_usage"), "force_yearly": False}
+
+    def test_data_dir_override_and_force_yearly(self, fake, tmp_path):
+        module, seen = fake
+        module.main(["--data-dir", str(tmp_path), "--force-yearly"])
+        assert seen == {"data_dir": tmp_path, "force_yearly": True}
+
+
 class TestDownloadEstatCensusPopulationMesh:
     @pytest.fixture
     def fake(self, monkeypatch):
