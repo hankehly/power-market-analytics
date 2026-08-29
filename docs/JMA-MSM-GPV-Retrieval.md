@@ -10,9 +10,8 @@ how to run/operate the pipeline (`just refresh-msm`). It mirrors the depth of
 [docs/OCCTO-Demand-Forecast-Retrieval.md](OCCTO-Demand-Forecast-Retrieval.md).
 
 Source of truth for the constants and logic described here: `power_market_analytics/msm.py`
-(pure logic — vintage arithmetic, grid geometry, nearest-neighbour selection, unit
-conversions, no eccodes) and `power_market_analytics/msm_grib.py` (GRIB2 decoding and the
-downloader; the only module in the pipeline that imports eccodes). Load contract:
+— one module: vintage arithmetic, grid geometry, nearest-neighbour selection, unit
+conversions, the ecCodes GRIB2 decoder, the downloader and the raw loader. Load contract:
 `conf/schemas/jma_msm_surface_forecast.yaml`. Every GRIB2 element/grid fact in
 [§5](#5-grib2-decoding) was verified empirically against a real archive member during the
 pipeline's one-day end-to-end run ([§9](#9-verification-results-one-day-end-to-end-2026-08-21));
@@ -139,7 +138,7 @@ FH34-39 26,238,929 bytes, FH40-51 52,477,745 bytes — **~157 MB total per deliv
 
 ## 5. GRIB2 decoding
 
-`power_market_analytics.msm_grib.extract_station_records` walks a downloaded archive
+`power_market_analytics.msm.extract_station_records` walks a downloaded archive
 member's GRIB2 messages with ecCodes, identifies each one **by metadata, never by position
 in the file**, samples the grid at the point nearest every station, and returns one record
 per station and forecast hour. The decoder is deliberately strict — see the module
@@ -405,15 +404,16 @@ repo but the single largest per-day volume of any of them; a full historical bac
 only when actively debugging a decode issue, given the disk cost.
 
 **The devcontainer image must be rebuilt** (`docker compose build devcontainer`) before
-`just refresh-msm` can run end-to-end inside it — the baked venv predates the `eccodes` /
+`just refresh-msm` can run inside it — the baked venv predates the `eccodes` /
 `eccodeslib` dependency this pipeline added (`pyproject.toml`, `uv.lock`). Until that rebuild
 happens, the download+extract step can still run **host-side**
 (`uv run python scripts/download_jma_msm_surface_forecast.py ...`, no Spark/metastore
-needed) because `msm_grib.py`'s eccodes import only matters there; the load step
-(`just python scripts/load_jma_msm_surface_forecast.py`) works regardless of the
-devcontainer's eccodes state, because the load path (`power_market_analytics/msm.py`,
-`MsmForecastCsvLoader`) is **eccodes-free by design** — all eccodes code lives in
-`msm_grib.py`, imported only by the extraction/download path, never by the raw loader.
+needed). The load step (`just python scripts/load_jma_msm_surface_forecast.py`) needs the
+rebuilt image as well: `MsmForecastCsvLoader` lives in the same `power_market_analytics/msm.py`
+as the decoder, which imports eccodes at module level. (The pipeline originally kept the
+loader in an eccodes-free `msm.py` and the decoder/downloader in a separate `msm_grib.py`
+so loading could run in the old image; the split was dropped on 2026-08-29 — rebuilding the
+image is cheap enough not to warrant it.)
 
 ### 8.3 Resume behavior
 
@@ -502,7 +502,7 @@ retries, and the resumable cache picked up at the first missing day on relaunch.
 
 ### 9.3 Downloader/loader
 
-The 100%-coverage unit test suites for `msm.py`/`msm_grib.py`
+The 100%-coverage unit test suites for `msm.py`
 (`tests/test_msm.py`, `tests/test_msm_grib.py`, `tests/test_msm_downloader.py`,
 `tests/test_msm_loader.py`, `tests/test_msm_scripts.py`) all remained green through this
 verification, alongside the real-file run.
