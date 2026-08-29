@@ -67,6 +67,31 @@ DAILY_FILES_FROM = datetime.date(2022, 4, 1)
 YEARLY_URL_TEMPLATE = "https://www.tepco.co.jp/forecast/html/images/juyo-{year}.csv"
 #: Calendar years published as yearly files (the 2022 file runs to December).
 YEARLY_YEARS = range(2016, 2023)
+#: First day of the published history (the 2016 file starts here, not on Jan 1).
+HISTORY_START = datetime.date(2016, 4, 1)
+
+
+def expected_yearly_dates(year: int) -> list[str]:
+    """Every delivery date a yearly file must cover, as ``yyyyMMdd``.
+
+    The whole calendar year, except that 2016 starts at :data:`HISTORY_START`.
+
+    Parameters
+    ----------
+    year : int
+        Calendar year of the ``juyo-YYYY.csv`` file.
+
+    Returns
+    -------
+    list of str
+    """
+    first = max(datetime.date(year, 1, 1), HISTORY_START)
+    last = datetime.date(year, 12, 31)
+    return [
+        (first + datetime.timedelta(days=offset)).strftime("%Y%m%d")
+        for offset in range((last - first).days + 1)
+    ]
+
 
 TEPCO_POWER_USAGE = AreaActualsSource(
     code="tepco_power_usage",
@@ -181,8 +206,9 @@ def parse_hourly(file: Path | str) -> HourlyFile:
     ------
     ValueError
         If the stamp is missing, no accepted header is found, the block is
-        empty, or a row is malformed (field count, date, or a TIME that is
-        not on the hour).
+        empty, a row is malformed (field count, date, or a TIME that is not
+        on the hour), a day does not cover hours 0–23 exactly once, or a
+        daily file holds more than one target date.
     """
     with open(file, encoding=_ENCODING) as f:
         lines = [line.rstrip("\r\n") for line in f]
@@ -204,7 +230,31 @@ def parse_hourly(file: Path | str) -> HourlyFile:
         rows.append(_parse_row(file, line, header))
     if not rows:
         raise ValueError(f"{file}: no hourly rows under the header {header!r}")
+    _check_complete(file, header, rows)
     return HourlyFile(file_updated_at=file_updated_at, header=header, rows=rows)
+
+
+def _check_complete(file: Path | str, header: str, rows: list[HourlyRow]) -> None:
+    """Require every day in the block to carry hours 0–23 exactly once.
+
+    A truncated file that still ends in a well-formed row and a blank line
+    would otherwise load as a day with absent hours — a gap the grain
+    uniqueness check downstream cannot see. A daily file must also hold a
+    single target date.
+    """
+    hours_by_date: dict[str, list[int]] = {}
+    for row in rows:
+        hours_by_date.setdefault(row.target_date, []).append(row.hour_start)
+    if header == DAILY_HOURLY_HEADER and len(hours_by_date) != 1:
+        raise ValueError(
+            f"{file}: a daily file must hold exactly one target date, found {sorted(hours_by_date)}"
+        )
+    for target_date, hours in hours_by_date.items():
+        if sorted(hours) != list(range(24)):
+            raise ValueError(
+                f"{file}: {target_date} does not cover hours 0-23 exactly once "
+                f"(got {sorted(hours)}) — truncated or duplicated block?"
+            )
 
 
 class TepcoPowerUsageDownloader(AreaActualsDownloader):
@@ -259,7 +309,11 @@ class TepcoPowerUsageDownloader(AreaActualsDownloader):
         ------
         AreaActualsDownloadError
             If the response is not a yearly file (its first lines lack the
-            hourly header — e.g. an HTML maintenance page).
+            hourly header — e.g. an HTML maintenance page), does not parse
+            as one, or does not cover every day of the year
+            (:func:`expected_yearly_dates`) with 24 hours each — a cached
+            file is only refetched with ``force``, so a gap must never be
+            cached.
         requests.HTTPError
             If TEPCO responds with an error status.
         """
@@ -282,9 +336,32 @@ class TepcoPowerUsageDownloader(AreaActualsDownloader):
         self.csv_dir.mkdir(parents=True, exist_ok=True)
         partial = dest.with_name(dest.name + ".part")
         partial.write_bytes(content)
+        try:
+            self._check_yearly_coverage(url, partial, year)
+        except AreaActualsDownloadError:
+            partial.unlink()
+            raise
         partial.replace(dest)
         logger.info("Saved {} ({} bytes)", dest, dest.stat().st_size)
         return dest
+
+    @staticmethod
+    def _check_yearly_coverage(url: str, file: Path, year: int) -> None:
+        try:
+            parsed = parse_hourly(file)
+        except ValueError as exc:
+            raise AreaActualsDownloadError(f"{url} returned an invalid yearly file: {exc}") from exc
+        expected = expected_yearly_dates(year)
+        found = sorted({row.target_date for row in parsed.rows})
+        if found != expected:
+            missing = sorted(set(expected) - set(found))
+            extra = sorted(set(found) - set(expected))
+            raise AreaActualsDownloadError(
+                f"{url} does not cover {expected[0][:4]}-{expected[0][4:6]}-{expected[0][6:]} → "
+                f"{expected[-1][:4]}-{expected[-1][4:6]}-{expected[-1][6:]}: "
+                f"{len(missing)} day(s) missing (first {missing[:3]}), "
+                f"{len(extra)} unexpected (first {extra[:3]})"
+            )
 
     def download_all(
         self, today: datetime.date | None = None, force_yearly: bool = False

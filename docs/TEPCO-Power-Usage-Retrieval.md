@@ -119,13 +119,19 @@ paths = downloader.download_all()                   # yearly files (cached) + ev
 
 `TepcoPowerUsageDownloader` extends the shared `AreaActualsDownloader` with
 the yearly files: `download_yearly(year, force=False)` fetches
-`csv/juyo-YYYY.csv` once (a response without the hourly header — e.g. an HTML
-maintenance page — is rejected), and `download_all(force_yearly=False)` runs
-the yearly files then the monthly archives, whose daily members are extracted
-into the same `csv/` folder. `TepcoPowerUsageCsvLoader` (a `CsvLoader`) reads
+`csv/juyo-YYYY.csv` once — a response is cached only if it carries the hourly
+header, parses, and covers every day of the year (2016 from 04-01) with 24
+hours each, since a cached gap would survive every refresh without
+`--force-yearly` — and `download_all(force_yearly=False)` runs the yearly
+files then the monthly archives, whose daily members are extracted into the
+same `csv/` folder (on the 1st of a month the running month is skipped: it
+has no finished day yet). `TepcoPowerUsageCsvLoader` (a `CsvLoader`) reads
 each file with `parse_hourly` — the hourly table under the first accepted
 header line, ending at the first blank line, so the 5-minute table is never
-read — drops yearly rows on/after 2022-04-01, and hands the contract
+read; every day in the block must cover hours 0–23 exactly once and a daily
+file exactly one date, so a truncated member fails the load instead of
+publishing a day with missing hours — drops yearly rows on/after 2022-04-01,
+and hands the contract
 `conf/schemas/tepco_power_usage_hourly.yaml` string columns named
 `__target_date`, `__hour_start`, `__demand_mankw`, `__forecast_mankw`,
 `__usage_rate_pct`, `__supply_capacity_mankw`, `__file_updated_at`,
