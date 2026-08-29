@@ -16,6 +16,7 @@
 - [JMA MSM GPV Retrieval](JMA-MSM-GPV-Retrieval.md)
 - [OCCTO Demand Forecast Retrieval](OCCTO-Demand-Forecast-Retrieval.md)
 - [TEPCO Area Demand & Generation Retrieval](TEPCO-Area-Demand-Generation-Retrieval.md)
+- [TEPCO でんき予報 Power Usage Retrieval](TEPCO-Power-Usage-Retrieval.md)
 - [Kansai Area Demand & Generation Retrieval](Kansai-Area-Demand-Generation-Retrieval.md)
 - [e-Stat Census Population Mesh Retrieval](eStat-Census-Population-Mesh-Retrieval.md)
 - [Kimball Dimensional Modeling Techniques](Kimball-Dimensional-Modeling-Techniques.md)

@@ -80,12 +80,25 @@ refresh-occto: ingest-occto
     just dbt build
 
 [private]
-ingest-tepco:
+ingest-tepco-area-demand-generation:
     just python scripts/download_tepco_area_demand_generation.py
     just python scripts/load_tepco_area_demand_generation.py
 
-[doc("Refresh TEPCO Tokyo-area demand/generation actuals: redownload all monthly archives, reload raw, rebuild + test dbt")]
-refresh-tepco: ingest-tepco
+[doc("Refresh TEPCO エリア需要・発電情報 (Tokyo-area 30-min demand/generation actuals): redownload all monthly archives, reload raw, rebuild + test dbt")]
+refresh-tepco-area-demand-generation: ingest-tepco-area-demand-generation
+    just dbt build
+
+[private]
+ingest-tepco-power-usage *args:
+    just python scripts/download_tepco_power_usage.py {{args}}
+    just python scripts/load_tepco_power_usage.py
+
+[doc("Refresh TEPCO でんき予報 hourly 電力使用実績: fetch the yearly files (cached; args pass through, e.g. --force-yearly), redownload all monthly archives, reload raw, rebuild + test dbt")]
+refresh-tepco-power-usage *args: (ingest-tepco-power-usage args)
+    just dbt build
+
+[doc("Refresh every TEPCO dataset (エリア需要・発電情報 actuals + でんき予報 hourly 電力使用実績): reload raw for both, then one dbt build")]
+refresh-tepco: ingest-tepco-area-demand-generation ingest-tepco-power-usage
     just dbt build
 
 [private]
@@ -116,7 +129,7 @@ refresh-msm *args: (ingest-msm args)
     just dbt build
 
 [doc("Refresh every data source (JEPX, JMA hourly, OCCTO, TEPCO, Kansai, e-Stat, MSM) with a single dbt build at the end: each ingest step runs with its defaults (no args forwarded; warm caches make it ~1.5 h, dominated by JMA's current-year files); a failing step aborts before the build")]
-refresh-all: ingest-jepx ingest-jma ingest-occto ingest-tepco ingest-kansai ingest-estat ingest-msm
+refresh-all: ingest-jepx ingest-jma ingest-occto ingest-tepco-area-demand-generation ingest-tepco-power-usage ingest-kansai ingest-estat ingest-msm
     just dbt build
 
 [doc("Run the Python unit tests with a coverage report (pytest, host-side; uses a local SparkSession)")]

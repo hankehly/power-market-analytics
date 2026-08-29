@@ -153,7 +153,7 @@ class CsvLoader:
         """
         files = self._resolve_files()
         logger.info("Loading {} file(s) into {}: {}", len(files), self.table, files)
-        df = reduce(DataFrame.unionByName, (self._read_file(f) for f in files))
+        df = self._read_all(files)
         df.cache()
         try:
             n_rows = df.count()
@@ -178,6 +178,26 @@ class CsvLoader:
         if not files:
             raise FileNotFoundError(f"No CSV files found at {self.filepath}")
         return files
+
+    def _read_all(self, files: list[str]) -> DataFrame:
+        """Read every file into one DataFrame in the contract's column order.
+
+        The default unions the per-file frames of :meth:`_read_file`, which
+        suits files Spark scans itself. Loaders that build frames from
+        Python-parsed rows should override this to create a single frame:
+        a union of thousands of local frames is a plan Spark evaluates one
+        task per partition per file, for every action the load runs.
+
+        Parameters
+        ----------
+        files : list of str
+            Resolved file paths, as returned by :meth:`_resolve_files`.
+
+        Returns
+        -------
+        pyspark.sql.DataFrame
+        """
+        return reduce(DataFrame.unionByName, (self._read_file(f) for f in files))
 
     def _read_file(self, file: str) -> DataFrame:
         raw = self.spark.read.options(header="true", **self.schema.read_options).csv(file)

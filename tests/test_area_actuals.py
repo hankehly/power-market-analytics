@@ -123,7 +123,7 @@ class TestAreaActualsDownloader:
         session = FakeSession(FakeResponse(payload))
         dl = AreaActualsDownloader(SOURCE, data_dir=tmp_path, timeout=12.5, session=session)
 
-        extracted = dl.download(2025, 7)
+        extracted = dl.download(2025, 7, today=datetime.date(2025, 7, 3))
 
         assert session.calls == [("https://example.test/archives/202507.zip", 12.5)]
         assert extracted == [
@@ -154,12 +154,61 @@ class TestAreaActualsDownloader:
         with pytest.raises(requests.HTTPError):
             dl.download(2025, 7)
 
+    def test_download_rejects_a_settled_month_with_a_missing_day(self, tmp_path):
+        # An archive that is valid but omits one day would otherwise load as a
+        # silent history gap the grain tests cannot see.
+        members = {f"DEMO_JISEKI_202507{d:02d}.csv": b"x" for d in range(1, 32) if d != 20}
+        dl = AreaActualsDownloader(
+            SOURCE, data_dir=tmp_path, session=FakeSession(FakeResponse(make_zip(members)))
+        )
+
+        with pytest.raises(AreaActualsDownloadError, match="20250720"):
+            dl.download(2025, 7, today=datetime.date(2025, 9, 1))
+
+    def test_download_allows_a_partial_running_month(self, tmp_path):
+        members = {"DEMO_JISEKI_20250701.csv": b"a", "DEMO_JISEKI_20250702.csv": b"b"}
+        dl = AreaActualsDownloader(
+            SOURCE, data_dir=tmp_path, session=FakeSession(FakeResponse(make_zip(members)))
+        )
+
+        assert len(dl.download(2025, 7, today=datetime.date(2025, 7, 3))) == 2
+
+    def test_download_allows_the_previous_month_to_lag_a_day(self, tmp_path):
+        # Day D's file appears on D+1 (でんき予報: ~06:00), so on the 1st and
+        # 2nd the previous month may still lack its last day.
+        members = {f"DEMO_JISEKI_202507{d:02d}.csv": b"x" for d in range(1, 31)}
+        dl = AreaActualsDownloader(
+            SOURCE, data_dir=tmp_path, session=FakeSession(FakeResponse(make_zip(members)))
+        )
+
+        assert len(dl.download(2025, 7, today=datetime.date(2025, 8, 1))) == 30
+        with pytest.raises(AreaActualsDownloadError, match="20250731"):
+            dl.download(2025, 7, today=datetime.date(2025, 8, 2))
+
+    def test_download_rejects_a_member_without_a_date_in_its_name(self, tmp_path):
+        members = {"DEMO_JISEKI_20250701.csv": b"a", "notes.csv": b"b"}
+        session = FakeSession(FakeResponse(make_zip(members)))
+        dl = AreaActualsDownloader(LOADER_SOURCE, data_dir=tmp_path, session=session)
+
+        with pytest.raises(AreaActualsDownloadError, match="notes.csv"):
+            dl.download(2025, 7, today=datetime.date(2025, 7, 3))
+
+    def test_download_rejects_a_member_dated_outside_its_month(self, tmp_path):
+        members = {"DEMO_JISEKI_20250701.csv": b"a", "DEMO_JISEKI_20250801.csv": b"b"}
+        dl = AreaActualsDownloader(
+            SOURCE, data_dir=tmp_path, session=FakeSession(FakeResponse(make_zip(members)))
+        )
+
+        with pytest.raises(AreaActualsDownloadError, match="20250801"):
+            dl.download(2025, 7, today=datetime.date(2025, 7, 3))
+
     def test_download_all_covers_earliest_month_through_today(self, tmp_path):
         dl = AreaActualsDownloader(SOURCE, data_dir=tmp_path)
         calls: list[tuple[int, int]] = []
 
-        def fake_download(year: int, month: int) -> list[Path]:
+        def fake_download(year: int, month: int, today: datetime.date) -> list[Path]:
             calls.append((year, month))
+            assert today == datetime.date(2022, 6, 15)
             return [tmp_path / f"{year}{month:02d}.csv"]
 
         dl.download = fake_download  # type: ignore[method-assign]
@@ -168,22 +217,46 @@ class TestAreaActualsDownloader:
         assert calls == [(2022, 4), (2022, 5), (2022, 6)]
         assert result == [tmp_path / "202204.csv", tmp_path / "202205.csv", tmp_path / "202206.csv"]
 
-    def test_download_all_defaults_to_the_current_month(self, tmp_path):
+    def test_download_all_skips_the_current_month_on_its_first_day(self, tmp_path):
+        # Archives hold finished days only, so on the 1st the running month's
+        # archive is empty or not yet published; requesting it would abort the
+        # whole refresh once a month.
         dl = AreaActualsDownloader(SOURCE, data_dir=tmp_path)
         calls: list[tuple[int, int]] = []
 
-        def fake_download(year: int, month: int) -> list[Path]:
+        def fake_download(year: int, month: int, today: datetime.date) -> list[Path]:
+            calls.append((year, month))
+            return [tmp_path / f"{year}{month:02d}.csv"]
+
+        dl.download = fake_download  # type: ignore[method-assign]
+        result = dl.download_all(today=datetime.date(2022, 6, 1))
+
+        assert calls == [(2022, 4), (2022, 5)]
+        assert result == [tmp_path / "202204.csv", tmp_path / "202205.csv"]
+
+    def test_download_all_returns_nothing_before_the_first_finished_day(self, tmp_path):
+        dl = AreaActualsDownloader(SOURCE, data_dir=tmp_path)
+        dl.download = lambda year, month, today: pytest.fail("nothing is finished")  # type: ignore[method-assign]
+
+        assert dl.download_all(today=datetime.date(2022, 4, 1)) == []
+
+    def test_download_all_defaults_to_the_month_of_yesterday(self, tmp_path):
+        dl = AreaActualsDownloader(SOURCE, data_dir=tmp_path)
+        calls: list[tuple[int, int]] = []
+
+        def fake_download(year: int, month: int, today: datetime.date) -> list[Path]:
             calls.append((year, month))
             return []
 
         dl.download = fake_download  # type: ignore[method-assign]
-        today = datetime.date.today()
+        yesterday = datetime.date.today() - datetime.timedelta(days=1)
 
         assert dl.download_all() == []
 
-        assert calls == month_range(SOURCE.earliest_month, (today.year, today.month))
+        # Ends at yesterday's month: on the 1st the running month has no finished day.
+        assert calls == month_range(SOURCE.earliest_month, (yesterday.year, yesterday.month))
         assert calls[0] == (2022, 4)
-        assert calls[-1] == (today.year, today.month)
+        assert calls[-1] == (yesterday.year, yesterday.month)
 
 
 # --------------------------------------------------------------------------- loader
