@@ -26,6 +26,12 @@
   for the eccodes dependency before it can run in-container — the load step too, since
   `power_market_analytics/msm.py` imports eccodes at module level; see
   [docs/JMA-MSM-GPV-Retrieval.md](docs/JMA-MSM-GPV-Retrieval.md) §8.
+- `just refresh-all` — every source in one go: runs each `ingest-<source>` (the private
+  download + reload-`raw` half of the matching `refresh-<source>`, with its defaults — no args
+  forwarded) in the order JEPX, JMA, OCCTO, TEPCO, Kansai, e-Stat, MSM (JMA before MSM: the MSM
+  downloader reads the station seed), then a single `dbt build`. Warm caches make it ~1.5 h,
+  dominated by JMA re-fetching every station's current-year file; a failing step aborts before
+  the build. `just ingest-<source>` also works on its own for a build-free reload.
 - `just test [pytest args]` — Python unit tests (host-side pytest, ~1 min) with a `pytest-cov`
   term-missing report over `power_market_analytics/` + `scripts/` (config in `pyproject.toml`
   `[tool.coverage.*]`; gated at 100% via `fail_under`, so a partial suite fails locally and in
