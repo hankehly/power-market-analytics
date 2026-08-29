@@ -222,32 +222,47 @@ class AreaActualsDownloader:
         return extracted
 
     def download_all(self, today: datetime.date | None = None) -> list[Path]:
-        """Download every month from the source's earliest month through the current month.
+        """Download every month from the source's earliest month through the last one with a finished day.
+
+        Archives hold finished days only, so on the first day of a month the
+        running month has nothing to offer yet — its archive is empty or not
+        published — and the range ends at the previous month instead of
+        aborting the refresh on a 404 or an empty archive.
 
         Parameters
         ----------
         today : datetime.date, optional
-            Date whose month is the last one downloaded. Defaults to the
-            current local date.
+            Date whose month is the last one downloaded (the previous month
+            when ``today`` is the 1st). Defaults to the current local date.
 
         Returns
         -------
         list of pathlib.Path
-            All extracted actuals CSV paths, in month then day order.
+            All extracted actuals CSV paths, in month then day order; empty
+            when no month has a finished day yet.
         """
         if today is None:
             today = datetime.date.today()
         first = self.source.earliest_month
+        last_day = today - datetime.timedelta(days=1)
+        last = (last_day.year, last_day.month)
+        if last < first:
+            logger.info(
+                "No {} archive has a finished day before {}: nothing to download",
+                self.source.code,
+                today,
+            )
+            return []
         extracted: list[Path] = []
-        for year, month in month_range(first, (today.year, today.month)):
+        for year, month in month_range(first, last):
             extracted.extend(self.download(year, month))
         logger.info(
             "Downloaded {} {}-{:02d}..{}-{:02d}: {} actuals file(s)",
             self.source.code,
             first[0],
             first[1],
-            today.year,
-            today.month,
+            last[0],
+            last[1],
             len(extracted),
         )
         return extracted

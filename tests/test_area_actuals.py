@@ -168,6 +168,29 @@ class TestAreaActualsDownloader:
         assert calls == [(2022, 4), (2022, 5), (2022, 6)]
         assert result == [tmp_path / "202204.csv", tmp_path / "202205.csv", tmp_path / "202206.csv"]
 
+    def test_download_all_skips_the_current_month_on_its_first_day(self, tmp_path):
+        # Archives hold finished days only, so on the 1st the running month's
+        # archive is empty or not yet published; requesting it would abort the
+        # whole refresh once a month.
+        dl = AreaActualsDownloader(SOURCE, data_dir=tmp_path)
+        calls: list[tuple[int, int]] = []
+
+        def fake_download(year: int, month: int) -> list[Path]:
+            calls.append((year, month))
+            return [tmp_path / f"{year}{month:02d}.csv"]
+
+        dl.download = fake_download  # type: ignore[method-assign]
+        result = dl.download_all(today=datetime.date(2022, 6, 1))
+
+        assert calls == [(2022, 4), (2022, 5)]
+        assert result == [tmp_path / "202204.csv", tmp_path / "202205.csv"]
+
+    def test_download_all_returns_nothing_before_the_first_finished_day(self, tmp_path):
+        dl = AreaActualsDownloader(SOURCE, data_dir=tmp_path)
+        dl.download = lambda year, month: pytest.fail("no archive is finished yet")  # type: ignore[method-assign]
+
+        assert dl.download_all(today=datetime.date(2022, 4, 1)) == []
+
     def test_download_all_defaults_to_the_current_month(self, tmp_path):
         dl = AreaActualsDownloader(SOURCE, data_dir=tmp_path)
         calls: list[tuple[int, int]] = []

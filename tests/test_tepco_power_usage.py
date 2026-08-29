@@ -77,6 +77,11 @@ def yearly_file_text(rows: list[str], updated: str = "2018/1/1 18:10") -> str:
     return "\r\n".join([f"{updated} UPDATE", "", YEARLY_HEADER, *rows]) + "\r\n"
 
 
+def yearly_day(date: str, base: int = 2500) -> list[str]:
+    """The 24 yearly-layout rows of one day, demand ``base + hour``."""
+    return [f"{date},{hour}:00,{base + hour}" for hour in range(24)]
+
+
 def write_cp932(path: Path, text: str) -> Path:
     path.write_bytes(text.encode("cp932"))
     return path
@@ -147,25 +152,25 @@ class TestParseHourly:
         assert {row.hour_start for row in parsed.rows} == set(range(24))
 
     def test_yearly_layout_yields_rows_with_only_the_actual(self, tmp_path):
-        text = yearly_file_text(["2016/4/1,0:00,2555", "2016/4/1,1:00,2456"])
+        text = yearly_file_text(yearly_day("2016/4/1", 2555))
         file = write_cp932(tmp_path / "juyo-2016.csv", text)
 
         parsed = parse_hourly(file)
 
         assert parsed.header == YEARLY_HEADER
         assert parsed.file_updated_at == "20180101 18:10:00"
-        assert parsed.rows == [
-            HourlyRow("20160401", 0, "2555", None, None, None),
-            HourlyRow("20160401", 1, "2456", None, None, None),
-        ]
+        assert len(parsed.rows) == 24
+        assert parsed.rows[0] == HourlyRow("20160401", 0, "2555", None, None, None)
+        assert parsed.rows[23] == HourlyRow("20160401", 23, "2578", None, None, None)
 
     def test_unpadded_dates_and_hours_are_normalised(self, tmp_path):
-        text = yearly_file_text(["2016/12/31,9:00,3000", "2017/1/2,23:00,3100"])
+        text = yearly_file_text([*yearly_day("2016/12/31"), *yearly_day("2017/1/2")])
         file = write_cp932(tmp_path / "juyo-2016.csv", text)
 
         rows = parse_hourly(file).rows
 
-        assert [(r.target_date, r.hour_start) for r in rows] == [("20161231", 9), ("20170102", 23)]
+        assert (rows[9].target_date, rows[9].hour_start) == ("20161231", 9)
+        assert (rows[47].target_date, rows[47].hour_start) == ("20170102", 23)
 
     def test_missing_update_stamp_raises(self, tmp_path):
         text = "\r\n".join(["", YEARLY_HEADER, "2016/4/1,0:00,2555"]) + "\r\n"
@@ -199,6 +204,37 @@ class TestParseHourly:
         file = write_cp932(tmp_path / "juyo-2016.csv", yearly_file_text([]))
 
         with pytest.raises(ValueError, match="no hourly rows"):
+            parse_hourly(file)
+
+    def test_daily_block_with_missing_hours_raises(self, tmp_path):
+        # A truncated member with one well-formed row and a blank line would
+        # otherwise load as a day with absent hours, which no grain test sees.
+        file = write_cp932(tmp_path / "20220401_power_usage.csv", daily_file_text(hours=23))
+
+        with pytest.raises(ValueError, match="hours 0-23"):
+            parse_hourly(file)
+
+    def test_daily_block_spanning_two_dates_raises(self, tmp_path):
+        text = daily_file_text().replace("2022/4/1,23:00", "2022/4/2,23:00")
+        file = write_cp932(tmp_path / "20220401_power_usage.csv", text)
+
+        with pytest.raises(ValueError, match="one target date"):
+            parse_hourly(file)
+
+    def test_yearly_block_with_an_incomplete_day_raises(self, tmp_path):
+        rows = [f"2016/4/1,{h}:00,{2500 + h}" for h in range(24)]
+        rows += [f"2016/4/2,{h}:00,{2500 + h}" for h in range(23)]  # last day cut short
+        file = write_cp932(tmp_path / "juyo-2016.csv", yearly_file_text(rows))
+
+        with pytest.raises(ValueError, match="2016/4/2|20160402"):
+            parse_hourly(file)
+
+    def test_duplicate_hour_raises(self, tmp_path):
+        rows = [f"2016/4/1,{h}:00,{2500 + h}" for h in range(24)]
+        rows[5] = "2016/4/1,4:00,2504"  # hour 4 twice, hour 5 missing
+        file = write_cp932(tmp_path / "juyo-2016.csv", yearly_file_text(rows))
+
+        with pytest.raises(ValueError, match="hours 0-23"):
             parse_hourly(file)
 
     def test_row_with_a_malformed_date_raises(self, tmp_path):
@@ -237,7 +273,22 @@ def yearly_url(year: int) -> str:
     return YEARLY_URL_TEMPLATE.format(year=year)
 
 
-YEARLY_2016 = yearly_file_text(["2016/4/1,0:00,2555"]).encode("cp932")
+def full_year_text(year: int) -> str:
+    """A complete yearly file: every day TEPCO publishes for ``year``, 24 rows each."""
+    first = max(datetime.date(year, 1, 1), datetime.date(2016, 4, 1))
+    rows: list[str] = []
+    day = first
+    while day.year == year:
+        rows += yearly_day(f"{day.year}/{day.month}/{day.day}")
+        day += datetime.timedelta(days=1)
+    return yearly_file_text(rows)
+
+
+def yearly_response(year: int) -> FakeResponse:
+    return FakeResponse(full_year_text(year).encode("cp932"), content_type="text/csv")
+
+
+YEARLY_2016 = full_year_text(2016).encode("cp932")
 
 
 class TestTepcoPowerUsageDownloader:
@@ -292,10 +343,31 @@ class TestTepcoPowerUsageDownloader:
         with pytest.raises(requests.HTTPError):
             dl.download_yearly(2016)
 
+    def test_download_yearly_rejects_an_incomplete_year(self, tmp_path):
+        # A well-formed file missing days would otherwise be cached for good
+        # (only --force-yearly refetches) and leave silent gaps in the history.
+        partial = yearly_file_text(yearly_day("2016/4/1")).encode("cp932")
+        session = RoutingSession({yearly_url(2016): FakeResponse(partial, content_type="text/csv")})
+        dl = TepcoPowerUsageDownloader(data_dir=tmp_path, session=session)
+
+        with pytest.raises(AreaActualsDownloadError, match="2016-04-01.*2016-12-31"):
+            dl.download_yearly(2016)
+        assert not (tmp_path / "csv" / "juyo-2016.csv").exists()
+        assert list((tmp_path / "csv").glob("*.part")) == []
+
+    def test_download_yearly_rejects_a_file_with_a_broken_day(self, tmp_path):
+        rows = full_year_text(2016).replace("2016/7/1,12:00,2512\r\n", "")
+        session = RoutingSession(
+            {yearly_url(2016): FakeResponse(rows.encode("cp932"), content_type="text/csv")}
+        )
+        dl = TepcoPowerUsageDownloader(data_dir=tmp_path, session=session)
+
+        with pytest.raises(AreaActualsDownloadError, match="20160701"):
+            dl.download_yearly(2016)
+        assert not (tmp_path / "csv" / "juyo-2016.csv").exists()
+
     def test_download_all_fetches_every_yearly_file_then_every_month(self, tmp_path):
-        responses = {
-            yearly_url(y): FakeResponse(YEARLY_2016, content_type="text/csv") for y in YEARLY_YEARS
-        }
+        responses = {yearly_url(y): yearly_response(y) for y in YEARLY_YEARS}
         daily = daily_file_text().encode("cp932")
         responses[TEPCO_POWER_USAGE.zip_url(2022, 4)] = FakeResponse(
             make_zip({"20220401_power_usage.csv": daily})
@@ -320,9 +392,7 @@ class TestTepcoPowerUsageDownloader:
         ]
 
     def test_download_all_can_force_the_yearly_files(self, tmp_path):
-        responses = {
-            yearly_url(y): FakeResponse(YEARLY_2016, content_type="text/csv") for y in YEARLY_YEARS
-        }
+        responses = {yearly_url(y): yearly_response(y) for y in YEARLY_YEARS}
         responses[TEPCO_POWER_USAGE.zip_url(2022, 4)] = FakeResponse(
             make_zip({"20220401_power_usage.csv": daily_file_text().encode("cp932")})
         )
@@ -336,6 +406,20 @@ class TestTepcoPowerUsageDownloader:
 
         dl.download_all(today=datetime.date(2022, 4, 10), force_yearly=True)
         assert len(session.calls) == first + 1 + len(YEARLY_YEARS) + 1
+
+    def test_download_all_skips_the_current_month_on_day_one(self, tmp_path):
+        responses = {yearly_url(y): yearly_response(y) for y in YEARLY_YEARS}
+        responses[TEPCO_POWER_USAGE.zip_url(2022, 4)] = FakeResponse(
+            make_zip({"20220401_power_usage.csv": daily_file_text().encode("cp932")})
+        )
+        session = RoutingSession(responses)
+        dl = TepcoPowerUsageDownloader(data_dir=tmp_path, session=session)
+
+        paths = dl.download_all(today=datetime.date(2022, 5, 1))
+
+        assert [url for url, _ in session.calls][-1] == TEPCO_POWER_USAGE.zip_url(2022, 4)
+        assert TEPCO_POWER_USAGE.zip_url(2022, 5) not in [url for url, _ in session.calls]
+        assert paths[-1] == tmp_path / "csv" / "20220401_power_usage.csv"
 
 
 # --- load contract + loader -------------------------------------------------
@@ -375,7 +459,7 @@ class TestTepcoPowerUsageCsvLoader:
 
     def test_loads_both_layouts_into_one_table(self, spark, tmp_path):
         yearly = yearly_file_text(
-            ["2022/3/31,22:00,3000", "2022/3/31,23:00,2900", "2022/4/1,0:00,2800"],
+            [*yearly_day("2022/3/31", 3000), *yearly_day("2022/4/1", 2800)],
             updated="2024/1/1 18:10",
         )
         write_cp932(tmp_path / "juyo-2022.csv", yearly)
@@ -383,7 +467,7 @@ class TestTepcoPowerUsageCsvLoader:
 
         n_rows = self.loader(spark, tmp_path, "test_tepco.power_usage_both").load()
 
-        assert n_rows == 26
+        assert n_rows == 48
         table = spark.table("test_tepco.power_usage_both")
         assert dict(table.dtypes) == {
             "target_date": "date",
@@ -396,11 +480,11 @@ class TestTepcoPowerUsageCsvLoader:
             "source_file": "string",
         }
         rows = {(r.target_date.isoformat(), r.hour_start): r for r in table.collect()}
-        assert set(rows) == {("2022-03-31", 22), ("2022-03-31", 23)} | {
-            ("2022-04-01", hour) for hour in range(24)
+        assert set(rows) == {
+            (day, hour) for day in ("2022-03-31", "2022-04-01") for hour in range(24)
         }
         old = rows[("2022-03-31", 23)]
-        assert old.demand_mankw == 2900.0
+        assert old.demand_mankw == 3023.0
         assert (old.forecast_mankw, old.usage_rate_pct, old.supply_capacity_mankw) == (
             None,
             None,
@@ -408,7 +492,7 @@ class TestTepcoPowerUsageCsvLoader:
         )
         assert old.file_updated_at.isoformat() == "2024-01-01T18:10:00"
         assert old.source_file == "juyo-2022.csv"
-        # 2022-04-01 0:00 exists in both files; the daily file wins (2500, not 2800).
+        # 2022-04-01 exists in both files; the daily file wins (0:00 = 2500, not 2800).
         new = rows[("2022-04-01", 0)]
         assert (
             new.demand_mankw,
@@ -423,33 +507,37 @@ class TestTepcoPowerUsageCsvLoader:
         # 1,600+ per-file frames unioned together made the real load run for
         # hours (16k tasks per action) and crash the driver; every file's rows
         # must land in a single DataFrame.
-        write_cp932(tmp_path / "juyo-2016.csv", yearly_file_text(["2016/4/1,0:00,2555"]))
+        write_cp932(tmp_path / "juyo-2016.csv", yearly_file_text(yearly_day("2016/4/1")))
         write_cp932(tmp_path / "20220401_power_usage.csv", daily_file_text())
         write_cp932(tmp_path / "20220402_power_usage.csv", daily_file_text(date="2022/4/2"))
         loader = self.loader(spark, tmp_path, "test_tepco.power_usage_one_relation")
 
         df = loader._read_all(loader._resolve_files())
 
-        assert df.count() == 49
+        assert df.count() == 72
         assert "Union" not in df._jdf.queryExecution().analyzed().toString()
 
     def test_read_file_reads_a_single_file(self, spark, tmp_path):
-        file = write_cp932(tmp_path / "juyo-2016.csv", yearly_file_text(["2016/4/1,0:00,2555"]))
+        text = yearly_file_text(yearly_day("2016/4/1", 2555))
+        file = write_cp932(tmp_path / "juyo-2016.csv", text)
         loader = self.loader(spark, tmp_path, "test_tepco.power_usage_one_file")
 
-        rows = loader._read_file(str(file)).collect()
+        rows = sorted(loader._read_file(str(file)).collect(), key=lambda r: r.hour_start)
 
-        assert [(r.target_date.isoformat(), r.hour_start, r.demand_mankw) for r in rows] == [
-            ("2016-04-01", 0, 2555.0)
-        ]
+        assert len(rows) == 24
+        assert (rows[0].target_date.isoformat(), rows[0].hour_start, rows[0].demand_mankw) == (
+            "2016-04-01",
+            0,
+            2555.0,
+        )
 
     def test_a_yearly_file_before_the_daily_era_is_loaded_whole(self, spark, tmp_path):
-        write_cp932(tmp_path / "juyo-2016.csv", yearly_file_text(["2016/4/1,0:00,2555"]))
+        write_cp932(tmp_path / "juyo-2016.csv", yearly_file_text(yearly_day("2016/4/1")))
 
-        assert self.loader(spark, tmp_path, "test_tepco.power_usage_yearly").load() == 1
+        assert self.loader(spark, tmp_path, "test_tepco.power_usage_yearly").load() == 24
 
     def test_a_yearly_file_entirely_in_the_daily_era_adds_no_rows(self, spark, tmp_path):
-        write_cp932(tmp_path / "juyo-2022.csv", yearly_file_text(["2022/5/1,0:00,2800"]))
+        write_cp932(tmp_path / "juyo-2022.csv", yearly_file_text(yearly_day("2022/5/1", 2800)))
         write_cp932(tmp_path / "20220401_power_usage.csv", daily_file_text())
 
         assert self.loader(spark, tmp_path, "test_tepco.power_usage_cutoff").load() == 24
