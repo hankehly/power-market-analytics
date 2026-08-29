@@ -11,8 +11,10 @@
 - `just refresh-occto` — OCCTO 翌々日 refresh, two datasets: the demand-forecast CSV (~700 KB,
   3 HTTP calls) and the half-hourly area reserve-rate CSV (~20 MB/yr, fetched in 300-day windows
   because the portal caps a download at 150,000 rows), reload `raw`, `dbt build`.
-- `just refresh-tepco` — TEPCO Tokyo-area demand/generation actuals refresh: redownload every
-  monthly archive (`AREA_YYYYMM.zip`, 2022-04 → now, ~5 MB total), reload `raw`, `dbt build`.
+- `just refresh-tepco-area-demand-generation` — TEPCO Tokyo-area demand/generation actuals
+  refresh: redownload every monthly archive (`AREA_YYYYMM.zip`, 2022-04 → now, ~5 MB total),
+  reload `raw`, `dbt build`. `just refresh-tepco` is the umbrella: both TEPCO datasets (this one
+  and `refresh-tepco-power-usage` below) reloaded, then one `dbt build`.
 - `just refresh-kansai` — same for 関西電力送配電's Kansai-area actuals (`YYYYMM_jisseki.zip`,
   2022-04 → now, ~2 MB total), reload `raw`, `dbt build`.
 - `just refresh-tepco-power-usage` — TEPCO でんき予報 hourly 電力使用実績 refresh: fetch the
