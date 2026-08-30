@@ -8,13 +8,14 @@ and overwrites the destination table.
 
 from __future__ import annotations
 
+import bz2
 import csv
 import glob
 import gzip
 import operator
 from functools import reduce
 from pathlib import Path
-from typing import Any
+from typing import IO, Any
 
 import yaml
 from loguru import logger
@@ -42,6 +43,11 @@ _JAVA_TO_PYTHON_CODEC = {
     "utf-8": "utf-8-sig",
     "utf8": "utf-8-sig",
 }
+
+
+#: Hadoop codec suffixes Spark decompresses that Python cannot open itself: the
+#: header is taken through Spark's own parse (gzip and bzip2 are opened in Python).
+_SPARK_ONLY_SUFFIXES = (".deflate", ".zst", ".lz4", ".snappy")
 
 
 def python_codec(java_charset: str) -> str:
@@ -249,11 +255,18 @@ class CsvLoader:
         Raises
         ------
         ValueError
-            If a file's header lacks a required column.
+            If a file's header lacks a required column or repeats a contract
+            column.
         """
         groups: dict[tuple[str, ...], list[str]] = {}
+        sources = [c.source_name for c in self.schema.columns]
         for file in files:
             header = self._read_header(file)
+            # Spark would rename a repeated header (id0, id1) and the contract
+            # column would silently resolve to null — refuse the file instead.
+            duplicated = sorted({name for name in sources if header.count(name) > 1})
+            if duplicated:
+                raise ValueError(f"{file} has duplicated header columns: {duplicated}")
             missing = [
                 c.source_name
                 for c in self.schema.columns
@@ -270,27 +283,42 @@ class CsvLoader:
         Parameters
         ----------
         file : str
-            CSV path; ``.gz`` files are opened through gzip.
+            CSV path. ``.gz`` / ``.bz2`` files are opened through the
+            matching Python module; the other Hadoop codec suffixes
+            (``.deflate``, ``.zst``, ``.lz4``, ``.snappy``) are read through
+            Spark's CSV parser instead.
 
         Returns
         -------
         list of str
-            Header cells split on the contract's ``sep`` (default ``,``) with
-            the contract's ``quote`` character (default ``"``; Spark's
-            disabled form — an empty string or ``\\u0000`` — keeps quotes
-            literally) removed; ``[]`` for an empty file. Undecodable bytes
-            are replaced rather than raised, so a header in the wrong encoding
-            fails the required-column check instead of the read.
+            Header cells split on the contract's ``sep`` / ``delimiter``
+            (default ``,``) with the contract's ``quote`` character (default
+            ``"``; Spark's disabled form — an empty string or ``\\u0000`` —
+            keeps quotes literally) removed; ``[]`` for an empty file.
+            Undecodable bytes are replaced rather than raised, so a header in
+            the wrong encoding fails the required-column check instead of the
+            read.
         """
+        suffix = Path(file).suffix.lower()
+        if suffix in _SPARK_ONLY_SUFFIXES:
+            rows = self.spark.read.options(**self.schema.read_options).csv(file).head(1)
+            return [str(cell) for cell in rows[0]] if rows else []
         encoding = python_codec(self.schema.read_options.get("encoding", "UTF-8"))
-        dialect: dict[str, Any] = {"delimiter": self.schema.read_options.get("sep", ",")}
-        quote = self.schema.read_options.get("quote", '"')
+        options = self.schema.read_options
+        dialect: dict[str, Any] = {"delimiter": options.get("sep", options.get("delimiter", ","))}
+        quote = options.get("quote", '"')
         if quote in ("", "\u0000"):
             dialect["quoting"] = csv.QUOTE_NONE
         else:
             dialect["quotechar"] = quote
-        opener = gzip.open if file.endswith(".gz") else open
-        with opener(file, "rt", encoding=encoding, errors="replace", newline="") as f:
+        f: IO[str]
+        if suffix == ".gz":
+            f = gzip.open(file, "rt", encoding=encoding, errors="replace", newline="")
+        elif suffix == ".bz2":
+            f = bz2.open(file, "rt", encoding=encoding, errors="replace", newline="")
+        else:
+            f = open(file, encoding=encoding, errors="replace", newline="")
+        with f:
             return next(csv.reader(f, **dialect), [])
 
     def _read_layout(self, files: list[str]) -> DataFrame:
