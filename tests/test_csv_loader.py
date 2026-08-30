@@ -1079,13 +1079,23 @@ class TestHeaderGroupedRead:
         assert loader.load() == 1
         assert [tuple(r) for r in spark.table("test_csv_loader.infer").collect()] == [(7, 8)]
 
-    def test_a_contract_header_option_is_overridden_not_a_type_error(self, spark, tmp_path):
+    @pytest.mark.parametrize("value", ["false", "true"])
+    def test_a_contract_header_option_is_owned_by_the_loader(self, spark, tmp_path, value):
+        # The grouped scan reads header=true, the header and positional reads
+        # header=false, whatever a contract says under any spelling.
         schema = CsvTableSchema.model_validate(
-            {"read_options": {"Header": "false"}, "columns": [{"name": "id", "type": "int"}]}
+            {
+                "read_options": {"Header": value, "multiLine": "true"},
+                "columns": [{"name": "id", "type": "int"}],
+            }
         )
         write_utf8(tmp_path / "h.csv", ["id", "1"])
+        file = str(tmp_path / "h.csv")
         loader = CsvLoader(schema, tmp_path, "test_csv_loader.headeropt", spark=spark)
-        assert loader._spark_options(header="true") == {"header": "true"}
+        assert loader._spark_options(header="true") == {"multiLine": "true", "header": "true"}
+        assert loader._header_line(file) is None
+        assert loader._spark_header(file) == ["id"]
+        assert loader._scan_positional([file], 1).count() == 2
         assert loader.load() == 1
 
     @pytest.mark.parametrize("charset", ["UTF-16", "utf_16", "UTF-32"])
