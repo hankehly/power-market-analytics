@@ -37,7 +37,7 @@ quirks live in the linked docs.
 
 ## Curated star schema
 
-The curated layer (`dbt/models/curated/`) contains eleven fact tables across
+The curated layer (`dbt/models/curated/`) contains sixteen fact tables across
 six subject areas, sharing a conformed `dim_date` (the census fact, a
 once-per-census snapshot, joins its own mesh dimension instead):
 
@@ -87,6 +87,17 @@ once-per-census snapshot, joins its own mesh dimension instead):
   `fct_jepx_spot_area_price`). Covers 2022-04-01 onward through the last
   finalized day; measures are null where the TSO published no observation
   (Tokyo 2025-06-14 time codes 11-48, Kansai 2025-10-12 × 22 periods).
+- `fct_area_power_usage_hourly` — the TSO でんき予報 hourly 電力使用状況
+  display series (Tokyo, TEPCO Power Grid today): area demand per delivery
+  hour (energy in kWh = the published 1時間平均 万kW × 10,000, additive), one
+  row per date × `hour_of_day` × area. Covers 2016-04-01 — the only public
+  Tokyo-area demand before A-1 begins — through yesterday, gapless. It is
+  this series alone, not stitched with A-1 (a display product at 万kW
+  resolution that TEPCO never revises; the two differ by 0.05 % MAE over
+  their overlap): `hour_of_day` references `dim_delivery_hour`, the 24-row
+  shrunken rollup of `dim_delivery_period`, so the two facts drill across by
+  summing the 30-minute fact per `dim_delivery_period.hour_of_day`. The
+  daily files' 予測値 / 使用率 / 供給力 stay in `std_tepco__power_usage_hourly`.
 - `fct_census_population_mesh` — Population Census total population per
   500 m mesh (e-Stat 統計GIS 4次メッシュ), one row per census vintage (2015,
   2020 — JGD2000 products) per nine-digit `mesh_code`; a periodic snapshot at
@@ -125,6 +136,10 @@ erDiagram
     dim_date ||--o{ fct_area_demand_generation_actual : "date_key"
     dim_delivery_period ||--o{ fct_area_demand_generation_actual : "time_code"
     dim_area ||--o{ fct_area_demand_generation_actual : "area_key"
+    dim_delivery_hour ||--o{ dim_delivery_period : "hour_of_day"
+    dim_date ||--o{ fct_area_power_usage_hourly : "date_key"
+    dim_delivery_hour ||--o{ fct_area_power_usage_hourly : "hour_of_day"
+    dim_area ||--o{ fct_area_power_usage_hourly : "area_key"
     dim_population_mesh_500m ||--o{ fct_census_population_mesh : "mesh_code"
 
     dim_date {
@@ -147,9 +162,20 @@ erDiagram
     dim_delivery_period {
         int time_code PK
         int start_minute_of_day
-        int hour_of_day
+        int hour_of_day FK
         string period_start_time
         string period_end_time
+        boolean is_daytime
+        string day_part
+    }
+
+    dim_delivery_hour {
+        int hour_of_day PK
+        int hour_ending
+        string period_start_time
+        string period_end_time
+        int first_time_code FK
+        int last_time_code FK
         boolean is_daytime
         string day_part
     }
@@ -330,6 +356,14 @@ erDiagram
         bigint demand_kwh
         bigint generation_kwh
         bigint wind_solar_generation_kwh
+    }
+
+    fct_area_power_usage_hourly {
+        date date_key PK, FK
+        int hour_of_day PK, FK
+        int area_key PK, FK
+        timestamp delivery_datetime
+        bigint demand_kwh
     }
 
     dim_population_mesh_500m {
