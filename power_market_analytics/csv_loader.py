@@ -505,17 +505,17 @@ class CsvLoader:
         Returns
         -------
         list of str or None
-            Cells split on ``sep`` / ``delimiter`` (default ``,``), with the
-            ``quote`` character (default ``"``; Spark's disabled form — an
-            empty string or ``\\u0000`` — keeps quotes literally) applied;
-            ``None`` when the dialect is beyond Python's ``csv`` module — a
-            multi-character separator, escaping disabled the way Spark
-            allows (an empty string or ``\\u0000``), the ``escape`` character
-            (default ``\\``) occurring in the line at all (the module would
-            apply it in unquoted cells too, where Spark keeps it literal),
-            an ``unescapedQuoteHandling`` setting, or quoting the module
-            cannot parse strictly (an unescaped quote, whose handling is
-            Spark's to configure) — so the caller asks Spark instead.
+            Cells split on ``sep`` / ``delimiter`` (default ``,``), each
+            either unquoted or wholly wrapped in the ``quote`` character
+            (default ``"``; Spark's disabled form — an empty string or
+            ``\\u0000`` — keeps quotes literally) — the shapes Spark reads
+            the same way; ``None`` whenever the line is anything else, so
+            the caller asks Spark instead: a multi-character separator,
+            escaping disabled the way Spark allows (an empty string or
+            ``\\u0000``), the ``escape`` character (default ``\\``) or an
+            ``unescapedQuoteHandling`` setting in play, a quote inside a
+            cell (doubled, unescaped, or in an unquoted cell — each handled
+            by Spark's own rules).
         """
         sep = self._option("sep", self._option("delimiter", ","))
         escape = self._option("escape", "\\")
@@ -526,16 +526,21 @@ class CsvLoader:
             or self._option("unescapedQuoteHandling", "")
         ):
             return None
+        # strict: a character after a closing quote is an error rather than
+        # appended; a quote that survives inside a cell (doubled, or in an
+        # unquoted cell) is caught below.
         dialect: dict[str, Any] = {"delimiter": sep, "strict": True}
         quote = self._option("quote", '"')
         if quote in ("", "\u0000"):
             dialect["quoting"] = csv.QUOTE_NONE
+            quote = ""
         else:
             dialect["quotechar"] = quote
         try:
-            return next(csv.reader([line], **dialect), [])
+            cells = next(csv.reader([line], **dialect), [])
         except csv.Error:
             return None
+        return None if quote and any(quote in cell for cell in cells) else cells
 
     def _spark_header(self, file: str) -> list[str]:
         """Spark's own parse of ``file``'s header row — exact, but one job per file.

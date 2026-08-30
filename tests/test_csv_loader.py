@@ -1043,6 +1043,19 @@ class TestHeaderGroupedRead:
         assert loader.load() == 1
         assert [tuple(r) for r in spark.table("test_csv_loader.unqesc").collect()] == [("x", 1)]
 
+    @pytest.mark.parametrize("header", ['"a""b",id', 'a"b,id', '"a"b,id'])
+    def test_a_quote_inside_a_cell_defers_the_header_to_spark(self, spark, tmp_path, header):
+        # Doubled, unquoted-cell or unescaped quotes are read by Spark's own
+        # rules (its escape character, unescapedQuoteHandling), not Python's.
+        loader = CsvLoader(SCHEMA, tmp_path, "t", spark=spark)
+        assert loader._parse_header(header) is None
+        assert loader._parse_header('"a","b",id') == ["a", "b", "id"]
+        write_utf8(tmp_path / "q.csv", [header, "1,2"])
+        file = str(tmp_path / "q.csv")
+        assert loader._safe_header(loader._read_header(file)) == (
+            spark.read.options(header="true").csv(file).columns
+        )
+
     def test_loader_has_no_per_file_read(self):
         assert "_read_file" not in CsvLoader.__dict__
 
