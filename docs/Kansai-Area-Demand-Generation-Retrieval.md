@@ -142,6 +142,11 @@ just refresh-kansai
 #   just dbt build
 ```
 
+The loader reads all ~1,600 daily files in a **single Spark scan** (`CsvLoader._scan_positional`),
+sniffing each file's `ファイル更新日` line in Python and joining the stamp back on the file name —
+a full reload takes about 8 s (before 2026-08-30 the per-file union spent ~3 min planning
+and ~40 s per Spark action).
+
 Warehouse path: `pma_raw.kansai_area_demand_generation_actual` →
 `stg_kansai__area_demand_generation_actual` →
 `std_kansai__area_demand_generation_actual` (typed time axis) →
