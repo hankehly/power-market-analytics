@@ -25,13 +25,13 @@ warehouse table. They cannot go through the generic header-name mapping of
 :class:`~power_market_analytics.csv_loader.CsvLoader`: they open with a
 download-timestamp line, a blank line and multiple header rows whose labels
 repeat per element (e.g. ``気温(℃)`` three times), and the station id
-appears only in the file name. The loader therefore reads files headerless —
-the load contract addresses columns positionally via ``source: _c0``,
-``_c1``, … — keeps only data rows (first field is a timestamp), and injects
-a ``station_id`` column parsed from the file name (contract
-``source: __station_id``).
+appears only in the file name. The loader therefore reads all files
+headerless in a single Spark scan — the load contract addresses columns
+positionally via ``source: _c0``, ``_c1``, … — keeps only data rows (first
+field is a timestamp), and injects a ``station_id`` column parsed from each
+row's file name (contract ``source: __station_id``).
 
-Each file's column count is checked against the contract before reading;
+Every file's column count and name are checked in Python before the scan;
 a mismatch fails the load rather than silently truncating, guarding against
 JMA layout drift (or a stale pre-re-scope file) rather than a station-class
 mixup.
@@ -51,9 +51,8 @@ import requests
 from loguru import logger
 from pyspark.sql import DataFrame
 from pyspark.sql import functions as F
-from pyspark.sql.types import StringType, StructField, StructType
 
-from power_market_analytics.csv_loader import CsvLoader
+from power_market_analytics.csv_loader import SOURCE_FILE_COL, CsvLoader
 
 #: Hourly (時別値, ``aggrgPeriod=9``) element codes accepted by the
 #: ``show/table`` endpoint. Elements marked (官署のみ) only have values at
@@ -867,9 +866,14 @@ class JmaHourlyCsvLoader(CsvLoader):
     """Positional full reload of JMA hourly CSVs into a warehouse table.
 
     Works exactly like :class:`CsvLoader` (same constructor, validation and
-    write behavior) except for how each file is read; see the module
-    docstring. The contract's ``source`` fields must be ``_c<n>`` positions
-    plus ``__station_id`` for the injected station id.
+    write behavior) except for how the files are read: every file is checked
+    in Python first (column count against the contract, station id in the
+    name), then all of them are read in one positional scan
+    (:meth:`CsvLoader._scan_positional`) and the station id is taken from
+    each row's file name — one frame per file unioned together made Spark
+    re-analyse the plan 1,600 times and ship a 45 MiB task binary. The
+    contract's ``source`` fields must be ``_c<n>`` positions plus
+    ``__station_id`` for the injected station id.
     """
 
     #: Contract ``source`` name for the station id parsed from the file name.
@@ -878,8 +882,37 @@ class JmaHourlyCsvLoader(CsvLoader):
     _FILENAME_RE = re.compile(r"([sa]\d+)_[\d-]+_\d{4}\.csv$")
     _DATA_ROW_PATTERN = r"^\d{4}/"
 
-    def _read_file(self, file: str) -> DataFrame:
+    def _read_all(self, files: list[str]) -> DataFrame:
         expected = self._expected_column_count()
+        for file in files:
+            self._check_file(file, expected)
+        raw = (
+            self._scan_positional(files, expected)
+            .filter(F.col("_c0").rlike(self._DATA_ROW_PATTERN))
+            .withColumn(
+                self.STATION_ID_SOURCE,
+                F.regexp_extract(F.col(SOURCE_FILE_COL), self._FILENAME_RE.pattern, 1),
+            )
+        )
+        return self._project(raw)
+
+    def _check_file(self, file: str, expected: int) -> None:
+        """Fail on a file the contract cannot read, before any Spark scan.
+
+        Parameters
+        ----------
+        file : str
+            Path to a JMA hourly CSV file.
+        expected : int
+            Physical column count implied by the contract.
+
+        Raises
+        ------
+        ValueError
+            If the first data row's column count differs from ``expected``
+            (wrong station class or JMA changed the layout) or the file name
+            carries no station id.
+        """
         actual = self._sniff_column_count(file)
         if actual != expected:
             raise ValueError(
@@ -887,19 +920,8 @@ class JmaHourlyCsvLoader(CsvLoader):
                 f"expects {expected} — file does not match this format "
                 "(wrong station class or JMA changed the layout)"
             )
-        match = self._FILENAME_RE.search(file)
-        if match is None:
+        if self._FILENAME_RE.search(file) is None:
             raise ValueError(f"{file}: cannot parse a station id from the file name")
-
-        spark_schema = StructType([StructField(f"_c{i}", StringType()) for i in range(expected)])
-        raw = (
-            self.spark.read.options(**self.schema.read_options)
-            .schema(spark_schema)
-            .csv(file)
-            .filter(F.col("_c0").rlike(self._DATA_ROW_PATTERN))
-            .withColumn(self.STATION_ID_SOURCE, F.lit(match.group(1)))
-        )
-        return raw.select([self._cast(raw, c) for c in self.schema.columns])
 
     def _expected_column_count(self) -> int:
         """Number of physical CSV columns implied by the contract.
