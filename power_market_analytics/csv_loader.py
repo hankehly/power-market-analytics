@@ -196,11 +196,14 @@ class CsvLoader:
     def _read_all(self, files: list[str]) -> DataFrame:
         """Read every file into one DataFrame in the contract's column order.
 
-        The default unions the per-file frames of :meth:`_read_file`, which
-        suits files Spark scans itself. Loaders that build frames from
-        Python-parsed rows should override this to create a single frame:
-        a union of thousands of local frames is a plan Spark evaluates one
-        task per partition per file, for every action the load runs.
+        The default unions one :meth:`_read_file` frame per file, which is
+        only fit for a handful of files: every ``unionByName`` re-analyses
+        the whole growing plan and each task deserialises a binary that grows
+        with the file count (1,600 files ≈ 8 min of planning, a 45 MiB task
+        binary and hours per load). Loaders with hundreds of files override
+        this to build a single frame — :meth:`_scan_positional` +
+        :meth:`_project` for positional layouts (JMA), one ``createDataFrame``
+        over Python-parsed rows (TEPCO でんき予報).
 
         Parameters
         ----------
