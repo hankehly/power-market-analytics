@@ -25,11 +25,19 @@ has.
 Two Spark facts make the exactness unnecessary (both probed on pyspark 4.1.1, 2026-08-30):
 
 - With `enforceSchema=false` and `header=true`, Spark checks **every file's** header against
-  the scan's schema, positionally and honouring `spark.sql.caseSensitive`, and fails the read
-  with `CSV header does not conform to the schema. Header: v, id  Schema: id, v  Expected: id
-  but found: v  CSV file: file:///…/c.csv`. With the default `enforceSchema=true` the same input
-  is read silently misaligned (`('5','6')` under `id,v` from a `v,id` file) — which is the
-  failure mode the whole preflight defends against.
+  the scan's schema and fails the read naming the file (`CSV header does not conform to the
+  schema … Expected: id but found: v … CSV file: file:///…/c.csv`). Probed through the
+  loader's own scan (which selects the contract's columns, so Spark's CSV column pruning
+  applies), the check is **positional over the contract's columns**: each file must carry
+  them at the same positions under the same names (folded per `spark.sql.caseSensitive`) as
+  the scan's schema — which Spark infers from whichever file its listing puts first, the
+  largest — and a file with fewer or more columns passes as long as those positions line up;
+  unselected columns (an empty or `nullValue`-named header cell, an extra provider column)
+  are never compared. Positional agreement is exactly the condition under which a shared scan
+  reads a file correctly, so a wrongly grouped file is either read correctly or refused by
+  name. With the default `enforceSchema=true` the same input is read silently misaligned
+  (`('5','6')` under `id,v` from a `v,id` file) — the failure mode the whole preflight
+  defends against.
 - `spark.read.options(header="true", inferSchema="false").csv(file).columns` is Spark's own
   naming of a file's header (one small job): `makeSafeHeader` applied — empty / `nullValue`
   cells `_c<i>`, duplicates suffixed — with no Python port needed.
@@ -81,14 +89,15 @@ return reduce(DataFrame.unionByName, frames)
   are byte-identical (tests pin them).
 - **`_read_layout(files)`** — `_spark_options(header="true", inferSchema="false",
   enforceSchema="false")`, then `SOURCE_FILE_COL` and `_project` as today. `enforceSchema=false`
-  is the safety net: a file whose parsed header differs from its group's (possible only where
-  the first physical line under-determines the header — a `multiLine` header cell spanning
-  lines, or a `lineSep` the byte sniff could not apply) fails the scan with Spark's message
-  naming the file. It surfaces at `load()`'s first action; it is left to propagate (the message
-  already says what and where).
+  is the safety net: a file whose parsed header does not carry the contract's columns at the
+  group's positions (possible only where the first physical line under-determines the header —
+  a `multiLine` header cell spanning lines, or a `lineSep` the byte sniff could not apply)
+  fails the scan with Spark's message naming the file. It surfaces at `load()`'s first action;
+  it is left to propagate (the message already says what and where).
 
 Grouping is therefore allowed to be **over-fine** (`"id","v"` and `id,v`, a BOM'd and an
-un-BOM'd file → separate groups → one extra scan) and can never be **silently under-fine**.
+un-BOM'd file → separate groups → one extra scan) and can never be **silently under-fine**:
+a file in the wrong group is read correctly (its contract columns line up) or refused by name.
 
 ### Removed
 

@@ -382,8 +382,14 @@
   RISH fixes it. Details: `docs/JMA-MSM-GPV-Retrieval.md` §5.1/§8.4.
 - Many-file raw reloads: every `CsvLoader` reads its files in a handful of Spark scans since
   2026-08-30 — positional layouts through `_scan_positional` (JMA hourly, TSO area actuals),
-  header-based ones one scan per exact header line (JEPX, OCCTO, MSM, e-Stat), Python-parsed
-  ones as one `createDataFrame` (でんき予報) — and validation errors name the offending files.
+  header-based ones one scan per layout (JEPX, OCCTO, MSM: files grouped by the raw bytes of
+  their first header line, each group's header judged once by Spark's own column names, and
+  the scan reading with `enforceSchema=false`, under which Spark checks for every file that
+  the contract's columns sit at the same positions under the same names as in the scan's
+  schema and refuses, naming it, a file where they do not — nothing about the CSV dialect is
+  judged in Python, and a wrong grouping can cost a loud failure but never misaligned data;
+  e-Stat groups by its known header lines), Python-parsed ones as one
+  `createDataFrame` (でんき予報) — and validation errors name the offending files.
   Measured full reloads: JMA 1,608 files / 13.7 M rows ~50 s warm (~100 s cold, fine at
   `SPARK_DRIVER_MEMORY=4g`), TEPCO / Kansai ~1,600 daily files ~15 s / ~8 s, e-Stat 302 files
   / 0.94 M rows ~19 s, MSM 1,606 `csv.gz` / 5.7 M rows ~61 s (52 parquet files — Spark bin-packs
@@ -492,7 +498,12 @@
   changed — check a finding's premise against the *installed* versions before coding for it
   (`strings` on the Spark jar, a local-session probe, a measurement: #24's `skipRows` finding
   named an option pyspark 4.1.1 does not have, and its "per-file fallback" cost measured at
-  56 ms per file), and put that evidence in the reply; reply in the thread (`gh api repos/hankehly/power-market-analytics/pulls/<n>/comments/<id>/replies
+  56 ms per file), and put that evidence in the reply. The **third finding of the same defect
+  class** on a PR is a signal to stop patching corners and restate the design as a closed rule
+  (or ask the researcher whether the class is in scope): #24 took eleven rounds, one CSV-dialect
+  corner each, on a Python header preflight that a Spark-verified design made unnecessary
+  (spec `docs/superpowers/specs/2026-08-30-csv-loader-spark-verified-header-groups-design.md`);
+  reply in the thread (`gh api repos/hankehly/power-market-analytics/pulls/<n>/comments/<id>/replies
   -f body='…'`, without the mention) with what changed, then **resolve the thread** —
   `gh api graphql` mutation `resolveReviewThread(input: {threadId: "…"})`, thread ids from the
   PR's `reviewThreads(first: 100) { nodes { id isResolved comments(first: 1) { nodes {
