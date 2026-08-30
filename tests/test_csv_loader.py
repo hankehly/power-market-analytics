@@ -7,9 +7,11 @@ warehouse.
 
 from __future__ import annotations
 
+import bz2
 import datetime
 import gzip
 import re
+import zlib
 from pathlib import Path
 
 import pytest
@@ -562,6 +564,47 @@ class TestHeaderGroupedRead:
         assert loader._read_header(str(tmp_path / "nq.csv")) == ['"a"', "b"]
         assert loader.load() == 1
         assert [tuple(r) for r in spark.table("test_csv_loader.noquote").collect()] == [('"x"', 1)]
+
+    def test_header_sniff_accepts_the_delimiter_alias(self, spark, tmp_path):
+        schema = CsvTableSchema.model_validate(
+            {
+                "read_options": {"delimiter": ";"},
+                "columns": [{"name": "id", "type": "int"}, {"name": "value", "type": "int"}],
+            }
+        )
+        write_utf8(tmp_path / "d.csv", ["id;value", "1;2"])
+        loader = CsvLoader(schema, tmp_path, "test_csv_loader.delim", spark=spark)
+        assert loader._read_header(str(tmp_path / "d.csv")) == ["id", "value"]
+        assert loader.load() == 1
+
+    def test_duplicated_contract_header_is_rejected(self, spark, tmp_path):
+        write_utf8(tmp_path / "dup.csv", ["id,id,big", "1,1,2"])
+        schema = CsvTableSchema.model_validate(
+            {"columns": [{"name": "id", "type": "int"}, {"name": "big", "type": "bigint"}]}
+        )
+        loader = CsvLoader(schema, tmp_path, "test_csv_loader.dup", spark=spark)
+        with pytest.raises(
+            ValueError, match=re.escape("dup.csv has duplicated header columns: ['id']")
+        ):
+            loader.load()
+        assert not spark.catalog.tableExists("test_csv_loader.dup")
+
+    @pytest.mark.parametrize(
+        "suffix, compress",
+        [
+            (".csv.gz", lambda b: gzip.compress(b)),
+            (".csv.bz2", lambda b: bz2.compress(b)),
+            # Hadoop's DefaultCodec (zlib format): no Python opener, header via Spark.
+            (".csv.deflate", lambda b: zlib.compress(b)),
+        ],
+    )
+    def test_compressed_files_are_sniffed_and_read(self, spark, tmp_path, suffix, compress):
+        (tmp_path / f"a{suffix}").write_bytes(compress(("\n".join(FILE_A) + "\n").encode("utf-8")))
+        loader = CsvLoader(
+            SCHEMA, tmp_path / f"*{suffix}", f"test_csv_loader.c{suffix.count('.')}", spark=spark
+        )
+        assert loader._read_header(str(tmp_path / f"a{suffix}"))[:3] == ["id", "big", "val"]
+        assert loader.load() == 2
 
     def test_loader_has_no_per_file_read(self):
         assert "_read_file" not in CsvLoader.__dict__
