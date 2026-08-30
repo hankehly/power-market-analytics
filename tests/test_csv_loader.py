@@ -24,7 +24,6 @@ from power_market_analytics.csv_loader import (
     CsvColumn,
     CsvLoader,
     CsvTableSchema,
-    python_codec,
 )
 from tests.support import REPO_ROOT
 
@@ -138,6 +137,11 @@ FILE_A = [
     "2,-1,0.25,beta,2024/02/29,2024-02-29,2024/02/29 00:00,8,200,y,zzz",
 ]
 #: Same source, later vintage: columns reordered and ``extra`` not yet present.
+#: FILE_A's layout with other ids, for a second file in the same group.
+FILE_A_MORE = [FILE_A[0]] + [
+    ",".join([str(int(line.split(",")[0]) + 10), *line.split(",")[1:]]) for line in FILE_A[1:]
+]
+
 FILE_B = [
     "value(kWh),ブロックNo.,ts,iso_date,d,label,val,big,id",
     "300,9,2024/03/01 23:59,2024-03-01,2024/03/01,gamma,-2.0,0,3",
@@ -490,6 +494,8 @@ class TestCsvLoaderConstruction:
 
 
 class TestHeaderGroupedRead:
+    """The header-based default: one scan per layout, Spark verifying every header."""
+
     def test_files_with_one_header_share_a_scan_and_layouts_are_unioned(self, spark, tmp_path):
         write_utf8(tmp_path / "a.csv", FILE_A)
         write_utf8(tmp_path / "a2.csv", FILE_A)
@@ -516,6 +522,52 @@ class TestHeaderGroupedRead:
         plan = loader._read_all(loader._resolve_files())._jdf.queryExecution().analyzed()
         assert "Union" not in plan.toString()
 
+    def test_every_scan_has_spark_verify_each_files_header(self, spark, tmp_path):
+        loader = CsvLoader(SCHEMA, tmp_path, "t", spark=spark)
+        options = loader._spark_options(header="true", inferSchema="false", enforceSchema="false")
+        assert options == {
+            **SCHEMA.read_options,
+            "header": "true",
+            "inferSchema": "false",
+            "enforceSchema": "false",
+        }
+
+    def test_files_sharing_a_first_line_but_not_a_header_fail_naming_the_file(
+        self, spark, tmp_path
+    ):
+        # The one way the byte-level key can put two layouts in one group: a
+        # multiLine header cell that continues differently. Spark's header
+        # check on the scan refuses the second file, naming it.
+        schema = CsvTableSchema.model_validate(
+            {
+                "read_options": {"multiLine": "true"},
+                "columns": [{"name": "x", "source": "x\ny", "type": "int"}],
+            }
+        )
+        (tmp_path / "a.csv").write_bytes(b'"x\ny",v\n1,2\n')
+        (tmp_path / "b.csv").write_bytes(b'"x\nz",v\n3,4\n')
+        loader = CsvLoader(schema, tmp_path, "test_csv_loader.underfine", spark=spark)
+        assert loader._first_line(str(tmp_path / "a.csv")) == loader._first_line(
+            str(tmp_path / "b.csv")
+        )
+        with pytest.raises(Exception, match=r"CSV header does not conform[\s\S]*b\.csv"):
+            loader.load()
+
+    def test_a_group_error_names_the_first_file_and_the_count(self, spark, tmp_path):
+        write_utf8(tmp_path / "a.csv", ["id,v", "1,2"])
+        write_utf8(tmp_path / "b.csv", ["id,v", "3,4"])
+        schema = CsvTableSchema.model_validate(
+            {"columns": [{"name": "id", "type": "int"}, {"name": "x", "type": "int"}]}
+        )
+        loader = CsvLoader(schema, tmp_path, "test_csv_loader.grouperr", spark=spark)
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                "a.csv (+1 files with the same header) is missing required columns: ['x']"
+            ),
+        ):
+            loader.load()
+
     def test_missing_required_column_is_reported_for_its_own_file(self, spark, tmp_path):
         write_utf8(tmp_path / "a.csv", FILE_A)
         lines = [",".join(v for i, v in enumerate(ln.split(",")) if i != 8) for ln in FILE_A]
@@ -526,70 +578,37 @@ class TestHeaderGroupedRead:
         ):
             loader.load()
 
-    def test_gzip_files_are_sniffed_and_read(self, spark, tmp_path):
-        with gzip.open(tmp_path / "a.csv.gz", "wt", encoding="utf-8", newline="") as f:
-            f.write("\n".join(FILE_A) + "\n")
-        loader = CsvLoader(SCHEMA, tmp_path / "*.csv.gz", "test_csv_loader.gz", spark=spark)
-        assert loader.load() == 2
-
-    def test_header_sniff_honours_encoding_and_separator(self, spark, tmp_path):
-        schema = CsvTableSchema.model_validate(
-            {
-                "read_options": {"encoding": "windows-31j", "sep": ";"},
-                "columns": [
-                    {"name": "v", "source": "値", "type": "int"},
-                    {"name": "k", "source": "キー", "type": "string"},
-                ],
-            }
+    @pytest.mark.parametrize(
+        "suffix, compress",
+        [(".csv.gz", gzip.compress), (".csv.bz2", bz2.compress), (".csv.deflate", zlib.compress)],
+    )
+    def test_compressed_files_are_grouped_and_read(self, spark, tmp_path, suffix, compress):
+        (tmp_path / f"a{suffix}").write_bytes(compress(("\n".join(FILE_A) + "\n").encode("utf-8")))
+        (tmp_path / f"b{suffix}").write_bytes(
+            compress(("\n".join(FILE_A_MORE) + "\n").encode("utf-8"))
         )
-        write_cp932(tmp_path / "j.csv", ["キー;値", "a;1"])
-        loader = CsvLoader(schema, tmp_path, "test_csv_loader.sep", spark=spark)
-        assert loader._read_header(str(tmp_path / "j.csv")) == ["キー", "値"]
-        assert loader.load() == 1
-
-    def test_header_sniff_honours_the_quote_character(self, spark, tmp_path):
-        schema = CsvTableSchema.model_validate(
-            {
-                "read_options": {"sep": ";", "quote": "'"},
-                "columns": [
-                    {"name": "id_part", "source": "id;part", "type": "string"},
-                    {"name": "value", "type": "int"},
-                ],
-            }
+        loader = CsvLoader(
+            SCHEMA, tmp_path / f"*{suffix}", "test_csv_loader.compressed", spark=spark
         )
-        write_utf8(tmp_path / "q.csv", ["'id;part';value", "'a;b';1"])
-        loader = CsvLoader(schema, tmp_path, "test_csv_loader.quote", spark=spark)
-        assert loader._read_header(str(tmp_path / "q.csv")) == ["id;part", "value"]
-        assert loader.load() == 1
-        assert [tuple(r) for r in spark.table("test_csv_loader.quote").collect()] == [("a;b", 1)]
+        df = loader._read_all(loader._resolve_files())
+        assert "Union" not in df._jdf.queryExecution().analyzed().toString()
+        assert loader.load() == 4
 
-    def test_header_sniff_with_quoting_disabled_keeps_quotes_literally(self, spark, tmp_path):
-        schema = CsvTableSchema.model_validate(
-            {
-                "read_options": {"quote": "\u0000"},
-                "columns": [
-                    {"name": "a", "source": '"a"', "type": "string"},
-                    {"name": "b", "type": "int"},
-                ],
-            }
+    def test_a_file_python_cannot_open_forms_its_own_group_and_loads(
+        self, spark, tmp_path, monkeypatch
+    ):
+        write_utf8(tmp_path / "a.csv", FILE_A)
+        write_utf8(tmp_path / "b.csv", FILE_A_MORE)
+        original = CsvLoader._first_line
+        monkeypatch.setattr(
+            CsvLoader,
+            "_first_line",
+            lambda self, file: None if file.endswith("b.csv") else original(self, file),
         )
-        write_utf8(tmp_path / "nq.csv", ['"a",b', '"x",1'])
-        loader = CsvLoader(schema, tmp_path, "test_csv_loader.noquote", spark=spark)
-        assert loader._read_header(str(tmp_path / "nq.csv")) == ['"a"', "b"]
-        assert loader.load() == 1
-        assert [tuple(r) for r in spark.table("test_csv_loader.noquote").collect()] == [('"x"', 1)]
-
-    def test_header_sniff_accepts_the_delimiter_alias(self, spark, tmp_path):
-        schema = CsvTableSchema.model_validate(
-            {
-                "read_options": {"delimiter": ";"},
-                "columns": [{"name": "id", "type": "int"}, {"name": "value", "type": "int"}],
-            }
-        )
-        write_utf8(tmp_path / "d.csv", ["id;value", "1;2"])
-        loader = CsvLoader(schema, tmp_path, "test_csv_loader.delim", spark=spark)
-        assert loader._read_header(str(tmp_path / "d.csv")) == ["id", "value"]
-        assert loader.load() == 1
+        loader = CsvLoader(SCHEMA, tmp_path, "test_csv_loader.singleton", spark=spark)
+        df = loader._read_all(loader._resolve_files())
+        assert df._jdf.queryExecution().analyzed().toString().count("Union") == 1
+        assert loader.load() == 4
 
     def test_duplicated_contract_header_is_rejected(self, spark, tmp_path):
         write_utf8(tmp_path / "dup.csv", ["id,id,big", "1,1,2"])
@@ -603,141 +622,153 @@ class TestHeaderGroupedRead:
             loader.load()
         assert not spark.catalog.tableExists("test_csv_loader.dup")
 
-    @pytest.mark.parametrize(
-        "suffix, compress",
-        [
-            (".csv.gz", lambda b: gzip.compress(b)),
-            (".csv.bz2", lambda b: bz2.compress(b)),
-            # Hadoop's DefaultCodec (zlib format): no Python opener, header via Spark.
-            (".csv.deflate", lambda b: zlib.compress(b)),
-        ],
-    )
-    def test_compressed_files_are_sniffed_and_read(self, spark, tmp_path, suffix, compress):
-        (tmp_path / f"a{suffix}").write_bytes(compress(("\n".join(FILE_A) + "\n").encode("utf-8")))
-        loader = CsvLoader(
-            SCHEMA, tmp_path / f"*{suffix}", f"test_csv_loader.c{suffix.count('.')}", spark=spark
+    def test_case_only_duplicate_header_follows_the_session_case_sensitivity(self, spark, tmp_path):
+        # Spark's default resolver is case-insensitive: it names id/ID id0/ID1,
+        # and the contract's `id` would silently read as null.
+        write_utf8(tmp_path / "dup.csv", ["id,ID,big", "1,7,2"])
+        schema = CsvTableSchema.model_validate(
+            {"columns": [{"name": "id", "type": "int"}, {"name": "big", "type": "bigint"}]}
         )
-        assert loader._read_header(str(tmp_path / f"a{suffix}"))[:3] == ["id", "big", "val"]
-        assert loader.load() == 2
+        loader = CsvLoader(schema, tmp_path, "test_csv_loader.casedup", spark=spark)
+        assert loader._group_header(str(tmp_path / "dup.csv")) == (
+            ["id0", "ID1", "big"],
+            ["id", "ID", "big"],
+        )
+        with pytest.raises(
+            ValueError, match=re.escape("dup.csv has duplicated header columns: ['id']")
+        ):
+            loader.load()
+        spark.conf.set("spark.sql.caseSensitive", "true")
+        try:
+            assert loader.load() == 1
+            assert [tuple(r) for r in spark.table("test_csv_loader.casedup").collect()] == [(1, 2)]
+        finally:
+            spark.conf.set("spark.sql.caseSensitive", "false")
 
-    def test_header_sniff_honours_the_escape_character(self, spark, tmp_path):
+    def test_case_only_source_matches_follow_the_session_resolver(self, spark, tmp_path):
+        # Spark resolves `id` to a column `ID` unless the session is
+        # case-sensitive; the header check and the projection agree with it.
         schema = CsvTableSchema.model_validate(
             {
                 "columns": [
-                    {"name": "dn", "source": 'display"name', "type": "string"},
                     {"name": "id", "type": "int"},
+                    {"name": "opt", "source": "Opt", "type": "int", "required": False},
                 ]
             }
         )
-        write_utf8(tmp_path / "e.csv", ['"display\\"name",id', '"x\\"y",1'])
-        loader = CsvLoader(schema, tmp_path, "test_csv_loader.escape", spark=spark)
-        # An escape anywhere in the line is Spark's to apply.
-        assert loader._parse_header('"display\\"name",id') is None
-        assert loader._read_header(str(tmp_path / "e.csv")) == ['display"name', "id"]
+        write_utf8(tmp_path / "c.csv", ["ID,OPT", "1,5"])
+        loader = CsvLoader(schema, tmp_path, "test_csv_loader.casematch", spark=spark)
+        assert loader._resolve("id", ["ID", "OPT"]) == "ID"
+        assert loader._header_problem(["ID", "OPT"], ["ID", "OPT"]) is None
         assert loader.load() == 1
-        assert [tuple(r) for r in spark.table("test_csv_loader.escape").collect()] == [('x"y', 1)]
+        assert [tuple(r) for r in spark.table("test_csv_loader.casematch").collect()] == [(1, 5)]
+        spark.conf.set("spark.sql.caseSensitive", "true")
+        try:
+            assert loader._resolve("id", ["ID", "OPT"]) is None
+            with pytest.raises(
+                ValueError, match=re.escape("c.csv is missing required columns: ['id']")
+            ):
+                loader.load()
+        finally:
+            spark.conf.set("spark.sql.caseSensitive", "false")
 
-    def test_multi_character_separator_falls_back_to_spark(self, spark, tmp_path):
-        schema = CsvTableSchema.model_validate(
+    def test_a_null_value_header_cell_is_no_column_but_disturbs_nothing(self, spark, tmp_path):
+        # Spark names a header cell equal to nullValue `_c<i>`: a contract
+        # sourcing it is refused as missing, and one that does not need it
+        # loads the files untroubled (only contract columns are checked).
+        write_utf8(tmp_path / "n1.csv", ["id,NA", "1,2"])
+        write_utf8(tmp_path / "n2.csv", ["id,NA", "3,4"])
+        needs_it = CsvTableSchema.model_validate(
             {
-                "read_options": {"sep": "||"},
-                "columns": [{"name": "id", "type": "int"}, {"name": "v", "type": "int"}],
+                "read_options": {"nullValue": "NA"},
+                "columns": [
+                    {"name": "id", "type": "int"},
+                    {"name": "na", "source": "NA", "type": "int"},
+                ],
             }
         )
-        write_utf8(tmp_path / "m.csv", ["id||v", "1||2"])
-        loader = CsvLoader(schema, tmp_path, "test_csv_loader.multisep", spark=spark)
-        assert loader._read_header(str(tmp_path / "m.csv")) == ["id", "v"]
-        assert loader.load() == 1
-
-    def test_leading_blank_lines_are_skipped_like_spark(self, spark, tmp_path):
-        write_utf8(tmp_path / "blank.csv", ["", ""] + FILE_A)
-        loader = CsvLoader(SCHEMA, tmp_path, "test_csv_loader.blank", spark=spark)
-        assert loader._read_header(str(tmp_path / "blank.csv"))[:2] == ["id", "big"]
+        loader = CsvLoader(needs_it, tmp_path, "test_csv_loader.nullvalue", spark=spark)
+        assert loader._group_header(str(tmp_path / "n1.csv")) == (["id", "_c1"], ["id", ""])
+        with pytest.raises(ValueError, match=re.escape("is missing required columns: ['NA']")):
+            loader.load()
+        ignores_it = CsvTableSchema.model_validate(
+            {"read_options": {"nullValue": "NA"}, "columns": [{"name": "id", "type": "int"}]}
+        )
+        loader = CsvLoader(ignores_it, tmp_path, "test_csv_loader.nullvalue", spark=spark)
         assert loader.load() == 2
 
-    def test_charset_alias_is_honoured(self, spark, tmp_path):
-        schema = CsvTableSchema.model_validate(
-            {
-                "read_options": {"charset": "windows-31j"},
-                "columns": [{"name": "k", "source": "キー", "type": "string"}],
-            }
+    def test_the_scan_checks_every_files_header_even_if_grouping_were_wrong(
+        self, spark, tmp_path, monkeypatch
+    ):
+        # The guarantee behind the byte-level key: with enforceSchema=false
+        # Spark checks, per file, that the contract's columns sit at the same
+        # positions under the same names as in the scan's schema, and refuses
+        # a file where they do not — so a wrong key can cost a loud failure,
+        # never misaligned data. Force every file into one group.
+        monkeypatch.setattr(CsvLoader, "_first_line", lambda self, file: b"same")
+        columns = [{"name": "id", "type": "int"}, {"name": "v", "type": "int"}]
+        loader = CsvLoader(
+            CsvTableSchema.model_validate({"columns": columns}),
+            tmp_path,
+            "test_csv_loader.positional",
+            spark=spark,
         )
-        write_cp932(tmp_path / "c.csv", ["キー", "a"])
-        loader = CsvLoader(schema, tmp_path, "test_csv_loader.charset", spark=spark)
-        assert loader._read_header(str(tmp_path / "c.csv")) == ["キー"]
-        assert loader.load() == 1
-
-    def test_python_misparse_is_verified_by_spark_before_failing(self, spark, tmp_path):
-        # A name the Python dialect cannot reproduce but Spark can is not an error;
-        # a column Spark cannot find either still is.
-        schema = CsvTableSchema.model_validate(
-            {
-                "read_options": {"sep": "||"},
-                "columns": [{"name": "id", "type": "int"}, {"name": "gone", "type": "int"}],
-            }
-        )
-        write_utf8(tmp_path / "m.csv", ["id||v", "1||2"])
-        loader = CsvLoader(schema, tmp_path, "test_csv_loader.verify", spark=spark)
-        with pytest.raises(
-            ValueError, match=re.escape("m.csv is missing required columns: ['gone']")
-        ):
+        write_utf8(tmp_path / "a.csv", ["id,v", "1,2"])
+        write_utf8(tmp_path / "b.csv", ["id,v,extra column", "3,4,5"])
+        df = loader._read_all(loader._resolve_files())
+        assert "Union" not in df._jdf.queryExecution().analyzed().toString()
+        assert loader.load() == 2
+        assert sorted(tuple(r) for r in spark.table("test_csv_loader.positional").collect()) == [
+            (1, 2),
+            (3, 4),
+        ]
+        # Spark infers the scan's schema from the largest file (b.csv); the
+        # swapped, smaller c.csv is refused by name.
+        write_utf8(tmp_path / "c.csv", ["v,id", "6,7"])
+        with pytest.raises(Exception, match=r"CSV header does not conform[\s\S]*c\.csv"):
             loader.load()
 
-    def test_empty_file_is_reported_as_missing_columns(self, spark, tmp_path):
-        (tmp_path / "empty.csv").write_bytes(b"")
-        loader = CsvLoader(SCHEMA, tmp_path, "test_csv_loader.empty", spark=spark)
-        assert loader._header_line(str(tmp_path / "empty.csv")) == ""
-        with pytest.raises(ValueError, match="empty.csv is missing required columns"):
+    def test_leading_blank_lines_are_skipped_and_a_tab_line_is_the_header(self, spark, tmp_path):
+        columns = [{"name": "id", "type": "int"}, {"name": "v", "type": "int"}]
+        schema = CsvTableSchema.model_validate({"columns": columns})
+        (tmp_path / "blank.csv").write_bytes(b"   \n\n\r\nid,v\n1,2\n")
+        loader = CsvLoader(schema, tmp_path, "test_csv_loader.blank", spark=spark)
+        assert loader.load() == 1
+        (tmp_path / "blank.csv").write_bytes(b"\t\nid,v\n1,2\n")
+        with pytest.raises(
+            ValueError, match=re.escape("blank.csv is missing required columns: ['id', 'v']")
+        ):
             loader.load()
 
     def test_comment_lines_are_skipped_and_layouts_still_grouped_by_header(self, spark, tmp_path):
         schema = CsvTableSchema.model_validate(
             {
                 "read_options": {"comment": "#"},
-                "columns": [{"name": "id", "type": "int"}, {"name": "v", "type": "int"}],
+                "columns": [
+                    {"name": "id", "type": "int"},
+                    {"name": "v", "type": "int", "required": False},
+                ],
             }
         )
-        # Same comment line, opposite column order: must not share a scan.
-        write_utf8(tmp_path / "a.csv", ["# generated", "id,v", "1,10"])
-        write_utf8(tmp_path / "b.csv", ["# generated", "v,id", "20,2"])
+        write_utf8(tmp_path / "a.csv", ["# note", "id,v", "1,2"])
+        write_utf8(tmp_path / "b.csv", ["# other note", "id,v", "3,4"])
+        write_utf8(tmp_path / "c.csv", ["# note", "id", "5"])
         loader = CsvLoader(schema, tmp_path, "test_csv_loader.comment", spark=spark)
-        assert loader._read_header(str(tmp_path / "b.csv")) == ["v", "id"]
-        assert loader.load() == 2
+        df = loader._read_all(loader._resolve_files())
+        assert df._jdf.queryExecution().analyzed().toString().count("Union") == 1
+        assert loader.load() == 3
         assert sorted(tuple(r) for r in spark.table("test_csv_loader.comment").collect()) == [
-            (1, 10),
-            (2, 20),
+            (1, 2),
+            (3, 4),
+            (5, None),
         ]
 
-    def test_custom_line_separator_defers_to_spark_and_still_groups(self, spark, tmp_path):
-        schema = CsvTableSchema.model_validate(
-            {
-                "read_options": {"lineSep": ";"},
-                "columns": [{"name": "id", "type": "int"}, {"name": "v", "type": "int"}],
-            }
-        )
-        (tmp_path / "a.csv").write_text("id,v;1,10;2,20;", encoding="utf-8")
-        (tmp_path / "b.csv").write_text("id,v;3,30;", encoding="utf-8")
-        loader = CsvLoader(schema, tmp_path, "test_csv_loader.linesep", spark=spark)
-        assert loader._header_line(str(tmp_path / "a.csv")) is None
-        df = loader._read_all(loader._resolve_files())
-        # Identical Spark-parsed headers → one scan, no per-file union.
-        assert "Union" not in df._jdf.queryExecution().analyzed().toString()
-        assert loader.load() == 3
-
-    def test_multiline_option_defers_the_header_to_spark(self, spark, tmp_path):
-        schema = CsvTableSchema.model_validate(
-            {
-                "read_options": {"multiLine": "true"},
-                "columns": [{"name": "id", "type": "int"}, {"name": "v", "type": "int"}],
-            }
-        )
-        write_utf8(tmp_path / "a.csv", ["id,v", "1,10"])
-        write_utf8(tmp_path / "b.csv", ["id,v", "2,20"])
-        loader = CsvLoader(schema, tmp_path, "test_csv_loader.multiline", spark=spark)
-        assert loader._header_line(str(tmp_path / "a.csv")) is None
-        df = loader._read_all(loader._resolve_files())
-        assert "Union" not in df._jdf.queryExecution().analyzed().toString()
-        assert loader.load() == 2
+    def test_empty_file_is_reported_as_missing_columns(self, spark, tmp_path):
+        (tmp_path / "empty.csv").write_bytes(b"")
+        loader = CsvLoader(SCHEMA, tmp_path, "test_csv_loader.empty", spark=spark)
+        assert loader._group_header(str(tmp_path / "empty.csv")) == ([], [])
+        with pytest.raises(ValueError, match="empty.csv is missing required columns"):
+            loader.load()
 
     def test_a_source_column_named_metadata_does_not_shadow_the_file_name(self, spark, tmp_path):
         schema = CsvTableSchema.model_validate(
@@ -754,107 +785,6 @@ class TestHeaderGroupedRead:
         assert [tuple(r) for r in df.collect()] == [(1, "x", "m.csv")]
         assert loader.load() == 1
 
-    def test_java_only_charset_defers_the_header_to_spark(self, spark, tmp_path):
-        schema = CsvTableSchema.model_validate(
-            {
-                # A Java charset Python has no codec for (ASCII-compatible, so
-                # Spark's byte-level line splitting still works).
-                "read_options": {"encoding": "x-IBM942C"},
-                "columns": [{"name": "id", "type": "int"}, {"name": "v", "type": "int"}],
-            }
-        )
-        (tmp_path / "u.csv").write_bytes(b"id,v\n1,10\n")
-        loader = CsvLoader(schema, tmp_path, "test_csv_loader.javacharset", spark=spark)
-        assert loader._header_line(str(tmp_path / "u.csv")) is None
-        assert loader._read_header(str(tmp_path / "u.csv")) == ["id", "v"]
-        assert loader.load() == 1
-
-    def test_case_only_duplicate_header_follows_the_session_case_sensitivity(self, spark, tmp_path):
-        # Spark's default resolver is case-insensitive: it names id/ID id0/ID1,
-        # and the contract's `id` would silently read as null.
-        write_utf8(tmp_path / "dup.csv", ["id,ID,big", "1,7,2"])
-        schema = CsvTableSchema.model_validate(
-            {"columns": [{"name": "id", "type": "int"}, {"name": "big", "type": "bigint"}]}
-        )
-        loader = CsvLoader(schema, tmp_path, "test_csv_loader.casedup", spark=spark)
-        assert loader._safe_header(["id", "ID", "big"]) == ["id0", "ID1", "big"]
-        with pytest.raises(
-            ValueError, match=re.escape("dup.csv has duplicated header columns: ['id']")
-        ):
-            loader.load()
-        spark.conf.set("spark.sql.caseSensitive", "true")
-        try:
-            assert loader._safe_header(["id", "ID", "big"]) == ["id", "ID", "big"]
-            assert loader.load() == 1
-            assert [tuple(r) for r in spark.table("test_csv_loader.casedup").collect()] == [(1, 2)]
-        finally:
-            spark.conf.set("spark.sql.caseSensitive", "false")
-
-    def test_case_only_duplicate_is_rejected_on_the_spark_path_too(self, spark, tmp_path):
-        (tmp_path / "dup.csv.deflate").write_bytes(zlib.compress(b"id,ID,big\n1,7,2\n"))
-        schema = CsvTableSchema.model_validate(
-            {"columns": [{"name": "id", "type": "int"}, {"name": "big", "type": "bigint"}]}
-        )
-        loader = CsvLoader(schema, tmp_path / "*.deflate", "test_csv_loader.sdup", spark=spark)
-        assert loader._header_line(str(tmp_path / "dup.csv.deflate")) is None
-        with pytest.raises(
-            ValueError, match=re.escape("dup.csv.deflate has duplicated header columns: ['id']")
-        ):
-            loader.load()
-
-    def test_header_cell_equal_to_null_value_is_not_a_column_on_either_path(self, spark, tmp_path):
-        # Spark names a header cell equal to nullValue `_c<i>` (makeSafeHeader),
-        # so a contract sourcing that name can never be served.
-        schema = CsvTableSchema.model_validate(
-            {
-                "read_options": {"nullValue": "NA"},
-                "columns": [
-                    {"name": "id", "type": "int"},
-                    {"name": "na", "source": "NA", "type": "int"},
-                ],
-            }
-        )
-        write_utf8(tmp_path / "n.csv", ["id,NA", "1,2"])
-        (tmp_path / "n.csv.deflate").write_bytes(zlib.compress(b"id,NA\n1,2\n"))
-        assert CsvLoader(schema, tmp_path, "t", spark=spark)._safe_header(["id", "NA"]) == [
-            "id",
-            "_c1",
-        ]
-        for pattern in ("*.csv", "*.deflate"):
-            loader = CsvLoader(schema, tmp_path / pattern, "test_csv_loader.nullvalue", spark=spark)
-            with pytest.raises(ValueError, match=re.escape("is missing required columns: ['NA']")):
-                loader.load()
-        # Spark reads the cell as null on the fallback path; it is named like the header scan.
-        assert loader._spark_header(str(tmp_path / "n.csv.deflate")) == ["id", ""]
-        assert loader._safe_header(loader._spark_header(str(tmp_path / "n.csv.deflate"))) == [
-            "id",
-            "_c1",
-        ]
-
-    @pytest.mark.parametrize("case_sensitive", ["false", "true"])
-    def test_header_names_match_sparks_on_both_paths(self, spark, tmp_path, case_sensitive):
-        # Neither the preflight nor the fallback may accept what Spark's
-        # header=true scan would rename: both must reproduce its names.
-        headers = ["id,ID,big", "id,id,big", "a,,b", 'a,"",b', "a,NA,b", "a,b,A,B,", "x,y,z"]
-        schema = CsvTableSchema.model_validate(
-            {"read_options": {"nullValue": "NA"}, "columns": [{"name": "x", "type": "int"}]}
-        )
-        loader = CsvLoader(schema, tmp_path, "t", spark=spark)
-        spark.conf.set("spark.sql.caseSensitive", case_sensitive)
-        try:
-            for i, header in enumerate(headers):
-                file = tmp_path / f"h{i}.csv"
-                write_utf8(file, [header, "1,2,3,4,5"])
-                spark_names = (
-                    spark.read.options(header="true", nullValue="NA").csv(str(file)).columns
-                )
-                cells = loader._parse_header(loader._header_line(str(file)))
-                assert loader._safe_header(cells) == spark_names, header
-                assert loader._safe_header(loader._spark_header(str(file))) == spark_names, header
-                assert loader._safe_header(spark_names) == spark_names, header
-        finally:
-            spark.conf.set("spark.sql.caseSensitive", "false")
-
     def test_file_name_keeps_a_literal_plus_and_decodes_escapes(self, spark, tmp_path):
         # Hadoop paths keep "+" literal and escape a space as %20 (a percent as
         # %25); form decoding would have turned the plus into a space.
@@ -867,16 +797,12 @@ class TestHeaderGroupedRead:
         }
 
     def test_option_keys_are_matched_case_insensitively_like_sparks(self, spark, tmp_path):
-        # Spark keeps reader options in a case-insensitive map: the preflight
-        # must apply the same separator and nullValue the scan will.
         columns = [{"name": "id", "type": "int"}, {"name": "v", "type": "int"}]
         schema = CsvTableSchema.model_validate({"read_options": {"SEP": ";"}, "columns": columns})
         write_utf8(tmp_path / "s.csv", ["id;v", "1;2"])
         loader = CsvLoader(schema, tmp_path, "test_csv_loader.sepcase", spark=spark)
         assert loader._option("sep", ",") == ";"
-        assert loader._parse_header("id;v") == ["id", "v"]
         assert loader.load() == 1
-
         schema = CsvTableSchema.model_validate(
             {
                 "read_options": {"nullvalue": "NA"},
@@ -887,12 +813,9 @@ class TestHeaderGroupedRead:
             }
         )
         write_utf8(tmp_path / "n.csv", ["id,NA", "1,2"])
-        (tmp_path / "n.csv.deflate").write_bytes(zlib.compress(b"id,NA\n1,2\n"))
-        for pattern in ("n.csv", "*.deflate"):
-            loader = CsvLoader(schema, tmp_path / pattern, "test_csv_loader.nvcase", spark=spark)
-            assert loader._safe_header(["id", "NA"]) == ["id", "_c1"]
-            with pytest.raises(ValueError, match=re.escape("is missing required columns: ['NA']")):
-                loader.load()
+        loader = CsvLoader(schema, tmp_path / "n.csv", "test_csv_loader.nvcase", spark=spark)
+        with pytest.raises(ValueError, match=re.escape("is missing required columns: ['NA']")):
+            loader.load()
 
     def test_a_physical_source_file_header_is_rejected_as_reserved(self, spark, tmp_path):
         # `_source_file` is the loader's hidden file-name column: a provider
@@ -920,274 +843,88 @@ class TestHeaderGroupedRead:
             (1, "s.csv")
         ]
 
-    @pytest.mark.parametrize("option", ["ignoreLeadingWhiteSpace", "ignoreTrailingWhiteSpace"])
-    def test_whitespace_trimming_options_defer_the_header_to_spark(self, spark, tmp_path, option):
-        # Spark trims header cells before naming them, so " id,id" is a
-        # duplicate to it and "id ,v" is the column `id`.
+    @pytest.mark.parametrize("value", ["false", "true"])
+    def test_header_and_infer_schema_are_owned_by_the_loader(self, spark, tmp_path, value):
+        # The grouped scan reads header=true and strings, the header and
+        # positional reads header=false, whatever a contract says.
         schema = CsvTableSchema.model_validate(
             {
-                "read_options": {option: "true"},
-                "columns": [{"name": "id", "type": "int"}, {"name": "v", "type": "int"}],
-            }
-        )
-        pad = (" ", "") if option == "ignoreLeadingWhiteSpace" else ("", " ")
-        write_utf8(tmp_path / "dup.csv", [f"{pad[0]}id{pad[1]},id,v", "1,7,2"])
-        loader = CsvLoader(schema, tmp_path, "test_csv_loader.trim", spark=spark)
-        assert loader._header_line(str(tmp_path / "dup.csv")) is None
-        with pytest.raises(
-            ValueError, match=re.escape("dup.csv has duplicated header columns: ['id']")
-        ):
-            loader.load()
-        write_utf8(tmp_path / "dup.csv", [f"{pad[0]}id{pad[1]},v", "1,2"])
-        assert loader.load() == 1
-        assert [tuple(r) for r in spark.table("test_csv_loader.trim").collect()] == [(1, 2)]
-
-    @pytest.mark.parametrize("escape", ["", "\u0000"])
-    def test_disabled_escape_defers_the_header_to_spark(self, spark, tmp_path, escape):
-        # Spark reads an empty (or NUL) escape as "no escape character";
-        # Python's csv module has no such dialect, so Spark parses the header.
-        schema = CsvTableSchema.model_validate(
-            {
-                "read_options": {"escape": escape},
-                "columns": [{"name": "id", "type": "int"}, {"name": "v", "type": "string"}],
-            }
-        )
-        write_utf8(tmp_path / "e.csv", ["id,v", '1,"a\\b"'])
-        loader = CsvLoader(schema, tmp_path, "test_csv_loader.noescape", spark=spark)
-        assert loader._parse_header("id,v") is None
-        assert loader._read_header(str(tmp_path / "e.csv")) == ["id", "v"]
-        assert loader.load() == 1
-        assert [tuple(r) for r in spark.table("test_csv_loader.noescape").collect()] == [
-            (1, "a\\b")
-        ]
-
-    def test_malformed_quoting_defers_the_header_to_spark(self, spark, tmp_path):
-        # A quote the Python parser cannot place strictly is left to Spark,
-        # whose unescapedQuoteHandling decides what the cell becomes.
-        columns = [{"name": "id", "type": "int"}, {"name": "v", "type": "int"}]
-        loader = CsvLoader(
-            CsvTableSchema.model_validate({"columns": columns}), tmp_path, "t", spark=spark
-        )
-        assert loader._parse_header('"id"x,v') is None
-        write_utf8(tmp_path / "q.csv", ['"id"x,v', "1,2"])
-        file = str(tmp_path / "q.csv")
-        assert loader._read_header(file) == loader._spark_header(file)
-        assert loader._safe_header(loader._read_header(file)) == (
-            spark.read.options(header="true").csv(file).columns
-        )
-
-        schema = CsvTableSchema.model_validate(
-            {"read_options": {"unescapedQuoteHandling": "SKIP_VALUE"}, "columns": columns}
-        )
-        loader = CsvLoader(schema, tmp_path, "test_csv_loader.skipvalue", spark=spark)
-        assert loader._parse_header("id,v") is None
-        assert loader._safe_header(loader._read_header(file)) == (
-            spark.read.options(header="true", unescapedQuoteHandling="SKIP_VALUE").csv(file).columns
-        )
-        with pytest.raises(
-            ValueError, match=re.escape("q.csv is missing required columns: ['id']")
-        ):
-            loader.load()
-
-    def test_non_default_empty_value_defers_the_header_to_spark(self, spark, tmp_path):
-        # A quoted-empty header cell is named emptyValue by Spark; Python's csv
-        # module cannot tell it from an unquoted empty cell, so Spark decides.
-        schema = CsvTableSchema.model_validate(
-            {
-                "read_options": {"emptyValue": "EMPTY"},
+                "read_options": {"Header": value, "inferschema": "true"},
                 "columns": [
-                    {"name": "id", "type": "int"},
-                    {"name": "e", "source": "EMPTY", "type": "int"},
-                ],
-            }
-        )
-        write_utf8(tmp_path / "e.csv", ['id,"",', "1,2,3"])
-        file = str(tmp_path / "e.csv")
-        loader = CsvLoader(schema, tmp_path, "test_csv_loader.emptyvalue", spark=spark)
-        assert loader._header_line(file) is None
-        assert loader._read_header(file) == ["id", "EMPTY", ""]
-        assert loader._safe_header(loader._read_header(file)) == (
-            spark.read.options(header="true", emptyValue="EMPTY").csv(file).columns
-        )
-        assert loader.load() == 1
-        assert [tuple(r) for r in spark.table("test_csv_loader.emptyvalue").collect()] == [(1, 2)]
-
-    def test_an_unquoted_escape_character_defers_the_header_to_spark(self, spark, tmp_path):
-        # Python's csv module would apply the escape in an unquoted cell too
-        # (foo\bar -> foobar); Spark keeps it literal, so Spark decides.
-        write_utf8(tmp_path / "u.csv", ["foo\\bar,id", "x,1"])
-        file = str(tmp_path / "u.csv")
-        columns = [
-            {"name": "fb", "source": "foobar", "type": "string"},
-            {"name": "id", "type": "int"},
-        ]
-        loader = CsvLoader(
-            CsvTableSchema.model_validate({"columns": columns}),
-            tmp_path,
-            "test_csv_loader.unqesc",
-            spark=spark,
-        )
-        assert loader._parse_header("foo\\bar,id") is None
-        assert loader._read_header(file) == ["foo\\bar", "id"]
-        with pytest.raises(
-            ValueError, match=re.escape("u.csv is missing required columns: ['foobar']")
-        ):
-            loader.load()
-        columns[0]["source"] = "foo\\bar"
-        loader = CsvLoader(
-            CsvTableSchema.model_validate({"columns": columns}),
-            tmp_path,
-            "test_csv_loader.unqesc",
-            spark=spark,
-        )
-        assert loader.load() == 1
-        assert [tuple(r) for r in spark.table("test_csv_loader.unqesc").collect()] == [("x", 1)]
-
-    @pytest.mark.parametrize("header", ['"a""b",id', 'a"b,id', '"a"b,id'])
-    def test_a_quote_inside_a_cell_defers_the_header_to_spark(self, spark, tmp_path, header):
-        # Doubled, unquoted-cell or unescaped quotes are read by Spark's own
-        # rules (its escape character, unescapedQuoteHandling), not Python's.
-        loader = CsvLoader(SCHEMA, tmp_path, "t", spark=spark)
-        assert loader._parse_header(header) is None
-        assert loader._parse_header('"a","b",id') == ["a", "b", "id"]
-        write_utf8(tmp_path / "q.csv", [header, "1,2"])
-        file = str(tmp_path / "q.csv")
-        assert loader._safe_header(loader._read_header(file)) == (
-            spark.read.options(header="true").csv(file).columns
-        )
-
-    def test_fallback_header_is_never_type_inferred(self, spark, tmp_path):
-        # inferSchema would turn the header cell 001 into 1 on the fallback's
-        # headerless read; the loader owns that option for header reads.
-        schema = CsvTableSchema.model_validate(
-            {
-                "read_options": {"inferschema": "true", "multiLine": "true"},
-                "columns": [
-                    {"name": "zero", "source": "001", "type": "int"},
+                    {"name": "zero", "source": "001", "type": "string"},
                     {"name": "v", "type": "int"},
                 ],
             }
         )
-        write_utf8(tmp_path / "i.csv", ["001,v", "7,8"])
-        loader = CsvLoader(schema, tmp_path, "test_csv_loader.infer", spark=spark)
-        assert loader._spark_options(inferSchema="false") == {
-            "multiLine": "true",
-            "inferSchema": "false",
-        }
-        assert loader._spark_options(header="true")["inferschema"] == "true"
-        assert loader._spark_header(str(tmp_path / "i.csv")) == ["001", "v"]
-        assert loader.load() == 1
-        assert [tuple(r) for r in spark.table("test_csv_loader.infer").collect()] == [(7, 8)]
-
-    @pytest.mark.parametrize("value", ["false", "true"])
-    def test_a_contract_header_option_is_owned_by_the_loader(self, spark, tmp_path, value):
-        # The grouped scan reads header=true, the header and positional reads
-        # header=false, whatever a contract says under any spelling.
-        schema = CsvTableSchema.model_validate(
-            {
-                "read_options": {"Header": value, "multiLine": "true"},
-                "columns": [{"name": "id", "type": "int"}],
-            }
-        )
-        write_utf8(tmp_path / "h.csv", ["id", "1"])
+        write_utf8(tmp_path / "h.csv", ["001,v", "007,8"])
         file = str(tmp_path / "h.csv")
-        loader = CsvLoader(schema, tmp_path, "test_csv_loader.headeropt", spark=spark)
-        assert loader._spark_options(header="true") == {"multiLine": "true", "header": "true"}
-        assert loader._header_line(file) is None
-        assert loader._spark_header(file) == ["id"]
+        loader = CsvLoader(schema, tmp_path, "test_csv_loader.owned", spark=spark)
+        assert loader._group_header(file) == (["001", "v"], ["001", "v"])
         assert loader._scan_positional([file], 1).count() == 2
         assert loader.load() == 1
+        assert [tuple(r) for r in spark.table("test_csv_loader.owned").collect()] == [("007", 8)]
 
-    @pytest.mark.parametrize("charset", ["UTF-16", "utf_16", "UTF-32"])
-    def test_bom_dependent_charsets_defer_the_header_to_spark(self, spark, tmp_path, charset):
-        # Python's codec refuses a BOM-less stream ("Stream does not start
-        # with BOM") that Java decodes as big-endian; Spark reads such a file
-        # in multiLine mode, where the preflight already steps aside.
-        columns = [{"name": "id", "type": "int"}, {"name": "v", "type": "int"}]
-        schema = CsvTableSchema.model_validate(
-            {"read_options": {"encoding": charset}, "columns": columns}
-        )
-        python = charset.lower().replace("_", "-")
-        (tmp_path / "u.csv").write_bytes("id,v\n1,2\n".encode(f"{python}-be"))
-        loader = CsvLoader(schema, tmp_path, "t", spark=spark)
-        assert loader._header_line(str(tmp_path / "u.csv")) is None
-
-        schema = CsvTableSchema.model_validate(
-            {"read_options": {"encoding": charset, "multiLine": "true"}, "columns": columns}
-        )
-        loader = CsvLoader(schema, tmp_path, "test_csv_loader.bom", spark=spark)
-        assert loader._read_header(str(tmp_path / "u.csv")) == ["id", "v"]
-        assert loader.load() == 1
-        assert [tuple(r) for r in spark.table("test_csv_loader.bom").collect()] == [(1, 2)]
-
-    def test_grouped_scan_reads_strings_and_casts_per_contract(self, spark, tmp_path):
-        # Type inference across a group would let one file's content change
-        # how another file's values are read (001 -> 1 next to a numeric-only
-        # file); the loader types values by the contract instead.
-        schema = CsvTableSchema.model_validate(
-            {
-                "read_options": {"inferschema": "true"},
-                "columns": [{"name": "s", "type": "string"}, {"name": "id", "type": "int"}],
-            }
-        )
-        write_utf8(tmp_path / "a.csv", ["s,id", "001,1"])
-        write_utf8(tmp_path / "b.csv", ["s,id", "x,2"])
-        loader = CsvLoader(schema, tmp_path, "test_csv_loader.noinfer", spark=spark)
-        assert loader._spark_options(header="true", inferSchema="false") == {
-            "header": "true",
-            "inferSchema": "false",
-        }
-        assert loader.load() == 2
-        assert sorted(tuple(r) for r in spark.table("test_csv_loader.noinfer").collect()) == [
-            ("001", 1),
-            ("x", 2),
-        ]
-
-    def test_case_only_source_matches_follow_the_session_resolver(self, spark, tmp_path):
-        # Spark resolves `id` to a column `ID` unless the session is
-        # case-sensitive; the header check and the projection agree with it.
+    @pytest.mark.parametrize(
+        "read_options, content, expected",
+        [
+            ({"sep": ";"}, b"id;v\n1;a\n", (1, "a")),
+            ({"delimiter": ";"}, b"id;v\n1;a\n", (1, "a")),
+            ({"sep": "||"}, b"id||v\n1||a\n", (1, "a")),
+            ({}, b'id,v\n1,"a,b"\n', (1, "a,b")),
+            ({"quote": "'"}, b"id,v\n1,'a,b'\n", (1, "a,b")),
+            ({"quote": ""}, b'id,v\n1,"a"\n', (1, '"a"')),
+            ({}, b'id,v\n1,"a\\"b"\n', (1, 'a"b')),
+            ({"escape": ""}, b'id,v\n1,"a\\b"\n', (1, "a\\b")),
+            # Spark's default escape is a backslash, so a doubled quote is no
+            # escape to it: the cell is read verbatim (Python's csv module
+            # would have read a"b — the divergence the old preflight had).
+            ({}, b'id,v\n1,"a""b"\n', (1, '"a""b"')),
+            (
+                {"ignoreLeadingWhiteSpace": "true", "ignoreTrailingWhiteSpace": "true"},
+                b"id,v\n1, a \n",
+                (1, "a"),
+            ),
+            ({"emptyValue": "EMPTY"}, b'id,v\n1,""\n', (1, "EMPTY")),
+            ({"multiLine": "true"}, b'id,v\n1,"a\nb"\n', (1, "a\nb")),
+            ({"lineSep": "|"}, b"id,v|1,a|", (1, "a")),
+            ({"comment": "#"}, b"# c\nid,v\n# d\n1,a\n", (1, "a")),
+            ({"encoding": "windows-31j"}, "id,v\n1,あ\n".encode("cp932"), (1, "あ")),
+            ({"encoding": "x-IBM942C"}, b"id,v\n1,a\n", (1, "a")),
+            (
+                {"encoding": "UTF-16", "multiLine": "true"},
+                "id,v\n1,a\n".encode("utf-16-be"),
+                (1, "a"),
+            ),
+            ({"unescapedQuoteHandling": "SKIP_VALUE"}, b'id,v\n1,"a"b\n', (1, None)),
+        ],
+    )
+    def test_the_dialect_is_sparks_business(self, spark, tmp_path, read_options, content, expected):
+        # Nothing about the dialect is judged in Python: whatever Spark reads
+        # under the contract's options is what the loader loads.
         schema = CsvTableSchema.model_validate(
             {
+                "read_options": read_options,
                 "columns": [
                     {"name": "id", "type": "int"},
-                    {"name": "opt", "source": "Opt", "type": "int", "required": False},
-                ]
+                    {"name": "v", "type": "string", "required": False},
+                ],
             }
         )
-        write_utf8(tmp_path / "c.csv", ["ID,OPT", "1,5"])
-        loader = CsvLoader(schema, tmp_path, "test_csv_loader.casematch", spark=spark)
-        assert loader._resolve("id", ["ID", "OPT"]) == "ID"
-        assert loader._header_problem(["ID", "OPT"]) is None
+        (tmp_path / "d.csv").write_bytes(content)
+        loader = CsvLoader(schema, tmp_path, "test_csv_loader.dialect", spark=spark)
         assert loader.load() == 1
-        assert [tuple(r) for r in spark.table("test_csv_loader.casematch").collect()] == [(1, 5)]
-        spark.conf.set("spark.sql.caseSensitive", "true")
-        try:
-            assert loader._resolve("id", ["ID", "OPT"]) is None
-            with pytest.raises(
-                ValueError, match=re.escape("c.csv is missing required columns: ['id']")
-            ):
-                loader.load()
-        finally:
-            spark.conf.set("spark.sql.caseSensitive", "false")
+        assert [tuple(r) for r in spark.table("test_csv_loader.dialect").collect()] == [expected]
 
     def test_loader_has_no_per_file_read(self):
         assert "_read_file" not in CsvLoader.__dict__
-
-
-class TestPythonCodec:
-    @pytest.mark.parametrize(
-        "java, python",
-        [
-            ("windows-31j", "cp932"),
-            ("MS932", "cp932"),
-            ("UTF-8", "utf-8-sig"),
-            ("utf8", "utf-8-sig"),
-            ("Shift_JIS", "shift_jis"),
-            ("EUC-JP", "euc-jp"),
-        ],
-    )
-    def test_maps_java_charset_names(self, java, python):
-        assert python_codec(java) == python
+        for helper in (
+            "_header_line",
+            "_parse_header",
+            "_spark_header",
+            "_safe_header",
+            "_read_header",
+        ):
+            assert helper not in CsvLoader.__dict__
 
 
 class TestFirstLine:
@@ -1231,9 +968,11 @@ class TestFirstLine:
     def test_empty_file_and_only_blank_lines_give_empty_bytes(self, spark, tmp_path):
         (tmp_path / "e.csv").write_bytes(b"")
         (tmp_path / "b.csv").write_bytes(b"\n  \n")
+        (tmp_path / "d.csv.deflate").write_bytes(zlib.compress(b"\n  \n"))
         loader = self.loader(spark, tmp_path)
         assert loader._first_line(str(tmp_path / "e.csv")) == b""
         assert loader._first_line(str(tmp_path / "b.csv")) == b""
+        assert loader._first_line(str(tmp_path / "d.csv.deflate")) == b""
 
     def test_last_line_without_terminator_is_returned(self, spark, tmp_path):
         (tmp_path / "f.csv").write_bytes(b"\nid,v")
