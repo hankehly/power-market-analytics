@@ -22,9 +22,10 @@ comma-separated table with two header rows — the source codes
 — followed by one row per nine-digit mesh. Only the total-population column
 is loaded, and its header differs per census (``T000847001`` in 2015,
 ``T001101001`` in 2020), so the loader identifies each file's vintage from
-its name (``statsId`` → :data:`VINTAGES`), selects that vintage's population
-column, injects the vintage attributes and the file's primary mesh code, and
-validates every row before casting: total population must be a non-negative
+its name (``statsId`` → :data:`VINTAGES`), reads the files of one vintage and
+header layout in a single Spark scan, selects that vintage's population
+column, injects the vintage attributes and each file's primary mesh code, and
+validates every row per file in one grouped pass before casting: total population must be a non-negative
 integer (it is never ``*``-suppressed), mesh codes must be well-formed and
 lie inside the file's primary mesh, and ``HTKSYORI`` must be 0, 1 or 2.
 Anything else fails the load before writing.
@@ -40,16 +41,17 @@ import re
 import time
 import zipfile
 from dataclasses import dataclass
+from functools import reduce
 from pathlib import Path
 from typing import NamedTuple
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import requests
 from loguru import logger
-from pyspark.sql import DataFrame, SparkSession
+from pyspark.sql import Column, DataFrame, SparkSession
 from pyspark.sql import functions as F
 
-from power_market_analytics.csv_loader import CsvLoader, CsvTableSchema
+from power_market_analytics.csv_loader import SOURCE_FILE_COL, CsvLoader, CsvTableSchema
 
 BASE_URL = "https://www.e-stat.go.jp"
 #: JSON endpoint behind the listing page (rows + pager as HTML fragments).
@@ -655,22 +657,72 @@ class EstatCensusMeshCsvLoader(CsvLoader):
             raise FileNotFoundError(f"No census mesh text files found at {self.filepath}")
         return files
 
-    def _read_file(self, file: str) -> DataFrame:
-        vintage, primary_mesh_code = self._identify(file)
-        self._check_headers(file, vintage)
-        raw = self.spark.read.options(header="true", **self.schema.read_options).csv(file)
-        self._check_rows(raw, file, vintage, primary_mesh_code)
+    def _read_all(self, files: list[str]) -> DataFrame:
+        names = [Path(file).name for file in files]
+        if len(set(names)) != len(names):
+            clash = next(name for name in names if names.count(name) > 1)
+            raise ValueError(
+                f"{names.count(clash)} files share the file name {clash}: the primary mesh "
+                "code is joined back on the name, so every file name must be unique"
+            )
+        # One scan per (vintage, exact header line): Spark applies the first
+        # file's header to every file of a multi-path read, so files whose
+        # columns are ordered differently must not share a scan.
+        groups: dict[tuple[str, tuple[str, ...]], list[str]] = {}
+        vintages: dict[str, CensusVintage] = {}
+        codes: dict[str, str] = {}
+        for file in files:
+            vintage, primary_mesh_code = self._identify(file)
+            header = self._check_headers(file, vintage)
+            groups.setdefault((vintage.stats_id, tuple(header)), []).append(file)
+            vintages[vintage.stats_id] = vintage
+            codes[Path(file).name] = primary_mesh_code
+        frames = [
+            self._read_group(vintages[stats_id], group, codes)
+            for (stats_id, _), group in groups.items()
+        ]
+        return reduce(DataFrame.unionByName, frames)
+
+    def _read_group(
+        self, vintage: CensusVintage, files: list[str], codes: dict[str, str]
+    ) -> DataFrame:
+        """Read files that share ``vintage`` and a header line in one scan.
+
+        Parameters
+        ----------
+        vintage : CensusVintage
+            The census the files belong to (population column, attributes).
+        files : list of str
+            Paths with identical header lines.
+        codes : dict of str to str
+            File name → primary mesh code, for every file.
+
+        Returns
+        -------
+        pyspark.sql.DataFrame
+            Contract columns plus ``SOURCE_FILE_COL``, rows validated.
+        """
+        lookup = self.spark.createDataFrame(
+            [(Path(file).name, codes[Path(file).name]) for file in files],
+            f"{SOURCE_FILE_COL} string, {PRIMARY_MESH_CODE_SOURCE} string",
+        )
+        raw = (
+            self.spark.read.options(header="true", **self.schema.read_options)
+            .csv(files)
+            .withColumn(SOURCE_FILE_COL, F.col("_metadata.file_name"))
+            .join(F.broadcast(lookup), SOURCE_FILE_COL, "inner")
+        )
+        self._check_rows(raw, vintage)
         data = (
             raw.filter(F.col(KEY_CODE).isNotNull())
             .withColumn(CENSUS_YEAR_SOURCE, F.lit(vintage.census_year))
             .withColumn(CENSUS_DATE_SOURCE, F.lit(vintage.census_date))
             .withColumn(GEODETIC_DATUM_SOURCE, F.lit(vintage.geodetic_datum))
             .withColumn(STATS_ID_SOURCE, F.lit(vintage.stats_id))
-            .withColumn(PRIMARY_MESH_CODE_SOURCE, F.lit(primary_mesh_code))
             .withColumn(POPULATION_SOURCE, F.col(vintage.population_source_column))
-            .withColumn(SOURCE_FILE_SOURCE, F.lit(Path(file).name))
+            .withColumn(SOURCE_FILE_SOURCE, F.col(SOURCE_FILE_COL))
         )
-        return data.select([self._cast(data, c) for c in self.schema.columns])
+        return self._project(data)
 
     def _identify(self, file: str) -> tuple[CensusVintage, str]:
         """Return the vintage and primary mesh code encoded in a file name.
@@ -696,8 +748,13 @@ class EstatCensusMeshCsvLoader(CsvLoader):
     def _physical_columns(self) -> list[str]:
         return [c.source_name for c in self.schema.columns if not c.source_name.startswith("__")]
 
-    def _check_headers(self, file: str, vintage: CensusVintage) -> None:
+    def _check_headers(self, file: str, vintage: CensusVintage) -> list[str]:
         """Verify the two header rows before Spark reads the file.
+
+        Returns
+        -------
+        list of str
+            The header row (source codes), for grouping files by layout.
 
         Raises
         ------
@@ -726,59 +783,78 @@ class EstatCensusMeshCsvLoader(CsvLoader):
             )
         if not has_data:
             raise ValueError(f"{file}: no data rows after the two header rows")
+        return header
 
-    def _check_rows(
-        self, raw: DataFrame, file: str, vintage: CensusVintage, primary_mesh_code: str
-    ) -> None:
-        """Validate every data row of one file before casting.
+    def _check_rows(self, raw: DataFrame, vintage: CensusVintage) -> None:
+        """Validate every data row of a scan, reporting per file.
+
+        Parameters
+        ----------
+        raw : pyspark.sql.DataFrame
+            A header-based scan carrying ``SOURCE_FILE_COL`` and
+            ``PRIMARY_MESH_CODE_SOURCE``.
+        vintage : CensusVintage
+            Supplies the population column to check.
 
         Raises
         ------
         ValueError
-            If any mesh code is malformed or outside ``primary_mesh_code``,
-            the population is not a non-negative integer literal (this
-            includes ``*``), ``HTKSYORI`` is not 0/1/2, or the number of
-            rows without a ``KEY_CODE`` is not exactly one (the label row).
+            Named after the first offending file: a malformed mesh code, a
+            mesh code outside that file's primary mesh, a population that is
+            not a non-negative integer literal (``*`` included), ``HTKSYORI``
+            outside 0/1/2, or a number of rows without a ``KEY_CODE`` other
+            than exactly one (the label row).
         """
         key = F.col(KEY_CODE)
         population = F.col(vintage.population_source_column)
         privacy = F.col(PRIVACY_CODE)
-        checks = {
-            "mesh code": key.isNotNull() & ~key.rlike(MESH_CODE_RE.pattern),
-            f"mesh code outside primary mesh {primary_mesh_code}": key.isNotNull()
-            & ~key.startswith(primary_mesh_code),
-            f"population ({vintage.population_source_column}) not a non-negative integer": (
-                key.isNotNull() & (population.isNull() | ~population.rlike(_POPULATION_RE))
+        checks: list[tuple[str, Column]] = [
+            ("mesh code", key.isNotNull() & ~key.rlike(MESH_CODE_RE.pattern)),
+            (
+                "mesh code outside primary mesh {code}",
+                key.isNotNull() & ~key.startswith(F.col(PRIMARY_MESH_CODE_SOURCE)),
             ),
-            f"{PRIVACY_CODE} not in {list(_ACCEPTED_PRIVACY_CODES)}": key.isNotNull()
-            & ~privacy.isin(*_ACCEPTED_PRIVACY_CODES),
-        }
-        # collect()[0] over first(): an aggregation always yields one row,
-        # and unlike first() the element is not Optional.
-        counts = raw.agg(
-            F.count(F.when(key.isNull(), True)).alias("__label_rows"),
-            *[
-                F.count(F.when(cond, True)).alias(f"__c{i}")
-                for i, cond in enumerate(checks.values())
-            ],
-        ).collect()[0]
-        if counts["__label_rows"] != 1:
-            raise ValueError(
-                f"{file}: expected exactly one label row without a KEY_CODE, found "
-                f"{counts['__label_rows']} rows with an empty KEY_CODE"
+            (
+                f"population ({vintage.population_source_column}) not a non-negative integer",
+                key.isNotNull() & (population.isNull() | ~population.rlike(_POPULATION_RE)),
+            ),
+            (
+                f"{PRIVACY_CODE} not in {list(_ACCEPTED_PRIVACY_CODES)}",
+                key.isNotNull() & ~privacy.isin(*_ACCEPTED_PRIVACY_CODES),
+            ),
+        ]
+        counts = (
+            raw.groupBy(SOURCE_FILE_COL, PRIMARY_MESH_CODE_SOURCE)
+            .agg(
+                F.count(F.when(key.isNull(), True)).alias("__label_rows"),
+                *[
+                    F.count(F.when(cond, True)).alias(f"__c{i}")
+                    for i, (_, cond) in enumerate(checks)
+                ],
             )
-        for i, (label, cond) in enumerate(checks.items()):
-            n_bad = counts[f"__c{i}"]
-            if n_bad:
-                examples = [
-                    (r[KEY_CODE], r[PRIVACY_CODE], r[vintage.population_source_column])
-                    for r in raw.filter(cond)
-                    .select(KEY_CODE, PRIVACY_CODE, vintage.population_source_column)
-                    .limit(_EXAMPLE_LIMIT)
-                    .collect()
-                ]
+            .orderBy(SOURCE_FILE_COL)
+            .collect()
+        )
+        for row in counts:
+            file = row[SOURCE_FILE_COL]
+            if row["__label_rows"] != 1:
                 raise ValueError(
-                    f"{file}: {n_bad} row(s) with {label}; first "
-                    f"(KEY_CODE, HTKSYORI, population): {examples}"
+                    f"{file}: expected exactly one label row without a KEY_CODE, found "
+                    f"{row['__label_rows']} rows with an empty KEY_CODE"
                 )
-        logger.debug("{}: header and row checks passed", file)
+            for i, (label, cond) in enumerate(checks):
+                n_bad = row[f"__c{i}"]
+                if n_bad:
+                    examples = [
+                        (r[KEY_CODE], r[PRIVACY_CODE], r[vintage.population_source_column])
+                        for r in raw.filter((F.col(SOURCE_FILE_COL) == file) & cond)
+                        .select(KEY_CODE, PRIVACY_CODE, vintage.population_source_column)
+                        .limit(_EXAMPLE_LIMIT)
+                        .collect()
+                    ]
+                    raise ValueError(
+                        f"{file}: {n_bad} row(s) with "
+                        f"{label.format(code=row[PRIMARY_MESH_CODE_SOURCE])}; first "
+                        f"(KEY_CODE, HTKSYORI, population): {examples}"
+                    )
+        logger.debug("{}: header and row checks passed", [r[SOURCE_FILE_COL] for r in counts])
