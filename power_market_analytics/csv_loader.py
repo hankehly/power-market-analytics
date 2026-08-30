@@ -9,6 +9,7 @@ and overwrites the destination table.
 from __future__ import annotations
 
 import bz2
+import codecs
 import csv
 import glob
 import gzip
@@ -48,6 +49,29 @@ _JAVA_TO_PYTHON_CODEC = {
 #: Hadoop codec suffixes Spark decompresses that Python cannot open itself: the
 #: header is taken through Spark's own parse (gzip and bzip2 are opened in Python).
 _SPARK_ONLY_SUFFIXES = (".deflate", ".zst", ".lz4", ".snappy")
+
+
+def _source_file_name() -> Column:
+    """The base name of the file each row was read from.
+
+    Built on ``input_file_name()`` rather than the hidden ``_metadata`` struct,
+    which a source header literally named ``_metadata`` would shadow.
+
+    Returns
+    -------
+    pyspark.sql.Column
+        The URI's last path segment, URL-decoded.
+    """
+    return F.url_decode(F.element_at(F.split(F.input_file_name(), "/"), -1))
+
+
+def _python_knows(codec: str) -> bool:
+    """Whether Python has a codec by this name (Java knows more)."""
+    try:
+        codecs.lookup(codec)
+    except LookupError:
+        return False
+    return True
 
 
 def python_codec(java_charset: str) -> str:
@@ -341,21 +365,24 @@ class CsvLoader:
             The line without its line ending — empty lines and, when the
             contract sets ``comment``, lines starting with that character are
             skipped as Spark skips them; ``""`` for a file with no such line;
-            ``None`` when only Spark can read the file (a codec Python cannot
-            open, or a ``lineSep`` other than CR/LF). Undecodable bytes are
-            replaced rather than raised, so a header in the wrong encoding
-            fails the required-column check instead of the read.
+            ``None`` when only Spark can read the file: a codec Python cannot
+            open, a charset name only Java knows, a ``lineSep`` other than
+            CR/LF, or ``multiLine`` (a quoted header may span lines).
+            Undecodable bytes are replaced rather than raised, so a header in
+            the wrong encoding fails the required-column check instead of the
+            read.
         """
         suffix = Path(file).suffix.lower()
         options = self.schema.read_options
-        if suffix in _SPARK_ONLY_SUFFIXES or options.get("lineSep", "\n") not in (
-            "\n",
-            "\r\n",
-            "\r",
+        encoding = python_codec(options.get("encoding", options.get("charset", "UTF-8")))
+        if (
+            suffix in _SPARK_ONLY_SUFFIXES
+            or options.get("lineSep", "\n") not in ("\n", "\r\n", "\r")
+            or options.get("multiLine", "false").lower() == "true"
+            or not _python_knows(encoding)
         ):
             return None
         comment = options.get("comment", "")
-        encoding = python_codec(options.get("encoding", options.get("charset", "UTF-8")))
         f: IO[str]
         if suffix == ".gz":
             f = gzip.open(file, "rt", encoding=encoding, errors="replace", newline="")
@@ -433,7 +460,7 @@ class CsvLoader:
         raw = (
             self.spark.read.options(header="true", **self.schema.read_options)
             .csv(files)
-            .withColumn(SOURCE_FILE_COL, F.col("_metadata.file_name"))
+            .withColumn(SOURCE_FILE_COL, _source_file_name())
         )
         return self._project(raw)
 
@@ -470,7 +497,7 @@ class CsvLoader:
             self.spark.read.options(**self.schema.read_options)
             .schema(spark_schema)
             .csv(files)
-            .withColumn(SOURCE_FILE_COL, F.col("_metadata.file_name"))
+            .withColumn(SOURCE_FILE_COL, _source_file_name())
         )
 
     def _project(self, raw: DataFrame) -> DataFrame:

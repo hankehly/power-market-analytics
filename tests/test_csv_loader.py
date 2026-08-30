@@ -708,6 +708,51 @@ class TestHeaderGroupedRead:
         assert "Union" not in df._jdf.queryExecution().analyzed().toString()
         assert loader.load() == 3
 
+    def test_multiline_option_defers_the_header_to_spark(self, spark, tmp_path):
+        schema = CsvTableSchema.model_validate(
+            {
+                "read_options": {"multiLine": "true"},
+                "columns": [{"name": "id", "type": "int"}, {"name": "v", "type": "int"}],
+            }
+        )
+        write_utf8(tmp_path / "a.csv", ["id,v", "1,10"])
+        write_utf8(tmp_path / "b.csv", ["id,v", "2,20"])
+        loader = CsvLoader(schema, tmp_path, "test_csv_loader.multiline", spark=spark)
+        assert loader._header_line(str(tmp_path / "a.csv")) is None
+        df = loader._read_all(loader._resolve_files())
+        assert "Union" not in df._jdf.queryExecution().analyzed().toString()
+        assert loader.load() == 2
+
+    def test_a_source_column_named_metadata_does_not_shadow_the_file_name(self, spark, tmp_path):
+        schema = CsvTableSchema.model_validate(
+            {
+                "columns": [
+                    {"name": "id", "type": "int"},
+                    {"name": "meta", "source": "_metadata", "type": "string"},
+                ]
+            }
+        )
+        write_utf8(tmp_path / "m.csv", ["id,_metadata", "1,x"])
+        loader = CsvLoader(schema, tmp_path, "test_csv_loader.metadata", spark=spark)
+        df = loader._read_all(loader._resolve_files())
+        assert [tuple(r) for r in df.collect()] == [(1, "x", "m.csv")]
+        assert loader.load() == 1
+
+    def test_java_only_charset_defers_the_header_to_spark(self, spark, tmp_path):
+        schema = CsvTableSchema.model_validate(
+            {
+                # A Java charset Python has no codec for (ASCII-compatible, so
+                # Spark's byte-level line splitting still works).
+                "read_options": {"encoding": "x-IBM942C"},
+                "columns": [{"name": "id", "type": "int"}, {"name": "v", "type": "int"}],
+            }
+        )
+        (tmp_path / "u.csv").write_bytes(b"id,v\n1,10\n")
+        loader = CsvLoader(schema, tmp_path, "test_csv_loader.javacharset", spark=spark)
+        assert loader._header_line(str(tmp_path / "u.csv")) is None
+        assert loader._read_header(str(tmp_path / "u.csv")) == ["id", "v"]
+        assert loader.load() == 1
+
     def test_loader_has_no_per_file_read(self):
         assert "_read_file" not in CsvLoader.__dict__
 
