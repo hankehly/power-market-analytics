@@ -197,8 +197,10 @@ change once published, so `--force` is only for a corrupted cache.
 The loader takes the downloader root, finds `*/txt/*.txt`, identifies each
 file's vintage from its name (`statsId` → `VINTAGES`), sniffs the two header
 rows in Python (all four privacy columns and the vintage's population column
-must be present, line 2 must be the label row), reads the file with Spark
-(`windows-31j`), validates every row before casting (§4), injects
+must be present, line 2 must be the label row), reads each vintage's files in a
+single Spark scan (`windows-31j`; files grouped by their exact header line, the
+primary mesh code joined back on the file name), validates every row per file in
+one grouped pass before casting (§4), injects
 `census_year`, `census_date`, `geodetic_datum`, `stats_id`,
 `primary_mesh_code`, `population_total` (from the vintage's column) and
 `source_file`, and full-reloads `pma_raw.estat_census_population_mesh`
@@ -211,6 +213,10 @@ just refresh-estat                    # ~50 min cold (server-side archive genera
 #   just python scripts/load_estat_census_population_mesh.py
 #   just dbt build
 ```
+
+A full reload of the 302 files (0.94 M rows) takes ~19 s (27 s wall for the script); before
+2026-08-30 the loader unioned one frame per file and ran one Spark action per file for the
+row checks.
 
 Warehouse path: `pma_raw.estat_census_population_mesh` →
 `stg_estat__census_population_mesh` → `std_estat__census_population_mesh`
