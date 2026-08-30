@@ -499,7 +499,11 @@
   new SHA first and only then re-request Copilot; a round in which every finding was rebutted
   has nothing to push and is terminal once its threads are resolved — do not re-request.
 - Then report the PR as ready — CI green, both reviewers clean, Proof filled in — and stop; the
-  researcher merges.
+  researcher merges (or asks Claude to). The repository's required checks must pass on the PR's
+  *current* head, so a branch that has fallen behind `main` is brought up to date first — merge
+  `main` into it (never rebase a reviewed branch), push, and let CI rerun. Stacked PRs are
+  merged bottom-up through `PUT …/pulls/<n>/merge-async` (GitHub refuses the plain merge for a
+  stack); deleting each merged branch retargets the next PR to `main`.
 
 ## Dimensional Modeling
 
