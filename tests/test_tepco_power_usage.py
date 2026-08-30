@@ -16,7 +16,7 @@ from power_market_analytics.area_actuals import (
     AreaActualsDownloadError,
     AreaActualsSource,
 )
-from power_market_analytics.csv_loader import CsvTableSchema
+from power_market_analytics.csv_loader import SOURCE_FILE_COL, CsvTableSchema
 from power_market_analytics.tepco.power_usage import (
     DAILY_FILES_FROM,
     DAILY_HOURLY_HEADER,
@@ -537,6 +537,22 @@ class TestTepcoPowerUsageCsvLoader:
 
         assert df.count() == 72
         assert "Union" not in df._jdf.queryExecution().analyzed().toString()
+
+    def test_validation_failures_name_the_offending_files(self, spark, tmp_path):
+        # The parsed file name rides along as the hidden source-file column, so
+        # a duplicated grain is reported with the files that collide.
+        write_cp932(tmp_path / "20220401_power_usage.csv", daily_file_text())
+        write_cp932(tmp_path / "20220401_power_usage_reissue.csv", daily_file_text())
+        loader = self.loader(spark, tmp_path, "test_tepco.power_usage_dup")
+
+        df = loader._read_all(loader._resolve_files())
+        assert df.columns == [c.name for c in loader.schema.columns] + [SOURCE_FILE_COL]
+        with pytest.raises(ValueError) as excinfo:
+            loader.load()
+        message = str(excinfo.value)
+        assert "duplicated" in message
+        assert "20220401_power_usage.csv" in message
+        assert "20220401_power_usage_reissue.csv" in message
 
     def test_loader_has_no_per_file_read(self):
         assert "_read_file" not in TepcoPowerUsageCsvLoader.__dict__
