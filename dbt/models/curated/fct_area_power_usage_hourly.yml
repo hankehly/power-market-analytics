@@ -1,0 +1,80 @@
+models:
+  - name: fct_area_power_usage_hourly
+    config:
+      contract:
+        enforced: true
+    description: >
+      TEPCO でんき予報 過去の電力使用実績 — the hourly 電力使用状況 display
+      series (the リアルタイム需要実績 1時間値 of the 系統情報公表の考え方) —
+      for every JEPX area whose TSO publishes it and is loaded: Tokyo (TEPCO
+      Power Grid, std_tepco__power_usage_hourly). Grain: one row per delivery
+      hour (date_key x hour_of_day, 0-23 = the hour starting then) per area.
+      hour_of_day references dim_delivery_hour, the shrunken rollup of
+      dim_delivery_period, so this fact and fct_area_demand_generation_actual
+      drill across on (date_key, hour_of_day, area_key): summing the
+      30-minute fact's demand_kwh by dim_delivery_period.hour_of_day gives
+      the same hourly kWh. This fact is the でんき予報 series alone — NOT
+      stitched with the A-1 series after 2022-04: they are different
+      measurements (a display product at 万kW resolution that TEPCO never
+      revises, vs the imbalance-settlement actuals); over their 2022-04 ->
+      2026-08 overlap they differ by MAE 1.7 万kW (0.05 %), with A-1 carrying
+      an 18:00-19:00 defect since mid-2025 (docs/TEPCO-Power-Usage-Retrieval.md
+      §5). Covers 2016-04-01 — the only public Tokyo-area demand before A-1
+      begins — through yesterday, gapless. demand_kwh is energy over the hour
+      in kWh (the published 1時間平均 万kW x 1 h x 10,000), ADDITIVE across
+      hours, days and areas; divide by 1,000 for average MW. The daily files'
+      予測値 / 使用率 / 供給力 columns stay in the standardized model (予測値
+      is the day's last intraday revision, not a day-ahead forecast; 使用率
+      is a non-additive ratio). delivery_datetime is a standalone hour-start
+      timestamp for time-series work, not a dimension key.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - date_key
+              - hour_of_day
+              - area_key
+    columns:
+      - name: date_key
+        data_type: date
+        description: Delivery date; 2016-04-01 onward.
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: "date '2016-04-01'"
+          - relationships:
+              arguments:
+                to: ref('dim_date')
+                field: date_key
+      - name: hour_of_day
+        data_type: int
+        description: Hour of date_key the row covers (0-23, the hour starting then); references dim_delivery_hour.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_delivery_hour')
+                field: hour_of_day
+      - name: area_key
+        data_type: int
+        description: JEPX area (dim_area); currently 'tokyo'.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_area')
+                field: area_key
+      - name: delivery_datetime
+        data_type: timestamp
+        description: Start of the hour (date_key + hour_of_day hours); standalone, not a key.
+        data_tests:
+          - not_null
+      - name: demand_kwh
+        data_type: bigint
+        description: Area demand over the hour, kWh (published 万kW x 10,000); additive.
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 1
