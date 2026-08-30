@@ -15,7 +15,13 @@ import pytest
 from pyspark.sql import DataFrame
 from pyspark.sql import functions as F
 
-from power_market_analytics.csv_loader import SOURCE_FILE_COL, CsvColumn, CsvLoader, CsvTableSchema
+from power_market_analytics.csv_loader import (
+    REPORT_LIMIT,
+    SOURCE_FILE_COL,
+    CsvColumn,
+    CsvLoader,
+    CsvTableSchema,
+)
 from tests.support import REPO_ROOT
 
 # --------------------------------------------------------------------------- schema objects
@@ -207,6 +213,34 @@ class TestPositionalLoad:
             (3, "gamma"),
         ]
 
+    def test_null_report_names_the_offending_files_only(self, spark, tmp_path):
+        write_utf8(tmp_path / "a.csv", ["id,label", "1,alpha"])
+        write_utf8(tmp_path / "b.csv", ["id,label", "2,", "3,"])
+        loader = PositionalLoader(POSITIONAL_SCHEMA, tmp_path, "test_csv_loader.nulls", spark=spark)
+
+        with pytest.raises(ValueError) as exc:
+            loader.load()
+
+        assert str(exc.value) == (
+            "Non-nullable columns contain nulls after casting (null count per column): "
+            f"{{'label': 2}}; by file (first {REPORT_LIMIT}): {{'b.csv': {{'label': 2}}}}"
+        )
+        assert not spark.catalog.tableExists("test_csv_loader.nulls")
+
+    def test_duplicate_report_lists_keys_with_their_files(self, spark, tmp_path):
+        write_utf8(tmp_path / "a.csv", ["id,label", "1,alpha", "2,beta"])
+        write_utf8(tmp_path / "b.csv", ["id,label", "2,beta-again", "3,gamma"])
+        loader = PositionalLoader(POSITIONAL_SCHEMA, tmp_path, "test_csv_loader.dups", spark=spark)
+
+        with pytest.raises(ValueError) as exc:
+            loader.load()
+
+        assert str(exc.value) == (
+            "Grain ['id'] is not unique: 4 rows but 3 distinct keys; "
+            f"first {REPORT_LIMIT} duplicated keys (key, rows, files): "
+            "[((2,), 2, ['a.csv', 'b.csv'])]"
+        )
+
 
 class TestCsvLoaderLoad:
     def test_directory_of_files_is_unioned_by_name_and_cast(self, spark, tmp_path):
@@ -345,7 +379,7 @@ class TestCsvLoaderLoad:
         loader = CsvLoader(schema, tmp_path, "test_csv_loader.nulls", spark=spark)
         with pytest.raises(
             ValueError,
-            match=re.escape("nulls after casting (null count per column): {'id': 1, 'd': 2}"),
+            match=re.escape("nulls after casting (null count per column): {'id': 1, 'd': 2}") + "$",
         ):
             loader.load()
         assert not spark.catalog.tableExists("test_csv_loader.nulls")
@@ -366,7 +400,7 @@ class TestCsvLoaderLoad:
         loader = CsvLoader(SCHEMA, tmp_path, "test_csv_loader.dup", spark=spark)
         with pytest.raises(
             ValueError,
-            match=re.escape("Grain ['id'] is not unique: 3 rows but 2 distinct keys"),
+            match=re.escape("Grain ['id'] is not unique: 3 rows but 2 distinct keys") + "$",
         ):
             loader.load()
         assert not spark.catalog.tableExists("test_csv_loader.dup")

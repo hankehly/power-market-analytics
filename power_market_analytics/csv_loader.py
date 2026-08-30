@@ -9,6 +9,7 @@ and overwrites the destination table.
 from __future__ import annotations
 
 import glob
+import operator
 from functools import reduce
 from pathlib import Path
 
@@ -27,6 +28,9 @@ from power_market_analytics.spark import get_spark_session
 #: before the write. Never a contract column — but a contract may *source*
 #: a column from it (``source: _source_file``) to expose the file name.
 SOURCE_FILE_COL = "_source_file"
+
+#: Files / duplicated keys named in a validation error message.
+REPORT_LIMIT = 10
 
 
 class CsvColumn(BaseModel):
@@ -304,8 +308,8 @@ class CsvLoader:
             bad = {name: null_counts[name] for name in non_nullable if null_counts[name]}
             if bad:
                 raise ValueError(
-                    f"Non-nullable columns contain nulls after casting "
-                    f"(null count per column): {bad}"
+                    "Non-nullable columns contain nulls after casting "
+                    f"(null count per column): {bad}{self._nulls_by_file(df, list(bad))}"
                 )
         if self.schema.grain:
             total = df.count()
@@ -313,8 +317,71 @@ class CsvLoader:
             if distinct != total:
                 raise ValueError(
                     f"Grain {self.schema.grain} is not unique: "
-                    f"{total} rows but {distinct} distinct keys"
+                    f"{total} rows but {distinct} distinct keys{self._duplicates_by_file(df)}"
                 )
+
+    def _nulls_by_file(self, df: DataFrame, columns: list[str]) -> str:
+        """Null counts of ``columns`` per source file, as an error-message suffix.
+
+        Parameters
+        ----------
+        df : pyspark.sql.DataFrame
+            The loaded frame; reported per file only if it carries
+            ``SOURCE_FILE_COL``.
+        columns : list of str
+            Non-nullable contract columns that contain nulls.
+
+        Returns
+        -------
+        str
+            ``"; by file (first 10): {file: {column: nulls}}"`` for the first
+            ``REPORT_LIMIT`` offending files (by name), or ``""``.
+        """
+        if SOURCE_FILE_COL not in df.columns:
+            return ""
+        rows = (
+            df.groupBy(SOURCE_FILE_COL)
+            .agg(*[F.count(F.when(F.col(c).isNull(), True)).alias(c) for c in columns])
+            .filter(reduce(operator.or_, (F.col(c) > 0 for c in columns)))
+            .orderBy(SOURCE_FILE_COL)
+            .limit(REPORT_LIMIT)
+            .collect()
+        )
+        by_file = {r[SOURCE_FILE_COL]: {c: r[c] for c in columns if r[c]} for r in rows}
+        return f"; by file (first {REPORT_LIMIT}): {by_file}"
+
+    def _duplicates_by_file(self, df: DataFrame) -> str:
+        """The first duplicated grain keys and their files, as an error-message suffix.
+
+        Parameters
+        ----------
+        df : pyspark.sql.DataFrame
+            The loaded frame; reported only if it carries ``SOURCE_FILE_COL``.
+
+        Returns
+        -------
+        str
+            ``"; first 10 duplicated keys (key, rows, files): [...]"`` — one
+            ``(key tuple, row count, sorted file names)`` per duplicated key,
+            the first ``REPORT_LIMIT`` in key order — or ``""``.
+        """
+        if SOURCE_FILE_COL not in df.columns:
+            return ""
+        rows = (
+            df.groupBy(self.schema.grain)
+            .agg(
+                F.count(F.lit(1)).alias("_rows"),
+                F.sort_array(F.collect_set(SOURCE_FILE_COL)).alias("_files"),
+            )
+            .filter(F.col("_rows") > 1)
+            .orderBy(self.schema.grain)
+            .limit(REPORT_LIMIT)
+            .collect()
+        )
+        duplicates = [
+            (tuple(r[k] for k in self.schema.grain), r["_rows"], r["_files"]) for r in rows
+        ]
+        return f"; first {REPORT_LIMIT} duplicated keys (key, rows, files): {duplicates}"
 
     def _write(self, df: DataFrame) -> None:
         if "." in self.table:
