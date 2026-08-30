@@ -260,20 +260,22 @@ class CsvLoader:
             Python preflight disagrees, so nothing the scan could read is
             refused.
         """
-        groups: dict[str | tuple[str, ...], list[str]] = {}
+        # Invariant: correctness never rests on the Python dialect. Its parse
+        # is an optimisation — accepted only when it satisfies the contract —
+        # and everything else (a rejected header, a dialect it cannot mirror)
+        # is decided by Spark's own parse of that file. Files are grouped by
+        # the header that passed, so files whose headers Spark reads
+        # identically — and only those — share a scan.
+        groups: dict[tuple[str, ...], list[str]] = {}
         for file in files:
             line = self._header_line(file)
             header = self._parse_header(line) if line is not None else None
             if header is None or self._header_problem(header) is not None:
-                # The Python dialect is an approximation of Spark's; before
-                # refusing a file, let Spark parse its header exactly.
                 header = self._spark_header(file)
                 problem = self._header_problem(header)
                 if problem is not None:
                     raise ValueError(f"{file} {problem}")
-            # Files with byte-identical header lines parse identically.
-            key: str | tuple[str, ...] = line if line is not None else tuple(header)
-            groups.setdefault(key, []).append(file)
+            groups.setdefault(tuple(header), []).append(file)
         return reduce(DataFrame.unionByName, (self._read_layout(g) for g in groups.values()))
 
     def _header_problem(self, header: list[str]) -> str | None:
@@ -336,16 +338,23 @@ class CsvLoader:
         Returns
         -------
         str or None
-            The line without its line ending (Spark skips empty lines, so
-            leading blank lines are skipped too); ``""`` for an empty file;
-            ``None`` when only Spark can decompress the file. Undecodable
-            bytes are replaced rather than raised, so a header in the wrong
-            encoding fails the required-column check instead of the read.
+            The line without its line ending — empty lines and, when the
+            contract sets ``comment``, lines starting with that character are
+            skipped as Spark skips them; ``""`` for a file with no such line;
+            ``None`` when only Spark can read the file (a codec Python cannot
+            open, or a ``lineSep`` other than CR/LF). Undecodable bytes are
+            replaced rather than raised, so a header in the wrong encoding
+            fails the required-column check instead of the read.
         """
         suffix = Path(file).suffix.lower()
-        if suffix in _SPARK_ONLY_SUFFIXES:
-            return None
         options = self.schema.read_options
+        if suffix in _SPARK_ONLY_SUFFIXES or options.get("lineSep", "\n") not in (
+            "\n",
+            "\r\n",
+            "\r",
+        ):
+            return None
+        comment = options.get("comment", "")
         encoding = python_codec(options.get("encoding", options.get("charset", "UTF-8")))
         f: IO[str]
         if suffix == ".gz":
@@ -357,7 +366,7 @@ class CsvLoader:
         with f:
             for raw_line in f:
                 line = raw_line.rstrip("\r\n")
-                if line:
+                if line and not (comment and line.startswith(comment)):
                     return line
         return ""
 

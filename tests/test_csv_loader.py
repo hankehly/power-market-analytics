@@ -674,6 +674,40 @@ class TestHeaderGroupedRead:
         with pytest.raises(ValueError, match="empty.csv is missing required columns"):
             loader.load()
 
+    def test_comment_lines_are_skipped_and_layouts_still_grouped_by_header(self, spark, tmp_path):
+        schema = CsvTableSchema.model_validate(
+            {
+                "read_options": {"comment": "#"},
+                "columns": [{"name": "id", "type": "int"}, {"name": "v", "type": "int"}],
+            }
+        )
+        # Same comment line, opposite column order: must not share a scan.
+        write_utf8(tmp_path / "a.csv", ["# generated", "id,v", "1,10"])
+        write_utf8(tmp_path / "b.csv", ["# generated", "v,id", "20,2"])
+        loader = CsvLoader(schema, tmp_path, "test_csv_loader.comment", spark=spark)
+        assert loader._read_header(str(tmp_path / "b.csv")) == ["v", "id"]
+        assert loader.load() == 2
+        assert sorted(tuple(r) for r in spark.table("test_csv_loader.comment").collect()) == [
+            (1, 10),
+            (2, 20),
+        ]
+
+    def test_custom_line_separator_defers_to_spark_and_still_groups(self, spark, tmp_path):
+        schema = CsvTableSchema.model_validate(
+            {
+                "read_options": {"lineSep": ";"},
+                "columns": [{"name": "id", "type": "int"}, {"name": "v", "type": "int"}],
+            }
+        )
+        (tmp_path / "a.csv").write_text("id,v;1,10;2,20;", encoding="utf-8")
+        (tmp_path / "b.csv").write_text("id,v;3,30;", encoding="utf-8")
+        loader = CsvLoader(schema, tmp_path, "test_csv_loader.linesep", spark=spark)
+        assert loader._header_line(str(tmp_path / "a.csv")) is None
+        df = loader._read_all(loader._resolve_files())
+        # Identical Spark-parsed headers → one scan, no per-file union.
+        assert "Union" not in df._jdf.queryExecution().analyzed().toString()
+        assert loader.load() == 3
+
     def test_loader_has_no_per_file_read(self):
         assert "_read_file" not in CsvLoader.__dict__
 
