@@ -368,13 +368,13 @@ class CsvLoader:
         if SOURCE_FILE_COL not in df.columns:
             return ""
         rows = (
-            df.groupBy(self.schema.grain)
+            df.groupBy(*self.schema.grain)
             .agg(
                 F.count(F.lit(1)).alias("_rows"),
                 F.sort_array(F.collect_set(SOURCE_FILE_COL)).alias("_files"),
             )
             .filter(F.col("_rows") > 1)
-            .orderBy(self.schema.grain)
+            .orderBy(*self.schema.grain)
             .limit(REPORT_LIMIT)
             .collect()
         )
