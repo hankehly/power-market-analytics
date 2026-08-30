@@ -159,3 +159,77 @@ class DayTypeCalendar(DomainFrame):
         if not bad.empty:
             codes = sorted(int(code) for code in bad.unique())
             raise ValueError(f"{cls.__name__}: day_type outside 0..{last}: {codes}")
+
+
+class AreaHourlyLoad(DomainFrame):
+    """Hourly area load history: energy over each hour in kWh, as
+    ``fct_area_power_usage_hourly`` publishes it (the でんき予報 1時間平均 over
+    one hour). ``hour_ending`` is the hour label 1..24 shared with
+    :class:`AreaTemperature` (the fact's ``hour_of_day`` + 1), so a delivery
+    period maps to its hour through ``hour_ending = (time_code + 1) // 2``.
+    Loads are positive: the fact never carries TEPCO's not-yet-final zero, so
+    a zero here would be a load error, not a reading.
+
+    Grain: (load_date, hour_ending).
+    """
+
+    schema = {
+        "load_date": "datetime64[ns]",
+        "hour_ending": "int64",
+        "demand_kwh": "float64",
+    }
+    keys = ["load_date", "hour_ending"]
+    non_null_cols = ["demand_kwh"]
+
+    @classmethod
+    def _validate_extra(cls, df: pd.DataFrame) -> None:
+        _check_hour_ending(cls.__name__, df)
+        bad = df[df["demand_kwh"] <= 0]
+        if not bad.empty:
+            first = bad.iloc[0]
+            raise ValueError(
+                f"{cls.__name__}: demand_kwh must be positive; {len(bad)} row(s) are not "
+                f"(e.g. {first['load_date'].date()} hour {int(first['hour_ending'])})"
+            )
+
+
+#: ``dim_date.prior_year_reference_rule`` values — how the reference day was
+#: chosen: the same weekday 52 weeks back; that weekday one week nearer or
+#: farther because D-364 is a holiday; the same-named holiday a year earlier;
+#: the nearest non-working day for a holiday without a same-named twin.
+PRIOR_YEAR_REFERENCE_RULES: tuple[str, ...] = (
+    "same_weekday",
+    "same_weekday_shifted",
+    "same_holiday",
+    "nearest_non_working_day",
+)
+
+
+class PriorYearCalendar(DomainFrame):
+    """``dim_date``'s prior-year reference per delivery day: the day one year
+    earlier that stands for it in a year-over-year comparison, and the rule
+    that chose it (:data:`PRIOR_YEAR_REFERENCE_RULES`; the rules themselves
+    are the dimension's). The reference always precedes the day.
+
+    Grain: (trade_date).
+    """
+
+    schema = {
+        "trade_date": "datetime64[ns]",
+        "prior_year_reference_date": "datetime64[ns]",
+        "prior_year_reference_rule": "object",
+    }
+    keys = ["trade_date"]
+    non_null_cols = ["prior_year_reference_date", "prior_year_reference_rule"]
+
+    @classmethod
+    def _validate_extra(cls, df: pd.DataFrame) -> None:
+        unknown = sorted(set(df["prior_year_reference_rule"]) - set(PRIOR_YEAR_REFERENCE_RULES))
+        if unknown:
+            raise ValueError(f"{cls.__name__}: unknown prior_year_reference_rule: {unknown}")
+        late = df[df["prior_year_reference_date"] >= df["trade_date"]]
+        if not late.empty:
+            raise ValueError(
+                f"{cls.__name__}: prior_year_reference_date is not before trade_date on "
+                f"{len(late)} day(s) (e.g. {late.iloc[0]['trade_date'].date()})"
+            )

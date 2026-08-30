@@ -4,9 +4,10 @@
 Read against the synthetic ``pma_curated`` star from ``curated_warehouse``:
 tokyo has demand actuals for ``DEMAND_DAYS`` (with a partial-day hole),
 hourly temperature at its representative station and an MSM forecast
-temperature for every day but ``FORECAST_MISSING_DAY``; kansai has an area
-row and a station id but no facts. ``dim_date`` covers ``DEMAND_DAYS`` with
-its weekend / holiday flags.
+temperature for every day but ``FORECAST_MISSING_DAY``, and an hourly load
+history over ``HOURLY_LOAD_DAYS``; kansai has an area row and a station id but
+no facts. ``dim_date`` covers ``DEMAND_DAYS`` with its weekend / holiday flags
+and prior-year reference.
 """
 
 from __future__ import annotations
@@ -18,16 +19,20 @@ from power_market_analytics.tasks.demand.datasets import (
     AREA_CODES,
     PopulationWeightedTemperatureForecast,
     load_area_demand,
+    load_area_hourly_load,
     load_area_temperature,
     load_area_temperature_forecast,
     load_area_temperature_forecast_population_weighted,
     load_day_types,
+    load_prior_year_calendar,
 )
 from power_market_analytics.tasks.demand.frames import (
     AreaDemand,
+    AreaHourlyLoad,
     AreaTemperature,
     AreaTemperatureForecast,
     DayTypeCalendar,
+    PriorYearCalendar,
 )
 from tests.conftest import (
     DEMAND_DAYS,
@@ -35,6 +40,7 @@ from tests.conftest import (
     DEMAND_HOLE_TIME_CODES,
     FORECAST_MISSING_DAY,
     HOLIDAYS_2024_SPRING,
+    HOURLY_LOAD_DAYS,
     SECOND_STATION_FORECAST_OFFSET_C,
     SECOND_STATION_MISSING_HOUR,
     STATION_POPULATION_WEIGHTS,
@@ -42,6 +48,8 @@ from tests.conftest import (
     TOKYO_SECOND_STATION_ID,
     TOKYO_STATION_ID,
     CuratedWarehouse,
+    synthetic_hourly_load,
+    synthetic_prior_year_reference,
 )
 
 
@@ -265,3 +273,54 @@ class TestLoadDayTypes:
         )
         with pytest.raises(ValueError, match="No calendar days found in dim_date"):
             load_day_types()
+
+
+class TestLoadAreaHourlyLoad:
+    def test_reads_every_hour_of_the_areas_hourly_fact(
+        self, spark, curated_warehouse: CuratedWarehouse
+    ):
+        load = load_area_hourly_load("tokyo", spark=spark)
+        assert isinstance(load, AreaHourlyLoad)
+        assert len(load) == len(curated_warehouse.hourly_load) == len(HOURLY_LOAD_DAYS) * 24
+        assert load.df["load_date"].drop_duplicates().tolist() == list(HOURLY_LOAD_DAYS)
+        assert load.df["demand_kwh"].dtype == "float64"
+        first_day = load.df[load.df["load_date"] == HOURLY_LOAD_DAYS[0]]
+        assert first_day["demand_kwh"].tolist() == [
+            float(synthetic_hourly_load(HOURLY_LOAD_DAYS[0], hour)) for hour in range(24)
+        ]
+
+    def test_hour_ending_is_the_facts_hour_of_day_plus_one(self, spark, curated_warehouse):
+        load = load_area_hourly_load("tokyo", spark=spark)
+        by_hour = load.df[load.df["load_date"] == HOURLY_LOAD_DAYS[-1]]
+        assert by_hour["hour_ending"].tolist() == list(range(1, 25))
+        # hour_of_day 0 (00:00-01:00) is hour_ending 1.
+        assert by_hour["demand_kwh"].iloc[0] == synthetic_hourly_load(HOURLY_LOAD_DAYS[-1], 0)
+
+    def test_area_without_an_hourly_fact_raises(self, spark, curated_warehouse):
+        with pytest.raises(
+            ValueError, match="No hourly load history found for area_code='kansai'"
+        ):
+            load_area_hourly_load("kansai", spark=spark)
+
+
+class TestLoadPriorYearCalendar:
+    def test_reads_every_day_of_dim_date(self, spark, curated_warehouse: CuratedWarehouse):
+        calendar = load_prior_year_calendar(spark=spark)
+        assert isinstance(calendar, PriorYearCalendar)
+        assert calendar.df["trade_date"].tolist() == list(DEMAND_DAYS)
+        expected = [synthetic_prior_year_reference(day) for day in DEMAND_DAYS]
+        assert calendar.df["prior_year_reference_date"].tolist() == [
+            reference for reference, _ in expected
+        ]
+        assert calendar.df["prior_year_reference_rule"].tolist() == [rule for _, rule in expected]
+        assert set(calendar.df["prior_year_reference_rule"]) == {"same_weekday", "same_holiday"}
+
+    def test_empty_calendar_raises(self, monkeypatch):
+        monkeypatch.setattr(
+            "power_market_analytics.tasks.demand.datasets.query_pandas",
+            lambda sql, spark=None: pd.DataFrame(
+                columns=["trade_date", "prior_year_reference_date", "prior_year_reference_rule"]
+            ),
+        )
+        with pytest.raises(ValueError, match="No calendar days found in dim_date"):
+            load_prior_year_calendar()
