@@ -17,8 +17,16 @@ from loguru import logger
 from pydantic import BaseModel, Field
 from pyspark.sql import Column, DataFrame, SparkSession
 from pyspark.sql import functions as F
+from pyspark.sql.types import StringType, StructField, StructType
 
 from power_market_analytics.spark import get_spark_session
+
+#: Hidden per-row column naming the file a row came from (base name only).
+#: :meth:`CsvLoader._scan_positional` attaches it, :meth:`CsvLoader._validate`
+#: reports problems per file with it and :meth:`CsvLoader.load` drops it
+#: before the write. Never a contract column — but a contract may *source*
+#: a column from it (``source: _source_file``) to expose the file name.
+SOURCE_FILE_COL = "_source_file"
 
 
 class CsvColumn(BaseModel):
@@ -198,6 +206,42 @@ class CsvLoader:
         pyspark.sql.DataFrame
         """
         return reduce(DataFrame.unionByName, (self._read_file(f) for f in files))
+
+    def _scan_positional(self, files: list[str], column_count: int) -> DataFrame:
+        """Read ``files`` headerless, in one scan, as ``_c0`` .. ``_c<n-1>`` strings.
+
+        One ``FileScan`` over every path (Spark packs the files into
+        partitions by size) rather than one frame per file: a union of
+        per-file frames re-analyses the whole plan on every ``unionByName``
+        and ships a task binary proportional to the file count (~8 min of
+        planning and a 45 MiB binary for the 1,608 JMA files). Header and
+        metadata lines come back as ordinary rows — filter them out with a
+        pattern on ``_c0``. The hidden ``SOURCE_FILE_COL`` holds each row's
+        file name so a subclass can derive per-file values from it and
+        :meth:`_validate` can report per file.
+
+        Parameters
+        ----------
+        files : list of str
+            Paths to read, all in the contract's ``read_options`` encoding.
+        column_count : int
+            Number of physical columns to expose; extra columns are ignored,
+            missing ones read as null.
+
+        Returns
+        -------
+        pyspark.sql.DataFrame
+            ``_c0`` .. ``_c<column_count-1>`` (string) plus ``SOURCE_FILE_COL``.
+        """
+        spark_schema = StructType(
+            [StructField(f"_c{i}", StringType()) for i in range(column_count)]
+        )
+        return (
+            self.spark.read.options(**self.schema.read_options)
+            .schema(spark_schema)
+            .csv(files)
+            .withColumn(SOURCE_FILE_COL, F.col("_metadata.file_name"))
+        )
 
     def _read_file(self, file: str) -> DataFrame:
         raw = self.spark.read.options(header="true", **self.schema.read_options).csv(file)
