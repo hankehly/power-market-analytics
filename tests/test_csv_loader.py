@@ -842,6 +842,16 @@ class TestHeaderGroupedRead:
                 ValueError, match=re.escape(f"s.csv has the reserved header column ['{header}']")
             ):
                 loader.load()
+        # Duplicated, Spark would name them _source_file0/_source_file1; the
+        # check is on the raw cells so they do not slip past.
+        write_utf8(tmp_path / "s.csv", ["id,_source_file,_source_file", "1,p,q"])
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                "s.csv has the reserved header column ['_source_file', '_source_file']"
+            ),
+        ):
+            loader.load()
         # Without such a header the sourced `_source_file` is the file name.
         write_utf8(tmp_path / "s.csv", ["id", "1"])
         assert loader.load() == 1

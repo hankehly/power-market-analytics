@@ -421,7 +421,9 @@ class CsvLoader:
             ``_source_file`` resolves to none of the names
             (:meth:`_resolve`); otherwise ``None``.
         """
-        reserved = [n for n in names if self._fold(n) == self._fold(SOURCE_FILE_COL)]
+        # On the raw cells: Spark suffixes a duplicated cell (`_source_file0`),
+        # which would otherwise slip past a check on the names.
+        reserved = [c for c in cells if self._fold(c) == self._fold(SOURCE_FILE_COL)]
         if reserved:
             return f"has the reserved header column {reserved}"
         counts = Counter(self._fold(cell) for cell in cells)

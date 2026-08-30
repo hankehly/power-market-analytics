@@ -122,6 +122,9 @@ def _inflated(file: str) -> Iterator[bytes]:
 
 ```python
     def _first_line(self, file: str) -> bytes | None:
+        charset = self._option("encoding", self._option("charset", "UTF-8"))
+        if self._option("multiLine", "false").lower() == "true" or not _ascii_compatible(charset):
+            return None  # grouped alone: Spark reads this file's header by itself
         try:
             line_sep = self._option("lineSep", "").encode("ascii")
             comment = self._option("comment", "").encode("ascii")
@@ -158,9 +161,9 @@ def _is_header_line(line: bytes, comment: bytes) -> bool:
 - Consumes: `_first_line` (Task 1), `_resolve`, `_fold`, `_spark_options`, `_option`, `_project`.
 - Produces: `_group_header(file) -> tuple[list[str], list[str]]`, `_group_label(members) -> str`, `_header_problem(names, cells) -> str | None`, `_read_layout` with `enforceSchema="false"`.
 
-- [ ] **Step 1: rewrite `TestHeaderGroupedRead`** — keep the outcome tests listed in the spec (drop assertions on removed helpers), one parametrised "dialect is Spark's business" test for the former deferral cases, delete the misparse-verified and port-fidelity tests and `TestPythonCodec`, add: tab-only leading line → `missing required columns` naming the file; group error names the first file `(+N files with the same header)`; `multiLine` files sharing a first physical line but not a header → `SparkException` mentioning `CSV header does not conform` and the second file; a non-default `nullValue` header cell → the scan refuses the file (documented limitation); a file `_first_line` cannot open forms its own group and still loads (`monkeypatch.setattr(CsvLoader, "_first_line", …)`); `_spark_options` for the layout read carries `enforceSchema="false"`.
+- [ ] **Step 1: rewrite `TestHeaderGroupedRead`** — keep the outcome tests listed in the spec (drop assertions on removed helpers), one parametrised "dialect is Spark's business" test for the former deferral cases, delete the misparse-verified and port-fidelity tests and `TestPythonCodec`, add: tab-only leading line → `missing required columns` naming the file; group error names the first file `(+N files with the same header)`; a forced wrong grouping (monkeypatched `_first_line`) shows the scan's check refusing a file whose contract columns are not at the group's positions, naming it; `multiLine` files are grouped alone, so an optional column present in only one of two files sharing a first physical line is kept; a non-default `nullValue` header cell is refused as missing only for a contract that sources it and disturbs nothing otherwise; a file `_first_line` cannot open forms its own group and still loads; `_spark_options` for the layout read carries `enforceSchema="false"`.
 - [ ] **Step 2: run** → many FAIL.
-- [ ] **Step 3: implement** `_group_header`, `_group_label`, the new `_read_all`, `_header_problem(names, cells)`, `_read_layout(+enforceSchema)`; delete `_header_line`, `_parse_header`, `_read_header`, `_spark_header`, `_safe_header`, `python_codec`, `_JAVA_TO_PYTHON_CODEC`, `_python_knows`, `_SPARK_ONLY_SUFFIXES`, `_BOM_DEPENDENT_CODECS`, imports `codecs`, `csv`; update the `_read_all` / `_spark_options` docstrings and the module docstring's mechanism sentence.
+- [ ] **Step 3: implement** `_group_header`, `_group_label`, the new `_read_all`, `_header_problem(names, cells)` (reserved-name check on the raw cells), `_read_layout(+enforceSchema)`; delete `_header_line`, `_parse_header`, `_read_header`, `_spark_header`, `_safe_header`, `python_codec`, `_JAVA_TO_PYTHON_CODEC`, `_python_knows`, `_SPARK_ONLY_SUFFIXES`, `_BOM_DEPENDENT_CODECS`, the `csv` import (`codecs` stays for `_ascii_compatible`); update the `_read_all` / `_spark_options` docstrings and the module docstring's mechanism sentence.
 
 ```python
     def _read_all(self, files: list[str]) -> DataFrame:
@@ -200,6 +203,13 @@ def _is_header_line(line: bytes, comment: bytes) -> bool:
 
 - [ ] Scratch loads of JEPX, OCCTO ×2, MSM into `pma_scratch.*` with the new loader; beeline `EXCEPT` both ways vs the production tables = 0; group counts + wall times; `drop database pma_scratch cascade`.
 - [ ] `just python scripts/load_jepx_spot.py`, `load_occto_demand_forecast.py`, `load_occto_area_reserve_rate.py`, `load_jma_msm_surface_forecast.py`; `just dbt build --select stg_jepx__spot stg_occto__demand_forecast_dad stg_occto__area_reserve_rate_dad stg_jma__msm_surface_forecast` (model names per `dbt/models/staging`).
+
+### Amendments made during review (#27)
+
+- `multiLine` files and files of a charset Python cannot confirm ASCII-compatible (`UTF-16`/`UTF-32`, EBCDIC, a Java-only name) form singleton groups: the first physical line does not determine their header, or the sniff's ASCII comparisons do not apply (Copilot, Codex).
+- The scan's `enforceSchema=false` check is positional over the contract columns the scan's schema resolves; an optional source the schema lacks is read as null, not checked — the grouping rule, not the check, keeps layouts apart (Copilot). A `nullValue` header cell is therefore refused only for a contract that sources it.
+- The reserved `_source_file` check runs on the raw cells, since Spark suffixes a duplicated cell (Copilot).
+- `codecs` stays (for `_ascii_compatible`); the byte sniff skips lines empty after stripping spaces, as Spark 4.1.1 does (a tab-only line is a header to it).
 
 ### Task 5: PR and review loop
 
