@@ -2,42 +2,45 @@
 
 ## Commands
 
-- `just refresh-jepx` — JEPX refresh: download JEPX CSVs + holidays, reload `raw`, `dbt build` (models + tests).
-- `just refresh-jma` — JMA weather refresh: regenerate the station seed (~5 min, staffed
-  stations inside JEPX areas only), download stitched 7-element hourly CSVs (args pass
-  through, e.g. `--prefecture 44`; no args = all ~149 staffed stations, ~13.5 h cold),
-  reload `raw`, `dbt build`. `--request-interval 3` is proven (2026-08-20 full backfill,
-  ~3,100 requests, zero 429s, ~6 h); 2 s spacing draws 429s.
-- `just refresh-occto` — OCCTO 翌々日 refresh, two datasets: the demand-forecast CSV (~700 KB,
-  3 HTTP calls) and the half-hourly area reserve-rate CSV (~20 MB/yr, fetched in 300-day windows
-  because the portal caps a download at 150,000 rows), reload `raw`, `dbt build`.
-- `just refresh-tepco-area-demand-generation` — TEPCO Tokyo-area demand/generation actuals
-  refresh: redownload every monthly archive (`AREA_YYYYMM.zip`, 2022-04 → now, ~5 MB total),
-  reload `raw`, `dbt build`. `just refresh-tepco` is the umbrella: both TEPCO datasets (this one
-  and `refresh-tepco-power-usage` below) reloaded, then one `dbt build`.
-- `just refresh-kansai` — same for 関西電力送配電's Kansai-area actuals (`YYYYMM_jisseki.zip`,
-  2022-04 → now, ~2 MB total), reload `raw`, `dbt build`.
-- `just refresh-tepco-power-usage` — TEPCO でんき予報 hourly 電力使用実績 refresh: fetch the
-  yearly `juyo-YYYY.csv` files (2016 … 2022, cached; `--force-yearly` passes through) and
-  redownload every monthly `YYYYMM_power_usage.zip` (2022-04 → now, ~4 MB), reload `raw`,
-  `dbt build`.
-- `just refresh-estat [args]` — e-Stat census 500 m population mesh: download every configured
-  census vintage (2015 `T000847`, 2020 `T001101` JGD2000; 151 primary-mesh zips each, cached —
-  args pass through, e.g. `--years 2020`, `--force`; a cold run is ~50 min because e-Stat generates
-  each archive in ~10 s), reload `raw`, `dbt build`.
-- `just refresh-msm [args]` — JMA MSM GPV surface-forecast refresh: for each delivery day D,
-  download + decode the three RISH GRIB2 files covering the 12 UTC D-2 run (args pass through,
-  e.g. `--start-date`, `--force`, `--keep-grib`; ~157 MB per delivery day, ~54 GiB/yr), reload
-  `raw`, `dbt build`. Needs a devcontainer image rebuild (`docker compose build devcontainer`)
-  for the eccodes dependency before it can run in-container — the load step too, since
-  `power_market_analytics/msm.py` imports eccodes at module level; see
-  [docs/JMA-MSM-GPV-Retrieval.md](docs/JMA-MSM-GPV-Retrieval.md) §8.
-- `just refresh-all` — every source in one go: runs each `ingest-<source>` (the private
-  download + reload-`raw` half of the matching `refresh-<source>`, with its defaults — no args
-  forwarded) in the order JEPX, JMA, OCCTO, TEPCO, Kansai, e-Stat, MSM (JMA before MSM: the MSM
-  downloader reads the station seed), then a single `dbt build`. Warm caches make it ~1.5 h,
+- `just refresh-all` — every source in one go: download + reload `raw` for JEPX (+ the holidays
+  seed), JMA hourly (+ the station seed), OCCTO, TEPCO (both datasets), Kansai, e-Stat and MSM,
+  in that order (JMA before MSM: the MSM downloader reads the station seed), each script with
+  its defaults, then a single `dbt build` (models + tests). Warm caches make it ~1.5 h,
   dominated by JMA re-fetching every station's current-year file; a failing step aborts before
-  the build. `just ingest-<source>` also works on its own for a build-free reload.
+  the build. It is the only refresh recipe — the per-source `refresh-<source>` / `ingest-<source>`
+  recipes were dropped on 2026-08-31.
+- A single source is refreshed by running its download + load scripts (all under `scripts/`)
+  through `just python`, then `just dbt build`:
+  - JEPX: `download_jepx_spot.py`, `update_holidays_seed.py`, `load_jepx_spot.py`.
+  - JMA hourly: `update_jma_stations_seed.py` (~5 min, staffed stations inside JEPX areas only),
+    `download_jma_hourly_all.py` (stitched 7-element hourly CSVs; e.g. `--prefecture 44`; no
+    args = all ~149 staffed stations, ~13.5 h cold; `--request-interval 3` is proven — the
+    2026-08-20 full backfill, ~3,100 requests, zero 429s, ~6 h — while 2 s spacing draws 429s),
+    `load_jma_hourly.py`.
+  - OCCTO 翌々日, two datasets — the demand-forecast CSV (~700 KB, 3 HTTP calls) and the
+    half-hourly area reserve-rate CSV (~20 MB/yr, fetched in 300-day windows because the portal
+    caps a download at 150,000 rows): `download_occto_demand_forecast.py`,
+    `download_occto_area_reserve_rate.py`, `load_occto_demand_forecast.py`,
+    `load_occto_area_reserve_rate.py`.
+  - TEPCO, two datasets — the Tokyo-area demand/generation actuals
+    (`download_tepco_area_demand_generation.py` redownloads every monthly `AREA_YYYYMM.zip`,
+    2022-04 → now, ~5 MB total; `load_tepco_area_demand_generation.py`) and でんき予報 hourly
+    電力使用実績 (`download_tepco_power_usage.py` fetches the yearly `juyo-YYYY.csv` files 2016 …
+    2022, cached — `--force-yearly` refetches them — and redownloads every monthly
+    `YYYYMM_power_usage.zip`, 2022-04 → now, ~4 MB; `load_tepco_power_usage.py`).
+  - Kansai: the same as TEPCO's actuals for 関西電力送配電 (`YYYYMM_jisseki.zip`, 2022-04 → now,
+    ~2 MB total): `download_kansai_area_demand_generation.py`,
+    `load_kansai_area_demand_generation.py`.
+  - e-Stat: `download_estat_census_population_mesh.py` downloads every configured census vintage
+    (2015 `T000847`, 2020 `T001101` JGD2000; 151 primary-mesh zips each, cached — `--years 2020`,
+    `--force`; a cold run is ~50 min because e-Stat generates each archive in ~10 s),
+    `load_estat_census_population_mesh.py`.
+  - MSM: `download_jma_msm_surface_forecast.py` downloads + decodes, for each delivery day D, the
+    three RISH GRIB2 files covering the 12 UTC D-2 run (`--start-date`, `--force`, `--keep-grib`;
+    ~157 MB per delivery day, ~54 GiB/yr), `load_jma_msm_surface_forecast.py`. Both need a
+    devcontainer image rebuild (`docker compose build devcontainer`) for the eccodes dependency
+    before they can run in-container — `power_market_analytics/msm.py` imports eccodes at module
+    level; see [docs/JMA-MSM-GPV-Retrieval.md](docs/JMA-MSM-GPV-Retrieval.md) §8.
 - `just test [pytest args]` — Python unit tests (host-side pytest, ~1 min) with a `pytest-cov`
   term-missing report over `power_market_analytics/` + `scripts/` (config in `pyproject.toml`
   `[tool.coverage.*]`; gated at 100% via `fail_under`, so a partial suite fails locally and in
@@ -84,10 +87,11 @@
   `kansai` = the TSO feeds loaded into `fct_area_demand_generation_actual`); each area also needs its
   representative JMA station's hourly weather loaded and current
   (`dim_area.representative_jma_station_id`: 東京 s47662, 大阪 s47772 — both loaded and current
-  as of the 2026-08-20 re-scope backfill; keep them fresh with `just refresh-jma`, since a
-  stale window's last days are skipped for lack of a temperature window), and `lightgbm_msm`
-  needs that station's MSM forecast in `fct_jma_msm_weather_forecast_hourly` (`just
-  refresh-msm`; a delivery day without a forecast is skipped) and `lightgbm_msm_popw` the MSM
+  as of the 2026-08-20 re-scope backfill; keep them fresh with the JMA download + load scripts,
+  since a stale window's last days are skipped for lack of a temperature window), and
+  `lightgbm_msm` needs that station's MSM forecast in `fct_jma_msm_weather_forecast_hourly`
+  (the MSM download + load scripts; a delivery day without a forecast is skipped) and
+  `lightgbm_msm_popw` the MSM
   forecasts of all the area's weighted stations plus `fct_census_population_jma_station`. Same
   flags as the spot script
   (`--days` defaults to 365); logs to the MLflow experiment `demand`, publishes to

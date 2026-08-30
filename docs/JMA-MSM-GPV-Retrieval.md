@@ -6,7 +6,7 @@ from GRIB2 into per-station hourly records, and loaded into the warehouse: the p
 its publication schedule, the RISH mirror's URL/etiquette, the single-vintage policy this
 pipeline ingests and why, the GRIB2 element/grid metadata the decoder trusts (including a
 multi-field-message gotcha the real data surfaced), the extract and warehouse schemas, and
-how to run/operate the pipeline (`just refresh-msm`). It mirrors the depth of
+how to run/operate the pipeline ([§8](#8-operations)). It mirrors the depth of
 [docs/OCCTO-Demand-Forecast-Retrieval.md](OCCTO-Demand-Forecast-Retrieval.md).
 
 Source of truth for the constants and logic described here: `power_market_analytics/msm.py`
@@ -370,21 +370,23 @@ kept as decoded rather than clamped, and the three layer covers stay within 0–
 
 ## 8. Operations
 
-### 8.1 `just refresh-msm`
+### 8.1 Download, load, build
 
 ```
-just refresh-msm [args]
-# = just python scripts/download_jma_msm_surface_forecast.py [args]
-#   just python scripts/load_jma_msm_surface_forecast.py
-#   just dbt build
+just python scripts/download_jma_msm_surface_forecast.py [args]
+just python scripts/load_jma_msm_surface_forecast.py
+just dbt build
 ```
+
+`just refresh-all` runs the same three steps (the downloader with its defaults) after every
+other source.
 
 `scripts/load_jma_msm_surface_forecast.py` reads all ~1,600 daily `csv.gz` extracts in a single
 Spark scan (they share one header line, so `CsvLoader`'s header-grouped default read applies):
 a full reload of 5.7 M rows takes about a minute and lands in ~52 parquet files. Before
 2026-08-30 the loader unioned one frame per file, which needed the 20g driver.
 
-`scripts/download_jma_msm_surface_forecast.py` flags (all forwarded through `just refresh-msm`):
+`scripts/download_jma_msm_surface_forecast.py` flags:
 
 | Flag | Default | Meaning |
 |---|---|---|
@@ -409,7 +411,7 @@ repo but the single largest per-day volume of any of them; a full historical bac
 only when actively debugging a decode issue, given the disk cost.
 
 **The devcontainer image must be rebuilt** (`docker compose build devcontainer`) before
-`just refresh-msm` can run inside it — the baked venv predates the `eccodes` /
+the MSM download / load scripts can run inside it — the baked venv predates the `eccodes` /
 `eccodeslib` dependency this pipeline added (`pyproject.toml`, `uv.lock`). Until that rebuild
 happens, the download+extract step can still run **host-side**
 (`uv run python scripts/download_jma_msm_surface_forecast.py ...`, no Spark/metastore
