@@ -164,15 +164,17 @@ class CsvLoader:
         df = self._read_all(files)
         df.cache()
         try:
+            # The hidden source-file column serves validation only.
+            out = df.drop(SOURCE_FILE_COL)
             n_rows = df.count()
             logger.info(
                 "Read shape=({}, {}); schema: {}",
                 n_rows,
-                len(df.columns),
-                ", ".join(f"{f.name}:{f.dataType.simpleString()}" for f in df.schema),
+                len(out.columns),
+                ", ".join(f"{f.name}:{f.dataType.simpleString()}" for f in out.schema),
             )
             self._validate(df)
-            self._write(df)
+            self._write(out)
         finally:
             df.unpersist()
         logger.info("Loaded {} rows into {}", n_rows, self.table)
@@ -241,6 +243,24 @@ class CsvLoader:
             .schema(spark_schema)
             .csv(files)
             .withColumn(SOURCE_FILE_COL, F.col("_metadata.file_name"))
+        )
+
+    def _project(self, raw: DataFrame) -> DataFrame:
+        """Cast ``raw`` to the contract's columns, keeping ``SOURCE_FILE_COL``.
+
+        Parameters
+        ----------
+        raw : pyspark.sql.DataFrame
+            Source-named columns (``_c<n>`` positions or header names, plus
+            any injected ``__``-prefixed sources) and ``SOURCE_FILE_COL``.
+
+        Returns
+        -------
+        pyspark.sql.DataFrame
+            The contract columns in contract order, then ``SOURCE_FILE_COL``.
+        """
+        return raw.select(
+            [self._cast(raw, c) for c in self.schema.columns] + [F.col(SOURCE_FILE_COL)]
         )
 
     def _read_file(self, file: str) -> DataFrame:
