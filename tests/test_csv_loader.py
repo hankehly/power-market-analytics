@@ -606,6 +606,74 @@ class TestHeaderGroupedRead:
         assert loader._read_header(str(tmp_path / f"a{suffix}"))[:3] == ["id", "big", "val"]
         assert loader.load() == 2
 
+    def test_header_sniff_honours_the_escape_character(self, spark, tmp_path):
+        schema = CsvTableSchema.model_validate(
+            {
+                "columns": [
+                    {"name": "dn", "source": 'display"name', "type": "string"},
+                    {"name": "id", "type": "int"},
+                ]
+            }
+        )
+        write_utf8(tmp_path / "e.csv", ['"display\\"name",id', '"x\\"y",1'])
+        loader = CsvLoader(schema, tmp_path, "test_csv_loader.escape", spark=spark)
+        assert loader._read_header(str(tmp_path / "e.csv")) == ['display"name', "id"]
+        assert loader.load() == 1
+        assert [tuple(r) for r in spark.table("test_csv_loader.escape").collect()] == [('x"y', 1)]
+
+    def test_multi_character_separator_falls_back_to_spark(self, spark, tmp_path):
+        schema = CsvTableSchema.model_validate(
+            {
+                "read_options": {"sep": "||"},
+                "columns": [{"name": "id", "type": "int"}, {"name": "v", "type": "int"}],
+            }
+        )
+        write_utf8(tmp_path / "m.csv", ["id||v", "1||2"])
+        loader = CsvLoader(schema, tmp_path, "test_csv_loader.multisep", spark=spark)
+        assert loader._read_header(str(tmp_path / "m.csv")) == ["id", "v"]
+        assert loader.load() == 1
+
+    def test_leading_blank_lines_are_skipped_like_spark(self, spark, tmp_path):
+        write_utf8(tmp_path / "blank.csv", ["", ""] + FILE_A)
+        loader = CsvLoader(SCHEMA, tmp_path, "test_csv_loader.blank", spark=spark)
+        assert loader._read_header(str(tmp_path / "blank.csv"))[:2] == ["id", "big"]
+        assert loader.load() == 2
+
+    def test_charset_alias_is_honoured(self, spark, tmp_path):
+        schema = CsvTableSchema.model_validate(
+            {
+                "read_options": {"charset": "windows-31j"},
+                "columns": [{"name": "k", "source": "キー", "type": "string"}],
+            }
+        )
+        write_cp932(tmp_path / "c.csv", ["キー", "a"])
+        loader = CsvLoader(schema, tmp_path, "test_csv_loader.charset", spark=spark)
+        assert loader._read_header(str(tmp_path / "c.csv")) == ["キー"]
+        assert loader.load() == 1
+
+    def test_python_misparse_is_verified_by_spark_before_failing(self, spark, tmp_path):
+        # A name the Python dialect cannot reproduce but Spark can is not an error;
+        # a column Spark cannot find either still is.
+        schema = CsvTableSchema.model_validate(
+            {
+                "read_options": {"sep": "||"},
+                "columns": [{"name": "id", "type": "int"}, {"name": "gone", "type": "int"}],
+            }
+        )
+        write_utf8(tmp_path / "m.csv", ["id||v", "1||2"])
+        loader = CsvLoader(schema, tmp_path, "test_csv_loader.verify", spark=spark)
+        with pytest.raises(
+            ValueError, match=re.escape("m.csv is missing required columns: ['gone']")
+        ):
+            loader.load()
+
+    def test_empty_file_is_reported_as_missing_columns(self, spark, tmp_path):
+        (tmp_path / "empty.csv").write_bytes(b"")
+        loader = CsvLoader(SCHEMA, tmp_path, "test_csv_loader.empty", spark=spark)
+        assert loader._header_line(str(tmp_path / "empty.csv")) == ""
+        with pytest.raises(ValueError, match="empty.csv is missing required columns"):
+            loader.load()
+
     def test_loader_has_no_per_file_read(self):
         assert "_read_file" not in CsvLoader.__dict__
 
