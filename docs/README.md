@@ -157,6 +157,8 @@ erDiagram
         boolean is_holiday
         string holiday_name_ja
         boolean is_business_day
+        date prior_year_reference_date
+        string prior_year_reference_rule
     }
 
     dim_delivery_period {
