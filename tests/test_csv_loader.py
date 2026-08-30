@@ -76,6 +76,17 @@ class TestCsvTableSchema:
         schema = CsvTableSchema.from_yaml(str(path))
         assert (schema.description, schema.read_options, schema.grain) == (None, {}, [])
 
+    def test_the_file_name_column_name_is_reserved(self):
+        with pytest.raises(ValueError, match=re.escape("'_source_file' is reserved")):
+            CsvTableSchema.model_validate(
+                {"columns": [{"name": "_source_file", "source": "origin", "type": "string"}]}
+            )
+        # Sourcing it under another name is how a contract exposes the file name.
+        schema = CsvTableSchema.model_validate(
+            {"columns": [{"name": "origin", "source": "_source_file", "type": "string"}]}
+        )
+        assert schema.columns[0].source_name == "_source_file"
+
     def test_columns_are_mandatory(self, tmp_path):
         path = tmp_path / "bad.yaml"
         path.write_text("grain: [a]\n", encoding="utf-8")
@@ -944,6 +955,34 @@ class TestHeaderGroupedRead:
         assert [tuple(r) for r in spark.table("test_csv_loader.noescape").collect()] == [
             (1, "a\\b")
         ]
+
+    def test_malformed_quoting_defers_the_header_to_spark(self, spark, tmp_path):
+        # A quote the Python parser cannot place strictly is left to Spark,
+        # whose unescapedQuoteHandling decides what the cell becomes.
+        columns = [{"name": "id", "type": "int"}, {"name": "v", "type": "int"}]
+        loader = CsvLoader(
+            CsvTableSchema.model_validate({"columns": columns}), tmp_path, "t", spark=spark
+        )
+        assert loader._parse_header('"id"x,v') is None
+        write_utf8(tmp_path / "q.csv", ['"id"x,v', "1,2"])
+        file = str(tmp_path / "q.csv")
+        assert loader._read_header(file) == loader._spark_header(file)
+        assert loader._safe_header(loader._read_header(file)) == (
+            spark.read.options(header="true").csv(file).columns
+        )
+
+        schema = CsvTableSchema.model_validate(
+            {"read_options": {"unescapedQuoteHandling": "SKIP_VALUE"}, "columns": columns}
+        )
+        loader = CsvLoader(schema, tmp_path, "test_csv_loader.skipvalue", spark=spark)
+        assert loader._parse_header("id,v") is None
+        assert loader._safe_header(loader._read_header(file)) == (
+            spark.read.options(header="true", unescapedQuoteHandling="SKIP_VALUE").csv(file).columns
+        )
+        with pytest.raises(
+            ValueError, match=re.escape("q.csv is missing required columns: ['id']")
+        ):
+            loader.load()
 
     def test_loader_has_no_per_file_read(self):
         assert "_read_file" not in CsvLoader.__dict__
