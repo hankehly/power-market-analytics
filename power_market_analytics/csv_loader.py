@@ -312,11 +312,13 @@ class CsvLoader:
         planning and a 45 MiB binary). Each group's header is judged once,
         by Spark's own column names for its first file
         (:meth:`_group_header`), and the scan itself checks every file's
-        header (``enforceSchema=false``): the contract's columns must sit at
-        the same positions under the same names as in the scan's schema, or
-        the read fails naming the file. For a line-mode read the key *is*
-        the header line, and files whose header the first line does not
-        determine (``multiLine``) are grouped alone, so a group never mixes
+        header (``enforceSchema=false``): the contract's columns the scan
+        resolves must sit at the same positions under the same names as in
+        the scan's schema, or the read fails naming the file (an optional
+        source the scan's schema lacks is read as null, not checked). For a
+        line-mode read the key *is* the header line, and files whose header
+        the first line does not determine (``multiLine``, a charset that is
+        not ASCII-compatible) are grouped alone, so a group never mixes
         layouts; the scan's check is belt and braces. Loaders whose files carry
         no usable header override this — :meth:`_scan_positional` +
         :meth:`_project` for positional layouts, one ``createDataFrame``
@@ -481,9 +483,10 @@ class CsvLoader:
             cast per the contract, so the files sharing a scan never change
             the type a value is read with) and ``enforceSchema`` (false on
             the grouped scan: Spark then checks, for every file, that the
-            contract's columns sit at the same positions under the same
-            names as in the scan's schema, and refuses — naming it — a file
-            where they do not; never a silent misalignment).
+            contract's columns the scan resolves sit at the same positions
+            under the same names as in the scan's schema, and refuses —
+            naming it — a file where they do not; never a silent
+            misalignment).
 
         Returns
         -------
