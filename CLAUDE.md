@@ -475,7 +475,9 @@
   `gh api` into a POST that tries to *create* a review / reaction / comment (a `body`-less
   attempt fails with 422, but it is still the wrong request). Use `--paginate` should a PR ever
   outgrow 100 items. Only when 20 min pass with neither 👀 nor a review, post a PR comment
-  consisting solely of the manual trigger and keep waiting; its reactions land on that comment
+  consisting solely of the manual trigger and keep waiting (a mention-response comment alone is
+  never a reason — on #20 one arrived while an automatic run was already 👀); its reactions
+  land on that comment
   (`… issues/comments/<id>/reactions`), so poll it too. Never post it while an automatic run
   may still be in flight: two runs of the same SHA race, and a 👍 from one would advance the
   loop before the other posts findings. Never conclude "no findings" from silence.

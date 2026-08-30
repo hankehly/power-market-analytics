@@ -566,7 +566,7 @@ flowchart TD
     codex -->|"review with inline findings"| fix["Address every finding:<br/>fix in a commit or rebut in the thread,<br/>reply, resolve the thread"]
     fix -->|"a fix was pushed"| codex
     fix -->|"all rebutted — nothing to push"| copilot
-    codex -.->|"20 min with no 👀, or a<br/>'create an environment' reply"| nudge["Post the manual trigger<br/>as a plain PR comment"]
+    codex -.->|"20 min with neither 👀<br/>nor a review"| nudge["Post the manual trigger<br/>as a plain PR comment"]
     nudge -.-> codex
     copilot["Request a Copilot review"] --> verdict{"Copilot review<br/>APPROVED or COMMENTED"}
     verdict -->|"no open threads"| ready["Ready: CI green on a head that is<br/>up to date with main, both reviewers clean<br/>→ merge"]
