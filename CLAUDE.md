@@ -438,8 +438,9 @@
 
 ## Code review (pull requests)
 
-- Every PR — docs-only ones included — is reviewed by **Codex, then Copilot**, before the
-  researcher merges it; Claude drives the loop and never merges. Open it with `gh pr create`
+- Every PR — docs-only ones included — is reviewed by **Codex, then Copilot**, before it is
+  merged; Claude drives the loop and never merges on its own initiative — the researcher
+  merges, or explicitly asks Claude to (then through `merge-async`, below). Open it with `gh pr create`
   (title `type(scope): description`; body sections *Why* / *What* / *Proof* with the measured
   numbers), then `gh pr edit <n> --add-assignee hankehly --add-label <labels>`. Labels are
   GitHub's defaults, mapped from the branch type: `fix/` and `hotfix/` → `bug`, `feature/` →
@@ -501,9 +502,11 @@
   new SHA first and only then re-request Copilot; a round in which every finding was rebutted
   has nothing to push and is terminal once its threads are resolved — do not re-request.
 - Then report the PR as ready — CI green, both reviewers clean, Proof filled in — and stop; the
-  researcher merges (or asks Claude to). The repository's required checks must pass on the PR's
-  *current* head, so a branch that has fallen behind `main` is brought up to date first — merge
-  `main` into it (never rebase a reviewed branch), push, and let CI rerun. Stacked PRs are
+  researcher merges unless they have explicitly asked Claude to. The repository's required
+  checks must pass on the PR's *current* head, so a branch that has fallen behind `main` is
+  brought up to date first — merge `main` into it (never rebase a reviewed branch), push, and
+  take that new head through the whole loop again (Codex, then Copilot, CI green) before
+  declaring it ready: every push is a new SHA to review. Stacked PRs are
   merged bottom-up through `PUT …/pulls/<n>/merge-async` (GitHub refuses the plain merge for a
   stack); deleting each merged branch retargets the next PR to `main`.
 
