@@ -1,7 +1,7 @@
 # CsvLoader header groups: group by first line, let Spark verify every header
 
 **Date:** 2026-08-30
-**Status:** Proposed — awaiting the researcher's go; supersedes the header-based half of
+**Status:** Implemented 2026-08-30 (PR #27); supersedes the header-based half of
 [2026-08-30-csv-loader-single-scan-design.md](2026-08-30-csv-loader-single-scan-design.md)
 (stage 4, merged as #24)
 
