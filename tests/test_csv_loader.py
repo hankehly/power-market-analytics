@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from power_market_analytics.csv_loader import CsvColumn, CsvLoader, CsvTableSchema
+from power_market_analytics.csv_loader import SOURCE_FILE_COL, CsvColumn, CsvLoader, CsvTableSchema
 from tests.support import REPO_ROOT
 
 # --------------------------------------------------------------------------- schema objects
@@ -130,6 +130,37 @@ def write_cp932(path: Path, lines: list[str]) -> Path:
 
 def table_rows(spark, table: str) -> dict:
     return {r.id: r for r in spark.table(table).collect()}
+
+
+POSITIONAL_SCHEMA = CsvTableSchema.model_validate(
+    {
+        "grain": ["id"],
+        "columns": [
+            {"name": "id", "source": "_c0", "type": "int", "nullable": False},
+            {"name": "label", "source": "_c1", "type": "string", "nullable": False},
+        ],
+    }
+)
+
+
+class TestScanPositional:
+    def test_one_scan_reads_every_file_headerless_with_its_file_name(self, spark, tmp_path):
+        write_utf8(tmp_path / "a.csv", ["id,label", "1,alpha", "2,beta"])
+        write_utf8(tmp_path / "b.csv", ["id,label", "3,gamma"])
+        loader = CsvLoader(POSITIONAL_SCHEMA, tmp_path, "test_csv_loader.scan", spark=spark)
+
+        df = loader._scan_positional([str(tmp_path / "a.csv"), str(tmp_path / "b.csv")], 2)
+
+        assert df.columns == ["_c0", "_c1", SOURCE_FILE_COL]
+        assert {f.dataType.simpleString() for f in df.schema} == {"string"}
+        # Header lines are ordinary rows; every row names the file it came from.
+        assert sorted((r._c0, r._c1, r[SOURCE_FILE_COL]) for r in df.collect()) == [
+            ("1", "alpha", "a.csv"),
+            ("2", "beta", "a.csv"),
+            ("3", "gamma", "b.csv"),
+            ("id", "label", "a.csv"),
+            ("id", "label", "b.csv"),
+        ]
 
 
 class TestCsvLoaderLoad:
