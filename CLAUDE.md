@@ -191,8 +191,9 @@
   `AreaActualsDownloader` / `AreaActualsCsvLoader` in `power_market_analytics/area_actuals.py`,
   driven by a per-TSO `AreaActualsSource` spec (URL template, earliest month, member regex,
   accepted header lines, `archive_includes_current_day`) — always re-downloads every monthly zip
-  and extracts only the daily 実績 members; the loader reads positionally, sniffs the metadata
-  line for `file_updated_at`, normalises `yyyy/mm/dd` dates and skips not-yet-final files.
+  and extracts only the daily 実績 members; the loader reads every daily file positionally in one
+  scan, sniffs each file's metadata line for `file_updated_at` (joined back on the file name),
+  normalises `yyyy/mm/dd` dates and skips not-yet-final files.
   - TEPCO / Tokyo: `power_market_analytics/tepco/area_demand_generation.py` (`TEPCO`,
     `TepcoAreaDownloader`; the `tepco/` package holds one module per TEPCO dataset and
     re-exports these names) →
@@ -385,6 +386,8 @@
   a 45 MiB binary, ~1 h 45 min per load and a 20g driver). Loaders with hundreds of files read
   them in one scan instead (`_scan_positional` + `_project`; JMA hourly since 2026-08-30 —
   1,608 files / 13.7 M rows in ~50 s warm, ~100 s cold, verified at `SPARK_DRIVER_MEMORY=4g`;
+  1,608 files / 13.7 M rows in ~50 s warm, ~100 s cold, verified at `SPARK_DRIVER_MEMORY=4g`;
+  TEPCO / Kansai area actuals since 2026-08-30 — ~1,600 daily files each in ~15 s / ~8 s;
   e-Stat since 2026-08-30 — 302 files / 0.94 M rows in ~19 s, one scan per vintage instead of a
   Spark action per file). MSM (≈1.6k `csv.gz`) still takes the union path and needs the compose default
   `SPARK_DRIVER_MEMORY=20g` (a 1g driver stalls, 8g OOMs in the parquet write; size per
