@@ -385,10 +385,12 @@
   header-based ones one scan per layout (JEPX, OCCTO, MSM: files grouped by the raw bytes of
   their first header line, each group's header judged once by Spark's own column names, and
   the scan reading with `enforceSchema=false`, under which Spark checks for every file that
-  the contract's columns sit at the same positions under the same names as in the scan's
-  schema and refuses, naming it, a file where they do not — nothing about the CSV dialect is
-  judged in Python, and a wrong grouping can cost a loud failure but never misaligned data;
-  e-Stat groups by its known header lines), Python-parsed ones as one
+  the contract's columns the scan resolves sit at the same positions under the same names as
+  in the scan's schema and refuses, naming it, a file where they do not — nothing about the
+  CSV dialect is judged in Python; the grouping (same first-line bytes; `multiLine` and
+  non-ASCII-compatible charsets alone) is what keeps layouts apart, the check rules out
+  misalignment should it ever fail; e-Stat groups by its known header lines), Python-parsed
+  ones as one
   `createDataFrame` (でんき予報) — and validation errors name the offending files.
   Measured full reloads: JMA 1,608 files / 13.7 M rows ~50 s warm (~100 s cold, fine at
   `SPARK_DRIVER_MEMORY=4g`), TEPCO / Kansai ~1,600 daily files ~15 s / ~8 s, e-Stat 302 files

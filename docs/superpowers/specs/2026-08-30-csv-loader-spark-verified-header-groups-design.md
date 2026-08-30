@@ -28,14 +28,17 @@ Two Spark facts make the exactness unnecessary (both probed on pyspark 4.1.1, 20
   the scan's schema and fails the read naming the file (`CSV header does not conform to the
   schema … Expected: id but found: v … CSV file: file:///…/c.csv`). Probed through the
   loader's own scan (which selects the contract's columns, so Spark's CSV column pruning
-  applies), the check is **positional over the contract's columns**: each file must carry
-  them at the same positions under the same names (folded per `spark.sql.caseSensitive`) as
-  the scan's schema — which Spark infers from whichever file its listing puts first, the
-  largest — and a file with fewer or more columns passes as long as those positions line up;
-  unselected columns (an empty or `nullValue`-named header cell, an extra provider column)
-  are never compared. Positional agreement is exactly the condition under which a shared scan
-  reads a file correctly, so a wrongly grouped file is either read correctly or refused by
-  name. With the default `enforceSchema=true` the same input is read silently misaligned
+  applies), the check is **positional over the contract's columns the scan's schema
+  resolves**: each file must carry them at the same positions under the same names (folded
+  per `spark.sql.caseSensitive`) as the scan's schema — which Spark infers from whichever
+  file its listing puts first, the largest — and a file with fewer or more columns passes as
+  long as those positions line up; unselected columns (an empty or `nullValue`-named header
+  cell, an extra provider column) are never compared, and an *optional* contract source the
+  scan's schema lacks is not checked either — `_project` reads it as null for every file of
+  the group. Positional agreement is the condition under which a shared scan reads a file
+  correctly, so this check rules out misalignment; what rules out a group mixing layouts at
+  all (and so an optional column silently lost) is the grouping rule below, not the check.
+  With the default `enforceSchema=true` the same input is read silently misaligned
   (`('5','6')` under `id,v` from a `v,id` file) — the failure mode the whole preflight
   defends against.
 - `spark.read.options(header="true", inferSchema="false").csv(file).columns` is Spark's own
@@ -112,7 +115,8 @@ optional column present in only some of its files would read as null there, whic
 
 `_header_line`, `_parse_header`, `_read_header`, `_spark_header`, `_safe_header`,
 `python_codec`, `_JAVA_TO_PYTHON_CODEC`, `_python_knows`, `_SPARK_ONLY_SUFFIXES`,
-`_BOM_DEPENDENT_CODECS`, the `codecs` and `csv` imports, and the deferral list they served
+`_BOM_DEPENDENT_CODECS`, the `csv` import (`codecs` stays, for `_ascii_compatible`), and the
+deferral list they served
 (multi-character separator, disabled escape, escape character in the line, quote inside a
 cell, `unescapedQuoteHandling`, trimming options, `emptyValue`, `multiLine`, custom `lineSep`,
 Java-only and BOM-dependent charsets). None is used outside `csv_loader.py` and its tests.
