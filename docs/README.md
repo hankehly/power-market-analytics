@@ -528,10 +528,9 @@ inside the devcontainer from a host terminal (requires
 compose stack to be up):
 
 ```bash
-just refresh-jepx                        # JEPX refresh: redownload market data + holidays, reload raw, rebuild + test dbt
-just refresh-jma --prefecture 44         # JMA weather refresh (scoped; no args = full network, ~14 h cold)
-just refresh-occto                       # OCCTO 翌々日 demand-forecast refresh: redownload full history, reload raw, rebuild + test dbt
-just refresh-all                         # every source (each ingest step with its defaults), one dbt build at the end
+just refresh-all                         # every source: each download/load script with its defaults, one dbt build at the end
+just python scripts/download_jma_hourly_all.py --prefecture 44   # one source = its download + load scripts (pairs in CLAUDE.md) ...
+just python scripts/load_jma_hourly.py && just dbt build          # ... then rebuild + test dbt
 just python scripts/load_jepx_spot.py    # python in the devcontainer
 just python -c "import power_market_analytics"
 just python scripts/spot_price_backtest.py --strategy lightgbm --area tokyo  # forecast backtest

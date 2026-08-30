@@ -44,92 +44,39 @@ open target:
     esac
     open "$url"
 
-# Each source has a private `ingest-<source>` recipe (download + seed updates + reload raw, no
-# dbt) that its public `refresh-<source>` runs before a `dbt build`; `refresh-all` chains every
-# ingest recipe and builds once at the end.
+# One refresh recipe covers every source. A single source is refreshed by running its download +
+# load scripts through `just python` (the pairs are listed in CLAUDE.md) and then `just dbt build`.
+# JMA runs before MSM because the MSM downloader reads the station seed.
 
-[private]
-ingest-jepx:
+[doc("Refresh every data source (JEPX + holidays seed, JMA hourly + station seed, OCCTO, TEPCO, Kansai, e-Stat, MSM) with each script's defaults, then one dbt build: ~1.5 h with warm caches, dominated by JMA's current-year files; a failing step aborts before the build")]
+refresh-all:
     just python scripts/download_jepx_spot.py
     just python scripts/update_holidays_seed.py
     just python scripts/load_jepx_spot.py
 
-[doc("Refresh JEPX market data (+ holidays seed): redownload, reload raw, rebuild + test dbt")]
-refresh-jepx: ingest-jepx
-    just dbt build
-
-[private]
-ingest-jma *args:
     just python scripts/update_jma_stations_seed.py
-    just python scripts/download_jma_hourly_all.py {{ args }}
+    just python scripts/download_jma_hourly_all.py
     just python scripts/load_jma_hourly.py
 
-[doc("Refresh JMA weather data: update staffed-station seed, download stitched 7-element hourly files (args pass through, e.g. --prefecture 44; ~14 h cold), reload raw, rebuild + test dbt")]
-refresh-jma *args: (ingest-jma args)
-    just dbt build
-
-[private]
-ingest-occto:
     just python scripts/download_occto_demand_forecast.py
     just python scripts/download_occto_area_reserve_rate.py
     just python scripts/load_occto_demand_forecast.py
     just python scripts/load_occto_area_reserve_rate.py
 
-[doc("Refresh OCCTO day-after-next data (demand forecast + half-hourly area reserve-rate): redownload the full histories, reload raw, rebuild + test dbt")]
-refresh-occto: ingest-occto
-    just dbt build
-
-[private]
-ingest-tepco-area-demand-generation:
     just python scripts/download_tepco_area_demand_generation.py
     just python scripts/load_tepco_area_demand_generation.py
-
-[doc("Refresh TEPCO エリア需要・発電情報 (Tokyo-area 30-min demand/generation actuals): redownload all monthly archives, reload raw, rebuild + test dbt")]
-refresh-tepco-area-demand-generation: ingest-tepco-area-demand-generation
-    just dbt build
-
-[private]
-ingest-tepco-power-usage *args:
-    just python scripts/download_tepco_power_usage.py {{args}}
+    just python scripts/download_tepco_power_usage.py
     just python scripts/load_tepco_power_usage.py
 
-[doc("Refresh TEPCO でんき予報 hourly 電力使用実績: fetch the yearly files (cached; args pass through, e.g. --force-yearly), redownload all monthly archives, reload raw, rebuild + test dbt")]
-refresh-tepco-power-usage *args: (ingest-tepco-power-usage args)
-    just dbt build
-
-[doc("Refresh every TEPCO dataset (エリア需要・発電情報 actuals + でんき予報 hourly 電力使用実績): reload raw for both, then one dbt build")]
-refresh-tepco: ingest-tepco-area-demand-generation ingest-tepco-power-usage
-    just dbt build
-
-[private]
-ingest-kansai:
     just python scripts/download_kansai_area_demand_generation.py
     just python scripts/load_kansai_area_demand_generation.py
 
-[doc("Refresh Kansai-area demand/generation actuals: redownload all monthly archives, reload raw, rebuild + test dbt")]
-refresh-kansai: ingest-kansai
-    just dbt build
-
-[private]
-ingest-estat *args:
-    just python scripts/download_estat_census_population_mesh.py {{ args }}
+    just python scripts/download_estat_census_population_mesh.py
     just python scripts/load_estat_census_population_mesh.py
 
-[doc("Refresh e-Stat census 500 m population mesh: download every configured census vintage (cached; args pass through, e.g. --years 2020 --force), reload raw, rebuild + test dbt")]
-refresh-estat *args: (ingest-estat args)
-    just dbt build
-
-[private]
-ingest-msm *args:
-    just python scripts/download_jma_msm_surface_forecast.py {{ args }}
+    just python scripts/download_jma_msm_surface_forecast.py
     just python scripts/load_jma_msm_surface_forecast.py
 
-[doc("Refresh JMA MSM surface forecasts: download RISH GRIB2 runs (~157 MB per delivery day; args pass through, e.g. --start-date 2026-08-01 --keep-grib), extract station points, reload raw, rebuild + test dbt")]
-refresh-msm *args: (ingest-msm args)
-    just dbt build
-
-[doc("Refresh every data source (JEPX, JMA hourly, OCCTO, TEPCO, Kansai, e-Stat, MSM) with a single dbt build at the end: each ingest step runs with its defaults (no args forwarded; warm caches make it ~1.5 h, dominated by JMA's current-year files); a failing step aborts before the build")]
-refresh-all: ingest-jepx ingest-jma ingest-occto ingest-tepco-area-demand-generation ingest-tepco-power-usage ingest-kansai ingest-estat ingest-msm
     just dbt build
 
 [doc("Run the Python unit tests with a coverage report (pytest, host-side; uses a local SparkSession)")]
