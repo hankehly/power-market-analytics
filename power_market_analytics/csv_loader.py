@@ -10,14 +10,16 @@ from __future__ import annotations
 
 import bz2
 import codecs
-import csv
 import glob
 import gzip
+import io
 import operator
+import re
+import zlib
 from collections import Counter
+from collections.abc import Iterator
 from functools import reduce
 from pathlib import Path
-from typing import IO, Any
 
 import yaml
 from loguru import logger
@@ -38,22 +40,73 @@ SOURCE_FILE_COL = "_source_file"
 #: Files / duplicated keys named in a validation error message.
 REPORT_LIMIT = 10
 
-#: Java charset names (as Spark's CSV reader takes them) that Python spells differently.
-_JAVA_TO_PYTHON_CODEC = {
-    "windows-31j": "cp932",
-    "ms932": "cp932",
-    "utf-8": "utf-8-sig",
-    "utf8": "utf-8-sig",
-}
+#: Bytes read per step while looking for a file's first header line.
+_CHUNK = 65536
 
 
-#: Hadoop codec suffixes Spark decompresses that Python cannot open itself: the
-#: header is taken through Spark's own parse (gzip and bzip2 are opened in Python).
-_SPARK_ONLY_SUFFIXES = (".deflate", ".zst", ".lz4", ".snappy")
+def _decompressed(file: str) -> Iterator[bytes] | None:
+    """``file`` in ``_CHUNK``-byte pieces, as Spark would see it after decompression.
 
-#: Codecs whose byte order comes from a BOM: Python refuses a BOM-less stream
-#: that Java reads as big-endian, so their headers are Spark's to parse.
-_BOM_DEPENDENT_CODECS = ("utf-16", "utf-32")
+    Parameters
+    ----------
+    file : str
+        Path; the suffix selects the codec — ``.gz`` and ``.bz2`` through the
+        standard library, ``.deflate`` (Hadoop's DefaultCodec, zlib format)
+        streamed through ``zlib``, anything else read as is.
+
+    Returns
+    -------
+    Iterator of bytes or None
+        ``None`` for a Hadoop codec Python cannot open (``.zst``, ``.lz4``,
+        ``.snappy``).
+    """
+    suffix = Path(file).suffix.lower()
+    if suffix in (".zst", ".lz4", ".snappy"):
+        return None
+    if suffix == ".deflate":
+        return _inflated(file)
+    if suffix == ".gz":
+        return _chunks(gzip.open(file, "rb"))
+    if suffix == ".bz2":
+        return _chunks(bz2.open(file, "rb"))
+    return _chunks(open(file, "rb"))
+
+
+def _chunks(f: io.BufferedIOBase) -> Iterator[bytes]:
+    with f:
+        while chunk := f.read(_CHUNK):
+            yield chunk
+
+
+def _inflated(file: str) -> Iterator[bytes]:
+    inflater = zlib.decompressobj()
+    with open(file, "rb") as f:
+        while chunk := f.read(_CHUNK):
+            yield inflater.decompress(chunk)
+
+
+def _ascii_compatible(charset: str) -> bool:
+    """Whether Python can confirm that ``charset`` encodes ASCII as itself.
+
+    The byte-level header sniff compares spaces, a comment character and line
+    terminators as ASCII bytes, which only holds for ASCII-compatible
+    charsets; ``UTF-16``, EBCDIC and any name Python has no codec for
+    (Java-only charsets) fail this test and their files are grouped alone.
+    """
+    try:
+        return " #\r\n".encode(codecs.lookup(charset).name) == b" #\r\n"
+    except LookupError:
+        return False
+
+
+def _is_header_line(line: bytes, comment: bytes) -> bool:
+    """Whether Spark takes ``line`` as a header rather than skipping it.
+
+    Spark passes over lines that are empty once spaces are stripped — a
+    tab-only line is a header to it — and, with ``comment`` set, lines
+    starting with that byte.
+    """
+    return bool(line.strip(b" ")) and not (comment and line.startswith(comment))
 
 
 def _source_file_name() -> Column:
@@ -71,34 +124,6 @@ def _source_file_name() -> Column:
     """
     name = F.element_at(F.split(F.input_file_name(), "/"), -1)
     return F.url_decode(F.regexp_replace(name, r"\+", "%2B"))
-
-
-def _python_knows(codec: str) -> bool:
-    """Whether Python has a codec by this name (Java knows more)."""
-    try:
-        codecs.lookup(codec)
-    except LookupError:
-        return False
-    return True
-
-
-def python_codec(java_charset: str) -> str:
-    """Python codec for a Java charset name from a contract's ``read_options``.
-
-    Parameters
-    ----------
-    java_charset : str
-        E.g. ``windows-31j``, ``UTF-8``, ``Shift_JIS``.
-
-    Returns
-    -------
-    str
-        ``cp932`` for the Windows Shift_JIS names, ``utf-8-sig`` for UTF-8 (a
-        BOM, if any, is dropped from the first header cell), otherwise the
-        lower-cased name, which Python accepts for the remaining charsets.
-    """
-    name = java_charset.lower()
-    return _JAVA_TO_PYTHON_CODEC.get(name, name)
 
 
 class CsvColumn(BaseModel):
@@ -278,15 +303,26 @@ class CsvLoader:
     def _read_all(self, files: list[str]) -> DataFrame:
         """Read every file into one DataFrame in the contract's column order.
 
-        Files are grouped by their exact header row and every group is read
-        in one scan: Spark applies the first file's header to all files of a
-        multi-path read, so differently laid-out files must not share one,
-        while one frame per file re-analyses the whole plan on every
-        ``unionByName`` and ships a task binary that grows with the file
-        count (1,600 files ≈ 8 min of planning and a 45 MiB binary). Loaders
-        whose files carry no usable header override this —
-        :meth:`_scan_positional` + :meth:`_project` for positional layouts,
-        one ``createDataFrame`` over Python-parsed rows.
+        Files are grouped by the bytes of their first header line
+        (:meth:`_first_line`) and every group is read in one scan: Spark
+        applies the first file's header to all files of a multi-path read, so
+        differently laid-out files must not share one, while one frame per
+        file re-analyses the whole plan on every ``unionByName`` and ships a
+        task binary that grows with the file count (1,600 files ≈ 8 min of
+        planning and a 45 MiB binary). Each group's header is judged once,
+        by Spark's own column names for its first file
+        (:meth:`_group_header`), and the scan itself checks every file's
+        header (``enforceSchema=false``): the contract's columns the scan
+        resolves must sit at the same positions under the same names as in
+        the scan's schema, or the read fails naming the file (an optional
+        source the scan's schema lacks is read as null, not checked). For a
+        line-mode read the key *is* the header line, and files whose header
+        the first line does not determine (``multiLine``, a charset that is
+        not ASCII-compatible) are grouped alone, so a group never mixes
+        layouts; the scan's check is belt and braces. Loaders whose files carry
+        no usable header override this — :meth:`_scan_positional` +
+        :meth:`_project` for positional layouts, one ``createDataFrame``
+        over Python-parsed rows.
 
         Parameters
         ----------
@@ -301,38 +337,73 @@ class CsvLoader:
         Raises
         ------
         ValueError
-            If a file's header lacks a required column, repeats a contract
-            column or carries the loader's reserved ``_source_file`` column —
-            judged by Spark's own parse of that file whenever the Python
-            preflight disagrees, so nothing the scan could read is refused.
+            If a group's header lacks a required column, repeats a contract
+            column or carries the loader's reserved ``_source_file`` column;
+            the message names the group's first file and its size.
         """
-        # Invariant: correctness never rests on the Python dialect. Its parse
-        # is an optimisation — accepted only when it satisfies the contract —
-        # and everything else (a rejected header, a dialect it cannot mirror)
-        # is decided by Spark's own parse of that file. Files are grouped by
-        # the column names Spark will give their header (``_safe_header``),
-        # so files Spark reads identically — and only those — share a scan.
-        groups: dict[tuple[str, ...], list[str]] = {}
+        groups: dict[bytes | str, list[str]] = {}
         for file in files:
-            line = self._header_line(file)
-            header = self._parse_header(line) if line is not None else None
-            if header is None or self._header_problem(header) is not None:
-                header = self._spark_header(file)
-                problem = self._header_problem(header)
-                if problem is not None:
-                    raise ValueError(f"{file} {problem}")
-            groups.setdefault(tuple(self._safe_header(header)), []).append(file)
-        return reduce(DataFrame.unionByName, (self._read_layout(g) for g in groups.values()))
+            line = self._first_line(file)
+            groups.setdefault(file if line is None else line, []).append(file)
+        frames = []
+        for members in groups.values():
+            names, cells = self._group_header(members[0])
+            problem = self._header_problem(names, cells)
+            if problem is not None:
+                raise ValueError(f"{self._group_label(members)} {problem}")
+            frames.append(self._read_layout(members))
+        return reduce(DataFrame.unionByName, frames)
 
-    def _header_problem(self, header: list[str]) -> str | None:
-        """Why ``header`` cannot serve the contract, or ``None``.
+    def _group_header(self, file: str) -> tuple[list[str], list[str]]:
+        """Spark's column names for ``file``'s header, and the header's cells.
+
+        Two small jobs — run once per group, on its first file.
 
         Parameters
         ----------
-        header : list of str
-            Parsed header cells (:meth:`_parse_header` or
-            :meth:`_spark_header`); :meth:`_safe_header` gives the names
-            Spark's scan will use for them.
+        file : str
+            CSV path, any codec Spark reads.
+
+        Returns
+        -------
+        tuple of (list of str, list of str)
+            The columns a ``header=true`` read yields (an empty cell or one
+            equal to ``nullValue`` is ``_c<i>``, duplicates carry their
+            position — Spark's ``makeSafeHeader``) and the raw cells of the
+            same line from a headerless read (a cell Spark reads as null
+            comes back as ``""``); both empty for an empty file. Type
+            inference is off for both reads whatever the contract says.
+        """
+        names = (
+            self.spark.read.options(**self._spark_options(header="true", inferSchema="false"))
+            .csv(file)
+            .columns
+        )
+        rows = (
+            self.spark.read.options(**self._spark_options(header="false", inferSchema="false"))
+            .csv(file)
+            .head(1)
+        )
+        cells = ["" if cell is None else str(cell) for cell in rows[0]] if rows else []
+        return names, cells
+
+    @staticmethod
+    def _group_label(members: list[str]) -> str:
+        """How a group is named in an error: its first file, and how many share the header."""
+        if len(members) == 1:
+            return members[0]
+        return f"{members[0]} (+{len(members) - 1} files with the same header)"
+
+    def _header_problem(self, names: list[str], cells: list[str]) -> str | None:
+        """Why a header cannot serve the contract, or ``None``.
+
+        Parameters
+        ----------
+        names : list of str
+            Spark's column names for the header (:meth:`_group_header`).
+        cells : list of str
+            The header's raw cells, for telling a duplicated source from an
+            absent one.
 
         Returns
         -------
@@ -344,17 +415,18 @@ class CsvLoader:
             ``"has duplicated header columns: [...]"`` when a contract source
             recurs among the cells — compared as the session resolves names,
             so ``id,ID`` counts unless ``spark.sql.caseSensitive`` is on —
-            since Spark would suffix them (``id0``/``ID1``) and the contract
-            column silently become null; ``"is missing required columns:
-            [...]"`` when a required source other than ``_source_file``
-            resolves to none of Spark's column names (:meth:`_resolve`);
-            otherwise ``None``.
+            since Spark suffixes them (``id0``/``ID1``) and the contract
+            column would silently become null; ``"is missing required
+            columns: [...]"`` when a required source other than
+            ``_source_file`` resolves to none of the names
+            (:meth:`_resolve`); otherwise ``None``.
         """
-        names = self._safe_header(header)
-        reserved = [n for n in names if self._fold(n) == self._fold(SOURCE_FILE_COL)]
+        # On the raw cells: Spark suffixes a duplicated cell (`_source_file0`),
+        # which would otherwise slip past a check on the names.
+        reserved = [c for c in cells if self._fold(c) == self._fold(SOURCE_FILE_COL)]
         if reserved:
             return f"has the reserved header column {reserved}"
-        counts = Counter(self._fold(cell) for cell in header)
+        counts = Counter(self._fold(cell) for cell in cells)
         sources = [c.source_name for c in self.schema.columns]
         duplicated = sorted({s for s in sources if s not in names and counts[self._fold(s)] > 1})
         if duplicated:
@@ -369,36 +441,6 @@ class CsvLoader:
         if missing:
             return f"is missing required columns: {missing}"
         return None
-
-    def _safe_header(self, cells: list[str]) -> list[str]:
-        """Spark's column names for a header row (its ``makeSafeHeader``).
-
-        An empty cell, or one equal to the contract's ``nullValue``, is
-        named ``_c<i>``; a name that recurs — compared case-insensitively
-        unless ``spark.sql.caseSensitive`` is on, the way Spark resolves
-        names — gets its position appended (``id0``, ``ID1``); any other
-        cell is the column name verbatim. Idempotent.
-
-        Parameters
-        ----------
-        cells : list of str
-            Parsed header cells.
-
-        Returns
-        -------
-        list of str
-            The names the ``header=true`` scan of :meth:`_read_layout` uses.
-        """
-        null_value = self._option("nullValue", "")
-        counts = Counter(self._fold(cell) for cell in cells)
-        return [
-            f"_c{i}"
-            if cell in ("", null_value)
-            else f"{cell}{i}"
-            if counts[self._fold(cell)] > 1
-            else cell
-            for i, cell in enumerate(cells)
-        ]
 
     def _resolve(self, source: str, names: list[str]) -> str | None:
         """The column of ``names`` that ``source`` denotes, as the session resolves names.
@@ -438,10 +480,15 @@ class CsvLoader:
         ----------
         **overrides : str
             Spark options the loader owns for this read — ``header`` (true
-            for the grouped scan, false for a header or positional read) and
+            for the grouped scan, false for a header or positional read),
             ``inferSchema`` (always false: values are read as strings and
             cast per the contract, so the files sharing a scan never change
-            the type a value is read with).
+            the type a value is read with) and ``enforceSchema`` (false on
+            the grouped scan: Spark then checks, for every file, that the
+            contract's columns the scan resolves sit at the same positions
+            under the same names as in the scan's schema, and refuses —
+            naming it — a file where they do not; never a silent
+            misalignment).
 
         Returns
         -------
@@ -452,11 +499,60 @@ class CsvLoader:
         kept = {k: v for k, v in self.schema.read_options.items() if k.lower() not in owned}
         return {**kept, **overrides}
 
+    def _first_line(self, file: str) -> bytes | None:
+        """The bytes of the line Spark will take as ``file``'s header.
+
+        Nothing is decoded: a BOM, quotes, escapes and separators are just
+        bytes, so the value serves only to group files Spark will read
+        identically — the same bytes parse the same way, and for a
+        line-mode read the header *is* this line. Lines Spark skips before
+        the header are passed over the same way (:func:`_is_header_line`);
+        lines end at ``\\n``, ``\\r`` or ``\\r\\n`` as for Hadoop's line reader,
+        or at the contract's ``lineSep`` alone when it sets one.
+
+        Parameters
+        ----------
+        file : str
+            Path, any codec :func:`_decompressed` opens.
+
+        Returns
+        -------
+        bytes or None
+            The line without its terminator; ``b""`` for a file with no such
+            line; ``None`` when the file must be grouped alone, Spark reading
+            its header by itself: the contract sets ``multiLine`` (a quoted
+            header cell may span lines, so the first physical line does not
+            determine the header), its charset is not one Python can confirm
+            ASCII-compatible (:func:`_ascii_compatible`), Python cannot open
+            the codec, or the contract's ``lineSep`` / ``comment`` is not
+            ASCII.
+        """
+        charset = self._option("encoding", self._option("charset", "UTF-8"))
+        if self._option("multiLine", "false").lower() == "true" or not _ascii_compatible(charset):
+            return None
+        try:
+            line_sep = self._option("lineSep", "").encode("ascii")
+            comment = self._option("comment", "").encode("ascii")
+        except UnicodeEncodeError:
+            return None
+        chunks = _decompressed(file)
+        if chunks is None:
+            return None
+        terminator = re.compile(re.escape(line_sep) if line_sep else rb"\r\n|\n|\r")
+        buffer = b""
+        for chunk in chunks:
+            buffer += chunk
+            while (end := terminator.search(buffer)) is not None:
+                line, buffer = buffer[: end.start()], buffer[end.end() :]
+                if _is_header_line(line, comment):
+                    return line
+        return buffer if _is_header_line(buffer, comment) else b""
+
     def _option(self, name: str, default: str) -> str:
         """The contract's ``read_options[name]`` as Spark reads it.
 
         Spark keeps reader options in a case-insensitive map, so a contract
-        may spell ``nullValue`` as ``nullvalue``; the preflight must see the
+        may spell ``nullValue`` as ``nullvalue``; the loader must see the
         same value the scan will use.
 
         Parameters
@@ -475,153 +571,6 @@ class CsvLoader:
         options = {key.lower(): value for key, value in self.schema.read_options.items()}
         return options.get(name.lower(), default)
 
-    def _read_header(self, file: str) -> list[str]:
-        """The header of ``file`` as the loader judges it.
-
-        Parameters
-        ----------
-        file : str
-            CSV path.
-
-        Returns
-        -------
-        list of str
-            The Python preflight's cells (:meth:`_header_line` +
-            :meth:`_parse_header`) when the dialect allows it, otherwise
-            Spark's own parse (:meth:`_spark_header`).
-        """
-        line = self._header_line(file)
-        header = self._parse_header(line) if line is not None else None
-        return header if header is not None else self._spark_header(file)
-
-    def _header_line(self, file: str) -> str | None:
-        """The first non-empty line of ``file``, decoded like Spark decodes it.
-
-        Parameters
-        ----------
-        file : str
-            CSV path. ``.gz`` / ``.bz2`` are opened through the matching
-            Python module; the other Hadoop codec suffixes (``.deflate``,
-            ``.zst``, ``.lz4``, ``.snappy``) are left to Spark.
-
-        Returns
-        -------
-        str or None
-            The line without its line ending — empty lines and, when the
-            contract sets ``comment``, lines starting with that character are
-            skipped as Spark skips them; ``""`` for a file with no such line;
-            ``None`` when only Spark can read the file: a codec Python cannot
-            open, a charset name only Java knows or a BOM-dependent one
-            (``UTF-16`` / ``UTF-32``: Python refuses a BOM-less stream that
-            Java reads as big-endian), a ``lineSep`` other than CR/LF,
-            ``multiLine`` (a quoted header may span lines),
-            ``ignoreLeadingWhiteSpace`` / ``ignoreTrailingWhiteSpace`` (Spark
-            trims the header cells before naming them, so `` id,id`` is a
-            duplicate to it), or a non-default ``emptyValue`` (a quoted-empty
-            header cell takes that value as its name in Spark, and Python's
-            ``csv`` module cannot tell a quoted from an unquoted empty cell).
-            Undecodable bytes are replaced rather than raised, so a header in
-            the wrong encoding fails the required-column check instead of the
-            read.
-        """
-        suffix = Path(file).suffix.lower()
-        encoding = python_codec(self._option("encoding", self._option("charset", "UTF-8")))
-        spark_only_flags = ("multiLine", "ignoreLeadingWhiteSpace", "ignoreTrailingWhiteSpace")
-        if (
-            suffix in _SPARK_ONLY_SUFFIXES
-            or not _python_knows(encoding)
-            or codecs.lookup(encoding).name in _BOM_DEPENDENT_CODECS
-            or self._option("lineSep", "\n") not in ("\n", "\r\n", "\r")
-            or any(self._option(flag, "false").lower() == "true" for flag in spark_only_flags)
-            or self._option("emptyValue", "") != ""
-        ):
-            return None
-        comment = self._option("comment", "")
-        f: IO[str]
-        if suffix == ".gz":
-            f = gzip.open(file, "rt", encoding=encoding, errors="replace", newline="")
-        elif suffix == ".bz2":
-            f = bz2.open(file, "rt", encoding=encoding, errors="replace", newline="")
-        else:
-            f = open(file, encoding=encoding, errors="replace", newline="")
-        with f:
-            for raw_line in f:
-                line = raw_line.rstrip("\r\n")
-                if line and not (comment and line.startswith(comment)):
-                    return line
-        return ""
-
-    def _parse_header(self, line: str) -> list[str] | None:
-        """Split a header line with the contract's CSV dialect.
-
-        Parameters
-        ----------
-        line : str
-            A decoded header line.
-
-        Returns
-        -------
-        list of str or None
-            Cells split on ``sep`` / ``delimiter`` (default ``,``), each
-            either unquoted or wholly wrapped in the ``quote`` character
-            (default ``"``; Spark's disabled form — an empty string or
-            ``\\u0000`` — keeps quotes literally) — the shapes Spark reads
-            the same way; ``None`` whenever the line is anything else, so
-            the caller asks Spark instead: a multi-character separator,
-            escaping disabled the way Spark allows (an empty string or
-            ``\\u0000``), the ``escape`` character (default ``\\``) or an
-            ``unescapedQuoteHandling`` setting in play, a quote inside a
-            cell (doubled, unescaped, or in an unquoted cell — each handled
-            by Spark's own rules).
-        """
-        sep = self._option("sep", self._option("delimiter", ","))
-        escape = self._option("escape", "\\")
-        if (
-            len(sep) != 1
-            or escape in ("", "\u0000")
-            or escape in line
-            or self._option("unescapedQuoteHandling", "")
-        ):
-            return None
-        # strict: a character after a closing quote is an error rather than
-        # appended; a quote that survives inside a cell (doubled, or in an
-        # unquoted cell) is caught below.
-        dialect: dict[str, Any] = {"delimiter": sep, "strict": True}
-        quote = self._option("quote", '"')
-        if quote in ("", "\u0000"):
-            dialect["quoting"] = csv.QUOTE_NONE
-            quote = ""
-        else:
-            dialect["quotechar"] = quote
-        try:
-            cells = next(csv.reader([line], **dialect), [])
-        except csv.Error:
-            return None
-        return None if quote and any(quote in cell for cell in cells) else cells
-
-    def _spark_header(self, file: str) -> list[str]:
-        """Spark's own parse of ``file``'s header row — exact, but one job per file.
-
-        Parameters
-        ----------
-        file : str
-            CSV path, any codec Spark reads.
-
-        Returns
-        -------
-        list of str
-            The first record's cells as strings — this read is headerless
-            and without type inference whatever the contract says, so the
-            header row itself comes back and ``001`` stays ``001`` — or
-            ``[]`` for an empty file. A cell Spark reads as null — empty,
-            or equal to ``nullValue`` — comes back as ``""``, which
-            :meth:`_safe_header` names ``_c<i>`` exactly as a ``header=true``
-            read of the file would.
-        """
-        options = self._spark_options(header="false", inferSchema="false")
-        rows = self.spark.read.options(**options).csv(file).head(1)
-        return ["" if cell is None else str(cell) for cell in rows[0]] if rows else []
-
     def _read_layout(self, files: list[str]) -> DataFrame:
         """One header-based scan of files that share a header row.
 
@@ -636,7 +585,9 @@ class CsvLoader:
             Contract columns plus ``SOURCE_FILE_COL``.
         """
         raw = (
-            self.spark.read.options(**self._spark_options(header="true", inferSchema="false"))
+            self.spark.read.options(
+                **self._spark_options(header="true", inferSchema="false", enforceSchema="false")
+            )
             .csv(files)
             .withColumn(SOURCE_FILE_COL, _source_file_name())
         )
