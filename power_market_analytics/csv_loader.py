@@ -149,9 +149,9 @@ class CsvTableSchema(BaseModel):
         Empty list disables the uniqueness check.
     columns : list of CsvColumn
         Columns to load, in destination-table order. Source columns not
-        listed here are dropped. The name ``_source_file`` is reserved for
-        the loader's hidden file-name column (a column may *source* it to
-        expose the file name under another name).
+        listed here are dropped. The name ``_source_file`` — in any case —
+        is reserved for the loader's hidden file-name column (a column may
+        *source* it to expose the file name under another name).
     """
 
     description: str | None = None
@@ -161,10 +161,13 @@ class CsvTableSchema(BaseModel):
 
     @model_validator(mode="after")
     def _no_reserved_column_name(self) -> CsvTableSchema:
-        if any(c.name == SOURCE_FILE_COL for c in self.columns):
+        # In any case: Spark resolves names case-insensitively by default.
+        reserved = [c.name for c in self.columns if c.name.lower() == SOURCE_FILE_COL]
+        if reserved:
             raise ValueError(
-                f"column name {SOURCE_FILE_COL!r} is reserved for the loader's file-name "
-                f"column; expose the file name under another name (source: {SOURCE_FILE_COL})"
+                f"column name {reserved[0]!r} is reserved for the loader's file-name column "
+                f"{SOURCE_FILE_COL!r}; expose the file name under another name "
+                f"(source: {SOURCE_FILE_COL})"
             )
         return self
 
@@ -455,10 +458,12 @@ class CsvLoader:
             skipped as Spark skips them; ``""`` for a file with no such line;
             ``None`` when only Spark can read the file: a codec Python cannot
             open, a charset name only Java knows, a ``lineSep`` other than
-            CR/LF, ``multiLine`` (a quoted header may span lines), or
+            CR/LF, ``multiLine`` (a quoted header may span lines),
             ``ignoreLeadingWhiteSpace`` / ``ignoreTrailingWhiteSpace`` (Spark
             trims the header cells before naming them, so `` id,id`` is a
-            duplicate to it).
+            duplicate to it), or a non-default ``emptyValue`` (a quoted-empty
+            header cell takes that value as its name in Spark, and Python's
+            ``csv`` module cannot tell a quoted from an unquoted empty cell).
             Undecodable bytes are replaced rather than raised, so a header in
             the wrong encoding fails the required-column check instead of the
             read.
@@ -470,6 +475,7 @@ class CsvLoader:
             suffix in _SPARK_ONLY_SUFFIXES
             or self._option("lineSep", "\n") not in ("\n", "\r\n", "\r")
             or any(self._option(flag, "false").lower() == "true" for flag in spark_only_flags)
+            or self._option("emptyValue", "") != ""
             or not _python_knows(encoding)
         ):
             return None
