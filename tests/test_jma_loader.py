@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from power_market_analytics.csv_loader import CsvTableSchema
+from power_market_analytics.csv_loader import REPORT_LIMIT, CsvTableSchema
 from power_market_analytics.jma import JmaHourlyCsvLoader
 from tests.support import REPO_ROOT
 
@@ -165,11 +165,28 @@ class TestJmaHourlyCsvLoaderLoad:
         staffed_file(tmp_path, "s47662_101-201-301-401-501-605-610_2024.csv")
         staffed_file(tmp_path, "s47662_101-201-301-401-501-605-610_2025.csv")  # same hours again
         loader = JmaHourlyCsvLoader(STAFFED_CONTRACT, tmp_path, "test_jma.overlap", spark=spark)
-        with pytest.raises(
-            ValueError,
-            match=re.escape("Grain ['station_id', 'observed_at'] is not unique: 8 rows but 4"),
-        ):
+        with pytest.raises(ValueError) as exc:
             loader.load()
+        message = str(exc.value)
+        assert message.startswith(
+            "Grain ['station_id', 'observed_at'] is not unique: 8 rows but 4 distinct keys; "
+            f"first {REPORT_LIMIT} duplicated keys (key, rows, files): "
+        )
+        # Keys in grain order: the earliest hour first, both year files named.
+        assert message.endswith(
+            "[(('s47662', datetime.datetime(2017, 12, 12, 1, 0)), 2, "
+            "['s47662_101-201-301-401-501-605-610_2024.csv', "
+            "'s47662_101-201-301-401-501-605-610_2025.csv']), "
+            "(('s47662', datetime.datetime(2024, 2, 5, 19, 0)), 2, "
+            "['s47662_101-201-301-401-501-605-610_2024.csv', "
+            "'s47662_101-201-301-401-501-605-610_2025.csv']), "
+            "(('s47662', datetime.datetime(2024, 7, 1, 13, 0)), 2, "
+            "['s47662_101-201-301-401-501-605-610_2024.csv', "
+            "'s47662_101-201-301-401-501-605-610_2025.csv']), "
+            "(('s47662', datetime.datetime(2024, 11, 7, 16, 0)), 2, "
+            "['s47662_101-201-301-401-501-605-610_2024.csv', "
+            "'s47662_101-201-301-401-501-605-610_2025.csv'])]"
+        )
 
     def test_wrong_layout_fails_loudly(self, spark, tmp_path):
         write_cp932(tmp_path / "s47662_101-201-301-401_2016.csv", OLD_CORE_HEADER + OLD_CORE_ROWS)
@@ -198,3 +215,34 @@ class TestJmaHourlyCsvLoaderLoad:
         loader = JmaHourlyCsvLoader(STAFFED_CONTRACT, tmp_path, "test_jma.flag", spark=spark)
         with pytest.raises(ValueError, match=re.escape("{'precipitation_quality_flag': 1}")):
             loader.load()
+
+    def test_every_file_is_checked_before_any_is_read(self, spark, tmp_path):
+        # The bad file sorts *after* the good one ("-" < "_"), so a guard that
+        # only inspected the first file would let it through.
+        staffed_file(tmp_path, "s47662_101-201-301-401-501-605-610_2024.csv")
+        write_cp932(tmp_path / "s47662_101-201-301-401_2016.csv", OLD_CORE_HEADER + OLD_CORE_ROWS)
+        loader = JmaHourlyCsvLoader(STAFFED_CONTRACT, tmp_path, "test_jma.mixed", spark=spark)
+
+        with pytest.raises(ValueError, match="first data row has 17 columns, contract expects 27"):
+            loader.load()
+        assert not spark.catalog.tableExists("test_jma.mixed")
+
+    def test_null_report_names_the_offending_station_file(self, spark, tmp_path):
+        staffed_file(tmp_path, "s47662_101-201-301-401-501-605-610_2024.csv")
+        rows = list(STAFFED_ROWS)
+        rows[0] = "2024/2/5 19:00:00,3.0,0,,1,0.6,8,1,3.9,8,北北西,8,1,0,1,8,1,3,0,8,1,98,8,1,0,8,1"
+        write_cp932(tmp_path / "s47772_101-201-301-401-501-605-610_2024.csv", STAFFED_HEADER + rows)
+        loader = JmaHourlyCsvLoader(STAFFED_CONTRACT, tmp_path, "test_jma.nullfile", spark=spark)
+
+        with pytest.raises(ValueError) as exc:
+            loader.load()
+
+        assert str(exc.value).endswith(
+            f"; by file (first {REPORT_LIMIT}): "
+            "{'s47772_101-201-301-401-501-605-610_2024.csv': {'precipitation_quality_flag': 1}}"
+        )
+
+    def test_loader_has_no_per_file_read(self):
+        # The base class keeps its header-based ``_read_file`` in this stage,
+        # so check the JMA class body, not attribute lookup through the MRO.
+        assert "_read_file" not in JmaHourlyCsvLoader.__dict__

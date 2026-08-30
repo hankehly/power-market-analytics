@@ -378,9 +378,15 @@
   2026-05-28 renewal; `requests`/certifi rejects it (browsers/curl tolerate it via AIA chasing)
   — fetch the correct intermediate and pass a combined bundle via `REQUESTS_CA_BUNDLE` until
   RISH fixes it. Details: `docs/JMA-MSM-GPV-Retrieval.md` §5.1/§8.4.
-- Large raw reloads (JMA hourly ≈1.7k files / 1.2 GB; MSM) need the compose default
-  `SPARK_DRIVER_MEMORY=20g` — a 1g driver stalls ("no recent heartbeats"), 8g OOMs in the
-  parquet write; size per `.env.template`. An aborted overwrite leaves the old table intact.
+- Many-file raw reloads: `CsvLoader._read_all`'s default unions one frame per file, which is
+  only fit for a handful of files — every `unionByName` re-analyses the whole plan and each
+  task deserialises a binary proportional to the file count (1,600 files ≈ 8 min of planning,
+  a 45 MiB binary, ~1 h 45 min per load and a 20g driver). Loaders with hundreds of files read
+  them in one scan instead (`_scan_positional` + `_project`; JMA hourly since 2026-08-30 —
+  1,608 files / 13.7 M rows in ~50 s warm, ~100 s cold, verified at `SPARK_DRIVER_MEMORY=4g`).
+  MSM (≈1.6k `csv.gz`) still takes the union path and needs the compose default
+  `SPARK_DRIVER_MEMORY=20g` (a 1g driver stalls, 8g OOMs in the parquet write; size per
+  `.env.template`) until it is converted. An aborted overwrite leaves the old table intact.
 - Stopping a host-side `just python <script>` (Ctrl-C / background-task stop) only kills the
   `docker exec` client — the script keeps running in the devcontainer. `just exec pkill -f
   <script>` and confirm with `just exec pgrep -fl <script>` before relaunching.
