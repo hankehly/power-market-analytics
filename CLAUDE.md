@@ -243,8 +243,9 @@
   from the `search_detail` JSON endpoint, not the HTML page; zips validated before caching, member
   extracted byte-for-byte) → `data/estat/census_population_mesh/{year}/{zip,txt}/` →
   `scripts/load_estat_census_population_mesh.py` (`EstatCensusMeshCsvLoader`, also in `estat.py`:
-  vintage from the file name, selects that vintage's population column, injects vintage attributes,
-  validates mesh codes / population / HTKSYORI before casting; contract
+  vintage from the file name, reads each vintage's files in one scan (grouped by exact header line),
+  selects that vintage's population column, injects vintage attributes, validates mesh codes /
+  population / HTKSYORI per file in one grouped pass before casting; contract
   `conf/schemas/estat_census_population_mesh.yaml`) → `pma_raw.estat_census_population_mesh` →
   `stg_estat__census_population_mesh` → `std_estat__census_population_mesh` (+ bounding box /
   centroid decoded from the mesh code; Python reference `estat.decode_mesh_code`) →
@@ -383,8 +384,9 @@
   task deserialises a binary proportional to the file count (1,600 files ≈ 8 min of planning,
   a 45 MiB binary, ~1 h 45 min per load and a 20g driver). Loaders with hundreds of files read
   them in one scan instead (`_scan_positional` + `_project`; JMA hourly since 2026-08-30 —
-  1,608 files / 13.7 M rows in ~50 s warm, ~100 s cold, verified at `SPARK_DRIVER_MEMORY=4g`).
-  MSM (≈1.6k `csv.gz`) still takes the union path and needs the compose default
+  1,608 files / 13.7 M rows in ~50 s warm, ~100 s cold, verified at `SPARK_DRIVER_MEMORY=4g`;
+  e-Stat since 2026-08-30 — 302 files / 0.94 M rows in ~19 s, one scan per vintage instead of a
+  Spark action per file). MSM (≈1.6k `csv.gz`) still takes the union path and needs the compose default
   `SPARK_DRIVER_MEMORY=20g` (a 1g driver stalls, 8g OOMs in the parquet write; size per
   `.env.template`) until it is converted. An aborted overwrite leaves the old table intact.
 - Stopping a host-side `just python <script>` (Ctrl-C / background-task stop) only kills the
