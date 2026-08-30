@@ -9,6 +9,7 @@ and overwrites the destination table.
 from __future__ import annotations
 
 import bz2
+import codecs
 import glob
 import gzip
 import io
@@ -82,6 +83,20 @@ def _inflated(file: str) -> Iterator[bytes]:
     with open(file, "rb") as f:
         while chunk := f.read(_CHUNK):
             yield inflater.decompress(chunk)
+
+
+def _ascii_compatible(charset: str) -> bool:
+    """Whether Python can confirm that ``charset`` encodes ASCII as itself.
+
+    The byte-level header sniff compares spaces, a comment character and line
+    terminators as ASCII bytes, which only holds for ASCII-compatible
+    charsets; ``UTF-16``, EBCDIC and any name Python has no codec for
+    (Java-only charsets) fail this test and their files are grouped alone.
+    """
+    try:
+        return " #\r\n".encode(codecs.lookup(charset).name) == b" #\r\n"
+    except LookupError:
+        return False
 
 
 def _is_header_line(line: bytes, comment: bytes) -> bool:
@@ -502,10 +517,13 @@ class CsvLoader:
             line; ``None`` when the file must be grouped alone, Spark reading
             its header by itself: the contract sets ``multiLine`` (a quoted
             header cell may span lines, so the first physical line does not
-            determine the header), Python cannot open the codec, or the
-            contract's ``lineSep`` / ``comment`` is not ASCII.
+            determine the header), its charset is not one Python can confirm
+            ASCII-compatible (:func:`_ascii_compatible`), Python cannot open
+            the codec, or the contract's ``lineSep`` / ``comment`` is not
+            ASCII.
         """
-        if self._option("multiLine", "false").lower() == "true":
+        charset = self._option("encoding", self._option("charset", "UTF-8"))
+        if self._option("multiLine", "false").lower() == "true" or not _ascii_compatible(charset):
             return None
         try:
             line_sep = self._option("lineSep", "").encode("ascii")

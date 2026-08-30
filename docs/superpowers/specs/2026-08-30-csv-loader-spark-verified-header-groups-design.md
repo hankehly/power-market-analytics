@@ -75,10 +75,12 @@ return reduce(DataFrame.unionByName, frames)
   are just bytes in the key — for a line-mode read the key *is* the header line. Returns
   `b""` for a file with no such line (empty file) and `None` for a file that must be grouped
   alone, Spark reading its header by itself: the contract sets `multiLine` (a quoted header
-  cell may span lines, so the first physical line does not determine the header), a codec
-  Python cannot open (`.zst`, `.lz4`, `.snappy`), or a `lineSep`/`comment` that is not ASCII
-  (per-file cost, only for inputs no source has). ASCII-compatible charsets are assumed, which
-  is Spark's own assumption for line-mode CSV (it splits on the 0x0A byte before decoding).
+  cell may span lines, so the first physical line does not determine the header), a charset
+  Python cannot confirm ASCII-compatible (`UTF-16`/`UTF-32`, EBCDIC, or a Java-only name —
+  the sniff compares spaces, the comment character and line terminators as ASCII bytes),
+  a codec Python cannot open (`.zst`, `.lz4`, `.snappy`), or a `lineSep`/`comment` that is
+  not ASCII (per-file cost, only for inputs no source has; every production contract is
+  `windows-31j`, which Python knows as `cp932`).
 - **`_group_header(file) -> tuple[list[str], list[str]]`** — Spark's names for the group's
   first file (`header="true"`, `.columns`) and its raw header cells (`header="false"`,
   `.head(1)`, nulls as `""`); both reads under `_spark_options(inferSchema="false")` (and the
