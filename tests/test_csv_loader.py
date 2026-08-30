@@ -1143,6 +1143,33 @@ class TestHeaderGroupedRead:
             ("x", 2),
         ]
 
+    def test_case_only_source_matches_follow_the_session_resolver(self, spark, tmp_path):
+        # Spark resolves `id` to a column `ID` unless the session is
+        # case-sensitive; the header check and the projection agree with it.
+        schema = CsvTableSchema.model_validate(
+            {
+                "columns": [
+                    {"name": "id", "type": "int"},
+                    {"name": "opt", "source": "Opt", "type": "int", "required": False},
+                ]
+            }
+        )
+        write_utf8(tmp_path / "c.csv", ["ID,OPT", "1,5"])
+        loader = CsvLoader(schema, tmp_path, "test_csv_loader.casematch", spark=spark)
+        assert loader._resolve("id", ["ID", "OPT"]) == "ID"
+        assert loader._header_problem(["ID", "OPT"]) is None
+        assert loader.load() == 1
+        assert [tuple(r) for r in spark.table("test_csv_loader.casematch").collect()] == [(1, 5)]
+        spark.conf.set("spark.sql.caseSensitive", "true")
+        try:
+            assert loader._resolve("id", ["ID", "OPT"]) is None
+            with pytest.raises(
+                ValueError, match=re.escape("c.csv is missing required columns: ['id']")
+            ):
+                loader.load()
+        finally:
+            spark.conf.set("spark.sql.caseSensitive", "false")
+
     def test_loader_has_no_per_file_read(self):
         assert "_read_file" not in CsvLoader.__dict__
 
