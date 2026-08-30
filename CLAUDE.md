@@ -272,6 +272,15 @@
   **plus** the customary non-working days computed in SQL — 年末年始 12/30–1/3, ゴールデンウィーク
   4/30–5/2 (the 休日 set every family-A TSO 託送供給等約款 uses; 東北/北陸/中国/沖縄 differ) and
   お盆 8/13–16 (convention only) — so `is_business_day` means "working day", not "banks open".
+  `dim_date.prior_year_reference_date` (+ `prior_year_reference_rule`) is the day one year
+  earlier that stands for the day in a year-over-year comparison (the demand task's year-ago
+  load feature) — non-null for the whole spine, resolved against a lookup calendar that starts
+  13 months before it: working day → D−364 if a working day, else D−357, else D−371
+  (`same_weekday` / `same_weekday_shifted`); weekend → D−364; holiday → the same
+  `holiday_name_ja` within ±14 days of the same calendar date a year earlier, else the nearest
+  non-working day (`same_holiday` / `nearest_non_working_day`). Worked examples (the
+  researcher's A–E, O-002/O-003) are pinned in
+  `dbt_tests/assert_dim_date_prior_year_reference_examples.sql`.
 - Forecast write-back: `scripts/spot_price_backtest.py` logs the run to MLflow AND publishes
   row-level forecasts (`forecasting/publish.py`) to `pma_ml.spot_price_forecast`
   (parquet, partitioned by `run_id`, dynamic partition overwrite = idempotent per run) →
