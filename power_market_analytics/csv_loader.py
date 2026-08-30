@@ -14,7 +14,10 @@ import csv
 import glob
 import gzip
 import operator
+import re
+import zlib
 from collections import Counter
+from collections.abc import Iterator
 from functools import reduce
 from pathlib import Path
 from typing import IO, Any
@@ -54,6 +57,58 @@ _SPARK_ONLY_SUFFIXES = (".deflate", ".zst", ".lz4", ".snappy")
 #: Codecs whose byte order comes from a BOM: Python refuses a BOM-less stream
 #: that Java reads as big-endian, so their headers are Spark's to parse.
 _BOM_DEPENDENT_CODECS = ("utf-16", "utf-32")
+
+
+#: Bytes read per step while looking for a file's first header line.
+_CHUNK = 65536
+
+
+def _decompressed(file: str) -> Iterator[bytes] | None:
+    """``file`` in ``_CHUNK``-byte pieces, as Spark would see it after decompression.
+
+    Parameters
+    ----------
+    file : str
+        Path; the suffix selects the codec — ``.gz`` and ``.bz2`` through the
+        standard library, ``.deflate`` (Hadoop's DefaultCodec, zlib format)
+        streamed through ``zlib``, anything else read as is.
+
+    Returns
+    -------
+    Iterator of bytes or None
+        ``None`` for a Hadoop codec Python cannot open (``.zst``, ``.lz4``,
+        ``.snappy``).
+    """
+    suffix = Path(file).suffix.lower()
+    if suffix in (".zst", ".lz4", ".snappy"):
+        return None
+    if suffix == ".deflate":
+        return _inflated(file)
+    opener = {".gz": gzip.open, ".bz2": bz2.open}.get(suffix, open)
+    return _chunks(opener(file, "rb"))
+
+
+def _chunks(f: IO[bytes]) -> Iterator[bytes]:
+    with f:
+        while chunk := f.read(_CHUNK):
+            yield chunk
+
+
+def _inflated(file: str) -> Iterator[bytes]:
+    inflater = zlib.decompressobj()
+    with open(file, "rb") as f:
+        while chunk := f.read(_CHUNK):
+            yield inflater.decompress(chunk)
+
+
+def _is_header_line(line: bytes, comment: bytes) -> bool:
+    """Whether Spark takes ``line`` as a header rather than skipping it.
+
+    Spark passes over lines that are empty once spaces are stripped — a
+    tab-only line is a header to it — and, with ``comment`` set, lines
+    starting with that byte.
+    """
+    return bool(line.strip(b" ")) and not (comment and line.startswith(comment))
 
 
 def _source_file_name() -> Column:
@@ -451,6 +506,47 @@ class CsvLoader:
         owned = {key.lower() for key in overrides}
         kept = {k: v for k, v in self.schema.read_options.items() if k.lower() not in owned}
         return {**kept, **overrides}
+
+    def _first_line(self, file: str) -> bytes | None:
+        """The bytes of the line Spark will take as ``file``'s header.
+
+        Nothing is decoded: a BOM, quotes, escapes and separators are just
+        bytes, so the value serves only to group files Spark will read
+        identically — the same bytes parse the same way. Lines Spark skips
+        before the header are passed over the same way (:func:`_is_header_line`);
+        lines end at ``\\n``, ``\\r`` or ``\\r\\n`` as for Hadoop's line reader,
+        or at the contract's ``lineSep`` alone when it sets one.
+
+        Parameters
+        ----------
+        file : str
+            Path, any codec :func:`_decompressed` opens.
+
+        Returns
+        -------
+        bytes or None
+            The line without its terminator; ``b""`` for a file with no such
+            line; ``None`` when Python cannot open the file or the contract's
+            ``lineSep`` / ``comment`` is not ASCII — the file then forms a
+            group of its own and Spark reads its header alone.
+        """
+        try:
+            line_sep = self._option("lineSep", "").encode("ascii")
+            comment = self._option("comment", "").encode("ascii")
+        except UnicodeEncodeError:
+            return None
+        chunks = _decompressed(file)
+        if chunks is None:
+            return None
+        terminator = re.compile(re.escape(line_sep) if line_sep else rb"\r\n|\n|\r")
+        buffer = b""
+        for chunk in chunks:
+            buffer += chunk
+            while (end := terminator.search(buffer)) is not None:
+                line, buffer = buffer[: end.start()], buffer[end.end() :]
+                if _is_header_line(line, comment):
+                    return line
+        return buffer if _is_header_line(buffer, comment) else b""
 
     def _option(self, name: str, default: str) -> str:
         """The contract's ``read_options[name]`` as Spark reads it.
