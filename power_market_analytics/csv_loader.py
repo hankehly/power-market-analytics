@@ -411,8 +411,9 @@ class CsvLoader:
         Parameters
         ----------
         **overrides : str
-            Spark options the loader owns for this read (``header``,
-            ``inferSchema``).
+            Spark options the loader owns for this read — ``header`` (true
+            for the grouped scan, false for a header or positional read),
+            ``inferSchema``.
 
         Returns
         -------
@@ -581,14 +582,15 @@ class CsvLoader:
         Returns
         -------
         list of str
-            The first record's cells as strings — type inference is off for
-            this read whatever the contract says, so ``001`` stays ``001`` —
-            or ``[]`` for an empty file. A cell Spark reads as null — empty,
+            The first record's cells as strings — this read is headerless
+            and without type inference whatever the contract says, so the
+            header row itself comes back and ``001`` stays ``001`` — or
+            ``[]`` for an empty file. A cell Spark reads as null — empty,
             or equal to ``nullValue`` — comes back as ``""``, which
             :meth:`_safe_header` names ``_c<i>`` exactly as a ``header=true``
             read of the file would.
         """
-        options = self._spark_options(inferSchema="false")
+        options = self._spark_options(header="false", inferSchema="false")
         rows = self.spark.read.options(**options).csv(file).head(1)
         return ["" if cell is None else str(cell) for cell in rows[0]] if rows else []
 
@@ -642,7 +644,7 @@ class CsvLoader:
             [StructField(f"_c{i}", StringType()) for i in range(column_count)]
         )
         return (
-            self.spark.read.options(**self.schema.read_options)
+            self.spark.read.options(**self._spark_options(header="false"))
             .schema(spark_schema)
             .csv(files)
             .withColumn(SOURCE_FILE_COL, _source_file_name())
