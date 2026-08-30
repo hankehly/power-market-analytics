@@ -431,9 +431,6 @@ class TepcoPowerUsageCsvLoader(CsvLoader):
         # local frames unioned together gave Spark 16k tasks per action.
         return self._frame(self._rows(files))
 
-    def _read_file(self, file: str) -> DataFrame:
-        return self._frame(self._rows([file]))
-
     def _rows(self, files: list[str]) -> list[tuple[str | None, ...]]:
         """Parse the hourly tables of ``files`` into contract-source string tuples."""
         data: list[tuple[str | None, ...]] = []
