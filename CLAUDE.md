@@ -454,8 +454,11 @@
   main-session background poll every 60 s of
   `gh api --method GET -F per_page=100 repos/hankehly/power-market-analytics/pulls/<n>/reviews`
   (a `Codex Review` by the bot with `submitted_at` after the push you are waiting on),
-  `… issues/<n>/reactions` (`content == "+1"` by the bot with `created_at` after it — an older
-  👍 stays on the PR, so always compare timestamps; a 👍 never counts for a later push),
+  `… issues/<n>/reactions` (`content == "+1"` by the bot with `created_at` after it — Codex
+  withdraws its 👍 and reacts afresh on every push, as seen on #23, so a clean re-run does get a
+  newer timestamp; should a stale one ever linger, the 20-min fallback below hands the run a
+  fresh subject — the trigger comment — whose reactions are per-run; a 👍 never counts for a
+  later push),
   `… pulls/<n>/comments` (the inline findings themselves — id, path, line, body — which is
   what the replies endpoint needs) and `… issues/<n>/comments` (bot comments). `--method GET`
   is mandatory: a `-F` field alone turns
@@ -482,7 +485,9 @@
   `copilot-pull-request-reviewer[bot]` within minutes — `APPROVED` (as on #19 and #21) or
   `COMMENTED`; either is clean once every inline thread it opened is resolved. Otherwise
   handle its comments like Codex's — fix or rebut, reply, resolve the thread with the same
-  mutation, push if anything changed — and re-request.
+  mutation. A pushed fix starts a new Codex run, so go back through the Codex wait for the
+  new SHA first and only then re-request Copilot; a round in which every finding was rebutted
+  has nothing to push and is terminal once its threads are resolved — do not re-request.
 - Then report the PR as ready — CI green, both reviewers clean, Proof filled in — and stop; the
   researcher merges.
 
