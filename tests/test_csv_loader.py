@@ -532,26 +532,32 @@ class TestHeaderGroupedRead:
             "enforceSchema": "false",
         }
 
-    def test_files_sharing_a_first_line_but_not_a_header_fail_naming_the_file(
+    def test_multiline_files_are_grouped_alone_so_an_optional_column_is_never_lost(
         self, spark, tmp_path
     ):
-        # The one way the byte-level key can put two layouts in one group: a
-        # multiLine header cell that continues differently. Spark's header
-        # check on the scan refuses the second file, naming it.
+        # Under multiLine the first physical line does not determine the
+        # header: two files sharing it may continue differently, and a
+        # shared scan would read an optional column present in only one of
+        # them as null. Each such file is therefore its own group.
         schema = CsvTableSchema.model_validate(
             {
                 "read_options": {"multiLine": "true"},
-                "columns": [{"name": "x", "source": "x\ny", "type": "int"}],
+                "columns": [
+                    {"name": "v", "type": "int"},
+                    {"name": "o", "type": "int", "required": False},
+                ],
             }
         )
         (tmp_path / "a.csv").write_bytes(b'"x\ny",v\n1,2\n')
-        (tmp_path / "b.csv").write_bytes(b'"x\nz",v\n3,4\n')
-        loader = CsvLoader(schema, tmp_path, "test_csv_loader.underfine", spark=spark)
-        assert loader._first_line(str(tmp_path / "a.csv")) == loader._first_line(
-            str(tmp_path / "b.csv")
-        )
-        with pytest.raises(Exception, match=r"CSV header does not conform[\s\S]*b\.csv"):
-            loader.load()
+        (tmp_path / "b.csv").write_bytes(b'"x\nz",v,o\n3,4,5\n')
+        loader = CsvLoader(schema, tmp_path, "test_csv_loader.multiline", spark=spark)
+        df = loader._read_all(loader._resolve_files())
+        assert df._jdf.queryExecution().analyzed().toString().count("Union") == 1
+        assert loader.load() == 2
+        assert sorted(tuple(r) for r in spark.table("test_csv_loader.multiline").collect()) == [
+            (2, None),
+            (4, 5),
+        ]
 
     def test_a_group_error_names_the_first_file_and_the_count(self, spark, tmp_path):
         write_utf8(tmp_path / "a.csv", ["id,v", "1,2"])
@@ -700,11 +706,11 @@ class TestHeaderGroupedRead:
     def test_the_scan_checks_every_files_header_even_if_grouping_were_wrong(
         self, spark, tmp_path, monkeypatch
     ):
-        # The guarantee behind the byte-level key: with enforceSchema=false
-        # Spark checks, per file, that the contract's columns sit at the same
-        # positions under the same names as in the scan's schema, and refuses
-        # a file where they do not — so a wrong key can cost a loud failure,
-        # never misaligned data. Force every file into one group.
+        # Belt and braces behind the byte-level key (which is the header line
+        # itself for line-mode files): with enforceSchema=false Spark checks,
+        # per file, that the contract's columns sit at the same positions
+        # under the same names as in the scan's schema, and refuses a file
+        # where they do not. Force every file into one group to see it act.
         monkeypatch.setattr(CsvLoader, "_first_line", lambda self, file: b"same")
         columns = [{"name": "id", "type": "int"}, {"name": "v", "type": "int"}]
         loader = CsvLoader(
@@ -983,8 +989,12 @@ class TestFirstLine:
         (tmp_path / f"f{suffix}").write_bytes(b"whatever")
         assert self.loader(spark, tmp_path)._first_line(str(tmp_path / f"f{suffix}")) is None
 
-    @pytest.mark.parametrize("read_options", [{"lineSep": "　"}, {"comment": "＃"}])
-    def test_non_ascii_line_separator_or_comment_is_none(self, spark, tmp_path, read_options):
+    @pytest.mark.parametrize(
+        "read_options", [{"lineSep": "　"}, {"comment": "＃"}, {"multiLine": "true"}]
+    )
+    def test_non_ascii_line_separator_or_comment_or_multiline_is_none(
+        self, spark, tmp_path, read_options
+    ):
         (tmp_path / "f.csv").write_bytes(b"id,v\n")
         loader = self.loader(spark, tmp_path, **read_options)
         assert loader._first_line(str(tmp_path / "f.csv")) is None
