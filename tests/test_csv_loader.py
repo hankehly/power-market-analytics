@@ -531,6 +531,38 @@ class TestHeaderGroupedRead:
         assert loader._read_header(str(tmp_path / "j.csv")) == ["キー", "値"]
         assert loader.load() == 1
 
+    def test_header_sniff_honours_the_quote_character(self, spark, tmp_path):
+        schema = CsvTableSchema.model_validate(
+            {
+                "read_options": {"sep": ";", "quote": "'"},
+                "columns": [
+                    {"name": "id_part", "source": "id;part", "type": "string"},
+                    {"name": "value", "type": "int"},
+                ],
+            }
+        )
+        write_utf8(tmp_path / "q.csv", ["'id;part';value", "'a;b';1"])
+        loader = CsvLoader(schema, tmp_path, "test_csv_loader.quote", spark=spark)
+        assert loader._read_header(str(tmp_path / "q.csv")) == ["id;part", "value"]
+        assert loader.load() == 1
+        assert [tuple(r) for r in spark.table("test_csv_loader.quote").collect()] == [("a;b", 1)]
+
+    def test_header_sniff_with_quoting_disabled_keeps_quotes_literally(self, spark, tmp_path):
+        schema = CsvTableSchema.model_validate(
+            {
+                "read_options": {"quote": "\u0000"},
+                "columns": [
+                    {"name": "a", "source": '"a"', "type": "string"},
+                    {"name": "b", "type": "int"},
+                ],
+            }
+        )
+        write_utf8(tmp_path / "nq.csv", ['"a",b', '"x",1'])
+        loader = CsvLoader(schema, tmp_path, "test_csv_loader.noquote", spark=spark)
+        assert loader._read_header(str(tmp_path / "nq.csv")) == ['"a"', "b"]
+        assert loader.load() == 1
+        assert [tuple(r) for r in spark.table("test_csv_loader.noquote").collect()] == [('"x"', 1)]
+
     def test_loader_has_no_per_file_read(self):
         assert "_read_file" not in CsvLoader.__dict__
 

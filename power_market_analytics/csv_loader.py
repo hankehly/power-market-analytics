@@ -14,6 +14,7 @@ import gzip
 import operator
 from functools import reduce
 from pathlib import Path
+from typing import Any
 
 import yaml
 from loguru import logger
@@ -274,16 +275,23 @@ class CsvLoader:
         Returns
         -------
         list of str
-            Header cells split on the contract's ``sep`` (default ``,``),
-            quotes removed; ``[]`` for an empty file. Undecodable bytes are
-            replaced rather than raised, so a header in the wrong encoding
+            Header cells split on the contract's ``sep`` (default ``,``) with
+            the contract's ``quote`` character (default ``"``; Spark's
+            disabled form — an empty string or ``\\u0000`` — keeps quotes
+            literally) removed; ``[]`` for an empty file. Undecodable bytes
+            are replaced rather than raised, so a header in the wrong encoding
             fails the required-column check instead of the read.
         """
         encoding = python_codec(self.schema.read_options.get("encoding", "UTF-8"))
-        sep = self.schema.read_options.get("sep", ",")
+        dialect: dict[str, Any] = {"delimiter": self.schema.read_options.get("sep", ",")}
+        quote = self.schema.read_options.get("quote", '"')
+        if quote in ("", "\u0000"):
+            dialect["quoting"] = csv.QUOTE_NONE
+        else:
+            dialect["quotechar"] = quote
         opener = gzip.open if file.endswith(".gz") else open
         with opener(file, "rt", encoding=encoding, errors="replace", newline="") as f:
-            return next(csv.reader(f, delimiter=sep), [])
+            return next(csv.reader(f, **dialect), [])
 
     def _read_layout(self, files: list[str]) -> DataFrame:
         """One header-based scan of files that share a header row.
