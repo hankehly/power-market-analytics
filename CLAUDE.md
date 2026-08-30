@@ -437,30 +437,36 @@
   to `bug`/`enhancement` when the PR also changes docs. A stage that depends on an unmerged PR
   is stacked on that branch (`--base <branch>`); GitHub retargets it to `main` when the base
   merges.
+- **Never spell out the Codex mention** — the bot's handle followed by `review` — in a PR
+  body, a commit message, a review reply or a file that will show up in a diff: Codex acts on
+  that literal text wherever it appears on the PR and, anywhere but a plain PR comment,
+  answers "To use Codex here, create an environment for this repo" instead of reviewing
+  (#20 lost its creation-time review to a mention in the PR body). This file therefore only
+  describes the trigger.
 - **Codex** (`chatgpt-codex-connector[bot]`,
   [docs](https://learn.chatgpt.com/docs/third-party/github)) reviews automatically when a PR is
   opened and when a commit is pushed to an open PR: it reacts 👀 on the PR when it starts, then
-  either posts a PR review with inline findings or — nothing to flag — reacts 👍 on the PR and
-  posts nothing. Wait for one of those two outcomes **with no timeout**: a main-session
-  background poll every 60 s of
-  `gh api -F per_page=100 repos/hankehly/power-market-analytics/pulls/<n>/reviews` (a review by
-  the bot with `submitted_at` after the push you are waiting on),
-  `gh api -F per_page=100 repos/hankehly/power-market-analytics/issues/<n>/reactions`
-  (`content == "+1"` by the bot with `created_at` after it — an older 👍 stays on the PR, so
-  always compare timestamps; a 👍 never counts for a later push) and
-  `gh api -F per_page=100 repos/hankehly/power-market-analytics/issues/<n>/comments` (a bot
-  *comment* such as "To use Codex here, create an environment for this repo" means the run did
-  not start — seen once on #20, transient). Use `--paginate` should a PR ever outgrow 100.
-  Only when 20 min pass with neither 👀 nor a review — or right after that "create an
-  environment" comment — post `@codex review`, the documented manual trigger, and keep
-  waiting; its reactions land on that comment (`gh api …/issues/comments/<id>/reactions`), so
-  poll it too. Never post it while an automatic run may still be in flight: two runs of the
-  same SHA race, and a 👍 from one would advance the loop before the other posts findings.
-  Never conclude "no findings" from silence.
+  either posts a PR review whose body starts with `### 💡 Codex Review` and carries inline
+  findings, or — nothing to flag — reacts 👍 on the PR and posts nothing. A bot review with an
+  empty body (its only comment being the "create an environment" text) is a mention response,
+  not a review — ignore it. Wait for one of the two real outcomes **with no timeout**: a
+  main-session background poll every 60 s of
+  `gh api --method GET -F per_page=100 repos/hankehly/power-market-analytics/pulls/<n>/reviews`
+  (a `Codex Review` by the bot with `submitted_at` after the push you are waiting on),
+  `… issues/<n>/reactions` (`content == "+1"` by the bot with `created_at` after it — an older
+  👍 stays on the PR, so always compare timestamps; a 👍 never counts for a later push) and
+  `… issues/<n>/comments` (bot comments). `--method GET` is mandatory: a `-F` field alone turns
+  `gh api` into a POST that tries to *create* a review / reaction / comment (a `body`-less
+  attempt fails with 422, but it is still the wrong request). Use `--paginate` should a PR ever
+  outgrow 100 items. Only when 20 min pass with neither 👀 nor a review, post a PR comment
+  consisting solely of the manual trigger and keep waiting; its reactions land on that comment
+  (`… issues/comments/<id>/reactions`), so poll it too. Never post it while an automatic run
+  may still be in flight: two runs of the same SHA race, and a 👍 from one would advance the
+  loop before the other posts findings. Never conclude "no findings" from silence.
 - **Address every finding**: fix it in a commit (or say in the thread why not), reply in the
   thread (`gh api repos/hankehly/power-market-analytics/pulls/<n>/comments/<id>/replies
-  -f body='…'`) with what changed, push, and wait for the automatic re-review as above.
-  Repeat until a round ends with 👍 and no new findings.
+  -f body='…'`) with what changed — without the mention — push, and wait for the automatic
+  re-review as above. Repeat until a round ends with 👍 and no new findings.
 - **Copilot** only after Codex is clean: GitHub MCP `request_copilot_review` (CLI: `gh api -X
   POST repos/hankehly/power-market-analytics/pulls/<n>/requested_reviewers -f
   'reviewers[]=copilot-pull-request-reviewer[bot]'`). It posts a review as
