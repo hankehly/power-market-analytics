@@ -406,6 +406,26 @@
 - Long-running ops (scrapes, raw reloads, `dbt build`) must run as main-session background
   Bash tasks — a subagent that backgrounds a job and ends its turn gets reaped with the job.
 
+## Git conventions
+
+- Branches follow [Conventional Branch](https://conventionalbranch.org/): `<type>/<description>`
+  with `feature/` (new functionality), `fix/` (bug corrections), `hotfix/`, `release/vX.Y.Z`,
+  `chore/` (docs, dependencies, config). Description = lowercase `a-z0-9` and single hyphens,
+  issue number first when one exists (`feature/issue-123-…`). Use these purpose prefixes, not
+  the spec's `claude/` AI-source prefix. Branches from before 2026-08-30 are bare kebab-case
+  (`tepco-power-usage-curated`) — leave them.
+- Commits follow [Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0.0/):
+  `type(scope): description`. Types `feat`, `fix`, `docs`, `chore`, `refactor`, `test`, `ci`,
+  `build`, `perf`, `style`; scope = the repo area (`dbt`, `dashboard`, `forecasting`, `demand`,
+  `spot-price`, a source — `jma`, `msm`, `tepco`, `kansai`, `occto`, `estat`, `jepx` —
+  `justfile`, `docs`); description lowercase, imperative, no trailing period, Japanese dataset
+  names welcome (`feat(tepco): std + curated models for the でんき予報 hourly series`).
+  `!` after the type/scope plus a `BREAKING CHANGE:` footer when a curated model's contract or
+  grain changes incompatibly. Footers are git trailers (`Co-Authored-By: …` last). Commit type
+  and branch type agree: `feature/` ↔ `feat`, `fix/` ↔ `fix`, `chore/` ↔ `chore`/`docs`/`ci`/
+  `build`. PR titles use the same `type(scope): description` form (PRs are merged with merge
+  commits, so the title is not itself a commit).
+
 ## Dimensional Modeling
 
 - For anything dimensional-modeling related (fact/dimension table design, grain declarations,
