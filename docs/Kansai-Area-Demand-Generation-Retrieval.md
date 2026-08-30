@@ -136,10 +136,9 @@ the 48 data rows, normalises dates, injects `file_updated_at`, and
 full-reloads `pma_raw.kansai_area_demand_generation_actual`. End to end:
 
 ```bash
-just refresh-kansai
-# = just python scripts/download_kansai_area_demand_generation.py
-#   just python scripts/load_kansai_area_demand_generation.py
-#   just dbt build
+just python scripts/download_kansai_area_demand_generation.py
+just python scripts/load_kansai_area_demand_generation.py
+just dbt build
 ```
 
 The loader reads all ~1,600 daily files in a **single Spark scan** (`CsvLoader._scan_positional`),
