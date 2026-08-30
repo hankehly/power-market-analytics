@@ -76,10 +76,13 @@ class TestCsvTableSchema:
         schema = CsvTableSchema.from_yaml(str(path))
         assert (schema.description, schema.read_options, schema.grain) == (None, {}, [])
 
-    def test_the_file_name_column_name_is_reserved(self):
-        with pytest.raises(ValueError, match=re.escape("'_source_file' is reserved")):
+    @pytest.mark.parametrize("name", ["_source_file", "_SOURCE_FILE", "_Source_File"])
+    def test_the_file_name_column_name_is_reserved_in_any_case(self, name):
+        # Spark resolves names case-insensitively by default, so a variant
+        # would collide with the hidden column just the same.
+        with pytest.raises(ValueError, match=re.escape(f"'{name}' is reserved")):
             CsvTableSchema.model_validate(
-                {"columns": [{"name": "_source_file", "source": "origin", "type": "string"}]}
+                {"columns": [{"name": name, "source": "origin", "type": "string"}]}
             )
         # Sourcing it under another name is how a contract exposes the file name.
         schema = CsvTableSchema.model_validate(
@@ -983,6 +986,29 @@ class TestHeaderGroupedRead:
             ValueError, match=re.escape("q.csv is missing required columns: ['id']")
         ):
             loader.load()
+
+    def test_non_default_empty_value_defers_the_header_to_spark(self, spark, tmp_path):
+        # A quoted-empty header cell is named emptyValue by Spark; Python's csv
+        # module cannot tell it from an unquoted empty cell, so Spark decides.
+        schema = CsvTableSchema.model_validate(
+            {
+                "read_options": {"emptyValue": "EMPTY"},
+                "columns": [
+                    {"name": "id", "type": "int"},
+                    {"name": "e", "source": "EMPTY", "type": "int"},
+                ],
+            }
+        )
+        write_utf8(tmp_path / "e.csv", ['id,"",', "1,2,3"])
+        file = str(tmp_path / "e.csv")
+        loader = CsvLoader(schema, tmp_path, "test_csv_loader.emptyvalue", spark=spark)
+        assert loader._header_line(file) is None
+        assert loader._read_header(file) == ["id", "EMPTY", ""]
+        assert loader._safe_header(loader._read_header(file)) == (
+            spark.read.options(header="true", emptyValue="EMPTY").csv(file).columns
+        )
+        assert loader.load() == 1
+        assert [tuple(r) for r in spark.table("test_csv_loader.emptyvalue").collect()] == [(1, 2)]
 
     def test_loader_has_no_per_file_read(self):
         assert "_read_file" not in CsvLoader.__dict__
