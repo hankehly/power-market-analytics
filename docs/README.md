@@ -548,3 +548,36 @@ Run `just --list` to see all recipes. Anything creating a `SparkSession`
 must run in the devcontainer (the Hive metastore and `/spark-warehouse`
 volume only resolve on the compose network); dbt also works from the host
 directly with `cd dbt && DBT_THRIFT_HOST=localhost uv run dbt <command>`.
+
+## Code review process
+
+Every pull request — documentation-only ones included — is reviewed by **Codex first, then
+Copilot** before it is merged; Claude drives the loop and reports the PR as ready — the
+researcher merges unless they have explicitly asked Claude to. The
+mechanics (the exact `gh api` polls and their timestamps, why the Codex trigger is never
+spelled out in a PR body or reply, resolving review threads, stacked PRs) are in
+`CLAUDE.md` under *Code review (pull requests)*; this is the shape of the loop:
+
+```mermaid
+flowchart TD
+    open["Open the PR<br/>gh pr create — title type(scope): description,<br/>body Why / What / Proof"]
+    open --> meta["Assign the researcher, add labels<br/>fix → bug · feature → enhancement · chore → documentation<br/>(plus documentation when docs change)"]
+    meta --> codex{"Codex reviews automatically<br/>👀 when it starts"}
+    codex -->|"👍 — nothing to flag"| copilot
+    codex -->|"review with inline findings"| fix["Address every finding:<br/>fix in a commit or rebut in the thread,<br/>reply, resolve the thread"]
+    fix -->|"a fix was pushed"| codex
+    fix -->|"all rebutted — nothing to push"| copilot
+    codex -.->|"20 min with neither 👀<br/>nor a review"| nudge["Post the manual trigger<br/>as a plain PR comment"]
+    nudge -.-> codex
+    copilot["Request a Copilot review"] --> verdict{"Copilot review<br/>APPROVED or COMMENTED"}
+    verdict -->|"no open threads"| ready["Ready: CI green on a head that is<br/>up to date with main, both reviewers clean<br/>→ merge"]
+    verdict -->|"findings"| cfix["Fix or rebut, reply,<br/>resolve the thread"]
+    cfix -->|"a fix was pushed"| codex
+    cfix -->|"all rebutted — nothing to push"| ready
+```
+
+Two rules the diagram compresses: every push starts a new Codex run, so a fix made for a
+Copilot finding goes back through the Codex wait before Copilot is asked again; and the
+repository's required checks must pass on the PR's *current* head, so a branch that has
+fallen behind `main` is brought up to date (merge `main` in — never rebase a reviewed
+branch) and, being a new head, goes through the loop once more before it is merged.
