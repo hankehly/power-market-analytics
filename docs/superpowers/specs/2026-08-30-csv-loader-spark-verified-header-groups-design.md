@@ -67,14 +67,18 @@ return reduce(DataFrame.unionByName, frames)
 - **`_first_line(file) -> bytes | None`** — the first line Spark will treat as the header, as
   raw bytes: read (plain / `gzip` / `bz2` / `zlib` for `.deflate`, Hadoop's DefaultCodec) up to
   the line terminator — `\n`, `\r`, `\r\n` (Hadoop's line reader) or the contract's `lineSep`
-  encoded as ASCII — skipping lines that are empty after trimming bytes ≤ 0x20 (Spark's
-  `filterCommentAndEmpty` uses Java `trim`) and, when the contract sets `comment`, lines
+  encoded as ASCII — skipping lines that are empty after stripping spaces (probed on 4.1.1:
+  Spark skips an empty or spaces-only line before the header and keeps a tab-only line as the
+  header; a line the sniff skipped but Spark kept can only make the load fail loudly, since
+  Spark's names then carry no contract column) and, when the contract sets `comment`, lines
   starting with that ASCII byte. No decoding, no dialect: a BOM, quotes, escapes, separators
-  are just bytes in the key. Returns `b""` for a file with no such line (empty file) and
-  `None` for a codec Python cannot open (`.zst`, `.lz4`, `.snappy`) or a `lineSep`/`comment`
-  that is not ASCII — such a file forms its own group (per-file cost, only for inputs no
-  source has). ASCII-compatible charsets are assumed, which is Spark's own assumption for
-  line-mode CSV (it splits on the 0x0A byte before decoding).
+  are just bytes in the key — for a line-mode read the key *is* the header line. Returns
+  `b""` for a file with no such line (empty file) and `None` for a file that must be grouped
+  alone, Spark reading its header by itself: the contract sets `multiLine` (a quoted header
+  cell may span lines, so the first physical line does not determine the header), a codec
+  Python cannot open (`.zst`, `.lz4`, `.snappy`), or a `lineSep`/`comment` that is not ASCII
+  (per-file cost, only for inputs no source has). ASCII-compatible charsets are assumed, which
+  is Spark's own assumption for line-mode CSV (it splits on the 0x0A byte before decoding).
 - **`_group_header(file) -> tuple[list[str], list[str]]`** — Spark's names for the group's
   first file (`header="true"`, `.columns`) and its raw header cells (`header="false"`,
   `.head(1)`, nulls as `""`); both reads under `_spark_options(inferSchema="false")` (and the
@@ -89,15 +93,18 @@ return reduce(DataFrame.unionByName, frames)
   are byte-identical (tests pin them).
 - **`_read_layout(files)`** — `_spark_options(header="true", inferSchema="false",
   enforceSchema="false")`, then `SOURCE_FILE_COL` and `_project` as today. `enforceSchema=false`
-  is the safety net: a file whose parsed header does not carry the contract's columns at the
-  group's positions (possible only where the first physical line under-determines the header —
-  a `multiLine` header cell spanning lines, or a `lineSep` the byte sniff could not apply)
-  fails the scan with Spark's message naming the file. It surfaces at `load()`'s first action;
-  it is left to propagate (the message already says what and where).
+  is belt and braces: for a line-mode read the group key is the header line itself, and files
+  whose header the first line does not determine (`multiLine`) are grouped alone, so a group
+  never mixes layouts; should one ever, a file whose parsed header does not carry the
+  contract's columns at the group's positions fails the scan with Spark's message naming the
+  file, surfacing at `load()`'s first action and left to propagate.
 
 Grouping is therefore allowed to be **over-fine** (`"id","v"` and `id,v`, a BOM'd and an
-un-BOM'd file → separate groups → one extra scan) and can never be **silently under-fine**:
-a file in the wrong group is read correctly (its contract columns line up) or refused by name.
+un-BOM'd file → separate groups → one extra scan) and is never **under-fine** (a group mixing
+layouts): same bytes, same header. (A hypothetical wrong grouping would still never misalign
+data — Spark refuses a file whose contract columns are not at the group's positions — but an
+optional column present in only some of its files would read as null there, which is why
+`multiLine` files are not grouped by their first line at all.)
 
 ### Removed
 
@@ -135,7 +142,9 @@ The former per-file fallback (56 ms/file) exists only for files `_first_line` ca
    header difference between two files (the same first line cannot differ by case, so this only
    documents the net's behaviour).
 4. `multiLine=true` with two files sharing a first physical line but different continuation:
-   the scan must fail naming the second file (the one documented under-fine case).
+   the scan fails naming the second file when the differing column is selected — but an
+   *optional* column present in only one file would read as null, so such files are grouped
+   alone instead (Copilot, #27).
 5. `zlib.decompressobj()` reads Hadoop `.deflate` (RFC 1950) — the round-3 test wrote zlib
    format, so this should hold.
 

@@ -299,9 +299,10 @@ class CsvLoader:
         (:meth:`_group_header`), and the scan itself checks every file's
         header (``enforceSchema=false``): the contract's columns must sit at
         the same positions under the same names as in the scan's schema, or
-        the read fails naming the file — so the grouping may be over-fine
-        (an extra scan) but never silently under-fine: data is right or the
-        load fails loudly. Loaders whose files carry
+        the read fails naming the file. For a line-mode read the key *is*
+        the header line, and files whose header the first line does not
+        determine (``multiLine``) are grouped alone, so a group never mixes
+        layouts; the scan's check is belt and braces. Loaders whose files carry
         no usable header override this — :meth:`_scan_positional` +
         :meth:`_project` for positional layouts, one ``createDataFrame``
         over Python-parsed rows.
@@ -483,8 +484,9 @@ class CsvLoader:
 
         Nothing is decoded: a BOM, quotes, escapes and separators are just
         bytes, so the value serves only to group files Spark will read
-        identically — the same bytes parse the same way. Lines Spark skips
-        before the header are passed over the same way (:func:`_is_header_line`);
+        identically — the same bytes parse the same way, and for a
+        line-mode read the header *is* this line. Lines Spark skips before
+        the header are passed over the same way (:func:`_is_header_line`);
         lines end at ``\\n``, ``\\r`` or ``\\r\\n`` as for Hadoop's line reader,
         or at the contract's ``lineSep`` alone when it sets one.
 
@@ -497,10 +499,14 @@ class CsvLoader:
         -------
         bytes or None
             The line without its terminator; ``b""`` for a file with no such
-            line; ``None`` when Python cannot open the file or the contract's
-            ``lineSep`` / ``comment`` is not ASCII — the file then forms a
-            group of its own and Spark reads its header alone.
+            line; ``None`` when the file must be grouped alone, Spark reading
+            its header by itself: the contract sets ``multiLine`` (a quoted
+            header cell may span lines, so the first physical line does not
+            determine the header), Python cannot open the codec, or the
+            contract's ``lineSep`` / ``comment`` is not ASCII.
         """
+        if self._option("multiLine", "false").lower() == "true":
+            return None
         try:
             line_sep = self._option("lineSep", "").encode("ascii")
             comment = self._option("comment", "").encode("ascii")
