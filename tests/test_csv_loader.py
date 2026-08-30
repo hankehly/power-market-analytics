@@ -631,6 +631,8 @@ class TestHeaderGroupedRead:
         )
         write_utf8(tmp_path / "e.csv", ['"display\\"name",id', '"x\\"y",1'])
         loader = CsvLoader(schema, tmp_path, "test_csv_loader.escape", spark=spark)
+        # An escape anywhere in the line is Spark's to apply.
+        assert loader._parse_header('"display\\"name",id') is None
         assert loader._read_header(str(tmp_path / "e.csv")) == ['display"name', "id"]
         assert loader.load() == 1
         assert [tuple(r) for r in spark.table("test_csv_loader.escape").collect()] == [('x"y', 1)]
@@ -1009,6 +1011,37 @@ class TestHeaderGroupedRead:
         )
         assert loader.load() == 1
         assert [tuple(r) for r in spark.table("test_csv_loader.emptyvalue").collect()] == [(1, 2)]
+
+    def test_an_unquoted_escape_character_defers_the_header_to_spark(self, spark, tmp_path):
+        # Python's csv module would apply the escape in an unquoted cell too
+        # (foo\bar -> foobar); Spark keeps it literal, so Spark decides.
+        write_utf8(tmp_path / "u.csv", ["foo\\bar,id", "x,1"])
+        file = str(tmp_path / "u.csv")
+        columns = [
+            {"name": "fb", "source": "foobar", "type": "string"},
+            {"name": "id", "type": "int"},
+        ]
+        loader = CsvLoader(
+            CsvTableSchema.model_validate({"columns": columns}),
+            tmp_path,
+            "test_csv_loader.unqesc",
+            spark=spark,
+        )
+        assert loader._parse_header("foo\\bar,id") is None
+        assert loader._read_header(file) == ["foo\\bar", "id"]
+        with pytest.raises(
+            ValueError, match=re.escape("u.csv is missing required columns: ['foobar']")
+        ):
+            loader.load()
+        columns[0]["source"] = "foo\\bar"
+        loader = CsvLoader(
+            CsvTableSchema.model_validate({"columns": columns}),
+            tmp_path,
+            "test_csv_loader.unqesc",
+            spark=spark,
+        )
+        assert loader.load() == 1
+        assert [tuple(r) for r in spark.table("test_csv_loader.unqesc").collect()] == [("x", 1)]
 
     def test_loader_has_no_per_file_read(self):
         assert "_read_file" not in CsvLoader.__dict__
