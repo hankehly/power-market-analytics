@@ -83,7 +83,10 @@
 - `just python scripts/demand_backtest.py --strategy lightgbm_msm_popw_daytype --area tokyo` —
   day-ahead area demand backtest (strategies: `lightgbm`, `lightgbm_msm`, `lightgbm_msm_popw`,
   `lightgbm_msm_popw_daytype` = `lightgbm_msm_popw` + the `dim_date` day-type categorical, the
-  default and the kept demand baseline since demand/R-003, 2026-08-26; areas: `tokyo`,
+  default and the kept demand baseline since demand/R-003, 2026-08-26;
+  `lightgbm_msm_popw_daytype_lag1y` = that + `lag_1y_demand_kwh`, the でんき予報 hourly load of
+  `fct_area_power_usage_hourly` on `dim_date.prior_year_reference_date` — Tokyo only today —
+  research demand/R-004; areas: `tokyo`,
   `kansai` = the TSO feeds loaded into `fct_area_demand_generation_actual`); each area also needs its
   representative JMA station's hourly weather loaded and current
   (`dim_area.representative_jma_station_id`: 東京 s47662, 大阪 s47772 — both loaded and current
@@ -347,7 +350,15 @@
   `lightgbm_msm_popw` + `day_type`: 0 Weekday / 1 Weekend / 2 Holiday from `dim_date`
   (`is_holiday` wins over `is_weekend`, the compare script's day-type precedence; `load_day_types` →
   `DayTypeCalendar`, `join_day_type`), declared categorical via `categorical_feature_cols`; a delivery
-  day outside `dim_date` is skipped. Write-back: `pma_ml.demand_forecast` →
+  day outside `dim_date` is skipped. `lightgbm_msm_popw_daytype_lag1y`
+  (`LightGbmMsmPopWeightedDayTypeLag1yStrategy`, research `demand/R-004`) = that +
+  `lag_1y_demand_kwh`: the hourly `demand_kwh` of `fct_area_power_usage_hourly` (the でんき予報
+  series alone, 2016-04 →; by research decision not stitched with A-1) on the delivery day's
+  `dim_date.prior_year_reference_date`, at the hour containing the period, ÷ 2 so it is kWh per
+  30-minute period (`AreaHourlyLoad`, `PriorYearCalendar`, `load_area_hourly_load`,
+  `load_prior_year_calendar`, `join_prior_year_load`); a missing year-ago hour drops the training
+  row / skips the day like any other feature — never for Tokyo, the hourly fact being gapless;
+  logs `prior_year_reference_rules` and `lag_1y_hourly_load_span`. Write-back: `pma_ml.demand_forecast` →
   `stg/std_ml__demand_forecast` →
   `fct_demand_forecast` → `fct_demand_forecast_accuracy` → Superset **Demand Forecast Analysis**
   dashboard (dataset `demand_forecast_analysis`; the mart's kWh rescaled to MWh in the dataset
