@@ -12,6 +12,8 @@ import re
 from pathlib import Path
 
 import pytest
+from pyspark.sql import DataFrame
+from pyspark.sql import functions as F
 
 from power_market_analytics.csv_loader import SOURCE_FILE_COL, CsvColumn, CsvLoader, CsvTableSchema
 from tests.support import REPO_ROOT
@@ -160,6 +162,49 @@ class TestScanPositional:
             ("3", "gamma", "b.csv"),
             ("id", "label", "a.csv"),
             ("id", "label", "b.csv"),
+        ]
+
+
+class PositionalLoader(CsvLoader):
+    """Test double: ``id,label`` files with a one-line header, read positionally."""
+
+    def _read_all(self, files: list[str]) -> DataFrame:
+        raw = self._scan_positional(files, 2).filter(F.col("_c0") != "id")
+        return self._project(raw)
+
+
+class TestProject:
+    def test_casts_the_contract_in_order_and_keeps_the_file_name(self, spark, tmp_path):
+        write_utf8(tmp_path / "a.csv", ["id,label", "1,alpha"])
+        loader = CsvLoader(POSITIONAL_SCHEMA, tmp_path, "test_csv_loader.project", spark=spark)
+        raw = loader._scan_positional([str(tmp_path / "a.csv")], 2).filter(F.col("_c0") != "id")
+
+        df = loader._project(raw)
+
+        assert [(f.name, f.dataType.simpleString()) for f in df.schema] == [
+            ("id", "int"),
+            ("label", "string"),
+            (SOURCE_FILE_COL, "string"),
+        ]
+        assert [tuple(r) for r in df.collect()] == [(1, "alpha", "a.csv")]
+
+
+class TestPositionalLoad:
+    def test_loads_through_the_contract_without_the_file_column(self, spark, tmp_path):
+        write_utf8(tmp_path / "a.csv", ["id,label", "1,alpha", "2,beta"])
+        write_utf8(tmp_path / "b.csv", ["id,label", "3,gamma"])
+        loader = PositionalLoader(
+            POSITIONAL_SCHEMA, tmp_path, "test_csv_loader.positional", spark=spark
+        )
+
+        assert loader.load() == 3
+
+        table = spark.table("test_csv_loader.positional")
+        assert table.columns == ["id", "label"]
+        assert sorted(tuple(r) for r in table.collect()) == [
+            (1, "alpha"),
+            (2, "beta"),
+            (3, "gamma"),
         ]
 
 
