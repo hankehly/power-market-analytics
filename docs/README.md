@@ -552,7 +552,8 @@ directly with `cd dbt && DBT_THRIFT_HOST=localhost uv run dbt <command>`.
 ## Code review process
 
 Every pull request — documentation-only ones included — is reviewed by **Codex first, then
-Copilot** before it is merged; Claude drives the loop and reports the PR as ready. The
+Copilot** before it is merged; Claude drives the loop and reports the PR as ready — the
+researcher merges unless they have explicitly asked Claude to. The
 mechanics (the exact `gh api` polls and their timestamps, why the Codex trigger is never
 spelled out in a PR body or reply, resolving review threads, stacked PRs) are in
 `CLAUDE.md` under *Code review (pull requests)*; this is the shape of the loop:
@@ -579,4 +580,4 @@ Two rules the diagram compresses: every push starts a new Codex run, so a fix ma
 Copilot finding goes back through the Codex wait before Copilot is asked again; and the
 repository's required checks must pass on the PR's *current* head, so a branch that has
 fallen behind `main` is brought up to date (merge `main` in — never rebase a reviewed
-branch) before it is merged.
+branch) and, being a new head, goes through the loop once more before it is merged.
