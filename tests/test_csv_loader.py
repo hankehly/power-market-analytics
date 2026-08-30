@@ -850,6 +850,60 @@ class TestHeaderGroupedRead:
             "a+b c%.csv"
         }
 
+    def test_option_keys_are_matched_case_insensitively_like_sparks(self, spark, tmp_path):
+        # Spark keeps reader options in a case-insensitive map: the preflight
+        # must apply the same separator and nullValue the scan will.
+        columns = [{"name": "id", "type": "int"}, {"name": "v", "type": "int"}]
+        schema = CsvTableSchema.model_validate({"read_options": {"SEP": ";"}, "columns": columns})
+        write_utf8(tmp_path / "s.csv", ["id;v", "1;2"])
+        loader = CsvLoader(schema, tmp_path, "test_csv_loader.sepcase", spark=spark)
+        assert loader._option("sep", ",") == ";"
+        assert loader._parse_header("id;v") == ["id", "v"]
+        assert loader.load() == 1
+
+        schema = CsvTableSchema.model_validate(
+            {
+                "read_options": {"nullvalue": "NA"},
+                "columns": [
+                    {"name": "id", "type": "int"},
+                    {"name": "na", "source": "NA", "type": "int"},
+                ],
+            }
+        )
+        write_utf8(tmp_path / "n.csv", ["id,NA", "1,2"])
+        (tmp_path / "n.csv.deflate").write_bytes(zlib.compress(b"id,NA\n1,2\n"))
+        for pattern in ("n.csv", "*.deflate"):
+            loader = CsvLoader(schema, tmp_path / pattern, "test_csv_loader.nvcase", spark=spark)
+            assert loader._safe_header(["id", "NA"]) == ["id", "_c1"]
+            with pytest.raises(ValueError, match=re.escape("is missing required columns: ['NA']")):
+                loader.load()
+
+    def test_a_physical_source_file_header_is_rejected_as_reserved(self, spark, tmp_path):
+        # `_source_file` is the loader's hidden file-name column: a provider
+        # column of that name would be overwritten, so the file is refused —
+        # in any case the session resolver would match.
+        schema = CsvTableSchema.model_validate(
+            {
+                "columns": [
+                    {"name": "id", "type": "int"},
+                    {"name": "origin", "source": "_source_file", "type": "string"},
+                ]
+            }
+        )
+        loader = CsvLoader(schema, tmp_path, "test_csv_loader.reserved", spark=spark)
+        for header in ("_source_file", "_SOURCE_FILE"):
+            write_utf8(tmp_path / "s.csv", [f"id,{header}", "1,provider"])
+            with pytest.raises(
+                ValueError, match=re.escape(f"s.csv has the reserved header column ['{header}']")
+            ):
+                loader.load()
+        # Without such a header the sourced `_source_file` is the file name.
+        write_utf8(tmp_path / "s.csv", ["id", "1"])
+        assert loader.load() == 1
+        assert [tuple(r) for r in spark.table("test_csv_loader.reserved").collect()] == [
+            (1, "s.csv")
+        ]
+
     def test_loader_has_no_per_file_read(self):
         assert "_read_file" not in CsvLoader.__dict__
 

@@ -283,10 +283,10 @@ class CsvLoader:
         Raises
         ------
         ValueError
-            If a file's header lacks a required column or repeats a contract
-            column — judged by Spark's own parse of that file whenever the
-            Python preflight disagrees, so nothing the scan could read is
-            refused.
+            If a file's header lacks a required column, repeats a contract
+            column or carries the loader's reserved ``_source_file`` column —
+            judged by Spark's own parse of that file whenever the Python
+            preflight disagrees, so nothing the scan could read is refused.
         """
         # Invariant: correctness never rests on the Python dialect. Its parse
         # is an optimisation — accepted only when it satisfies the contract —
@@ -319,22 +319,31 @@ class CsvLoader:
         Returns
         -------
         str or None
+            ``"has the reserved header column [...]"`` when a cell is the
+            loader's own ``_source_file`` (in any case the session's resolver
+            matches): the file-name column would overwrite it, and a
+            contract that sources ``_source_file`` means the file name;
             ``"has duplicated header columns: [...]"`` when a contract source
             recurs among the cells — compared as the session resolves names,
             so ``id,ID`` counts unless ``spark.sql.caseSensitive`` is on —
             since Spark would suffix them (``id0``/``ID1``) and the contract
             column silently become null; ``"is missing required columns:
-            [...]"`` when a required source is not among Spark's column
-            names; otherwise ``None``.
+            [...]"`` when a required source other than ``_source_file`` is
+            not among Spark's column names; otherwise ``None``.
         """
         names = self._safe_header(header)
+        reserved = [n for n in names if self._fold(n) == self._fold(SOURCE_FILE_COL)]
+        if reserved:
+            return f"has the reserved header column {reserved}"
         counts = Counter(self._fold(cell) for cell in header)
         sources = [c.source_name for c in self.schema.columns]
         duplicated = sorted({s for s in sources if s not in names and counts[self._fold(s)] > 1})
         if duplicated:
             return f"has duplicated header columns: {duplicated}"
         missing = [
-            c.source_name for c in self.schema.columns if c.required and c.source_name not in names
+            c.source_name
+            for c in self.schema.columns
+            if c.required and c.source_name != SOURCE_FILE_COL and c.source_name not in names
         ]
         if missing:
             return f"is missing required columns: {missing}"
@@ -359,7 +368,7 @@ class CsvLoader:
         list of str
             The names the ``header=true`` scan of :meth:`_read_layout` uses.
         """
-        null_value = self.schema.read_options.get("nullValue", "")
+        null_value = self._option("nullValue", "")
         counts = Counter(self._fold(cell) for cell in cells)
         return [
             f"_c{i}"
@@ -374,6 +383,29 @@ class CsvLoader:
         """``name`` as the session compares column names."""
         case_sensitive = self.spark.conf.get("spark.sql.caseSensitive", "false")
         return name if str(case_sensitive).lower() == "true" else name.lower()
+
+    def _option(self, name: str, default: str) -> str:
+        """The contract's ``read_options[name]`` as Spark reads it.
+
+        Spark keeps reader options in a case-insensitive map, so a contract
+        may spell ``nullValue`` as ``nullvalue``; the preflight must see the
+        same value the scan will use.
+
+        Parameters
+        ----------
+        name : str
+            Spark option name, in any case.
+        default : str
+            Spark's default for the option.
+
+        Returns
+        -------
+        str
+            The contract's value under any spelling of ``name``, else
+            ``default``.
+        """
+        options = {key.lower(): value for key, value in self.schema.read_options.items()}
+        return options.get(name.lower(), default)
 
     def _read_header(self, file: str) -> list[str]:
         """The header of ``file`` as the loader judges it.
@@ -418,16 +450,15 @@ class CsvLoader:
             read.
         """
         suffix = Path(file).suffix.lower()
-        options = self.schema.read_options
-        encoding = python_codec(options.get("encoding", options.get("charset", "UTF-8")))
+        encoding = python_codec(self._option("encoding", self._option("charset", "UTF-8")))
         if (
             suffix in _SPARK_ONLY_SUFFIXES
-            or options.get("lineSep", "\n") not in ("\n", "\r\n", "\r")
-            or options.get("multiLine", "false").lower() == "true"
+            or self._option("lineSep", "\n") not in ("\n", "\r\n", "\r")
+            or self._option("multiLine", "false").lower() == "true"
             or not _python_knows(encoding)
         ):
             return None
-        comment = options.get("comment", "")
+        comment = self._option("comment", "")
         f: IO[str]
         if suffix == ".gz":
             f = gzip.open(file, "rt", encoding=encoding, errors="replace", newline="")
@@ -460,12 +491,11 @@ class CsvLoader:
             dialect is beyond Python's ``csv`` module (a multi-character
             separator), so the caller asks Spark instead.
         """
-        options = self.schema.read_options
-        sep = options.get("sep", options.get("delimiter", ","))
+        sep = self._option("sep", self._option("delimiter", ","))
         if len(sep) != 1:
             return None
-        dialect: dict[str, Any] = {"delimiter": sep, "escapechar": options.get("escape", "\\")}
-        quote = options.get("quote", '"')
+        dialect: dict[str, Any] = {"delimiter": sep, "escapechar": self._option("escape", "\\")}
+        quote = self._option("quote", '"')
         if quote in ("", "\u0000"):
             dialect["quoting"] = csv.QUOTE_NONE
         else:
