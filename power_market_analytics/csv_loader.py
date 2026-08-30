@@ -346,8 +346,9 @@ class CsvLoader:
             so ``id,ID`` counts unless ``spark.sql.caseSensitive`` is on —
             since Spark would suffix them (``id0``/``ID1``) and the contract
             column silently become null; ``"is missing required columns:
-            [...]"`` when a required source other than ``_source_file`` is
-            not among Spark's column names; otherwise ``None``.
+            [...]"`` when a required source other than ``_source_file``
+            resolves to none of Spark's column names (:meth:`_resolve`);
+            otherwise ``None``.
         """
         names = self._safe_header(header)
         reserved = [n for n in names if self._fold(n) == self._fold(SOURCE_FILE_COL)]
@@ -361,7 +362,9 @@ class CsvLoader:
         missing = [
             c.source_name
             for c in self.schema.columns
-            if c.required and c.source_name != SOURCE_FILE_COL and c.source_name not in names
+            if c.required
+            and c.source_name != SOURCE_FILE_COL
+            and self._resolve(c.source_name, names) is None
         ]
         if missing:
             return f"is missing required columns: {missing}"
@@ -396,6 +399,29 @@ class CsvLoader:
             else cell
             for i, cell in enumerate(cells)
         ]
+
+    def _resolve(self, source: str, names: list[str]) -> str | None:
+        """The column of ``names`` that ``source`` denotes, as the session resolves names.
+
+        Parameters
+        ----------
+        source : str
+            A contract column's source name.
+        names : list of str
+            The columns available (Spark's names for a header, or a frame's).
+
+        Returns
+        -------
+        str or None
+            ``source`` itself when present; otherwise, unless
+            ``spark.sql.caseSensitive`` is on, the column that matches it
+            case-insensitively (unique, since Spark suffixes case-only
+            duplicates); ``None`` when nothing matches.
+        """
+        if source in names:
+            return source
+        folded = self._fold(source)
+        return next((name for name in names if self._fold(name) == folded), None)
 
     def _fold(self, name: str) -> str:
         """``name`` as the session compares column names."""
@@ -670,14 +696,17 @@ class CsvLoader:
             [self._cast(raw, c) for c in self.schema.columns] + [F.col(SOURCE_FILE_COL)]
         )
 
-    @staticmethod
-    def _cast(raw: DataFrame, column: CsvColumn) -> Column:
-        # Source headers contain characters Spark's name resolver would
-        # otherwise interpret — dots as nested-field paths (ブロックNo.),
-        # parentheses — so the name is backtick-quoted (a literal backtick is
-        # escaped by doubling it), which both raw[name] and F.col(name) need.
-        if column.source_name in raw.columns:
-            col = F.col("`" + column.source_name.replace("`", "``") + "`")
+    def _cast(self, raw: DataFrame, column: CsvColumn) -> Column:
+        # The source resolves to a physical column the way the session does
+        # (case-insensitively by default), the same rule the header check
+        # applied; an absent source reads as null. Source headers contain
+        # characters Spark's name resolver would otherwise interpret — dots
+        # as nested-field paths (ブロックNo.), parentheses — so the name is
+        # backtick-quoted (a literal backtick is escaped by doubling it),
+        # which both raw[name] and F.col(name) need.
+        physical = self._resolve(column.source_name, raw.columns)
+        if physical is not None:
+            col = F.col("`" + physical.replace("`", "``") + "`")
         else:
             col = F.lit(None)
         if column.type == "date" and column.format:
