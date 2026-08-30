@@ -221,7 +221,18 @@
   `scripts/download_tepco_power_usage.py` → `data/tepco/power_usage/{zip,csv}/` →
   `scripts/load_tepco_power_usage.py` (contract `conf/schemas/tepco_power_usage_hourly.yaml`,
   grain date × hour_start 0–23) → `pma_raw.tepco_power_usage_hourly` →
-  `stg_tepco__power_usage_hourly` (no std/curated model yet). The daily files also carry a
+  `stg_tepco__power_usage_hourly` → `std_tepco__power_usage_hourly` (typed hour axis:
+  `hour_start` 0–23 as published + `hour_ending` 1–24, `delivery_datetime` = hour start, integer
+  万kW; all four published measures kept, the daily-file 予測値 / 使用率 / 供給力 null before
+  2022-04-01; `demand_mankw` tested ≥ 1 — no sentinel, TEPCO never re-issues a day; singular
+  test `assert_std_tepco__power_usage_hourly_calendar_complete` = gapless from 2016-04-01) →
+  `fct_area_power_usage_hourly` (grain `date_key × hour_of_day × area_key`, `demand_kwh` =
+  万kW × 10,000 only — energy over the hour, the A-1 fact's unit; this series alone, not
+  stitched with A-1). `hour_of_day` references `dim_delivery_hour`, the 24-row shrunken rollup
+  of `dim_delivery_period` (built from it — `group by hour_of_day, is_daytime, day_part` —
+  so `day_part` cannot diverge; `dim_delivery_period.hour_of_day` is the rollup FK), which is
+  how the hourly fact and the 30-minute fact drill across: sum the 30-minute `demand_kwh`
+  per `hour_of_day`. The daily files also carry a
   5-minute table (当日実績 + 太陽光, 2022-04 →) that is parsed past, not loaded. Format, quirks
   and the 4.4-year comparison with A-1 (incl. A-1's 18:00–19:00 defect since mid-2025):
   [docs/TEPCO-Power-Usage-Retrieval.md](docs/TEPCO-Power-Usage-Retrieval.md).

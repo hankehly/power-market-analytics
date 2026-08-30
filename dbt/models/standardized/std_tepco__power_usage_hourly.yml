@@ -1,0 +1,123 @@
+models:
+  - name: std_tepco__power_usage_hourly
+    config:
+      contract:
+        enforced: true
+    description: >
+      Standardized TEPCO でんき予報 hourly 電力使用状況
+      (stg_tepco__power_usage_hourly) with a typed time axis: delivery_date;
+      hour_start (0-23, the hour starting then — TEPCO's own label, equal to
+      dim_delivery_period.hour_of_day); hour_ending (1-24, the same hour under
+      the JMA / MSM / OCCTO hour-ending convention, the demand task's hourly
+      join key); delivery_datetime = hour start; Japanese fiscal_year. One row
+      per delivery_date and hour_start, gapless from 2016-04-01 (singular test
+      assert_std_tepco__power_usage_hourly_calendar_complete). Measures stay
+      in the published unit, integer 万kW (1 万kW = 10 MW; raw stores double
+      only defensively): demand_mankw is the hour's 1時間平均 demand; the
+      daily-file columns forecast_mankw (TEPCO's forecast as of the file's
+      stamp — the day's last intraday revision, not a day-ahead forecast),
+      usage_rate_pct and supply_capacity_mankw are null before 2022-04-01,
+      where the yearly files carry the actual only (tested). TEPCO's
+      "not yet 確定" zero has never reached the archive, so unlike the A-1
+      feed there is no sentinel to null; demand_mankw is tested >= 1 (Tokyo
+      demand is never 0) because TEPCO never re-issues past days — a zero
+      would never self-heal and should fail the build. file_updated_at is
+      the file's UPDATE stamp: the day's for daily files, but a generation
+      date (YYYY+2-01-01 18:10) for the immutable yearly files, so before
+      2022-04-01 it does not mean "published after the day ended".
+      source_file marks the packaging (juyo-YYYY.csv or
+      YYYYMMDD_power_usage.csv).
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - delivery_date
+              - hour_start
+      - dbt_utils.expression_is_true:
+          name: std_tepco_power_usage_supply_gte_demand
+          arguments:
+            expression: "supply_capacity_mankw >= demand_mankw"
+      - dbt_utils.expression_is_true:
+          name: std_tepco_power_usage_daily_columns_from_2022_04
+          arguments:
+            expression: >-
+              (forecast_mankw is null) = (delivery_date < date '2022-04-01')
+              and (usage_rate_pct is null) = (delivery_date < date '2022-04-01')
+              and (supply_capacity_mankw is null) = (delivery_date < date '2022-04-01')
+    columns:
+      - name: delivery_date
+        data_type: date
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: "date '2016-04-01'"
+      - name: hour_start
+        data_type: int
+        description: Hour of delivery_date the value covers, 0-23 = the hour starting then.
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 23
+      - name: hour_ending
+        data_type: int
+        description: hour_start + 1, the JMA / MSM / OCCTO hour-ending label (1-24).
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 1
+                max_value: 24
+      - name: delivery_datetime
+        data_type: timestamp
+        description: Start of the hour (delivery_date + hour_start hours).
+        data_tests:
+          - not_null
+      - name: fiscal_year
+        data_type: int
+        description: Japanese fiscal year (April-March) of delivery_date.
+        data_tests:
+          - not_null
+      - name: demand_mankw
+        data_type: int
+        description: Hourly-average area demand in 万kW (1 万kW = 10 MW), as published.
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 1
+      - name: forecast_mankw
+        data_type: int
+        description: >
+          TEPCO's hourly demand forecast in 万kW as of the file's stamp — the
+          day's last intraday revision, not a day-ahead forecast. Null before
+          2022-04-01.
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+      - name: usage_rate_pct
+        data_type: int
+        description: 使用率 in percent (= round(demand / supply capacity x 100)). Null before 2022-04-01.
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 100
+      - name: supply_capacity_mankw
+        data_type: int
+        description: 供給力 in 万kW for the hour. Null before 2022-04-01.
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+      - name: file_updated_at
+        data_type: timestamp
+        data_tests:
+          - not_null
+      - name: source_file
+        data_type: string
+        data_tests:
+          - not_null

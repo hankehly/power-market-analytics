@@ -1,0 +1,87 @@
+models:
+  - name: dim_delivery_hour
+    config:
+      contract:
+        enforced: true
+    description: >
+      Time-of-day dimension at the hour grain: the shrunken rollup of
+      dim_delivery_period (24 rows) for facts whose business process captures
+      data hourly (fct_area_power_usage_hourly). Derived from the base
+      dimension, never hand-typed, so is_daytime / day_part can never disagree
+      between the two grains — the day-part boundaries (06:00, 08:00, 18:00)
+      fall on full hours. hour_of_day (0-23) is the hour starting then and
+      equals dim_delivery_period.hour_of_day, the base dimension's foreign key
+      to this one, which is how an hourly fact and a 30-minute fact drill
+      across; hour_ending (1-24) is the same hour under the JMA / MSM / OCCTO
+      hour-ending label; first_time_code / last_time_code are the two
+      30-minute periods the hour contains.
+
+      Same deliberate deviation from the Kimball anonymous-surrogate-key rule
+      as dim_delivery_period: hour_of_day is a smart key, because the 24 hours
+      are a fixed enumeration from a single national standard.
+    data_tests:
+      - dbt_utils.expression_is_true:
+          name: dim_delivery_hour_time_codes_bracket_the_hour
+          arguments:
+            expression: "first_time_code = 2 * hour_of_day + 1 and last_time_code = first_time_code + 1"
+    columns:
+      - name: hour_of_day
+        data_type: int
+        description: Hour of the day the row covers, 0-23 = the hour starting then; the primary key.
+        data_tests:
+          - unique
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 23
+      - name: hour_ending
+        data_type: int
+        description: hour_of_day + 1 — the hour-ending label (1-24) JMA, MSM and OCCTO use.
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 1
+                max_value: 24
+      - name: period_start_time
+        data_type: string
+        description: Hour start as HH:00 (00:00 through 23:00).
+        data_tests:
+          - not_null
+      - name: period_end_time
+        data_type: string
+        description: Hour end as HH:00; the last hour ends at 24:00.
+        data_tests:
+          - not_null
+      - name: first_time_code
+        data_type: int
+        description: JEPX time code of the hour's first 30-minute period (2 x hour_of_day + 1).
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_delivery_period')
+                field: time_code
+      - name: last_time_code
+        data_type: int
+        description: JEPX time code of the hour's second 30-minute period (first_time_code + 1).
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_delivery_period')
+                field: time_code
+      - name: is_daytime
+        data_type: boolean
+        description: The JEPX daytime window (08:00-18:00), inherited from dim_delivery_period.
+        data_tests:
+          - not_null
+      - name: day_part
+        data_type: string
+        description: Overnight / Morning / Daytime / Evening, inherited from dim_delivery_period.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [Overnight, Morning, Daytime, Evening]

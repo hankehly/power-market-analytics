@@ -141,7 +141,28 @@ an unknown header line fails the load. Entry points:
 `scripts/download_tepco_power_usage.py` (`--force-yearly`) and
 `scripts/load_tepco_power_usage.py`; `just refresh-tepco-power-usage` runs both
 and `dbt build` (`just refresh-tepco` refreshes this and the A-1 actuals
-together). Downstream: `stg_tepco__power_usage_hourly`.
+together).
+
+Warehouse path: `pma_raw.tepco_power_usage_hourly` →
+`stg_tepco__power_usage_hourly` (as-is) → `std_tepco__power_usage_hourly`
+(typed time axis — `delivery_date`, `hour_start` 0–23 as published,
+`hour_ending` 1–24 for the JMA / MSM / OCCTO convention, `delivery_datetime`
+= hour start, `fiscal_year` — and the four published measures as integer
+万kW; the daily-file 予測値 / 使用率 / 供給力 are null before 2022-04-01, which
+a test pins; `demand_mankw` is tested ≥ 1 rather than nulled like A-1's
+sentinel, because TEPCO never re-issues a day and a zero would never
+self-heal; the singular test
+`assert_std_tepco__power_usage_hourly_calendar_complete` requires the
+history to be gapless) → `fct_area_power_usage_hourly` (grain `date_key ×
+hour_of_day × area_key`; `demand_kwh` = 万kW × 10,000, energy over the hour
+in the A-1 fact's unit, additive; the other three measures stay in `std`).
+The fact is this series alone — it is *not* stitched with the A-1 series
+after 2022-04. Its `hour_of_day` references `dim_delivery_hour`, the 24-row
+shrunken rollup of `dim_delivery_period`, so the two facts drill across:
+`fct_area_demand_generation_actual` summed per
+`dim_delivery_period.hour_of_day` is the hourly kWh comparable to this
+fact's `demand_kwh` (the comparison in [§5](#5-comparison-with-the-a-1-series-2022-04-01--2026-08-27-38621-hours)
+is exactly that join).
 
 ## 7. Not ingested: the 5-minute table
 
