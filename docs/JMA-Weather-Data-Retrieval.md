@@ -634,10 +634,14 @@ expected. The dbt staging model `stg_jma__hourly_staffed` exposes the raw table 
 an enforced contract, a grain uniqueness test, and accepted-values tests on the flag
 columns; a single `stg` → `std` → `fct` chain (`std_jma__hourly` →
 `fct_jma_weather_hourly`) carries it downstream. Loading needs Spark, so run inside the
-devcontainer. A full reload reads all ~1,718 station-year files at once, so it needs a
-large Spark driver heap: the compose environment defaults `SPARK_DRIVER_MEMORY` to `20g`
-(`docker-compose.yaml`, overridable per-host in `.env`); smaller overrides stall (`1g`) or
-OOM during the parquet write (`8g`).
+devcontainer. The loader checks every file in Python (column count, station id in the name)
+and then reads all of them in a **single Spark scan** (`CsvLoader._scan_positional`; the
+station id comes from each row's file name), so a full reload of ~1,600 station-year files
+(13.7 M rows) takes about a minute — 50 s with the files in the OS cache, 100 s cold — and
+runs at any driver size (verified at `SPARK_DRIVER_MEMORY=4g`). Before 2026-08-30 it unioned
+one frame per file, which cost ~8 min of planning, a 45 MiB task binary and ~1 h 45 min per
+load on a 20g driver — the reason the compose default is still 20g (the MSM loader has not
+been converted yet).
 
 ```bash
 just python scripts/load_jma_hourly.py
