@@ -379,6 +379,11 @@ just refresh-msm [args]
 #   just dbt build
 ```
 
+`scripts/load_jma_msm_surface_forecast.py` reads all ~1,600 daily `csv.gz` extracts in a single
+Spark scan (they share one header line, so `CsvLoader`'s header-grouped default read applies):
+a full reload of 5.7 M rows takes about a minute and lands in ~52 parquet files. Before
+2026-08-30 the loader unioned one frame per file, which needed the 20g driver.
+
 `scripts/download_jma_msm_surface_forecast.py` flags (all forwarded through `just refresh-msm`):
 
 | Flag | Default | Meaning |
