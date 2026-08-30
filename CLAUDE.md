@@ -482,9 +482,17 @@
   land on that comment
   (`… issues/comments/<id>/reactions`), so poll it too. Never post it while an automatic run
   may still be in flight: two runs of the same SHA race, and a 👍 from one would advance the
-  loop before the other posts findings. Never conclude "no findings" from silence.
+  loop before the other posts findings. Never conclude "no findings" from silence. A bot
+  *issue comment* reading "You have reached your Codex usage limits for code reviews" is the
+  third, terminal outcome of a run: no review is coming for that SHA. Stop the poll and tell the
+  researcher — waiting for the reset, adding credits (the Codex usage dashboard) or accepting
+  the PR on Copilot alone is their call, not Claude's. Once credits are back, that SHA's
+  automatic run is spent, so post the manual trigger and wait as above (#24, 2026-08-30).
 - **Address every finding**: fix it in a commit, or reply with the reason it is not being
-  changed; reply in the thread (`gh api repos/hankehly/power-market-analytics/pulls/<n>/comments/<id>/replies
+  changed — check a finding's premise against the *installed* versions before coding for it
+  (`strings` on the Spark jar, a local-session probe, a measurement: #24's `skipRows` finding
+  named an option pyspark 4.1.1 does not have, and its "per-file fallback" cost measured at
+  56 ms per file), and put that evidence in the reply; reply in the thread (`gh api repos/hankehly/power-market-analytics/pulls/<n>/comments/<id>/replies
   -f body='…'`, without the mention) with what changed, then **resolve the thread** —
   `gh api graphql` mutation `resolveReviewThread(input: {threadId: "…"})`, thread ids from the
   PR's `reviewThreads(first: 100) { nodes { id isResolved comments(first: 1) { nodes {
