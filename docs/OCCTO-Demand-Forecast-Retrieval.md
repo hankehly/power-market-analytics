@@ -5,7 +5,7 @@ peak supply capacity) data — in particular the 翌々日 (day-after-next) seri
 OCCTO's public portal, programmatically and without a browser: the portal's request
 framework, the bulk-download protocol that returns the **entire history in a single CSV**,
 the file format, the catalog of other datasets reachable through the same endpoint, and
-how to use the downloader/loader in `power_market_analytics/occto.py` (`just refresh-occto`).
+how to use the downloader/loader in `power_market_analytics/occto.py`.
 [§9](#9-広域予備率-エリア広域ブロック情報-翌々日-half-hourly-area-demand--supply) covers the
 second dataset the same code retrieves: the half-hourly 広域予備率 エリア・広域ブロック情報
 (翌々日) publication — the source of `fct_occto_demand_supply_forecast_30m` — including
@@ -372,16 +372,15 @@ import datetime as dt
 downloader.download("demand_forecast_dad", dt.date(2026, 8, 1), dt.date(2026, 8, 5))
 ```
 
-The end-to-end refresh is one `just` recipe (downloader and loader run in the
-devcontainer; the loader needs Spark):
+The end-to-end refresh (downloader and loader run in the devcontainer; the
+loader needs Spark; `just refresh-all` runs the same steps for every source):
 
 ```bash
-just refresh-occto
-# = just python scripts/download_occto_demand_forecast.py
-#   just python scripts/download_occto_area_reserve_rate.py    (§9)
-#   just python scripts/load_occto_demand_forecast.py
-#   just python scripts/load_occto_area_reserve_rate.py        (§9)
-#   just dbt build
+just python scripts/download_occto_demand_forecast.py
+just python scripts/download_occto_area_reserve_rate.py    # §9
+just python scripts/load_occto_demand_forecast.py
+just python scripts/load_occto_area_reserve_rate.py        # §9
+just dbt build
 ```
 
 `scripts/load_occto_demand_forecast.py` performs a full reload through the generic

@@ -139,9 +139,8 @@ and hands the contract
 `__source_file`. Grain `(target_date, hour_start)` is enforced at load time;
 an unknown header line fails the load. Entry points:
 `scripts/download_tepco_power_usage.py` (`--force-yearly`) and
-`scripts/load_tepco_power_usage.py`; `just refresh-tepco-power-usage` runs both
-and `dbt build` (`just refresh-tepco` refreshes this and the A-1 actuals
-together).
+`scripts/load_tepco_power_usage.py`, then `just dbt build` (`just refresh-all` runs
+them alongside every other source).
 
 Warehouse path: `pma_raw.tepco_power_usage_hourly` →
 `stg_tepco__power_usage_hourly` (as-is) → `std_tepco__power_usage_hourly`
