@@ -470,8 +470,9 @@
   changed; reply in the thread (`gh api repos/hankehly/power-market-analytics/pulls/<n>/comments/<id>/replies
   -f body='…'`, without the mention) with what changed, then **resolve the thread** —
   `gh api graphql` mutation `resolveReviewThread(input: {threadId: "…"})`, thread ids from the
-  PR's `reviewThreads { nodes { id isResolved comments(first: 1) { nodes { databaseId } } } }`
-  query. Push if anything changed and wait for the automatic re-review as above; a round whose
+  PR's `reviewThreads(first: 100) { nodes { id isResolved comments(first: 1) { nodes {
+  databaseId } } } pageInfo { hasNextPage endCursor } }` query (page with `after:` beyond
+  100 — GraphQL connections need a bound). Push if anything changed and wait for the automatic re-review as above; a round whose
   findings were all rebutted has nothing to push and is terminal once every thread is resolved
   (the reviewed SHA is unchanged). Repeat until a round ends with 👍 or with only rebutted,
   resolved findings.
