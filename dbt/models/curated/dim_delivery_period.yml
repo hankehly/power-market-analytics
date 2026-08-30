@@ -7,7 +7,11 @@ models:
       Time-of-day dimension for the 48 half-hour delivery periods used by the
       Japanese power market, keyed by JEPX time code (1 = 00:00-00:30,
       48 = 23:30-24:00). is_daytime marks the JEPX daytime window
-      (8:00-18:00, time codes 17-36).
+      (8:00-18:00, time codes 17-36). hour_of_day is the hour containing the
+      period (0-23, the hour starting then) and the foreign key to
+      dim_delivery_hour — the shrunken rollup of this dimension at the hour
+      grain, the time-of-day key of hourly facts — so a 30-minute fact rolls
+      up to the hour by grouping on it.
 
       Deliberate deviation from the Kimball anonymous-surrogate-key rule:
       time_code is a smart key carrying the JEPX time code. The rule's
@@ -38,11 +42,19 @@ models:
                 max_value: 1410
       - name: hour_of_day
         data_type: int
+        description: >
+          Hour containing the period (0-23, the hour starting then); foreign
+          key to dim_delivery_hour, the hour-grain rollup of this dimension.
         data_tests:
+          - not_null
           - dbt_utils.accepted_range:
               arguments:
                 min_value: 0
                 max_value: 23
+          - relationships:
+              arguments:
+                to: ref('dim_delivery_hour')
+                field: hour_of_day
       - name: period_start_time
         data_type: string
         description: Period start as HH:MM (00:00 through 23:30).
