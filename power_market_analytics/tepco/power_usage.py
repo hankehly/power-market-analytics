@@ -32,6 +32,7 @@ from typing import NamedTuple
 import requests
 from loguru import logger
 from pyspark.sql import DataFrame
+from pyspark.sql import functions as F
 from pyspark.sql.types import StringType, StructField, StructType
 
 from power_market_analytics.area_actuals import (
@@ -39,7 +40,7 @@ from power_market_analytics.area_actuals import (
     AreaActualsDownloadError,
     AreaActualsSource,
 )
-from power_market_analytics.csv_loader import CsvLoader
+from power_market_analytics.csv_loader import SOURCE_FILE_COL, CsvLoader
 
 __all__ = [
     "DAILY_FILES_FROM",
@@ -431,9 +432,6 @@ class TepcoPowerUsageCsvLoader(CsvLoader):
         # local frames unioned together gave Spark 16k tasks per action.
         return self._frame(self._rows(files))
 
-    def _read_file(self, file: str) -> DataFrame:
-        return self._frame(self._rows([file]))
-
     def _rows(self, files: list[str]) -> list[tuple[str | None, ...]]:
         """Parse the hourly tables of ``files`` into contract-source string tuples."""
         data: list[tuple[str | None, ...]] = []
@@ -468,7 +466,12 @@ class TepcoPowerUsageCsvLoader(CsvLoader):
         return data
 
     def _frame(self, data: list[tuple[str | None, ...]]) -> DataFrame:
-        """Build the contract-typed DataFrame from parsed string tuples."""
+        """Build the contract-typed DataFrame from parsed string tuples.
+
+        The parsed file name doubles as the hidden ``SOURCE_FILE_COL`` so
+        that validation failures name the offending files, as for the
+        Spark-scanned loaders.
+        """
         spark_schema = StructType([StructField(name, StringType()) for name in _SOURCE_COLUMNS])
         raw = self.spark.createDataFrame(data, spark_schema)
-        return raw.select([self._cast(raw, c) for c in self.schema.columns])
+        return self._project(raw.withColumn(SOURCE_FILE_COL, F.col("__source_file")))
