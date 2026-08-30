@@ -61,13 +61,14 @@ models:
           name: dim_date_business_day_is_non_holiday_weekday
           arguments:
             expression: "is_business_day = (day_of_week_iso <= 5 and not is_holiday)"
-      # The reference lies 51-54 weeks back: 357 / 364 / 371 days for the
-      # weekday rules, up to 14 days either side of the same calendar date a
-      # year earlier (365 or 366 days) for the holiday rules.
+      # The reference lies 351-380 days back: 357 / 364 / 371 days for the
+      # weekday rules; for the holiday rules up to 14 days either side of the
+      # same calendar date a year earlier, which is itself 365 or 366 days
+      # back (the current seed's references span 357-378).
       - dbt_utils.expression_is_true:
           name: dim_date_prior_year_reference_within_range
           arguments:
-            expression: "datediff(date_key, prior_year_reference_date) between 357 and 378"
+            expression: "datediff(date_key, prior_year_reference_date) between 351 and 380"
       - dbt_utils.expression_is_true:
           name: dim_date_prior_year_reference_rule_matches_holiday_flag
           arguments:

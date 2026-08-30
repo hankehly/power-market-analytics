@@ -14,10 +14,11 @@ with
   -- Start is the earliest date across all fact sources: JMA weather begins
   -- 2016-01-01 (JEPX spot begins fiscal year 2016 = 2016-04-01, later).
   -- The lookup calendar starts 13 months earlier: a published day's
-  -- prior-year reference lies at most 378 days back (the holiday search
-  -- window reaches 14 days beyond the same calendar date a year earlier),
-  -- and resolving it needs that day's kind and holiday name. Lookup-only
-  -- days are not published.
+  -- prior-year reference lies at most 380 days back (a holiday's anchor is
+  -- the same calendar date a year earlier, 365 or 366 days back, and the
+  -- search reaches 14 days beyond it) and resolving it needs that day's kind
+  -- and holiday name; 13 months is at least 396 days. Lookup-only days are
+  -- not published.
   spine_bounds as (
   select
     to_date('2016-01-01') as start_date,
