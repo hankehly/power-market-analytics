@@ -990,14 +990,27 @@ class TestFirstLine:
         assert self.loader(spark, tmp_path)._first_line(str(tmp_path / f"f{suffix}")) is None
 
     @pytest.mark.parametrize(
-        "read_options", [{"lineSep": "　"}, {"comment": "＃"}, {"multiLine": "true"}]
+        "read_options",
+        [
+            {"lineSep": "　"},
+            {"comment": "＃"},
+            {"multiLine": "true"},
+            {"encoding": "UTF-16"},
+            {"charset": "IBM037"},
+            {"encoding": "x-IBM942C"},
+        ],
     )
-    def test_non_ascii_line_separator_or_comment_or_multiline_is_none(
-        self, spark, tmp_path, read_options
-    ):
+    def test_files_that_must_be_grouped_alone_are_none(self, spark, tmp_path, read_options):
+        # A non-ASCII line separator or comment, multiLine, a charset Python
+        # cannot confirm ASCII-compatible (UTF-16, EBCDIC, a Java-only name).
         (tmp_path / "f.csv").write_bytes(b"id,v\n")
         loader = self.loader(spark, tmp_path, **read_options)
         assert loader._first_line(str(tmp_path / "f.csv")) is None
+
+    def test_production_charset_is_ascii_compatible(self, spark, tmp_path):
+        (tmp_path / "f.csv").write_bytes("受渡日,v\n1,2\n".encode("cp932"))
+        loader = self.loader(spark, tmp_path, encoding="windows-31j")
+        assert loader._first_line(str(tmp_path / "f.csv")) == "受渡日,v".encode("cp932")
 
     def test_reads_past_the_first_chunk(self, spark, tmp_path):
         (tmp_path / "f.csv").write_bytes(b"\n" * 70000 + b"id,v\n")
