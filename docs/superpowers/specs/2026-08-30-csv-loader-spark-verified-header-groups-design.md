@@ -133,8 +133,10 @@ same error messages for single-file groups; positional loaders (JMA, area actual
 
 ### Cost model
 
-Python: one bounded byte read per file (no decoding), ~0.1 ms. Spark: two small jobs per
-group plus one scan per group — MSM 1 group, OCCTO 1 each, JEPX one per header generation.
+Python: one byte read per file up to its first header line (no decoding; ~0.1 ms — the whole
+file only when it has no such line, i.e. consists of blank or comment lines). Spark: two small
+jobs per group plus one scan per group — MSM 1 group, OCCTO 1 each, JEPX one per header
+generation.
 The former per-file fallback (56 ms/file) exists only for files `_first_line` cannot open.
 
 ## Probes before implementation (each becomes a test or a doc line)
