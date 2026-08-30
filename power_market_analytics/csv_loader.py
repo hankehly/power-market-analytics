@@ -412,8 +412,10 @@ class CsvLoader:
         ----------
         **overrides : str
             Spark options the loader owns for this read — ``header`` (true
-            for the grouped scan, false for a header or positional read),
-            ``inferSchema``.
+            for the grouped scan, false for a header or positional read) and
+            ``inferSchema`` (always false: values are read as strings and
+            cast per the contract, so the files sharing a scan never change
+            the type a value is read with).
 
         Returns
         -------
@@ -608,7 +610,7 @@ class CsvLoader:
             Contract columns plus ``SOURCE_FILE_COL``.
         """
         raw = (
-            self.spark.read.options(**self._spark_options(header="true"))
+            self.spark.read.options(**self._spark_options(header="true", inferSchema="false"))
             .csv(files)
             .withColumn(SOURCE_FILE_COL, _source_file_name())
         )

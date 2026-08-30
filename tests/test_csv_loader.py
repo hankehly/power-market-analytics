@@ -1120,6 +1120,29 @@ class TestHeaderGroupedRead:
         assert loader.load() == 1
         assert [tuple(r) for r in spark.table("test_csv_loader.bom").collect()] == [(1, 2)]
 
+    def test_grouped_scan_reads_strings_and_casts_per_contract(self, spark, tmp_path):
+        # Type inference across a group would let one file's content change
+        # how another file's values are read (001 -> 1 next to a numeric-only
+        # file); the loader types values by the contract instead.
+        schema = CsvTableSchema.model_validate(
+            {
+                "read_options": {"inferschema": "true"},
+                "columns": [{"name": "s", "type": "string"}, {"name": "id", "type": "int"}],
+            }
+        )
+        write_utf8(tmp_path / "a.csv", ["s,id", "001,1"])
+        write_utf8(tmp_path / "b.csv", ["s,id", "x,2"])
+        loader = CsvLoader(schema, tmp_path, "test_csv_loader.noinfer", spark=spark)
+        assert loader._spark_options(header="true", inferSchema="false") == {
+            "header": "true",
+            "inferSchema": "false",
+        }
+        assert loader.load() == 2
+        assert sorted(tuple(r) for r in spark.table("test_csv_loader.noinfer").collect()) == [
+            ("001", 1),
+            ("x", 2),
+        ]
+
     def test_loader_has_no_per_file_read(self):
         assert "_read_file" not in CsvLoader.__dict__
 
