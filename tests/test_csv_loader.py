@@ -1188,3 +1188,68 @@ class TestPythonCodec:
     )
     def test_maps_java_charset_names(self, java, python):
         assert python_codec(java) == python
+
+
+class TestFirstLine:
+    """The byte-level grouping key: the line Spark takes as the header, verbatim."""
+
+    def loader(self, spark, tmp_path, **read_options) -> CsvLoader:
+        schema = CsvTableSchema.model_validate(
+            {"read_options": read_options, "columns": [{"name": "id", "type": "int"}]}
+        )
+        return CsvLoader(schema, tmp_path, "t", spark=spark)
+
+    def test_skips_what_spark_skips_and_keeps_bytes_verbatim(self, spark, tmp_path):
+        # Spaces-only and empty lines are skipped; a BOM, quotes and CRLF are just bytes.
+        (tmp_path / "f.csv").write_bytes(b'   \r\n\r\n\xef\xbb\xbf"id",v\r\n1,2\r\n')
+        assert self.loader(spark, tmp_path)._first_line(str(tmp_path / "f.csv")) == (
+            b'\xef\xbb\xbf"id",v'
+        )
+
+    def test_a_tab_only_line_is_the_header_as_for_spark(self, spark, tmp_path):
+        (tmp_path / "f.csv").write_bytes(b"\t\nid,v\n")
+        assert self.loader(spark, tmp_path)._first_line(str(tmp_path / "f.csv")) == b"\t"
+
+    def test_comment_lines_and_bare_cr_terminators(self, spark, tmp_path):
+        (tmp_path / "f.csv").write_bytes(b"# note\r# more\rid,v\r1,2\r")
+        loader = self.loader(spark, tmp_path, comment="#")
+        assert loader._first_line(str(tmp_path / "f.csv")) == b"id,v"
+
+    def test_custom_line_separator_is_the_only_terminator(self, spark, tmp_path):
+        (tmp_path / "f.csv").write_bytes(b"id,v\r|1,2|")
+        loader = self.loader(spark, tmp_path, lineSep="|")
+        assert loader._first_line(str(tmp_path / "f.csv")) == b"id,v\r"
+
+    @pytest.mark.parametrize(
+        "suffix, compress",
+        [(".csv.gz", gzip.compress), (".csv.bz2", bz2.compress), (".csv.deflate", zlib.compress)],
+    )
+    def test_hadoop_codecs_python_can_open(self, spark, tmp_path, suffix, compress):
+        (tmp_path / f"f{suffix}").write_bytes(compress(b"\nid,v\n1,2\n"))
+        assert self.loader(spark, tmp_path)._first_line(str(tmp_path / f"f{suffix}")) == b"id,v"
+
+    def test_empty_file_and_only_blank_lines_give_empty_bytes(self, spark, tmp_path):
+        (tmp_path / "e.csv").write_bytes(b"")
+        (tmp_path / "b.csv").write_bytes(b"\n  \n")
+        loader = self.loader(spark, tmp_path)
+        assert loader._first_line(str(tmp_path / "e.csv")) == b""
+        assert loader._first_line(str(tmp_path / "b.csv")) == b""
+
+    def test_last_line_without_terminator_is_returned(self, spark, tmp_path):
+        (tmp_path / "f.csv").write_bytes(b"\nid,v")
+        assert self.loader(spark, tmp_path)._first_line(str(tmp_path / "f.csv")) == b"id,v"
+
+    @pytest.mark.parametrize("suffix", [".csv.zst", ".csv.lz4", ".csv.snappy"])
+    def test_codecs_python_cannot_open_are_none(self, spark, tmp_path, suffix):
+        (tmp_path / f"f{suffix}").write_bytes(b"whatever")
+        assert self.loader(spark, tmp_path)._first_line(str(tmp_path / f"f{suffix}")) is None
+
+    @pytest.mark.parametrize("read_options", [{"lineSep": "　"}, {"comment": "＃"}])
+    def test_non_ascii_line_separator_or_comment_is_none(self, spark, tmp_path, read_options):
+        (tmp_path / "f.csv").write_bytes(b"id,v\n")
+        loader = self.loader(spark, tmp_path, **read_options)
+        assert loader._first_line(str(tmp_path / "f.csv")) is None
+
+    def test_reads_past_the_first_chunk(self, spark, tmp_path):
+        (tmp_path / "f.csv").write_bytes(b"\n" * 70000 + b"id,v\n")
+        assert self.loader(spark, tmp_path)._first_line(str(tmp_path / "f.csv")) == b"id,v"
