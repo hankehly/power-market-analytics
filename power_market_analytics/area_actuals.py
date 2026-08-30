@@ -24,9 +24,8 @@ import requests
 from loguru import logger
 from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql import functions as F
-from pyspark.sql.types import StringType, StructField, StructType
 
-from power_market_analytics.csv_loader import CsvLoader, CsvTableSchema
+from power_market_analytics.csv_loader import SOURCE_FILE_COL, CsvLoader, CsvTableSchema
 
 
 class AreaActualsDownloadError(RuntimeError):
@@ -427,17 +426,18 @@ class AreaActualsCsvLoader(CsvLoader):
     """Positional full reload of daily area-actuals CSVs into a warehouse table.
 
     Works exactly like :class:`~power_market_analytics.csv_loader.CsvLoader`
-    (same validation and write behaviour) except for how each file is read:
-    the files open with metadata lines before the real column header, so they
-    are read headerless and the load contract addresses columns positionally
-    (``source: _c0`` .. ``_c6``) plus ``__file_updated_at`` for the update
-    timestamp taken from the metadata line. Only data rows (a date followed
-    by a numeric time code) are kept, and ``yyyy/mm/dd`` dates are normalised
-    to ``yyyymmdd`` so one contract format serves every layout. Each file's
-    column-header line must be one of the source's ``accepted_headers``, and
-    when the source's archive carries the running day
-    (``archive_includes_current_day``) files that are not yet final are
-    skipped.
+    (same validation and write behaviour) except for how the files are read:
+    they open with metadata lines before the real column header, so all of
+    them are read headerless in one scan (:meth:`CsvLoader._scan_positional`)
+    and the load contract addresses columns positionally (``source: _c0`` ..
+    ``_c6``) plus ``__file_updated_at`` for the update timestamp, which is
+    sniffed from every file's metadata line in Python and joined back on the
+    row's file name. Only data rows (a date followed by a numeric time code)
+    are kept, and ``yyyy/mm/dd`` dates are normalised to ``yyyymmdd`` so one
+    contract format serves every layout. Each file's column-header line must
+    be one of the source's ``accepted_headers``, and when the source's
+    archive carries the running day (``archive_includes_current_day``) files
+    that are not yet final are skipped.
 
     Parameters
     ----------
@@ -481,19 +481,28 @@ class AreaActualsCsvLoader(CsvLoader):
             raise FileNotFoundError(f"No finalized CSV files found at {self.filepath}")
         return final
 
-    def _read_file(self, file: str) -> DataFrame:
-        file_updated_at = sniff_metadata(file, self._source.accepted_headers).file_updated_at
-        spark_schema = StructType(
-            [StructField(f"_c{i}", StringType()) for i in range(COLUMN_COUNT)]
+    def _read_all(self, files: list[str]) -> DataFrame:
+        stamps = {
+            Path(file).name: sniff_metadata(file, self._source.accepted_headers).file_updated_at
+            for file in files
+        }
+        if len(stamps) != len(files):
+            names = [Path(file).name for file in files]
+            clash = next(name for name in names if names.count(name) > 1)
+            raise ValueError(
+                f"{names.count(clash)} files share the file name {clash}: the update stamp "
+                "is joined back on the name, so every file name must be unique"
+            )
+        lookup = self.spark.createDataFrame(
+            list(stamps.items()), f"{SOURCE_FILE_COL} string, {FILE_UPDATED_AT_SOURCE} string"
         )
         raw = (
-            self.spark.read.options(**self.schema.read_options)
-            .schema(spark_schema)
-            .csv(file)
+            self._scan_positional(files, COLUMN_COUNT)
             # Data rows start with a date AND a numeric time code; the metadata
             # value line also starts with a date, so both conditions are needed.
             .filter(F.col("_c0").rlike(f"^{_DATE_RE}$") & F.col("_c1").rlike(r"^\d{1,2}$"))
             .withColumn("_c0", F.regexp_replace(F.col("_c0"), "/", ""))
-            .withColumn(FILE_UPDATED_AT_SOURCE, F.lit(file_updated_at))
+            # One lookup row per file by construction (dict keyed by name).
+            .join(F.broadcast(lookup), SOURCE_FILE_COL, "inner")
         )
-        return raw.select([self._cast(raw, c) for c in self.schema.columns])
+        return self._project(raw)

@@ -328,3 +328,59 @@ class TestValidationFailsBeforeWriting:
         write_vintage(tmp_path, V2020, "5339", LINES_2020[:3])
         loader = EstatCensusMeshCsvLoader(CONTRACT, tmp_path, "test_estat_loader.two", spark=spark)
         assert loader.load() == 2
+
+
+class TestSingleScan:
+    def test_files_of_one_vintage_with_reordered_headers_load_correctly(self, spark, tmp_path):
+        write_vintage(tmp_path, V2015, "5339", LINES_2015)
+        # Same vintage, population column moved to the end: must not be read
+        # through 5339's header by position.
+        reordered = [
+            "KEY_CODE,HTKSYORI,HTKSAKI,GASSAN,T000847002,T000847003,T000847001",
+            ",,,,　人口総数　男,　人口総数　女,　人口総数",
+            "534000054,0,,,10,20,30",
+        ]
+        write_vintage(tmp_path, V2015, "5340", reordered)
+        loader = EstatCensusMeshCsvLoader(
+            CONTRACT, tmp_path, "test_estat_loader.reorder", spark=spark
+        )
+
+        assert loader.load() == 6
+
+        rows = rows_of(spark, "test_estat_loader.reorder")
+        assert rows[(2015, "534000054")]["population_total"] == 30
+        assert rows[(2015, "534000054")]["primary_mesh_code"] == "5340"
+        assert rows[(2015, "533900054")]["population_total"] == 64
+        assert rows[(2015, "533900054")]["primary_mesh_code"] == "5339"
+
+    def test_two_files_with_the_same_name_are_rejected(self, spark, tmp_path):
+        write_vintage(tmp_path, V2015, "5339", LINES_2015)
+        write_cp932(tmp_path / "1999" / "txt" / V2015.member_name("5339"), LINES_2015)
+        loader = EstatCensusMeshCsvLoader(
+            CONTRACT, tmp_path, "test_estat_loader.dupnames", spark=spark
+        )
+
+        with pytest.raises(ValueError, match="share the file name tblT000847H5339.txt"):
+            loader.load()
+        assert not spark.catalog.tableExists("test_estat_loader.dupnames")
+
+    def test_row_check_failure_names_only_the_bad_file(self, spark, tmp_path):
+        write_vintage(tmp_path, V2015, "5339", LINES_2015)
+        write_vintage(
+            tmp_path,
+            V2015,
+            "5340",
+            ["KEY_CODE,HTKSYORI,HTKSAKI,GASSAN,T000847001", ",,,,　人口総数", "534000054,3,,,1"],
+        )
+        loader = EstatCensusMeshCsvLoader(
+            CONTRACT, tmp_path, "test_estat_loader.onebad", spark=spark
+        )
+
+        with pytest.raises(
+            ValueError, match=r"tblT000847H5340\.txt: 1 row\(s\) with HTKSYORI"
+        ) as excinfo:
+            loader.load()
+        assert "tblT000847H5339.txt" not in str(excinfo.value)
+
+    def test_loader_has_no_per_file_read(self):
+        assert "_read_file" not in EstatCensusMeshCsvLoader.__dict__
