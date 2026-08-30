@@ -1056,6 +1056,60 @@ class TestHeaderGroupedRead:
             spark.read.options(header="true").csv(file).columns
         )
 
+    def test_fallback_header_is_never_type_inferred(self, spark, tmp_path):
+        # inferSchema would turn the header cell 001 into 1 on the fallback's
+        # headerless read; the loader owns that option for header reads.
+        schema = CsvTableSchema.model_validate(
+            {
+                "read_options": {"inferschema": "true", "multiLine": "true"},
+                "columns": [
+                    {"name": "zero", "source": "001", "type": "int"},
+                    {"name": "v", "type": "int"},
+                ],
+            }
+        )
+        write_utf8(tmp_path / "i.csv", ["001,v", "7,8"])
+        loader = CsvLoader(schema, tmp_path, "test_csv_loader.infer", spark=spark)
+        assert loader._spark_options(inferSchema="false") == {
+            "multiLine": "true",
+            "inferSchema": "false",
+        }
+        assert loader._spark_options(header="true")["inferschema"] == "true"
+        assert loader._spark_header(str(tmp_path / "i.csv")) == ["001", "v"]
+        assert loader.load() == 1
+        assert [tuple(r) for r in spark.table("test_csv_loader.infer").collect()] == [(7, 8)]
+
+    def test_a_contract_header_option_is_overridden_not_a_type_error(self, spark, tmp_path):
+        schema = CsvTableSchema.model_validate(
+            {"read_options": {"Header": "false"}, "columns": [{"name": "id", "type": "int"}]}
+        )
+        write_utf8(tmp_path / "h.csv", ["id", "1"])
+        loader = CsvLoader(schema, tmp_path, "test_csv_loader.headeropt", spark=spark)
+        assert loader._spark_options(header="true") == {"header": "true"}
+        assert loader.load() == 1
+
+    @pytest.mark.parametrize("charset", ["UTF-16", "utf_16", "UTF-32"])
+    def test_bom_dependent_charsets_defer_the_header_to_spark(self, spark, tmp_path, charset):
+        # Python's codec refuses a BOM-less stream ("Stream does not start
+        # with BOM") that Java decodes as big-endian; Spark reads such a file
+        # in multiLine mode, where the preflight already steps aside.
+        columns = [{"name": "id", "type": "int"}, {"name": "v", "type": "int"}]
+        schema = CsvTableSchema.model_validate(
+            {"read_options": {"encoding": charset}, "columns": columns}
+        )
+        python = charset.lower().replace("_", "-")
+        (tmp_path / "u.csv").write_bytes("id,v\n1,2\n".encode(f"{python}-be"))
+        loader = CsvLoader(schema, tmp_path, "t", spark=spark)
+        assert loader._header_line(str(tmp_path / "u.csv")) is None
+
+        schema = CsvTableSchema.model_validate(
+            {"read_options": {"encoding": charset, "multiLine": "true"}, "columns": columns}
+        )
+        loader = CsvLoader(schema, tmp_path, "test_csv_loader.bom", spark=spark)
+        assert loader._read_header(str(tmp_path / "u.csv")) == ["id", "v"]
+        assert loader.load() == 1
+        assert [tuple(r) for r in spark.table("test_csv_loader.bom").collect()] == [(1, 2)]
+
     def test_loader_has_no_per_file_read(self):
         assert "_read_file" not in CsvLoader.__dict__
 

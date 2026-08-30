@@ -51,6 +51,10 @@ _JAVA_TO_PYTHON_CODEC = {
 #: header is taken through Spark's own parse (gzip and bzip2 are opened in Python).
 _SPARK_ONLY_SUFFIXES = (".deflate", ".zst", ".lz4", ".snappy")
 
+#: Codecs whose byte order comes from a BOM: Python refuses a BOM-less stream
+#: that Java reads as big-endian, so their headers are Spark's to parse.
+_BOM_DEPENDENT_CODECS = ("utf-16", "utf-32")
+
 
 def _source_file_name() -> Column:
     """The base name of the file each row was read from.
@@ -398,6 +402,27 @@ class CsvLoader:
         case_sensitive = self.spark.conf.get("spark.sql.caseSensitive", "false")
         return name if str(case_sensitive).lower() == "true" else name.lower()
 
+    def _spark_options(self, **overrides: str) -> dict[str, str]:
+        """The contract's ``read_options`` with ``overrides`` in force.
+
+        Spark matches option keys case-insensitively, so an override
+        replaces the contract's value under any spelling of its key.
+
+        Parameters
+        ----------
+        **overrides : str
+            Spark options the loader owns for this read (``header``,
+            ``inferSchema``).
+
+        Returns
+        -------
+        dict of str to str
+            Options to pass to ``spark.read.options``.
+        """
+        owned = {key.lower() for key in overrides}
+        kept = {k: v for k, v in self.schema.read_options.items() if k.lower() not in owned}
+        return {**kept, **overrides}
+
     def _option(self, name: str, default: str) -> str:
         """The contract's ``read_options[name]`` as Spark reads it.
 
@@ -457,8 +482,10 @@ class CsvLoader:
             contract sets ``comment``, lines starting with that character are
             skipped as Spark skips them; ``""`` for a file with no such line;
             ``None`` when only Spark can read the file: a codec Python cannot
-            open, a charset name only Java knows, a ``lineSep`` other than
-            CR/LF, ``multiLine`` (a quoted header may span lines),
+            open, a charset name only Java knows or a BOM-dependent one
+            (``UTF-16`` / ``UTF-32``: Python refuses a BOM-less stream that
+            Java reads as big-endian), a ``lineSep`` other than CR/LF,
+            ``multiLine`` (a quoted header may span lines),
             ``ignoreLeadingWhiteSpace`` / ``ignoreTrailingWhiteSpace`` (Spark
             trims the header cells before naming them, so `` id,id`` is a
             duplicate to it), or a non-default ``emptyValue`` (a quoted-empty
@@ -473,10 +500,11 @@ class CsvLoader:
         spark_only_flags = ("multiLine", "ignoreLeadingWhiteSpace", "ignoreTrailingWhiteSpace")
         if (
             suffix in _SPARK_ONLY_SUFFIXES
+            or not _python_knows(encoding)
+            or codecs.lookup(encoding).name in _BOM_DEPENDENT_CODECS
             or self._option("lineSep", "\n") not in ("\n", "\r\n", "\r")
             or any(self._option(flag, "false").lower() == "true" for flag in spark_only_flags)
             or self._option("emptyValue", "") != ""
-            or not _python_knows(encoding)
         ):
             return None
         comment = self._option("comment", "")
@@ -553,12 +581,15 @@ class CsvLoader:
         Returns
         -------
         list of str
-            The first record's cells, ``[]`` for an empty file. A cell Spark
-            reads as null — empty, or equal to ``nullValue`` — comes back as
-            ``""``, which :meth:`_safe_header` names ``_c<i>`` exactly as a
-            ``header=true`` read of the file would.
+            The first record's cells as strings — type inference is off for
+            this read whatever the contract says, so ``001`` stays ``001`` —
+            or ``[]`` for an empty file. A cell Spark reads as null — empty,
+            or equal to ``nullValue`` — comes back as ``""``, which
+            :meth:`_safe_header` names ``_c<i>`` exactly as a ``header=true``
+            read of the file would.
         """
-        rows = self.spark.read.options(**self.schema.read_options).csv(file).head(1)
+        options = self._spark_options(inferSchema="false")
+        rows = self.spark.read.options(**options).csv(file).head(1)
         return ["" if cell is None else str(cell) for cell in rows[0]] if rows else []
 
     def _read_layout(self, files: list[str]) -> DataFrame:
@@ -575,7 +606,7 @@ class CsvLoader:
             Contract columns plus ``SOURCE_FILE_COL``.
         """
         raw = (
-            self.spark.read.options(header="true", **self.schema.read_options)
+            self.spark.read.options(**self._spark_options(header="true"))
             .csv(files)
             .withColumn(SOURCE_FILE_COL, _source_file_name())
         )
