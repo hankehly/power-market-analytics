@@ -1,7 +1,7 @@
 # R-004 — Year-ago load on the prior-year reference date
 
-- **Status:** In progress
-- **Last updated:** 2026-08-31 (E-001 candidate run in progress)
+- **Status:** In progress (E-001 run; awaiting the researcher's decision)
+- **Last updated:** 2026-08-31 (E-001 results)
 - **Created:** 2026-08-31
 - **Triggering observations:**
   [O-002 — Over-forecast on the working day before お盆](research/demand/observations.md#o-002),
@@ -164,11 +164,23 @@ overall MAE is higher with an interval that excludes zero.
   version; the only shared code that changed is additive (new frames,
   loaders and a strategy subclass), so the baseline's forecasts are
   unaffected.
-- **Candidate run:** `lightgbm_msm_popw_daytype_lag1y-tokyo` — started
-  2026-08-31 with the baseline's flags; run id recorded under *Results* when
-  it completes
+- **Candidate run:** `lightgbm_msm_popw_daytype_lag1y-tokyo`
+  [`88169a52e7ac43168f1bf9d1ca35e8cf`](http://localhost:5005/#/experiments/2/runs/88169a52e7ac43168f1bf9d1ca35e8cf)
+  — run 2026-08-31 with the baseline's flags; `lgbm_feature_cols` = the
+  baseline's + `lag_1y_demand_kwh`, `prior_year_reference_rules =
+  same_weekday=3934,same_weekday_shifted=104,same_holiday=316,nearest_non_working_day=29`,
+  `lag_1y_hourly_load_span = 2016-04-01..2026-08-28`, 2020 census weights,
+  105 refits
 - **Code or pull request:** branch `feature/demand-r004-lag-1y`, stacked on
-  `feature/dim-date-prior-year-reference-date` (PR #29)
+  `feature/dim-date-prior-year-reference-date` (PR #29) —
+  [PR #30](https://github.com/hankehly/power-market-analytics/pull/30). The
+  segment tables, the daily paired comparison and the figure below are the
+  output of `scripts/compare_demand_runs.py --baseline
+  0a6b8a5560d445d5b9705bde99cf13ae --candidate 88169a52e7ac43168f1bf9d1ca35e8cf
+  --mae-by-month-png …`; the motivating-day, worst-day, holiday-kind,
+  reference-rule and SHAP tables were queried from
+  `fct_demand_forecast_accuracy` / `fct_demand_forecast_contribution` ×
+  `dim_date` the same way as R-003's.
 - **Matched window:** 729 delivery days 2024-08-18..2026-08-17, the same
   training rows and refit schedule as the baseline (both skip 2025-06-21 for
   its D-7 lag in the 2025-06-14 TSO hole; the year-ago load itself is never
@@ -176,4 +188,105 @@ overall MAE is higher with an interval that excludes zero.
 
 ### Results
 
-_Pending the candidate run._
+All values in kWh per 30-minute period over the matched window (729 days,
+34,954 scored points per run; both runs skip 2025-06-21; MLflow holds the full
+metric sets).
+
+| Metric | Baseline | Candidate | Absolute change | Relative change |
+|---|---:|---:|---:|---:|
+| Overall MAE | 594,325 | 594,639 | +315 | +0.1 % |
+| Overall MAPE | 3.66 % | 3.67 % | +0.01 pp | +0.3 % |
+| Mean error / bias, overall | −14,967 | −9,537 | +5,430 | — |
+| Mean error / bias, daytime | +4,729 | −853 | −5,582 | — |
+| Holiday MAE | 765,403 | 687,908 | −77,495 | −10.1 % |
+
+Daily paired comparison: the candidate is lower on 51.6 % of days (376 of
+729); mean daily-MAE difference +341 kWh, **95 % bootstrap CI over days
+[−15,231, +15,754]** (10,000 resamples, seed 0); median daily-MAE difference
+−4,352 kWh; lower in 13 of 25 calendar months
+([figure](assets/R-004-E-001-mae-by-month.png)). Winter −3.4 %, autumn
+−0.6 %, spring +2.5 %, summer +2.2 %; the top-10 % demand days −4.6 %, the
+other 90 % +0.8 %.
+
+By day type and day part:
+
+| Segment | n | Baseline MAE | Candidate MAE | Relative change |
+|---|---:|---:|---:|---:|
+| Weekday | 22,752 | 590,209 | 594,069 | +0.7 % |
+| Weekend | 9,322 | 551,514 | 567,216 | +2.8 % |
+| Holiday | 2,880 | 765,403 | 687,908 | −10.1 % |
+| Overnight | 8,746 | 374,014 | 395,103 | +5.6 % |
+| Morning | 2,912 | 551,840 | 575,262 | +4.2 % |
+| Daytime | 14,560 | 754,144 | 737,839 | −2.2 % |
+| Evening | 8,736 | 562,684 | 562,198 | −0.1 % |
+
+Holidays by kind (point-level MAE and bias over the kind's days):
+
+| Kind | Days | Baseline MAE | Candidate MAE | Relative change | Baseline bias | Candidate bias |
+|---|---:|---:|---:|---:|---:|---:|
+| 元日 / 年末年始 | 10 | 881,279 | 727,220 | −17 % | +656,627 | +227,338 |
+| National holiday on a weekday | 28 | 833,513 | 671,863 | −19 % | −176,848 | −69,653 |
+| お盆 (8/13–16) | 8 | 755,520 | 925,903 | +23 % | +570,732 | +767,802 |
+| ゴールデンウィーク (4/30–5/2) | 6 | 580,682 | 571,389 | −2 % | −449,736 | −59,902 |
+| National holiday on a Saturday/Sunday | 8 | 530,599 | 544,322 | +3 % | +188,543 | +255,441 |
+
+The four motivating days (daily MAE; bias in parentheses), with the
+candidate's mean per-period SHAP contribution of `lag_1y_demand_kwh` on the
+day and the reference it read:
+
+| Day | Kind | Reference (rule) | Baseline | Candidate | Change | `lag_1y` contribution |
+|---|---|---|---:|---:|---:|---:|
+| 2025-08-12 Tue | working day before お盆 (O-002) | 2024-08-20 (`same_weekday_shifted`) | 3,858,649 (+) | 3,885,835 (+) | +1 % | +1,547,583 |
+| 2026-08-12 Wed | working day before お盆 (O-002) | 2025-08-20 (`same_weekday_shifted`) | 2,837,390 (+) | 2,893,068 (+) | +2 % | +1,381,615 |
+| 2025-02-11 Tue | 建国記念の日 (O-003) | 2024-02-11 Sun (`same_holiday`) | 1,534,427 (−) | 1,370,447 (−) | −11 % | −48,225 |
+| 2026-02-11 Wed | 建国記念の日 (O-003) | 2025-02-11 Tue (`same_holiday`) | 3,071,435 (−) | 1,902,022 (−) | −38 % | +1,295,521 |
+
+On the two 8/12s the reference is, by construction of the shifted rule, an
+ordinary week (D−364 is お盆, so D−357 — one week *after* the holiday a year
+earlier — is taken): the year-ago load is 19.8 M / 20.8 M kWh per period and
+adds +1.5 M / +1.4 M to a day that is already over-forecast. On 2026-02-11
+the reference is the same holiday on a Tuesday and the year-ago load
+(18.0 M) offsets most of the day-type pull (−917,001); on 2025-02-11 the
+reference is the same holiday on a *Sunday* and the feature contributes
+almost nothing.
+
+By the rule that chose the reference (days of the window):
+
+| Rule | Days | Baseline MAE | Candidate MAE | Relative change |
+|---|---:|---:|---:|---:|
+| `same_weekday` | 652 | 561,521 | 569,223 | +1 % |
+| `same_holiday` | 57 | 776,746 | 700,901 | −10 % |
+| `same_weekday_shifted` | 17 | 1,247,100 | 1,239,078 | −1 % |
+| `nearest_non_working_day` | 3 | 549,886 | 441,053 | −20 % |
+
+Share of the mean absolute SHAP contribution over the window, candidate run:
+`lag_1y_demand_kwh` 31.4 % (mean |contribution| 1,420,884), the
+population-weighted forecast temperature 22.9 %, `time_code` 17.0 %,
+`day_type` 9.1 %, `lag_7d_demand_kwh` 8.2 % (it carried the largest share of
+the baseline's decomposition on the O-002 days), the observed temperature
+5.4 %.
+
+Worst days: the baseline's 20 worst days are lower in the candidate on 12 and
+higher on 8; the candidate's top three are the baseline's (2025-08-12,
+2026-08-12 and 2025-12-29, the Monday before 年末年始, all over-forecast and
+1–7 % worse), while 2026-02-11 drops from #2 to #7 (−38 %), 2025-01-13
+成人の日 from #5 to #86 (−61 %), 2024-12-26 from #14 to #188 (−56 %) and
+2026-01-01 元日 from #19 to #178 (−53 %). New among the candidate's 20 worst:
+2025-06-19 Thu (#99 → #11, 928,334 → 1,646,364, under-forecast) and
+2025-02-23 天皇誕生日 on a Sunday (#288 → #20, 582,199 → 1,452,737,
+over-forecast): its `same_holiday` reference 2024-02-23 was a Friday, so the
+year-ago load of a weekday holiday was read for a Sunday holiday.
+
+### Reading against the decision rule
+
+Overall MAE is not lower and the interval over days includes zero — by the
+pre-registered rule the result is **inconclusive** overall, with the
+**refine** branch indicated: the holiday half of the hypothesis holds
+(holidays −10 %, the O-003 day −38 %, 元日 / 年末年始 and weekday national
+holidays −17 % / −19 %), the O-002 half does not — the shifted reference
+avoids the holiday-adjacent week by design, so the year-ago load cannot
+carry the "working day squeezed before お盆" effect (the bridge-day flag the
+researcher deferred on 2026-08-31 addresses exactly that day) — and the
+feature costs on weekends (+2.8 %), overnight (+5.6 %) and お盆 (+23 %). The
+decision (keep / refine / reject) is the researcher's; recorded here as
+awaiting it.
