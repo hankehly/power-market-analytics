@@ -426,6 +426,41 @@
   `build`. PR titles use the same `type(scope): description` form (PRs are merged with merge
   commits, so the title is not itself a commit).
 
+## Code review (pull requests)
+
+- Every PR — docs-only ones included — is reviewed by **Codex, then Copilot**, before the
+  researcher merges it; Claude drives the loop and never merges. Open it with `gh pr create`
+  (title `type(scope): description`; body sections *Why* / *What* / *Proof* with the measured
+  numbers), then `gh pr edit <n> --add-assignee hankehly --add-label <labels>`. Labels are
+  GitHub's defaults, mapped from the branch type: `fix/` → `bug`, `feature/` → `enhancement`,
+  `chore/` → `documentation`; add `documentation` next to `bug`/`enhancement` when the PR also
+  changes docs. A stage that depends on an unmerged PR is stacked on that branch (`--base
+  <branch>`); GitHub retargets it to `main` when the base merges.
+- **Codex** (`chatgpt-codex-connector[bot]`,
+  [docs](https://learn.chatgpt.com/docs/third-party/github)) reviews automatically when a PR is
+  opened (and, in this repo, pushes to an open PR): it reacts 👀 on the PR when it starts, then
+  either posts a PR review with inline findings or — nothing to flag — reacts 👍 on the PR and
+  posts nothing. Wait for one of those two outcomes **with no timeout**: a main-session
+  background poll every 60 s of `gh api repos/hankehly/power-market-analytics/pulls/<n>/reviews`
+  (a review by the bot with `submitted_at` after the push you are waiting on) and
+  `gh api repos/hankehly/power-market-analytics/issues/<n>/reactions` (`content == "+1"` by the
+  bot with `created_at` after it — an older 👍 stays on the PR, so always compare timestamps;
+  a 👍 never counts as a review of a later push). If 20 min pass with neither 👀 nor a review,
+  comment `@codex review` (the documented manual trigger) and keep waiting; reactions to that
+  comment (`gh api …/issues/comments/<id>/reactions`) count too. Never conclude "no findings"
+  from silence.
+- **Address every finding**: fix it in a commit (or say in the thread why not), reply in the
+  thread (`gh api repos/hankehly/power-market-analytics/pulls/<n>/comments/<id>/replies
+  -f body='…'`) with what changed, push, comment `@codex review`, and wait again. Repeat until
+  a round ends with 👍 and no new findings.
+- **Copilot** only after Codex is clean: GitHub MCP `request_copilot_review` (CLI: `gh api -X
+  POST repos/hankehly/power-market-analytics/pulls/<n>/requested_reviewers -f
+  'reviewers[]=copilot-pull-request-reviewer[bot]'`). It posts a review as
+  `copilot-pull-request-reviewer[bot]` within minutes: `APPROVED` with no threads = done;
+  otherwise handle its comments like Codex's and re-request.
+- Then report the PR as ready — CI green, both reviewers clean, Proof filled in — and stop; the
+  researcher merges.
+
 ## Dimensional Modeling
 
 - For anything dimensional-modeling related (fact/dimension table design, grain declarations,
