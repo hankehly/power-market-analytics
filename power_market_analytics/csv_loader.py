@@ -21,7 +21,7 @@ from typing import IO, Any
 
 import yaml
 from loguru import logger
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from pyspark.sql import Column, DataFrame, SparkSession
 from pyspark.sql import functions as F
 from pyspark.sql.types import StringType, StructField, StructType
@@ -149,13 +149,24 @@ class CsvTableSchema(BaseModel):
         Empty list disables the uniqueness check.
     columns : list of CsvColumn
         Columns to load, in destination-table order. Source columns not
-        listed here are dropped.
+        listed here are dropped. The name ``_source_file`` is reserved for
+        the loader's hidden file-name column (a column may *source* it to
+        expose the file name under another name).
     """
 
     description: str | None = None
     read_options: dict[str, str] = Field(default_factory=dict)
     grain: list[str] = Field(default_factory=list)
     columns: list[CsvColumn]
+
+    @model_validator(mode="after")
+    def _no_reserved_column_name(self) -> CsvTableSchema:
+        if any(c.name == SOURCE_FILE_COL for c in self.columns):
+            raise ValueError(
+                f"column name {SOURCE_FILE_COL!r} is reserved for the loader's file-name "
+                f"column; expose the file name under another name (source: {SOURCE_FILE_COL})"
+            )
+        return self
 
     @classmethod
     def from_yaml(cls, path: Path | str) -> CsvTableSchema:
@@ -493,20 +504,26 @@ class CsvLoader:
             empty string or ``\\u0000`` — keeps quotes literally) and the
             ``escape`` character (default ``\\``) applied; ``None`` when the
             dialect is beyond Python's ``csv`` module — a multi-character
-            separator, or escaping disabled the way Spark allows (an empty
-            string or ``\\u0000``) — so the caller asks Spark instead.
+            separator, escaping disabled the way Spark allows (an empty
+            string or ``\\u0000``), an ``unescapedQuoteHandling`` setting, or
+            quoting the module cannot parse strictly (an unescaped quote,
+            whose handling is Spark's to configure) — so the caller asks
+            Spark instead.
         """
         sep = self._option("sep", self._option("delimiter", ","))
         escape = self._option("escape", "\\")
-        if len(sep) != 1 or escape in ("", "\u0000"):
+        if len(sep) != 1 or escape in ("", "\u0000") or self._option("unescapedQuoteHandling", ""):
             return None
-        dialect: dict[str, Any] = {"delimiter": sep, "escapechar": escape}
+        dialect: dict[str, Any] = {"delimiter": sep, "escapechar": escape, "strict": True}
         quote = self._option("quote", '"')
         if quote in ("", "\u0000"):
             dialect["quoting"] = csv.QUOTE_NONE
         else:
             dialect["quotechar"] = quote
-        return next(csv.reader([line], **dialect), [])
+        try:
+            return next(csv.reader([line], **dialect), [])
+        except csv.Error:
+            return None
 
     def _spark_header(self, file: str) -> list[str]:
         """Spark's own parse of ``file``'s header row — exact, but one job per file.
