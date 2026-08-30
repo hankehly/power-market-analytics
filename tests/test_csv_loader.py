@@ -904,6 +904,28 @@ class TestHeaderGroupedRead:
             (1, "s.csv")
         ]
 
+    @pytest.mark.parametrize("option", ["ignoreLeadingWhiteSpace", "ignoreTrailingWhiteSpace"])
+    def test_whitespace_trimming_options_defer_the_header_to_spark(self, spark, tmp_path, option):
+        # Spark trims header cells before naming them, so " id,id" is a
+        # duplicate to it and "id ,v" is the column `id`.
+        schema = CsvTableSchema.model_validate(
+            {
+                "read_options": {option: "true"},
+                "columns": [{"name": "id", "type": "int"}, {"name": "v", "type": "int"}],
+            }
+        )
+        pad = (" ", "") if option == "ignoreLeadingWhiteSpace" else ("", " ")
+        write_utf8(tmp_path / "dup.csv", [f"{pad[0]}id{pad[1]},id,v", "1,7,2"])
+        loader = CsvLoader(schema, tmp_path, "test_csv_loader.trim", spark=spark)
+        assert loader._header_line(str(tmp_path / "dup.csv")) is None
+        with pytest.raises(
+            ValueError, match=re.escape("dup.csv has duplicated header columns: ['id']")
+        ):
+            loader.load()
+        write_utf8(tmp_path / "dup.csv", [f"{pad[0]}id{pad[1]},v", "1,2"])
+        assert loader.load() == 1
+        assert [tuple(r) for r in spark.table("test_csv_loader.trim").collect()] == [(1, 2)]
+
     def test_loader_has_no_per_file_read(self):
         assert "_read_file" not in CsvLoader.__dict__
 

@@ -444,17 +444,21 @@ class CsvLoader:
             skipped as Spark skips them; ``""`` for a file with no such line;
             ``None`` when only Spark can read the file: a codec Python cannot
             open, a charset name only Java knows, a ``lineSep`` other than
-            CR/LF, or ``multiLine`` (a quoted header may span lines).
+            CR/LF, ``multiLine`` (a quoted header may span lines), or
+            ``ignoreLeadingWhiteSpace`` / ``ignoreTrailingWhiteSpace`` (Spark
+            trims the header cells before naming them, so `` id,id`` is a
+            duplicate to it).
             Undecodable bytes are replaced rather than raised, so a header in
             the wrong encoding fails the required-column check instead of the
             read.
         """
         suffix = Path(file).suffix.lower()
         encoding = python_codec(self._option("encoding", self._option("charset", "UTF-8")))
+        spark_only_flags = ("multiLine", "ignoreLeadingWhiteSpace", "ignoreTrailingWhiteSpace")
         if (
             suffix in _SPARK_ONLY_SUFFIXES
             or self._option("lineSep", "\n") not in ("\n", "\r\n", "\r")
-            or self._option("multiLine", "false").lower() == "true"
+            or any(self._option(flag, "false").lower() == "true" for flag in spark_only_flags)
             or not _python_knows(encoding)
         ):
             return None
