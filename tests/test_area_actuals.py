@@ -264,7 +264,7 @@ from power_market_analytics.area_actuals import (  # noqa: E402
     AreaActualsCsvLoader,
     sniff_metadata,
 )
-from power_market_analytics.csv_loader import CsvTableSchema  # noqa: E402
+from power_market_analytics.csv_loader import REPORT_LIMIT, CsvTableSchema  # noqa: E402
 
 TEPCO_HEADER = (
     "日付,時間コマ,時間帯＿自,時間帯＿至,エリア総需要量,エリア総発電量,エリア風力・太陽光発電量"
@@ -509,3 +509,63 @@ class TestAreaActualsCsvLoader:
         with pytest.raises(FileNotFoundError, match="No finalized CSV files"):
             loader.load()
         assert not spark.catalog.tableExists("test_area.only_running")
+
+    def test_every_file_keeps_its_own_update_stamp_in_one_scan(self, spark, tmp_path):
+        write_cp932(tmp_path / "AREA_JISEKI_20250715.csv", TEPCO_FILE)
+        later = list(TEPCO_FILE)
+        later[1] = "20250717,00:05:09,20250716"
+        later[3] = "20250716,1,0:00,0:30,15000000,12000000,140000"
+        later[4] = "20250716,2,0:30,1:00,14000000,12000000,120000"
+        write_cp932(tmp_path / "AREA_JISEKI_20250716.csv", later)
+        loader = AreaActualsCsvLoader(
+            CONTRACT, tmp_path, "test_area.stamps", spark=spark, source=LOADER_SOURCE
+        )
+
+        assert loader.load() == 4
+
+        stamps = {
+            (r.target_date.isoformat(), r.time_code): r.file_updated_at.isoformat()
+            for r in spark.table("test_area.stamps").collect()
+        }
+        assert stamps == {
+            ("2025-07-15", 1): "2025-07-16T00:05:04",
+            ("2025-07-15", 2): "2025-07-16T00:05:04",
+            ("2025-07-16", 1): "2025-07-17T00:05:09",
+            ("2025-07-16", 2): "2025-07-17T00:05:09",
+        }
+
+    def test_two_files_with_the_same_name_are_rejected(self, spark, tmp_path):
+        (tmp_path / "a").mkdir()
+        (tmp_path / "b").mkdir()
+        write_cp932(tmp_path / "a" / "AREA_JISEKI_20250715.csv", TEPCO_FILE)
+        write_cp932(tmp_path / "b" / "AREA_JISEKI_20250715.csv", TEPCO_FILE)
+        loader = AreaActualsCsvLoader(
+            CONTRACT,
+            tmp_path / "*" / "*.csv",
+            "test_area.dupnames",
+            spark=spark,
+            source=LOADER_SOURCE,
+        )
+
+        with pytest.raises(ValueError, match="share the file name AREA_JISEKI_20250715.csv"):
+            loader.load()
+        assert not spark.catalog.tableExists("test_area.dupnames")
+
+    def test_null_report_names_the_offending_file(self, spark, tmp_path):
+        write_cp932(tmp_path / "20250701_jisseki.csv", KANSAI_OLD_FILE)
+        holes = list(TEPCO_FILE)
+        holes[4] = "20250715,2,0:30,1:00,,12300000,120000"
+        write_cp932(tmp_path / "AREA_JISEKI_20250715.csv", holes)
+        loader = AreaActualsCsvLoader(
+            CONTRACT, tmp_path, "test_area.nullfile", spark=spark, source=LOADER_SOURCE
+        )
+
+        with pytest.raises(ValueError) as exc:
+            loader.load()
+
+        assert str(exc.value).endswith(
+            f"; by file (first {REPORT_LIMIT}): {{'AREA_JISEKI_20250715.csv': {{'demand_kwh': 1}}}}"
+        )
+
+    def test_loader_has_no_per_file_read(self):
+        assert "_read_file" not in AreaActualsCsvLoader.__dict__
