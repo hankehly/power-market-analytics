@@ -753,6 +753,103 @@ class TestHeaderGroupedRead:
         assert loader._read_header(str(tmp_path / "u.csv")) == ["id", "v"]
         assert loader.load() == 1
 
+    def test_case_only_duplicate_header_follows_the_session_case_sensitivity(self, spark, tmp_path):
+        # Spark's default resolver is case-insensitive: it names id/ID id0/ID1,
+        # and the contract's `id` would silently read as null.
+        write_utf8(tmp_path / "dup.csv", ["id,ID,big", "1,7,2"])
+        schema = CsvTableSchema.model_validate(
+            {"columns": [{"name": "id", "type": "int"}, {"name": "big", "type": "bigint"}]}
+        )
+        loader = CsvLoader(schema, tmp_path, "test_csv_loader.casedup", spark=spark)
+        assert loader._safe_header(["id", "ID", "big"]) == ["id0", "ID1", "big"]
+        with pytest.raises(
+            ValueError, match=re.escape("dup.csv has duplicated header columns: ['id']")
+        ):
+            loader.load()
+        spark.conf.set("spark.sql.caseSensitive", "true")
+        try:
+            assert loader._safe_header(["id", "ID", "big"]) == ["id", "ID", "big"]
+            assert loader.load() == 1
+            assert [tuple(r) for r in spark.table("test_csv_loader.casedup").collect()] == [(1, 2)]
+        finally:
+            spark.conf.set("spark.sql.caseSensitive", "false")
+
+    def test_case_only_duplicate_is_rejected_on_the_spark_path_too(self, spark, tmp_path):
+        (tmp_path / "dup.csv.deflate").write_bytes(zlib.compress(b"id,ID,big\n1,7,2\n"))
+        schema = CsvTableSchema.model_validate(
+            {"columns": [{"name": "id", "type": "int"}, {"name": "big", "type": "bigint"}]}
+        )
+        loader = CsvLoader(schema, tmp_path / "*.deflate", "test_csv_loader.sdup", spark=spark)
+        assert loader._header_line(str(tmp_path / "dup.csv.deflate")) is None
+        with pytest.raises(
+            ValueError, match=re.escape("dup.csv.deflate has duplicated header columns: ['id']")
+        ):
+            loader.load()
+
+    def test_header_cell_equal_to_null_value_is_not_a_column_on_either_path(self, spark, tmp_path):
+        # Spark names a header cell equal to nullValue `_c<i>` (makeSafeHeader),
+        # so a contract sourcing that name can never be served.
+        schema = CsvTableSchema.model_validate(
+            {
+                "read_options": {"nullValue": "NA"},
+                "columns": [
+                    {"name": "id", "type": "int"},
+                    {"name": "na", "source": "NA", "type": "int"},
+                ],
+            }
+        )
+        write_utf8(tmp_path / "n.csv", ["id,NA", "1,2"])
+        (tmp_path / "n.csv.deflate").write_bytes(zlib.compress(b"id,NA\n1,2\n"))
+        assert CsvLoader(schema, tmp_path, "t", spark=spark)._safe_header(["id", "NA"]) == [
+            "id",
+            "_c1",
+        ]
+        for pattern in ("*.csv", "*.deflate"):
+            loader = CsvLoader(schema, tmp_path / pattern, "test_csv_loader.nullvalue", spark=spark)
+            with pytest.raises(ValueError, match=re.escape("is missing required columns: ['NA']")):
+                loader.load()
+        # Spark reads the cell as null on the fallback path; it is named like the header scan.
+        assert loader._spark_header(str(tmp_path / "n.csv.deflate")) == ["id", ""]
+        assert loader._safe_header(loader._spark_header(str(tmp_path / "n.csv.deflate"))) == [
+            "id",
+            "_c1",
+        ]
+
+    @pytest.mark.parametrize("case_sensitive", ["false", "true"])
+    def test_header_names_match_sparks_on_both_paths(self, spark, tmp_path, case_sensitive):
+        # Neither the preflight nor the fallback may accept what Spark's
+        # header=true scan would rename: both must reproduce its names.
+        headers = ["id,ID,big", "id,id,big", "a,,b", 'a,"",b', "a,NA,b", "a,b,A,B,", "x,y,z"]
+        schema = CsvTableSchema.model_validate(
+            {"read_options": {"nullValue": "NA"}, "columns": [{"name": "x", "type": "int"}]}
+        )
+        loader = CsvLoader(schema, tmp_path, "t", spark=spark)
+        spark.conf.set("spark.sql.caseSensitive", case_sensitive)
+        try:
+            for i, header in enumerate(headers):
+                file = tmp_path / f"h{i}.csv"
+                write_utf8(file, [header, "1,2,3,4,5"])
+                spark_names = (
+                    spark.read.options(header="true", nullValue="NA").csv(str(file)).columns
+                )
+                cells = loader._parse_header(loader._header_line(str(file)))
+                assert loader._safe_header(cells) == spark_names, header
+                assert loader._safe_header(loader._spark_header(str(file))) == spark_names, header
+                assert loader._safe_header(spark_names) == spark_names, header
+        finally:
+            spark.conf.set("spark.sql.caseSensitive", "false")
+
+    def test_file_name_keeps_a_literal_plus_and_decodes_escapes(self, spark, tmp_path):
+        # Hadoop paths keep "+" literal and escape a space as %20 (a percent as
+        # %25); form decoding would have turned the plus into a space.
+        write_utf8(tmp_path / "a+b c%.csv", FILE_A)
+        loader = CsvLoader(SCHEMA, tmp_path, "test_csv_loader.plus", spark=spark)
+        files = loader._resolve_files()
+        assert {r[SOURCE_FILE_COL] for r in loader._read_all(files).collect()} == {"a+b c%.csv"}
+        assert {r[SOURCE_FILE_COL] for r in loader._scan_positional(files, 1).collect()} == {
+            "a+b c%.csv"
+        }
+
     def test_loader_has_no_per_file_read(self):
         assert "_read_file" not in CsvLoader.__dict__
 

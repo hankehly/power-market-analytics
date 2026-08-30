@@ -14,6 +14,7 @@ import csv
 import glob
 import gzip
 import operator
+from collections import Counter
 from functools import reduce
 from pathlib import Path
 from typing import IO, Any
@@ -60,9 +61,12 @@ def _source_file_name() -> Column:
     Returns
     -------
     pyspark.sql.Column
-        The URI's last path segment, URL-decoded.
+        The URI's last path segment, percent-decoded. A literal ``+`` is
+        preserved: Hadoop paths encode a space as ``%20``, whereas
+        ``url_decode`` (form decoding) would read the plus itself as one.
     """
-    return F.url_decode(F.element_at(F.split(F.input_file_name(), "/"), -1))
+    name = F.element_at(F.split(F.input_file_name(), "/"), -1)
+    return F.url_decode(F.regexp_replace(name, r"\+", "%2B"))
 
 
 def _python_knows(codec: str) -> bool:
@@ -288,8 +292,8 @@ class CsvLoader:
         # is an optimisation — accepted only when it satisfies the contract —
         # and everything else (a rejected header, a dialect it cannot mirror)
         # is decided by Spark's own parse of that file. Files are grouped by
-        # the header that passed, so files whose headers Spark reads
-        # identically — and only those — share a scan.
+        # the column names Spark will give their header (``_safe_header``),
+        # so files Spark reads identically — and only those — share a scan.
         groups: dict[tuple[str, ...], list[str]] = {}
         for file in files:
             line = self._header_line(file)
@@ -299,7 +303,7 @@ class CsvLoader:
                 problem = self._header_problem(header)
                 if problem is not None:
                     raise ValueError(f"{file} {problem}")
-            groups.setdefault(tuple(header), []).append(file)
+            groups.setdefault(tuple(self._safe_header(header)), []).append(file)
         return reduce(DataFrame.unionByName, (self._read_layout(g) for g in groups.values()))
 
     def _header_problem(self, header: list[str]) -> str | None:
@@ -308,30 +312,71 @@ class CsvLoader:
         Parameters
         ----------
         header : list of str
-            Parsed header cells.
+            Parsed header cells (:meth:`_parse_header` or
+            :meth:`_spark_header`); :meth:`_safe_header` gives the names
+            Spark's scan will use for them.
 
         Returns
         -------
         str or None
             ``"has duplicated header columns: [...]"`` when a contract source
-            appears more than once (Spark would rename them ``id0``/``id1``
-            and the contract column would silently become null),
-            ``"is missing required columns: [...]"`` when a required source
-            is absent, otherwise ``None``.
+            recurs among the cells — compared as the session resolves names,
+            so ``id,ID`` counts unless ``spark.sql.caseSensitive`` is on —
+            since Spark would suffix them (``id0``/``ID1``) and the contract
+            column silently become null; ``"is missing required columns:
+            [...]"`` when a required source is not among Spark's column
+            names; otherwise ``None``.
         """
+        names = self._safe_header(header)
+        counts = Counter(self._fold(cell) for cell in header)
         sources = [c.source_name for c in self.schema.columns]
-        duplicated = sorted({name for name in sources if header.count(name) > 1})
+        duplicated = sorted({s for s in sources if s not in names and counts[self._fold(s)] > 1})
         if duplicated:
             return f"has duplicated header columns: {duplicated}"
         missing = [
-            c.source_name for c in self.schema.columns if c.required and c.source_name not in header
+            c.source_name for c in self.schema.columns if c.required and c.source_name not in names
         ]
         if missing:
             return f"is missing required columns: {missing}"
         return None
 
+    def _safe_header(self, cells: list[str]) -> list[str]:
+        """Spark's column names for a header row (its ``makeSafeHeader``).
+
+        An empty cell, or one equal to the contract's ``nullValue``, is
+        named ``_c<i>``; a name that recurs — compared case-insensitively
+        unless ``spark.sql.caseSensitive`` is on, the way Spark resolves
+        names — gets its position appended (``id0``, ``ID1``); any other
+        cell is the column name verbatim. Idempotent.
+
+        Parameters
+        ----------
+        cells : list of str
+            Parsed header cells.
+
+        Returns
+        -------
+        list of str
+            The names the ``header=true`` scan of :meth:`_read_layout` uses.
+        """
+        null_value = self.schema.read_options.get("nullValue", "")
+        counts = Counter(self._fold(cell) for cell in cells)
+        return [
+            f"_c{i}"
+            if cell in ("", null_value)
+            else f"{cell}{i}"
+            if counts[self._fold(cell)] > 1
+            else cell
+            for i, cell in enumerate(cells)
+        ]
+
+    def _fold(self, name: str) -> str:
+        """``name`` as the session compares column names."""
+        case_sensitive = self.spark.conf.get("spark.sql.caseSensitive", "false")
+        return name if str(case_sensitive).lower() == "true" else name.lower()
+
     def _read_header(self, file: str) -> list[str]:
-        """The header cells of ``file`` as Spark will see them.
+        """The header of ``file`` as the loader judges it.
 
         Parameters
         ----------
@@ -341,7 +386,7 @@ class CsvLoader:
         Returns
         -------
         list of str
-            The Python preflight parse (:meth:`_header_line` +
+            The Python preflight's cells (:meth:`_header_line` +
             :meth:`_parse_header`) when the dialect allows it, otherwise
             Spark's own parse (:meth:`_spark_header`).
         """
@@ -438,8 +483,10 @@ class CsvLoader:
         Returns
         -------
         list of str
-            The first record's cells (empty cells as ``""``), ``[]`` for an
-            empty file.
+            The first record's cells, ``[]`` for an empty file. A cell Spark
+            reads as null — empty, or equal to ``nullValue`` — comes back as
+            ``""``, which :meth:`_safe_header` names ``_c<i>`` exactly as a
+            ``header=true`` read of the file would.
         """
         rows = self.spark.read.options(**self.schema.read_options).csv(file).head(1)
         return ["" if cell is None else str(cell) for cell in rows[0]] if rows else []
