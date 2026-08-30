@@ -492,13 +492,15 @@ class CsvLoader:
             ``quote`` character (default ``"``; Spark's disabled form — an
             empty string or ``\\u0000`` — keeps quotes literally) and the
             ``escape`` character (default ``\\``) applied; ``None`` when the
-            dialect is beyond Python's ``csv`` module (a multi-character
-            separator), so the caller asks Spark instead.
+            dialect is beyond Python's ``csv`` module — a multi-character
+            separator, or escaping disabled the way Spark allows (an empty
+            string or ``\\u0000``) — so the caller asks Spark instead.
         """
         sep = self._option("sep", self._option("delimiter", ","))
-        if len(sep) != 1:
+        escape = self._option("escape", "\\")
+        if len(sep) != 1 or escape in ("", "\u0000"):
             return None
-        dialect: dict[str, Any] = {"delimiter": sep, "escapechar": self._option("escape", "\\")}
+        dialect: dict[str, Any] = {"delimiter": sep, "escapechar": escape}
         quote = self._option("quote", '"')
         if quote in ("", "\u0000"):
             dialect["quoting"] = csv.QUOTE_NONE

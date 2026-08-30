@@ -926,6 +926,25 @@ class TestHeaderGroupedRead:
         assert loader.load() == 1
         assert [tuple(r) for r in spark.table("test_csv_loader.trim").collect()] == [(1, 2)]
 
+    @pytest.mark.parametrize("escape", ["", "\u0000"])
+    def test_disabled_escape_defers_the_header_to_spark(self, spark, tmp_path, escape):
+        # Spark reads an empty (or NUL) escape as "no escape character";
+        # Python's csv module has no such dialect, so Spark parses the header.
+        schema = CsvTableSchema.model_validate(
+            {
+                "read_options": {"escape": escape},
+                "columns": [{"name": "id", "type": "int"}, {"name": "v", "type": "string"}],
+            }
+        )
+        write_utf8(tmp_path / "e.csv", ["id,v", '1,"a\\b"'])
+        loader = CsvLoader(schema, tmp_path, "test_csv_loader.noescape", spark=spark)
+        assert loader._parse_header("id,v") is None
+        assert loader._read_header(str(tmp_path / "e.csv")) == ["id", "v"]
+        assert loader.load() == 1
+        assert [tuple(r) for r in spark.table("test_csv_loader.noescape").collect()] == [
+            (1, "a\\b")
+        ]
+
     def test_loader_has_no_per_file_read(self):
         assert "_read_file" not in CsvLoader.__dict__
 
