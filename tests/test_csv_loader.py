@@ -8,6 +8,7 @@ warehouse.
 from __future__ import annotations
 
 import datetime
+import gzip
 import re
 from pathlib import Path
 
@@ -21,6 +22,7 @@ from power_market_analytics.csv_loader import (
     CsvColumn,
     CsvLoader,
     CsvTableSchema,
+    python_codec,
 )
 from tests.support import REPO_ROOT
 
@@ -227,6 +229,12 @@ class TestPositionalLoad:
         )
         assert not spark.catalog.tableExists("test_csv_loader.nulls")
 
+    def test_reports_are_empty_for_frames_without_a_source_file_column(self, spark, tmp_path):
+        loader = CsvLoader(POSITIONAL_SCHEMA, tmp_path, "t", spark=spark)
+        df = spark.createDataFrame([(1, "a"), (1, "b")], "id int, label string")
+        assert loader._nulls_by_file(df, ["label"]) == ""
+        assert loader._duplicates_by_file(df) == ""
+
     def test_duplicate_report_lists_keys_with_their_files(self, spark, tmp_path):
         write_utf8(tmp_path / "a.csv", ["id,label", "1,alpha", "2,beta"])
         write_utf8(tmp_path / "b.csv", ["id,label", "2,beta-again", "3,gamma"])
@@ -379,7 +387,9 @@ class TestCsvLoaderLoad:
         loader = CsvLoader(schema, tmp_path, "test_csv_loader.nulls", spark=spark)
         with pytest.raises(
             ValueError,
-            match=re.escape("nulls after casting (null count per column): {'id': 1, 'd': 2}") + "$",
+            match=re.escape(
+                "nulls after casting (null count per column): {'id': 1, 'd': 2}; by file"
+            ),
         ):
             loader.load()
         assert not spark.catalog.tableExists("test_csv_loader.nulls")
@@ -400,7 +410,7 @@ class TestCsvLoaderLoad:
         loader = CsvLoader(SCHEMA, tmp_path, "test_csv_loader.dup", spark=spark)
         with pytest.raises(
             ValueError,
-            match=re.escape("Grain ['id'] is not unique: 3 rows but 2 distinct keys") + "$",
+            match=re.escape("Grain ['id'] is not unique: 3 rows but 2 distinct keys; first 10"),
         ):
             loader.load()
         assert not spark.catalog.tableExists("test_csv_loader.dup")
@@ -461,3 +471,81 @@ class TestCsvLoaderConstruction:
         assert loader.spark is spark
         assert loader.load() == 1
         assert set(table_rows(spark, "test_csv_loader.default_session")) == {3}
+
+
+class TestHeaderGroupedRead:
+    def test_files_with_one_header_share_a_scan_and_layouts_are_unioned(self, spark, tmp_path):
+        write_utf8(tmp_path / "a.csv", FILE_A)
+        write_utf8(tmp_path / "a2.csv", FILE_A)
+        write_utf8(tmp_path / "b.csv", FILE_B)
+        loader = CsvLoader(SCHEMA, tmp_path, "test_csv_loader.groups", spark=spark)
+
+        df = loader._read_all(loader._resolve_files())
+
+        plan = df._jdf.queryExecution().analyzed().toString()
+        # Two layouts → exactly one Union of two scans, not a union per file.
+        assert plan.count("Union") == 1
+        assert sorted((r.id, r[SOURCE_FILE_COL]) for r in df.collect()) == [
+            (1, "a.csv"),
+            (1, "a2.csv"),
+            (2, "a.csv"),
+            (2, "a2.csv"),
+            (3, "b.csv"),
+        ]
+
+    def test_single_layout_is_one_scan_without_a_union(self, spark, tmp_path):
+        write_utf8(tmp_path / "a.csv", FILE_A)
+        write_utf8(tmp_path / "a2.csv", FILE_A)
+        loader = CsvLoader(SCHEMA, tmp_path, "t", spark=spark)
+        plan = loader._read_all(loader._resolve_files())._jdf.queryExecution().analyzed()
+        assert "Union" not in plan.toString()
+
+    def test_missing_required_column_is_reported_for_its_own_file(self, spark, tmp_path):
+        write_utf8(tmp_path / "a.csv", FILE_A)
+        lines = [",".join(v for i, v in enumerate(ln.split(",")) if i != 8) for ln in FILE_A]
+        write_utf8(tmp_path / "bad.csv", lines)
+        loader = CsvLoader(SCHEMA, tmp_path, "test_csv_loader.badfile", spark=spark)
+        with pytest.raises(
+            ValueError, match=re.escape("bad.csv is missing required columns: ['value(kWh)']")
+        ):
+            loader.load()
+
+    def test_gzip_files_are_sniffed_and_read(self, spark, tmp_path):
+        with gzip.open(tmp_path / "a.csv.gz", "wt", encoding="utf-8", newline="") as f:
+            f.write("\n".join(FILE_A) + "\n")
+        loader = CsvLoader(SCHEMA, tmp_path / "*.csv.gz", "test_csv_loader.gz", spark=spark)
+        assert loader.load() == 2
+
+    def test_header_sniff_honours_encoding_and_separator(self, spark, tmp_path):
+        schema = CsvTableSchema.model_validate(
+            {
+                "read_options": {"encoding": "windows-31j", "sep": ";"},
+                "columns": [
+                    {"name": "v", "source": "値", "type": "int"},
+                    {"name": "k", "source": "キー", "type": "string"},
+                ],
+            }
+        )
+        write_cp932(tmp_path / "j.csv", ["キー;値", "a;1"])
+        loader = CsvLoader(schema, tmp_path, "test_csv_loader.sep", spark=spark)
+        assert loader._read_header(str(tmp_path / "j.csv")) == ["キー", "値"]
+        assert loader.load() == 1
+
+    def test_loader_has_no_per_file_read(self):
+        assert "_read_file" not in CsvLoader.__dict__
+
+
+class TestPythonCodec:
+    @pytest.mark.parametrize(
+        "java, python",
+        [
+            ("windows-31j", "cp932"),
+            ("MS932", "cp932"),
+            ("UTF-8", "utf-8-sig"),
+            ("utf8", "utf-8-sig"),
+            ("Shift_JIS", "shift_jis"),
+            ("EUC-JP", "euc-jp"),
+        ],
+    )
+    def test_maps_java_charset_names(self, java, python):
+        assert python_codec(java) == python
