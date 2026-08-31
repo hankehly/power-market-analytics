@@ -403,9 +403,24 @@ class DashboardSpec:
         return sql_metric(f"avg(case when is_base then {self.contribution_col} end)", "Base value")
 
     def _minus_base_metric(self, column: str, label: str) -> dict:
-        """``avg(column) − base`` over the selection, the base read off the ``is_base`` row
-        of the same period — so the metric needs that row: never combine it with
-        ``NOT_BASE_FILTER``."""
+        """Ad-hoc metric ``avg(column) − base`` over the selection.
+
+        The base is read off the ``is_base`` row of the same period, so a chart
+        query using this metric must keep that row — never combine it with
+        ``NOT_BASE_FILTER``.
+
+        Parameters
+        ----------
+        column : str
+            Explanation-dataset column to average (the forecast or the actual).
+        label : str
+            Display label of the metric (the series name in legends).
+
+        Returns
+        -------
+        dict
+            A ``sql_metric`` definition.
+        """
         return sql_metric(
             f"avg({column}) - avg(case when is_base then {self.contribution_col} end)", label
         )
