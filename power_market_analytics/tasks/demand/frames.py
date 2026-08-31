@@ -203,13 +203,26 @@ PRIOR_YEAR_REFERENCE_RULES: tuple[str, ...] = (
     "same_holiday",
     "nearest_non_working_day",
 )
+#: How far back a reference can lie under those rules (dim_date's tests): the
+#: weekday rules give 357 / 364 / 371 days, the holiday rules up to 14 days
+#: either side of the same calendar date a year earlier (365 or 366 days).
+PRIOR_YEAR_REFERENCE_MIN_DAYS = 351
+PRIOR_YEAR_REFERENCE_MAX_DAYS = 380
+#: Exact lags of the weekday rules: 52 weeks, or 51 / 53 weeks when D-364 is a holiday.
+SAME_WEEKDAY_LAG_DAYS = 364
+SHIFTED_WEEKDAY_LAG_DAYS: tuple[int, ...] = (357, 371)
 
 
 class PriorYearCalendar(DomainFrame):
     """``dim_date``'s prior-year reference per delivery day: the day one year
     earlier that stands for it in a year-over-year comparison, and the rule
     that chose it (:data:`PRIOR_YEAR_REFERENCE_RULES`; the rules themselves
-    are the dimension's). The reference always precedes the day.
+    are the dimension's). The frame re-checks the dimension's contract at
+    this boundary so a mis-read calendar cannot silently feed the model a
+    lag that is not a year old: every reference lies
+    :data:`PRIOR_YEAR_REFERENCE_MIN_DAYS`-:data:`PRIOR_YEAR_REFERENCE_MAX_DAYS`
+    days back, a ``same_weekday`` one exactly :data:`SAME_WEEKDAY_LAG_DAYS`
+    and a ``same_weekday_shifted`` one :data:`SHIFTED_WEEKDAY_LAG_DAYS`.
 
     Grain: (trade_date).
     """
@@ -233,3 +246,31 @@ class PriorYearCalendar(DomainFrame):
                 f"{cls.__name__}: prior_year_reference_date is not before trade_date on "
                 f"{len(late)} day(s) (e.g. {late.iloc[0]['trade_date'].date()})"
             )
+        lag_days = (df["trade_date"] - df["prior_year_reference_date"]).dt.days
+        outside = df[
+            (lag_days < PRIOR_YEAR_REFERENCE_MIN_DAYS) | (lag_days > PRIOR_YEAR_REFERENCE_MAX_DAYS)
+        ]
+        if not outside.empty:
+            first = outside.index[0]
+            raise ValueError(
+                f"{cls.__name__}: prior_year_reference_date must lie "
+                f"{PRIOR_YEAR_REFERENCE_MIN_DAYS}-{PRIOR_YEAR_REFERENCE_MAX_DAYS} days before "
+                f"trade_date; {len(outside)} day(s) do not "
+                f"(e.g. {df.loc[first, 'trade_date'].date()}: {int(lag_days.loc[first])} days)"
+            )
+        for rule, allowed, label in (
+            ("same_weekday", (SAME_WEEKDAY_LAG_DAYS,), f"{SAME_WEEKDAY_LAG_DAYS}"),
+            (
+                "same_weekday_shifted",
+                SHIFTED_WEEKDAY_LAG_DAYS,
+                " or ".join(str(d) for d in SHIFTED_WEEKDAY_LAG_DAYS),
+            ),
+        ):
+            bad = df[(df["prior_year_reference_rule"] == rule) & ~lag_days.isin(allowed)]
+            if not bad.empty:
+                first = bad.index[0]
+                raise ValueError(
+                    f"{cls.__name__}: a {rule} reference must be {label} days back; "
+                    f"{len(bad)} day(s) are not "
+                    f"(e.g. {df.loc[first, 'trade_date'].date()}: {int(lag_days.loc[first])} days)"
+                )
