@@ -1,6 +1,7 @@
 # power_market_analytics/tasks/demand/datasets.py
-"""Load demand history, observed and forecast temperature and the day-type
-calendar for the demand task."""
+"""Load demand history, observed and forecast temperature, the day-type
+calendar, the prior-year reference calendar and the hourly load history for the
+demand task."""
 
 from __future__ import annotations
 
@@ -15,10 +16,13 @@ from power_market_analytics.forecasting.frames import GRAIN_COLS
 from power_market_analytics.tasks.demand.features import day_type_code
 from power_market_analytics.tasks.demand.frames import (
     DAY_TYPE_LEVELS,
+    PRIOR_YEAR_REFERENCE_RULES,
     AreaDemand,
+    AreaHourlyLoad,
     AreaTemperature,
     AreaTemperatureForecast,
     DayTypeCalendar,
+    PriorYearCalendar,
 )
 
 # The areas whose TSO actuals feed fct_area_demand_generation_actual (one
@@ -386,3 +390,115 @@ def load_day_types(spark: SparkSession | None = None) -> DayTypeCalendar:
         ),
     )
     return DayTypeCalendar.from_df(pdf)
+
+
+def load_prior_year_calendar(spark: SparkSession | None = None) -> PriorYearCalendar:
+    """Load the prior-year reference of every calendar day in ``dim_date``.
+
+    ``prior_year_reference_date`` is the day one year earlier that stands for
+    the delivery day in a year-over-year comparison and
+    ``prior_year_reference_rule`` how the dimension chose it (the same weekday
+    52 weeks back, that weekday shifted a week because D-364 is a holiday, the
+    same-named holiday, or the nearest non-working day); the rules are the
+    dimension's, not the feature's. The whole spine is returned; a delivery
+    day beyond it has no reference and is unforecastable for a strategy that
+    needs one. The rule mix is logged.
+
+    Parameters
+    ----------
+    spark : pyspark.sql.SparkSession, optional
+        Existing session to reuse.
+
+    Returns
+    -------
+    PriorYearCalendar
+
+    Raises
+    ------
+    ValueError
+        If ``dim_date`` returns no rows or the result violates the
+        PriorYearCalendar contract.
+    """
+    pdf = query_pandas(
+        """
+        select
+          d.date_key as trade_date,
+          d.prior_year_reference_date,
+          d.prior_year_reference_rule
+        from pma_curated.dim_date d
+        """,
+        spark=spark,
+    )
+    if pdf.empty:
+        raise ValueError("No calendar days found in dim_date")
+    pdf = pdf.assign(
+        trade_date=lambda d: pd.to_datetime(d["trade_date"]),
+        prior_year_reference_date=lambda d: pd.to_datetime(d["prior_year_reference_date"]),
+    ).sort_values("trade_date", ignore_index=True)
+    counts = pdf["prior_year_reference_rule"].value_counts()
+    logger.info(
+        "load_prior_year_calendar: {} days ({})",
+        len(pdf),
+        ", ".join(f"{rule}={int(counts.get(rule, 0))}" for rule in PRIOR_YEAR_REFERENCE_RULES),
+    )
+    return PriorYearCalendar.from_df(pdf)
+
+
+def load_area_hourly_load(
+    area_code: str = "tokyo", spark: SparkSession | None = None
+) -> AreaHourlyLoad:
+    """Load the full hourly load history of one area.
+
+    Reads ``fct_area_power_usage_hourly`` — the TSO でんき予報 hourly
+    電力使用状況 series (Tokyo: 2016-04-01 onward, gapless), energy over the
+    hour in kWh — the source of the demand task's year-ago load feature. It
+    is the only public area demand before the A-1 series begins (2022-04) and,
+    by research decision (demand/R-004), the single source for the whole
+    history rather than a stitch with the A-1 fact. ``hour_ending`` is the
+    fact's ``hour_of_day`` + 1, the hour convention of the temperature frames.
+
+    Parameters
+    ----------
+    area_code : str, default "tokyo"
+        dim_area.area_code value, e.g. ``tokyo``.
+    spark : pyspark.sql.SparkSession, optional
+        Existing session to reuse.
+
+    Returns
+    -------
+    AreaHourlyLoad
+
+    Raises
+    ------
+    ValueError
+        If the area has no hourly load rows or the result violates the
+        AreaHourlyLoad contract.
+    """
+    pdf = query_pandas(
+        f"""
+        select
+          f.date_key as load_date,
+          f.hour_of_day + 1 as hour_ending,
+          f.demand_kwh
+        from pma_curated.fct_area_power_usage_hourly f
+        join pma_curated.dim_area a on f.area_key = a.area_key
+        where a.area_code = '{area_code}'
+        """,
+        spark=spark,
+    )
+    if pdf.empty:
+        raise ValueError(f"No hourly load history found for area_code={area_code!r}")
+    pdf = (
+        pdf.assign(load_date=lambda d: pd.to_datetime(d["load_date"]))
+        .astype({"hour_ending": "int64", "demand_kwh": "float64"})
+        .sort_values(["load_date", "hour_ending"], ignore_index=True)
+    )
+    logger.info(
+        "load_area_hourly_load: {} hours over {} days ({}..{}) for {}",
+        len(pdf),
+        pdf["load_date"].nunique(),
+        pdf["load_date"].iloc[0].date(),
+        pdf["load_date"].iloc[-1].date(),
+        area_code,
+    )
+    return AreaHourlyLoad.from_df(pdf)
