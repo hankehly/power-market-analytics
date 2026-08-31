@@ -19,6 +19,7 @@ Research is organised per forecasting task, mirroring
 docs/research/
 ├── README.md                  # this file: shared conventions
 ├── investigation-template.md  # shared template, copied for every investigation
+├── papers.md                  # link index of external papers cited by the research docs
 ├── spot_price/                # JEPX day-ahead spot price
 │   ├── README.md              # task index + scope defaults
 │   ├── observations.md        # O-XXX log
@@ -37,6 +38,10 @@ docs/research/
 
 Adding a task = a new folder with the same three files, plus a row here and a
 group in `docs/_sidebar.md`.
+
+External papers that the observations and investigations cite are indexed
+in [`papers.md`](research/papers.md) — links only (no PDFs in the repo), one
+row per paper: what it is, the PDF, and which research doc cites it.
 
 ## Conventions
 
