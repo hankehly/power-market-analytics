@@ -125,7 +125,12 @@
   a mean per period) drives base / forecast / actual / net-effect tiles, a `waterfall` of the
   mean per-period feature contributions (the base is a tile, not a bar: Superset's value axis
   always includes zero; bars sort by label, hence the `00 base`, `01 time_code`…
-  `component_label` prefix), the component table and stacked contributions by period. Runs
+  `component_label` prefix), the component table and **Contributions by period**, a Mixed Chart:
+  the features' contributions stacked per `time_code` (base row filtered out, so the bars sit at
+  the contributions' scale around zero) with two lines on the same axis — `Forecast − base`, the
+  signed sum of the bars (a stack of mixed signs has no visible edge for it), and
+  `Actual − base`; the gap between the lines is the period's error. Both line metrics read the
+  base off the period's base row, so the chart's query B is unfiltered. Runs
   published before 2026-08-26 have no contributions and show an empty tab until re-run. After a
   backtest run, both marts must be rebuilt before the dashboards make sense — `just dbt build
   --select +fct_<task>_forecast_accuracy +fct_<task>_forecast_contribution`;
