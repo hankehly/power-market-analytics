@@ -17,7 +17,8 @@ REST API, so everything is reproducible from the repo after a
   histogram), runs & drilldown (run leaderboard, worst days, 30-minute
   detail) — and **Explanation (SHAP)** — base / forecast / actual /
   net-effect tiles, the waterfall of mean per-period feature contributions,
-  the component table, stacked contributions by period
+  the component table, and the contributions by period — stacked bars with the
+  forecast and the actual, both relative to the base, as lines on the same axis
 - the dashboard, with a required single-select Run filter (all charts except
   the cross-run leaderboard) plus an optional Day filter scoped to the
   Explanation tab (cascading from Run); the 30-minute detail chart carries
@@ -401,13 +402,30 @@ class DashboardSpec:
     def base_value_metric(self) -> dict:
         return sql_metric(f"avg(case when is_base then {self.contribution_col} end)", "Base value")
 
+    def _minus_base_metric(self, column: str, label: str) -> dict:
+        """``avg(column) − base`` over the selection, the base read off the ``is_base`` row
+        of the same period — so the metric needs that row: never combine it with
+        ``NOT_BASE_FILTER``."""
+        return sql_metric(
+            f"avg({column}) - avg(case when is_base then {self.contribution_col} end)", label
+        )
+
     @property
     def net_effect_metric(self) -> dict:
         """forecast − base = the sum of the feature contributions (the waterfall's Total)."""
-        return sql_metric(
-            f"avg({self.forecast_col}) - avg(case when is_base then {self.contribution_col} end)",
-            "Net feature effect",
-        )
+        return self._minus_base_metric(self.forecast_col, "Net feature effect")
+
+    @property
+    def forecast_minus_base_metric(self) -> dict:
+        """The net effect again, labelled for the by-period chart's legend: the line the
+        stacked feature contributions sum to."""
+        return self._minus_base_metric(self.forecast_col, "Forecast − base")
+
+    @property
+    def actual_minus_base_metric(self) -> dict:
+        """actual − base: the actual in the contributions' base-relative frame, so its
+        distance from ``forecast_minus_base_metric`` is the period's error."""
+        return self._minus_base_metric(self.actual_col, "Actual − base")
 
 
 SPOT_PRICE = DashboardSpec(
@@ -1132,7 +1150,16 @@ def feature_table_params(spec: DashboardSpec, dataset_id: int) -> dict:
 
 
 def contribution_by_period_params(spec: DashboardSpec, dataset_id: int) -> dict:
-    """Params for the stacked bars of each feature's contribution over the day's 48 periods.
+    """Params for the by-period chart: each feature's contribution stacked over the day's
+    48 periods, with the forecast and the actual — both relative to the base — as lines.
+
+    A Superset Mixed Chart. Query A stacks the mean contribution per ``time_code``
+    of each feature (the base row filtered out, see ``NOT_BASE_FILTER``, so the
+    bars sit around zero at the contributions' scale). Query B draws two lines on
+    the *same* y-axis: ``Forecast − base`` — the signed sum of the bars, which a
+    stack of mixed signs has no visible edge for — and ``Actual − base``; the
+    vertical gap between the lines is the period's error. Query B is unfiltered:
+    both metrics read the period's base off its base row.
 
     Parameters
     ----------
@@ -1146,20 +1173,41 @@ def contribution_by_period_params(spec: DashboardSpec, dataset_id: int) -> dict:
     """
     return {
         "datasource": f"{dataset_id}__table",
-        "viz_type": "echarts_timeseries_bar",
+        "viz_type": "mixed_timeseries",
         "x_axis": "time_code",
         "time_grain_sqla": None,
-        "x_axis_sort_asc": True,
+        # Query A: one stacked bar per feature
         "metrics": [spec.contribution_metric],
         "groupby": ["component_label"],
         "adhoc_filters": [NOT_BASE_FILTER],
         "order_desc": False,
         "row_limit": 10000,
-        "stack": "Stack",
+        "seriesType": "bar",
+        "stack": True,
+        "area": False,
+        "show_value": False,
+        "markerEnabled": False,
+        "markerSize": 6,
+        "yAxisIndex": 0,
+        # Query B: the forecast and the actual relative to the base, as lines
+        "metrics_b": [spec.forecast_minus_base_metric, spec.actual_minus_base_metric],
+        "groupby_b": [],
+        "adhoc_filters_b": [],
+        "order_desc_b": False,
+        "row_limit_b": 10000,
+        "seriesTypeB": "line",
+        "stackB": False,
+        "areaB": False,
+        "show_valueB": False,
+        "markerEnabledB": True,
+        "markerSizeB": 6,
+        "yAxisIndexB": 0,
+        # Chart options
         "show_legend": True,
         "legendType": "scroll",
         "legendOrientation": "top",
         "rich_tooltip": True,
+        "tooltipTimeFormat": "smart_date",
         "y_axis_format": spec.axis_format,
         "y_axis_title": spec.unit,
         "y_axis_title_margin": 30,
