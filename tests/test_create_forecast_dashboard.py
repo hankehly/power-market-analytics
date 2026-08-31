@@ -695,6 +695,26 @@ class TestDashboardSpecs:
         assert demand.net_effect_metric["label"] == "Net feature effect"
         assert demand.net_effect_metric["optionName"] == "metric_net_feature_effect"
 
+    def test_minus_base_metrics_read_the_base_row_of_the_same_period(self, script, spot, demand):
+        # Same quantity as the net effect, labelled for the by-period chart's legend
+        assert (
+            spot.forecast_minus_base_metric["sqlExpression"]
+            == (spot.net_effect_metric["sqlExpression"])
+        )
+        assert demand.forecast_minus_base_metric["label"] == "Forecast − base"
+        assert spot.actual_minus_base_metric["sqlExpression"] == (
+            "avg(actual_price_jpy_kwh) - avg(case when is_base then contribution_price_jpy_kwh end)"
+        )
+        assert demand.actual_minus_base_metric["sqlExpression"] == (
+            "avg(actual_demand_mwh) - avg(case when is_base then contribution_mwh end)"
+        )
+        assert demand.actual_minus_base_metric["label"] == "Actual − base"
+        assert demand.actual_minus_base_metric["expressionType"] == "SQL"
+        assert (
+            demand.forecast_minus_base_metric["optionName"]
+            != demand.actual_minus_base_metric["optionName"]
+        )
+
 
 # --------------------------------------------------------------------------- dataset
 class TestUpsertDataset:
@@ -1089,19 +1109,34 @@ class TestChartParams:
     def test_contribution_by_period(self, script, spec):
         p = script.contribution_by_period_params(spec, 7)
         assert p["datasource"] == "7__table"
-        assert p["viz_type"] == "echarts_timeseries_bar"
+        assert p["viz_type"] == "mixed_timeseries"
         assert p["x_axis"] == "time_code"
-        assert p["groupby"] == ["component_label"]
+        assert p["time_grain_sqla"] is None
+        # Query A: one stacked bar per feature (the base row filtered out)
         assert p["metrics"] == [spec.contribution_metric]
-        assert p["stack"] == "Stack"
+        assert p["groupby"] == ["component_label"]
         assert p["adhoc_filters"] == [script.NOT_BASE_FILTER]
-        assert p["x_axis_sort_asc"] is True
+        assert p["seriesType"] == "bar"
+        assert p["stack"] is True
+        assert p["yAxisIndex"] == 0
         assert p["order_desc"] is False
+        assert p["row_limit"] == 10000
+        # Query B: forecast and actual, both relative to the base, as lines on the same axis
+        assert p["metrics_b"] == [spec.forecast_minus_base_metric, spec.actual_minus_base_metric]
+        assert p["groupby_b"] == []
+        assert p["adhoc_filters_b"] == []  # the base row stays: both metrics read it
+        assert p["seriesTypeB"] == "line"
+        assert p["stackB"] is False
+        assert p["markerEnabledB"] is True
+        assert p["yAxisIndexB"] == 0
+        assert p["order_desc_b"] is False
+        assert p["row_limit_b"] == 10000
         assert p["show_legend"] is True
         assert p["legendOrientation"] == "top"
+        assert p["rich_tooltip"] is True
         assert p["y_axis_format"] == spec.axis_format
         assert p["y_axis_title"] == spec.unit
-        assert p["row_limit"] == 10000
+        assert p["truncateYAxis"] is False
         assert p["extra_form_data"] == {}
 
     def test_every_builder_targets_the_dataset_and_starts_unfiltered(self, script, spec):
@@ -1664,7 +1699,12 @@ class TestBuildDashboard:
         assert by_name["Net feature effect"]["y_axis_format"] == "+,.1f"
         assert by_name["SHAP waterfall"]["viz_type"] == "waterfall"
         assert by_name["Feature values & contributions"]["viz_type"] == "table"
-        assert by_name["Contributions by period"]["stack"] == "Stack"
+        assert by_name["Contributions by period"]["viz_type"] == "mixed_timeseries"
+        assert by_name["Contributions by period"]["stack"] is True
+        assert by_name["Contributions by period"]["metrics_b"] == [
+            demand.forecast_minus_base_metric,
+            demand.actual_minus_base_metric,
+        ]
 
         # dashboard
         (dashboard,) = superset.rows["dashboard"].values()
