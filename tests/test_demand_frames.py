@@ -263,6 +263,51 @@ class TestPriorYearCalendar:
         with pytest.raises(ValueError, match="column 'prior_year_reference_date' has 1 null"):
             PriorYearCalendar.from_df(prior_year_df([D1], [pd.NaT], ["same_weekday"]))
 
+    @pytest.mark.parametrize(
+        "back, rule", [(350, "same_holiday"), (381, "nearest_non_working_day"), (7, "same_weekday")]
+    )
+    def test_reference_outside_the_year_ago_window_rejected(self, back, rule):
+        # dim_date's rules place the reference 351-380 days back (357 / 364 / 371
+        # for the weekday rules, the same calendar date a year earlier +-14 days
+        # for the holiday rules); anything else is not a year-ago reference.
+        with pytest.raises(
+            ValueError,
+            match=r"PriorYearCalendar: prior_year_reference_date must lie 351-380 days before "
+            rf"trade_date; 1 day\(s\) do not \(e\.g\. 2024-04-01: {back} days\)",
+        ):
+            PriorYearCalendar.from_df(prior_year_df([D1], [D1 - pd.Timedelta(days=back)], [rule]))
+
+    def test_same_weekday_must_be_364_days_back(self):
+        with pytest.raises(
+            ValueError,
+            match=r"PriorYearCalendar: a same_weekday reference must be 364 days back; "
+            r"1 day\(s\) are not \(e\.g\. 2024-04-01: 357 days\)",
+        ):
+            PriorYearCalendar.from_df(
+                prior_year_df([D1], [D1 - pd.Timedelta(days=357)], ["same_weekday"])
+            )
+
+    def test_shifted_weekday_must_be_357_or_371_days_back(self):
+        with pytest.raises(
+            ValueError,
+            match=r"PriorYearCalendar: a same_weekday_shifted reference must be 357 or 371 days "
+            r"back; 1 day\(s\) are not \(e\.g\. 2024-04-01: 364 days\)",
+        ):
+            PriorYearCalendar.from_df(
+                prior_year_df([D1], [D1 - pd.Timedelta(days=364)], ["same_weekday_shifted"])
+            )
+
+    def test_holiday_rules_accept_any_day_in_the_window(self):
+        d2 = D1 + pd.Timedelta(days=1)
+        out = PriorYearCalendar.from_df(
+            prior_year_df(
+                [D1, d2],
+                [D1 - pd.Timedelta(days=351), d2 - pd.Timedelta(days=380)],
+                ["same_holiday", "nearest_non_working_day"],
+            )
+        )
+        assert len(out) == 2
+
     def test_duplicate_day_rejected(self):
         ref = D1 - pd.Timedelta(days=364)
         with pytest.raises(ValueError, match="grain .* not unique"):
