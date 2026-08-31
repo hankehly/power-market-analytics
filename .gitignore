@@ -59,5 +59,8 @@ tmp/
 .claude/worktrees/
 .claude/settings.local.json
 
+# Codex
+.codex/
+
 # Subagent-driven-development scratch (ledgers, briefs, review packages)
 .superpowers/
