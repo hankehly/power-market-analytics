@@ -165,12 +165,6 @@ DEMAND_HOLE_TIME_CODES = range(11, 49)
 TEMPERATURE_MISSING_HOURS = {(pd.Timestamp("2024-04-25"), 13), (pd.Timestamp("2024-04-25"), 14)}
 #: Delivery day with no MSM forecast rows at all (a day whose GRIB files were never fetched).
 FORECAST_MISSING_DAY = pd.Timestamp("2024-05-15")
-#: Days of hourly load history (fct_area_power_usage_hourly, tokyo): from the
-#: earliest prior-year reference a DEMAND_DAYS day can have (371 days before the
-#: first) through the last demand day, so every reference day has a load.
-HOURLY_LOAD_DAYS = pd.date_range(
-    DEMAND_DAYS[0] - pd.Timedelta(days=371), DEMAND_DAYS[-1], freq="D"
-)
 
 
 def synthetic_price(day: pd.Timestamp, time_code: int) -> float:
@@ -219,26 +213,6 @@ def synthetic_forecast_temperature(day: pd.Timestamp, hour_ending: int) -> float
     return round(synthetic_temperature(day, hour_ending) + 0.3 * math.cos(hour_ending / 3.0), 2)
 
 
-def synthetic_hourly_load(day: pd.Timestamp, hour_of_day: int) -> int:
-    """Deterministic hourly energy in kWh: daily shape, weekend dip, slow drift.
-
-    Multiples of 10,000 like the でんき予報 fact (integer 万kW × 10,000).
-    """
-    day_index = (day - HOURLY_LOAD_DAYS[0]).days
-    shape = 30_000_000 - 8_000_000 * math.cos(2 * math.pi * hour_of_day / 24)
-    weekend = -2_000_000 if day.dayofweek >= 5 else 0
-    return int(round((shape + weekend + 10_000 * day_index) / 10_000) * 10_000)
-
-
-def synthetic_prior_year_reference(day: pd.Timestamp) -> tuple[pd.Timestamp, str]:
-    """dim_date's prior-year reference in the fixture: a holiday takes the same
-    calendar date a year earlier (``same_holiday``), every other day the same
-    weekday 52 weeks back (``same_weekday``)."""
-    if day in HOLIDAYS_2024_SPRING:
-        return day - pd.DateOffset(years=1), "same_holiday"
-    return day - pd.Timedelta(days=364), "same_weekday"
-
-
 @dataclasses.dataclass(frozen=True)
 class CuratedWarehouse:
     """What ``curated_warehouse`` created, as the pandas frames it wrote.
@@ -267,11 +241,7 @@ class CuratedWarehouse:
         Contents of ``fct_demand_forecast_accuracy`` (tokyo; the two matched
         demand runs over ``ACCURACY_DAYS`` and the unmatched one).
     dates : pandas.DataFrame
-        Contents of ``dim_date`` over ``DEMAND_DAYS`` (weekend / holiday flags,
-        prior-year reference date and rule per ``synthetic_prior_year_reference``).
-    hourly_load : pandas.DataFrame
-        Contents of ``fct_area_power_usage_hourly`` (tokyo, ``HOURLY_LOAD_DAYS``
-        × hours 0-23, ``synthetic_hourly_load``).
+        Contents of ``dim_date`` over ``DEMAND_DAYS`` (weekend / holiday flags).
     station_weights : pandas.DataFrame
         Contents of ``fct_census_population_jma_station`` (tokyo area, the
         ``STATION_POPULATION_WEIGHTS`` vintages; plus kansai's and chubu's single
@@ -289,7 +259,6 @@ class CuratedWarehouse:
     station_weights: pd.DataFrame
     demand_accuracy: pd.DataFrame
     dates: pd.DataFrame
-    hourly_load: pd.DataFrame
 
 
 @pytest.fixture(scope="session")
@@ -376,34 +345,13 @@ def curated_warehouse(spark: SparkSession) -> CuratedWarehouse:
                     }
                 )
     demand_accuracy = pd.DataFrame(demand_accuracy_rows)
-    references = [synthetic_prior_year_reference(day) for day in DEMAND_DAYS]
     dates = pd.DataFrame(
         {
             "date_key": [day.date() for day in DEMAND_DAYS],
             "is_weekend": [day.dayofweek >= 5 for day in DEMAND_DAYS],
             "is_holiday": [day in HOLIDAYS_2024_SPRING for day in DEMAND_DAYS],
-            "prior_year_reference_date": [reference.date() for reference, _ in references],
-            "prior_year_reference_rule": [rule for _, rule in references],
         }
     )
-    hourly_load_rows: list[tuple] = []
-    hourly_load_records: list[dict] = []
-    for day in HOURLY_LOAD_DAYS:
-        for hour in range(24):
-            load_kwh = synthetic_hourly_load(day, hour)
-            hourly_load_rows.append(
-                (
-                    day.date(),
-                    hour,
-                    TOKYO_AREA_KEY,
-                    (day + pd.Timedelta(hours=hour)).to_pydatetime(),
-                    load_kwh,
-                )
-            )
-            hourly_load_records.append(
-                {"date_key": day.date(), "hour_of_day": hour, "demand_kwh": load_kwh}
-            )
-    hourly_load = pd.DataFrame(hourly_load_records)
 
     demand_rows: list[tuple] = []
     demand_records: list[dict] = []
@@ -589,15 +537,8 @@ def curated_warehouse(spark: SparkSession) -> CuratedWarehouse:
         "actual_demand_kwh double, forecast_demand_kwh double",
     ).write.mode("overwrite").saveAsTable("pma_curated.fct_demand_forecast_accuracy")
     spark.createDataFrame(
-        dates,
-        "date_key date, is_weekend boolean, is_holiday boolean, "
-        "prior_year_reference_date date, prior_year_reference_rule string",
+        dates, "date_key date, is_weekend boolean, is_holiday boolean"
     ).write.mode("overwrite").saveAsTable("pma_curated.dim_date")
-    spark.createDataFrame(
-        hourly_load_rows,
-        "date_key date, hour_of_day int, area_key int, delivery_datetime timestamp, "
-        "demand_kwh bigint",
-    ).write.mode("overwrite").saveAsTable("pma_curated.fct_area_power_usage_hourly")
     return CuratedWarehouse(
         areas=AREAS,
         prices=prices,
@@ -610,5 +551,4 @@ def curated_warehouse(spark: SparkSession) -> CuratedWarehouse:
         station_weights=station_weights,
         demand_accuracy=demand_accuracy,
         dates=dates,
-        hourly_load=hourly_load,
     )

@@ -7,15 +7,12 @@ from pyspark.sql import SparkSession
 
 from power_market_analytics.forecasting.strategy import ForecastStrategy
 from power_market_analytics.tasks.demand.datasets import (
-    load_area_hourly_load,
     load_area_temperature,
     load_area_temperature_forecast,
     load_area_temperature_forecast_population_weighted,
     load_day_types,
-    load_prior_year_calendar,
 )
 from power_market_analytics.tasks.demand.strategies.lgbm import (
-    LightGbmMsmPopWeightedDayTypeLag1yStrategy,
     LightGbmMsmPopWeightedDayTypeStrategy,
     LightGbmMsmPopWeightedStrategy,
     LightGbmMsmStrategy,
@@ -29,7 +26,6 @@ STRATEGIES: dict[str, type[LightGbmStrategy]] = {
     LightGbmMsmStrategy.name: LightGbmMsmStrategy,
     LightGbmMsmPopWeightedStrategy.name: LightGbmMsmPopWeightedStrategy,
     LightGbmMsmPopWeightedDayTypeStrategy.name: LightGbmMsmPopWeightedDayTypeStrategy,
-    LightGbmMsmPopWeightedDayTypeLag1yStrategy.name: LightGbmMsmPopWeightedDayTypeLag1yStrategy,
 }
 
 
@@ -47,9 +43,8 @@ def build_strategy(
     ``train_start_date`` forwarded; strategies that also consume the MSM
     forecast temperature get it loaded too — at the representative station,
     or population-weighted over the area's stations with the latest census
-    vintage — the day-type strategy the ``dim_date`` calendar as well, and the
-    year-ago-load strategy the prior-year reference calendar and the area's
-    hourly load history on top. Callers only deal in registry names.
+    vintage — and the day-type strategy the ``dim_date`` calendar as well.
+    Callers only deal in registry names.
 
     Parameters
     ----------
@@ -73,21 +68,10 @@ def build_strategy(
         If ``name`` is not registered.
     ValueError
         If the area has no temperature observations (or, for a strategy that
-        needs them, no temperature forecasts or no hourly load history).
+        needs them, no temperature forecasts).
     """
     cls = STRATEGIES[name]
     temperature = load_area_temperature(area_code, spark=spark)
-    if issubclass(cls, LightGbmMsmPopWeightedDayTypeLag1yStrategy):
-        weighted = load_area_temperature_forecast_population_weighted(area_code, spark=spark)
-        return cls(
-            temperature,
-            weighted.forecast,
-            load_day_types(spark=spark),
-            load_prior_year_calendar(spark=spark),
-            load_area_hourly_load(area_code, spark=spark),
-            census_year=weighted.census_year,
-            train_start_date=train_start_date,
-        )
     if issubclass(cls, LightGbmMsmPopWeightedDayTypeStrategy):
         weighted = load_area_temperature_forecast_population_weighted(area_code, spark=spark)
         return cls(

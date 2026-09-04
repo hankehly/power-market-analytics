@@ -1,4 +1,4 @@
-"""Temperature, calendar and year-ago load features for the demand forecasting task."""
+"""Temperature and calendar features for the demand forecasting task."""
 
 from __future__ import annotations
 
@@ -8,11 +8,9 @@ import pandas as pd
 from power_market_analytics.forecasting.frames import GRAIN_COLS
 from power_market_analytics.tasks.demand.frames import (
     DAY_TYPE_LEVELS,
-    AreaHourlyLoad,
     AreaTemperature,
     AreaTemperatureForecast,
     DayTypeCalendar,
-    PriorYearCalendar,
 )
 
 #: Days before delivery day D whose same-hour temperature enters the feature:
@@ -32,13 +30,6 @@ POPW_FORECAST_TEMPERATURE_FEATURE = "popw_forecast_temperature_c"
 DAY_TYPE_FEATURE = "day_type"
 #: Code of each day-type level (its index in ``DAY_TYPE_LEVELS``).
 DAY_TYPE_CODES: dict[str, int] = {level: code for code, level in enumerate(DAY_TYPE_LEVELS)}
-#: The year-ago load: the hourly load on the delivery day's
-#: ``dim_date.prior_year_reference_date`` at the hour containing the period,
-#: expressed per delivery period.
-LAG_1Y_FEATURE = "lag_1y_demand_kwh"
-#: Delivery periods per hour: an hour's energy is spread evenly over its two
-#: 30-minute periods, which puts the hourly series on the target's scale.
-PERIODS_PER_HOUR = 2
 
 
 def hour_ending_of(time_code: pd.Series) -> pd.Series:
@@ -223,53 +214,3 @@ def join_day_type(
         calendar.df, how="left", on="trade_date", validate="many_to_one"
     )
     return points.assign(**{name: joined["day_type"].to_numpy(dtype="float64")})
-
-
-def join_prior_year_load(
-    points: pd.DataFrame,
-    calendar: PriorYearCalendar,
-    hourly_load: AreaHourlyLoad,
-    *,
-    name: str = LAG_1Y_FEATURE,
-) -> pd.DataFrame:
-    """Attach the year-ago load of the hour containing each period.
-
-    For a point (D, time_code) the feature is the hourly load on D's
-    ``prior_year_reference_date`` (per ``calendar``) at
-    ``hour_ending_of(time_code)``, divided by :data:`PERIODS_PER_HOUR` so the
-    hour's energy is spread evenly over its two delivery periods and the
-    value sits on the target's scale (kWh per 30-minute period). It is NaN
-    where D has no calendar row or the reference hour has no load.
-
-    Parameters
-    ----------
-    points : pandas.DataFrame
-        Rows keyed on (trade_date, time_code); other columns pass through.
-    calendar : PriorYearCalendar
-        Prior-year reference date of every delivery day.
-    hourly_load : AreaHourlyLoad
-        Hourly load history of the area.
-    name : str, optional
-        Name for the new column.
-
-    Returns
-    -------
-    pandas.DataFrame
-        ``points`` plus ``name`` (float64), in the original row order.
-    """
-    # The 48 periods of a day share its reference, hence many_to_one; a left
-    # merge keeps the left row order.
-    keyed = points[GRAIN_COLS].merge(
-        calendar.df[["trade_date", "prior_year_reference_date"]],
-        how="left",
-        on="trade_date",
-        validate="many_to_one",
-    )
-    keyed = keyed.assign(hour_ending=hour_ending_of(keyed["time_code"]))
-    load = hourly_load.df.rename(columns={"load_date": "prior_year_reference_date"})
-    # Two periods share an hour, hence many_to_one again.
-    joined = keyed.merge(
-        load, how="left", on=["prior_year_reference_date", "hour_ending"], validate="many_to_one"
-    )
-    per_period = joined["demand_kwh"].to_numpy(dtype="float64") / PERIODS_PER_HOUR
-    return points.assign(**{name: per_period})
