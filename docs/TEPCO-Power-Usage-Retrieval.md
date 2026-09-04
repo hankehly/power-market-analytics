@@ -20,9 +20,11 @@ the A-1 series already in the warehouse, and how
   (「過去の需要実績の修正をする場合に、実績修正のお知らせや修正前の需要実績の提供は
   いたしません」). TEPCO also warns that 端数処理の関係で1時間値と5分値の平均が一致しない.
 - **Why we load it**: it is the only public Tokyo-area demand history before
-  2022-04-01 (A-1 starts with the imbalance regime), so it is the source of a
-  year-ago load feature for the first year of the A-1 history. Only the hourly
-  table is loaded; see [§7](#7-not-ingested-the-5-minute-table).
+  2022-04-01 (A-1 starts with the imbalance regime). It was loaded as the source
+  of a year-ago load feature for the first year of the A-1 history
+  ([demand/R-004](research/demand/R-004-prior-year-load-lag.md), Not supported —
+  the feature was removed on 2026-09-05; the fact stays). Only the hourly table
+  is loaded; see [§7](#7-not-ingested-the-5-minute-table).
 - **Coverage**: hourly 2016-04-01 → yesterday (the previous day is posted ~06:00
   and revised ~18:30); the 5-minute table exists from 2022-04-01 only.
 
