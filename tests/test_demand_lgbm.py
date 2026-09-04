@@ -1,8 +1,7 @@
 """Tests for the demand LightGBM strategies: the baseline (calendar + temperature +
 D-7 lag), ``lightgbm_msm`` (baseline + the MSM forecast temperature),
-``lightgbm_msm_popw`` (baseline + the population-weighted MSM forecast temperature),
-``lightgbm_msm_popw_daytype`` (the same plus the day-type categorical) and
-``lightgbm_msm_popw_daytype_lag1y`` (the same plus the year-ago load).
+``lightgbm_msm_popw`` (baseline + the population-weighted MSM forecast temperature)
+and ``lightgbm_msm_popw_daytype`` (the same plus the day-type categorical).
 
 Everything runs for real — feature building, LightGBM fits, TreeSHAP records,
 MLflow logging into the session's temp file store — on a small synthetic
@@ -26,8 +25,6 @@ from power_market_analytics.forecasting.strategy import ForecastUnavailableError
 from power_market_analytics.tasks.demand.features import (
     DAY_TYPE_FEATURE,
     FORECAST_TEMPERATURE_FEATURE,
-    LAG_1Y_FEATURE,
-    PERIODS_PER_HOUR,
     POPW_FORECAST_TEMPERATURE_FEATURE,
     TEMPERATURE_FEATURE,
     TEMPERATURE_HALF_LIFE_DAYS,
@@ -36,27 +33,22 @@ from power_market_analytics.tasks.demand.features import (
 )
 from power_market_analytics.tasks.demand.frames import (
     AreaDemand,
-    AreaHourlyLoad,
     AreaTemperature,
     AreaTemperatureForecast,
     DayTypeCalendar,
     DemandBacktestResult,
     DemandForecast,
-    PriorYearCalendar,
 )
 from power_market_analytics.tasks.demand.strategies.lgbm import (
     DEMAND_LAG_FEATURE,
     FEATURE_COLS,
     MSM_FEATURE_COLS,
     MSM_POPW_DAY_TYPE_FEATURE_COLS,
-    MSM_POPW_DAY_TYPE_LAG1Y_FEATURE_COLS,
     MSM_POPW_FEATURE_COLS,
     DemandLightGbmEvalSet,
     DemandLightGbmMsmEvalSet,
     DemandLightGbmMsmPopWeightedDayTypeEvalSet,
-    DemandLightGbmMsmPopWeightedDayTypeLag1yEvalSet,
     DemandLightGbmMsmPopWeightedEvalSet,
-    LightGbmMsmPopWeightedDayTypeLag1yStrategy,
     LightGbmMsmPopWeightedDayTypeStrategy,
     LightGbmMsmPopWeightedStrategy,
     LightGbmMsmStrategy,
@@ -798,283 +790,3 @@ class TestMsmPopWeightedDayTypeBacktestEvalAndEvaluate:
         assert finished.data.metrics["n_refits"] == 2.0
         artifacts = {a.path for a in mlflow.MlflowClient().list_artifacts(active.info.run_id)}
         assert {"shap_beeswarm_plot.png", "shap_feature_importance_plot.png"} <= artifacts
-
-
-#: The synthetic prior-year calendar: every day's reference is the same weekday
-#: 52 weeks back (the holidays are labelled same_holiday so the rule mix is mixed).
-YEAR_AGO_DAYS = 364
-
-
-def hourly_load_at(day: pd.Timestamp, hour_ending: int) -> float:
-    """Hourly energy = the hour's two half-hourly demands summed, so the
-    per-period year-ago lag is their mean."""
-    return demand_at(day, 2 * hour_ending - 1) + demand_at(day, 2 * hour_ending)
-
-
-def make_hourly_load(days=HISTORY_DAYS) -> AreaHourlyLoad:
-    """Hourly load on the reference day of every day in ``days``."""
-    return AreaHourlyLoad.from_df(
-        pd.DataFrame(
-            [
-                {
-                    "load_date": day - pd.Timedelta(days=YEAR_AGO_DAYS),
-                    "hour_ending": h,
-                    "demand_kwh": hourly_load_at(day - pd.Timedelta(days=YEAR_AGO_DAYS), h),
-                }
-                for day in days
-                for h in range(1, 25)
-            ]
-        ).astype({"hour_ending": "int64"})
-    )
-
-
-def make_prior_year_calendar(days=HISTORY_DAYS) -> PriorYearCalendar:
-    return PriorYearCalendar.from_df(
-        pd.DataFrame(
-            {
-                "trade_date": list(days),
-                "prior_year_reference_date": [day - pd.Timedelta(days=YEAR_AGO_DAYS) for day in days],
-                "prior_year_reference_rule": [
-                    "same_holiday" if day in HOLIDAYS else "same_weekday" for day in days
-                ],
-            }
-        )
-    )
-
-
-def expected_lag_1y(day: pd.Timestamp, time_code: int) -> float:
-    hour = int(hour_ending_of(pd.Series([time_code], dtype="int64")).iloc[0])
-    return hourly_load_at(day - pd.Timedelta(days=YEAR_AGO_DAYS), hour) / PERIODS_PER_HOUR
-
-
-@pytest.fixture(scope="module")
-def prior_year() -> PriorYearCalendar:
-    return make_prior_year_calendar()
-
-
-@pytest.fixture(scope="module")
-def hourly_load() -> AreaHourlyLoad:
-    return make_hourly_load()
-
-
-class TestMsmPopWeightedDayTypeLag1yClassAttributes:
-    def test_features_and_frames(self):
-        assert LightGbmMsmPopWeightedDayTypeLag1yStrategy.name == "lightgbm_msm_popw_daytype_lag1y"
-        assert issubclass(
-            LightGbmMsmPopWeightedDayTypeLag1yStrategy, LightGbmMsmPopWeightedDayTypeStrategy
-        )
-        assert MSM_POPW_DAY_TYPE_LAG1Y_FEATURE_COLS == (
-            *MSM_POPW_DAY_TYPE_FEATURE_COLS,
-            LAG_1Y_FEATURE,
-        )
-        assert (
-            LightGbmMsmPopWeightedDayTypeLag1yStrategy.feature_cols
-            == MSM_POPW_DAY_TYPE_LAG1Y_FEATURE_COLS
-        )
-        # The day type stays the only categorical; the lag is numeric.
-        assert LightGbmMsmPopWeightedDayTypeLag1yStrategy.categorical_feature_cols == (
-            DAY_TYPE_FEATURE,
-        )
-        assert (
-            LightGbmMsmPopWeightedDayTypeLag1yStrategy.forecast_feature
-            == POPW_FORECAST_TEMPERATURE_FEATURE
-        )
-        assert (
-            LightGbmMsmPopWeightedDayTypeLag1yStrategy.lookback_days
-            == LightGbmStrategy.lookback_days
-        )
-        assert (
-            LightGbmMsmPopWeightedDayTypeLag1yStrategy.eval_set_cls
-            is DemandLightGbmMsmPopWeightedDayTypeLag1yEvalSet
-        )
-        assert issubclass(
-            DemandLightGbmMsmPopWeightedDayTypeLag1yEvalSet,
-            DemandLightGbmMsmPopWeightedDayTypeEvalSet,
-        )
-        assert (
-            DemandLightGbmMsmPopWeightedDayTypeLag1yEvalSet.feature_cols
-            == MSM_POPW_DAY_TYPE_LAG1Y_FEATURE_COLS
-        )
-        assert list(DemandLightGbmMsmPopWeightedDayTypeLag1yEvalSet.schema) == [
-            "trade_date",
-            "time_code",
-            "month",
-            "day_of_week",
-            TEMPERATURE_FEATURE,
-            DEMAND_LAG_FEATURE,
-            POPW_FORECAST_TEMPERATURE_FEATURE,
-            DAY_TYPE_FEATURE,
-            LAG_1Y_FEATURE,
-            "actual_demand_kwh",
-            "forecast_demand_kwh",
-        ]
-        assert DemandLightGbmMsmPopWeightedDayTypeLag1yEvalSet.schema[LAG_1Y_FEATURE] == "float64"
-        assert LAG_1Y_FEATURE in DemandLightGbmMsmPopWeightedDayTypeLag1yEvalSet.non_null_cols
-
-
-class TestMsmPopWeightedDayTypeLag1yPredict:
-    def make_strategy(
-        self, temperature, forecast_temperature, day_types, prior_year, hourly_load, **kwargs
-    ):
-        return LightGbmMsmPopWeightedDayTypeLag1yStrategy(
-            temperature,
-            forecast_temperature,
-            day_types,
-            prior_year,
-            hourly_load,
-            census_year=2020,
-            train_window_days=30,
-            **kwargs,
-        )
-
-    def test_features_are_the_day_type_ones_plus_the_year_ago_load(
-        self, demand, temperature, forecast_temperature, day_types, prior_year, hourly_load
-    ):
-        strategy = self.make_strategy(
-            temperature, forecast_temperature, day_types, prior_year, hourly_load
-        )
-        forecast = strategy.predict(D, visible(demand, D))
-        assert isinstance(forecast, DemandForecast)
-        assert np.isfinite(forecast.df["forecast_demand_kwh"]).all()
-        record = strategy._shap_records[pd.Timestamp(D).as_unit("ns")]
-        assert list(record.columns) == [
-            "trade_date",
-            "time_code",
-            "month",
-            "day_of_week",
-            TEMPERATURE_FEATURE,
-            DEMAND_LAG_FEATURE,
-            POPW_FORECAST_TEMPERATURE_FEATURE,
-            DAY_TYPE_FEATURE,
-            LAG_1Y_FEATURE,
-            *[f"shap_{c}" for c in MSM_POPW_DAY_TYPE_LAG1Y_FEATURE_COLS],
-            "shap_expected_value",
-        ]
-        # The year-ago hour's energy per period: the mean of its two half-hours
-        # a year (52 weeks) before D.
-        assert record[LAG_1Y_FEATURE].tolist() == [
-            expected_lag_1y(D, tc) for tc in range(1, 49)
-        ]
-        assert record[DEMAND_LAG_FEATURE].tolist() == [
-            demand_at(D - pd.Timedelta(days=7), tc) for tc in range(1, 49)
-        ]
-        np.testing.assert_allclose(
-            forecast.df["forecast_demand_kwh"].to_numpy(),
-            strategy._model.predict(
-                record[list(MSM_POPW_DAY_TYPE_LAG1Y_FEATURE_COLS)].astype("float64")
-            ),
-        )
-        reconstructed = record[list(strategy.shap_cols)].sum(axis=1) + record["shap_expected_value"]
-        np.testing.assert_allclose(
-            reconstructed.to_numpy(), forecast.df["forecast_demand_kwh"].to_numpy(), atol=1e-3
-        )
-
-    def test_lightgbm_is_still_told_only_day_type_is_categorical(
-        self, demand, temperature, forecast_temperature, day_types, prior_year, hourly_load
-    ):
-        strategy = self.make_strategy(
-            temperature, forecast_temperature, day_types, prior_year, hourly_load
-        )
-        strategy.predict(D, visible(demand, D))
-        booster = strategy._model.booster_
-        assert booster.dump_model()["feature_names"] == list(MSM_POPW_DAY_TYPE_LAG1Y_FEATURE_COLS)
-        assert booster.params["categorical_column"] == [
-            MSM_POPW_DAY_TYPE_LAG1Y_FEATURE_COLS.index(DAY_TYPE_FEATURE)
-        ]
-
-    def test_missing_year_ago_hour_is_unforecastable(
-        self, demand, temperature, forecast_temperature, day_types, prior_year
-    ):
-        without_d = make_hourly_load([day for day in HISTORY_DAYS if day != D])
-        strategy = self.make_strategy(
-            temperature, forecast_temperature, day_types, prior_year, without_d
-        )
-        with pytest.raises(
-            ForecastUnavailableError,
-            match=rf"lightgbm_msm_popw_daytype_lag1y: features \['{LAG_1Y_FEATURE}'\] "
-            "unavailable for 2024-04-10",
-        ):
-            strategy.predict(D, visible(demand, D))
-
-    def test_day_without_a_prior_year_reference_is_unforecastable(
-        self, demand, temperature, forecast_temperature, day_types, hourly_load
-    ):
-        without_d = make_prior_year_calendar([day for day in HISTORY_DAYS if day != D])
-        strategy = self.make_strategy(
-            temperature, forecast_temperature, day_types, without_d, hourly_load
-        )
-        with pytest.raises(
-            ForecastUnavailableError,
-            match=rf"lightgbm_msm_popw_daytype_lag1y: features \['{LAG_1Y_FEATURE}'\] "
-            "unavailable for 2024-04-10",
-        ):
-            strategy.predict(D, visible(demand, D))
-
-    def test_training_rows_without_a_year_ago_load_are_dropped(
-        self, demand, temperature, forecast_temperature, day_types, prior_year
-    ):
-        # No year-ago load before 03-20's reference: the 30-day window before D
-        # (03-11 .. 04-08) keeps only the 20 days 03-20 .. 04-08.
-        late = make_hourly_load(pd.date_range("2024-03-20", HISTORY_DAYS[-1]))
-        strategy = self.make_strategy(temperature, forecast_temperature, day_types, prior_year, late)
-        strategy.predict(D, visible(demand, D))
-        root = strategy._model.booster_.dump_model()["tree_info"][0]["tree_structure"]
-        n_rows = root["internal_count"] if "internal_count" in root else root["leaf_count"]
-        assert n_rows == 20 * 48
-
-
-class TestMsmPopWeightedDayTypeLag1yBacktestEvalAndEvaluate:
-    @pytest.fixture(scope="class")
-    def backtested(
-        self, demand, temperature, forecast_temperature, day_types, prior_year, hourly_load
-    ) -> tuple[LightGbmMsmPopWeightedDayTypeLag1yStrategy, BacktestRun]:
-        strategy = LightGbmMsmPopWeightedDayTypeLag1yStrategy(
-            temperature,
-            forecast_temperature,
-            day_types,
-            prior_year,
-            hourly_load,
-            census_year=2020,
-            train_window_days=30,
-            refit_every_days=7,
-        )
-        return strategy, run_backtest(strategy, demand, WINDOW_START, WINDOW_END)
-
-    def test_backtest_covers_the_window(self, backtested):
-        _, run = backtested
-        assert isinstance(run.result, DemandBacktestResult)
-        assert run.skipped_days == ()
-        assert len(run.result) == 14 * 48
-
-    def test_eval_set_carries_the_year_ago_load(self, backtested, demand):
-        strategy, run = backtested
-        eval_set = strategy.build_eval_set(demand, WINDOW_START, WINDOW_END, run=run)
-        assert type(eval_set) is DemandLightGbmMsmPopWeightedDayTypeLag1yEvalSet
-        assert len(eval_set) == 14 * 48
-        assert eval_set.df[LAG_1Y_FEATURE].dtype == "float64"
-        assert eval_set.df[LAG_1Y_FEATURE].tolist() == [
-            expected_lag_1y(day, tc)
-            for day, tc in zip(eval_set.df["trade_date"], eval_set.df["time_code"])
-        ]
-        assert eval_set.df[DAY_TYPE_FEATURE].dtype == "int64"
-
-    def test_evaluate_logs_the_lag_params_and_the_extended_feature_list(self, backtested, demand):
-        strategy, run = backtested
-        eval_set = strategy.build_eval_set(demand, WINDOW_START, WINDOW_END, run=run)
-        with mlflow.start_run() as active:
-            evaluation = strategy.evaluate(eval_set, explainability_nsamples=20)
-        finished = mlflow.get_run(active.info.run_id)
-        assert evaluation.metrics["mean_absolute_error"] >= 0
-        params = finished.data.params
-        assert params["lgbm_feature_cols"] == ",".join(MSM_POPW_DAY_TYPE_LAG1Y_FEATURE_COLS)
-        assert params["lgbm_categorical_feature_cols"] == DAY_TYPE_FEATURE
-        assert params["day_type_levels"] == "0=Weekday,1=Weekend,2=Holiday"
-        assert params["population_weight_census_year"] == "2020"
-        # The calendar's rule mix (58 plain days + the two holidays) and the
-        # hourly history the lag was read from.
-        assert params["prior_year_reference_rules"] == (
-            "same_weekday=58,same_weekday_shifted=0,same_holiday=2,nearest_non_working_day=0"
-        )
-        assert params["lag_1y_periods_per_hour"] == "2"
-        assert params["lag_1y_hourly_load_span"] == "2023-03-03..2023-05-01"
-        assert finished.data.metrics["n_refits"] == 2.0
