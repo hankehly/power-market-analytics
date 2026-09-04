@@ -7,7 +7,6 @@ import pytest
 
 from power_market_analytics.tasks.demand.strategies import STRATEGIES, build_strategy
 from power_market_analytics.tasks.demand.strategies.lgbm import (
-    LightGbmMsmPopWeightedDayTypeLag1yStrategy,
     LightGbmMsmPopWeightedDayTypeStrategy,
     LightGbmMsmPopWeightedStrategy,
     LightGbmMsmStrategy,
@@ -23,16 +22,11 @@ class TestRegistry:
             "lightgbm_msm",
             "lightgbm_msm_popw",
             "lightgbm_msm_popw_daytype",
-            "lightgbm_msm_popw_daytype_lag1y",
         ]
         assert STRATEGIES["lightgbm"] is LightGbmStrategy
         assert STRATEGIES["lightgbm_msm"] is LightGbmMsmStrategy
         assert STRATEGIES["lightgbm_msm_popw"] is LightGbmMsmPopWeightedStrategy
         assert STRATEGIES["lightgbm_msm_popw_daytype"] is LightGbmMsmPopWeightedDayTypeStrategy
-        assert (
-            STRATEGIES["lightgbm_msm_popw_daytype_lag1y"]
-            is LightGbmMsmPopWeightedDayTypeLag1yStrategy
-        )
 
 
 class TestBuildStrategy:
@@ -113,33 +107,6 @@ class TestBuildStrategy:
         assert not hasattr(
             build_strategy("lightgbm_msm_popw", area_code="tokyo", spark=spark), "day_types"
         )
-
-    def test_lightgbm_msm_popw_daytype_lag1y_loads_the_prior_year_calendar_and_hourly_load_too(
-        self, spark, curated_warehouse: CuratedWarehouse
-    ):
-        strategy = build_strategy(
-            "lightgbm_msm_popw_daytype_lag1y",
-            area_code="tokyo",
-            train_start_date=pd.Timestamp("2024-04-01"),
-            spark=spark,
-        )
-        assert type(strategy) is LightGbmMsmPopWeightedDayTypeLag1yStrategy
-        assert strategy.train_start_date == pd.Timestamp("2024-04-01")
-        assert strategy.census_year == 2020
-        assert len(strategy.temperature) == len(curated_warehouse.weather)
-        by_hour = curated_warehouse.weather_forecast.groupby(["date_key", "hour_ending"])
-        assert len(strategy.temperature_forecast) == by_hour.ngroups
-        assert len(strategy.day_types) == len(curated_warehouse.dates)
-        # One reference per dim_date day; one load per hour of the hourly fact.
-        assert len(strategy.prior_year_calendar) == len(curated_warehouse.dates)
-        assert len(strategy.hourly_load) == len(curated_warehouse.hourly_load)
-
-    def test_lightgbm_msm_popw_daytype_does_not_carry_the_year_ago_inputs(
-        self, spark, curated_warehouse
-    ):
-        strategy = build_strategy("lightgbm_msm_popw_daytype", area_code="tokyo", spark=spark)
-        assert not hasattr(strategy, "prior_year_calendar")
-        assert not hasattr(strategy, "hourly_load")
 
     def test_lightgbm_msm_area_without_weather_fails_on_the_observations_first(
         self, spark, curated_warehouse

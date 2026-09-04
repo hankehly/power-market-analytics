@@ -1,8 +1,7 @@
 """LightGBM strategies for area demand: the calendar + temperature + D-7 lag
 baseline, the same model plus the MSM forecast temperature at the representative
 station, the same again with that forecast population-weighted over the area's
-stations, that one plus the delivery day's type as a categorical, and that one
-plus the year-ago load on the day's prior-year reference date."""
+stations, and that one plus the delivery day's type as a categorical."""
 
 from __future__ import annotations
 
@@ -21,25 +20,19 @@ from power_market_analytics.tasks.demand import TASK
 from power_market_analytics.tasks.demand.features import (
     DAY_TYPE_FEATURE,
     FORECAST_TEMPERATURE_FEATURE,
-    LAG_1Y_FEATURE,
-    PERIODS_PER_HOUR,
     POPW_FORECAST_TEMPERATURE_FEATURE,
     TEMPERATURE_FEATURE,
     TEMPERATURE_HALF_LIFE_DAYS,
     TEMPERATURE_LAG_DAYS,
     join_day_type,
     join_forecast_temperature,
-    join_prior_year_load,
     recency_weighted_temperature,
 )
 from power_market_analytics.tasks.demand.frames import (
     DAY_TYPE_LEVELS,
-    PRIOR_YEAR_REFERENCE_RULES,
-    AreaHourlyLoad,
     AreaTemperature,
     AreaTemperatureForecast,
     DayTypeCalendar,
-    PriorYearCalendar,
 )
 
 DEMAND_LAG_FEATURE = "lag_7d_demand_kwh"
@@ -47,7 +40,6 @@ FEATURE_COLS = (*CALENDAR_FEATURE_COLS, TEMPERATURE_FEATURE, DEMAND_LAG_FEATURE)
 MSM_FEATURE_COLS = (*FEATURE_COLS, FORECAST_TEMPERATURE_FEATURE)
 MSM_POPW_FEATURE_COLS = (*FEATURE_COLS, POPW_FORECAST_TEMPERATURE_FEATURE)
 MSM_POPW_DAY_TYPE_FEATURE_COLS = (*MSM_POPW_FEATURE_COLS, DAY_TYPE_FEATURE)
-MSM_POPW_DAY_TYPE_LAG1Y_FEATURE_COLS = (*MSM_POPW_DAY_TYPE_FEATURE_COLS, LAG_1Y_FEATURE)
 TARGET_COL = TASK.actual_col
 FORECAST_COL = TASK.forecast_col
 
@@ -395,126 +387,3 @@ class LightGbmMsmPopWeightedDayTypeStrategy(LightGbmMsmPopWeightedStrategy):
         """
         levels = ",".join(f"{code}={level}" for code, level in enumerate(DAY_TYPE_LEVELS))
         return {**super()._extra_params(), "day_type_levels": levels}
-
-
-class DemandLightGbmMsmPopWeightedDayTypeLag1yEvalSet(DemandLightGbmMsmPopWeightedDayTypeEvalSet):
-    """Design matrix for :class:`LightGbmMsmPopWeightedDayTypeLag1yStrategy`: the
-    day-type design matrix plus the year-ago load.
-
-    Grain: (trade_date, time_code).
-    """
-
-    feature_cols = MSM_POPW_DAY_TYPE_LAG1Y_FEATURE_COLS
-    schema = {
-        "trade_date": "datetime64[ns]",
-        "time_code": "int64",
-        "month": "int64",
-        "day_of_week": "int64",
-        TEMPERATURE_FEATURE: "float64",
-        DEMAND_LAG_FEATURE: "float64",
-        POPW_FORECAST_TEMPERATURE_FEATURE: "float64",
-        DAY_TYPE_FEATURE: "int64",
-        LAG_1Y_FEATURE: "float64",
-        TARGET_COL: "float64",
-        FORECAST_COL: "float64",
-    }
-    non_null_cols = [*MSM_POPW_DAY_TYPE_LAG1Y_FEATURE_COLS, TARGET_COL, FORECAST_COL]
-
-
-class LightGbmMsmPopWeightedDayTypeLag1yStrategy(LightGbmMsmPopWeightedDayTypeStrategy):
-    """:class:`LightGbmMsmPopWeightedDayTypeStrategy` plus the year-ago load.
-
-    Experiment E-001 of docs/research/demand/R-004-prior-year-load-lag.md:
-    ``lag_1y_demand_kwh`` — the hourly load on the delivery day's
-    ``dim_date.prior_year_reference_date`` (the same weekday 52 weeks back,
-    shifted a week when that day is a holiday; the same-named holiday a year
-    earlier for a holiday) at the hour containing the period, spread evenly
-    over the hour's two periods so it sits on the target's scale — joins the
-    day-type feature set. The load is the TSO でんき予報 hourly series
-    (``fct_area_power_usage_hourly``; Tokyo from 2016-04-01), the single
-    source for the whole history by research decision, which is what gives
-    the first year of A-1 training rows (2022-04 onward) a year-ago value.
-    Everything else (model parameters, refit cadence, the other features, the
-    categorical day type) is unchanged. A training row without a year-ago
-    hour is dropped and a target day without one is unforecastable.
-
-    Parameters
-    ----------
-    temperature : AreaTemperature
-        Hourly observed temperature at the area's representative JMA station.
-    temperature_forecast : AreaTemperatureForecast
-        Population-weighted hourly MSM forecast temperature for the area, by
-        delivery day.
-    day_types : DayTypeCalendar
-        Day type of every calendar day (``load_day_types``).
-    prior_year_calendar : PriorYearCalendar
-        Prior-year reference of every calendar day (``load_prior_year_calendar``).
-    hourly_load : AreaHourlyLoad
-        Hourly load history of the area (``load_area_hourly_load``).
-    census_year : int
-        Census vintage of the population weights, logged to the MLflow run.
-    **kwargs
-        Forwarded to :class:`LightGbmMsmPopWeightedDayTypeStrategy`.
-    """
-
-    name = "lightgbm_msm_popw_daytype_lag1y"
-    feature_cols = MSM_POPW_DAY_TYPE_LAG1Y_FEATURE_COLS
-    eval_set_cls = DemandLightGbmMsmPopWeightedDayTypeLag1yEvalSet
-
-    def __init__(
-        self,
-        temperature: AreaTemperature,
-        temperature_forecast: AreaTemperatureForecast,
-        day_types: DayTypeCalendar,
-        prior_year_calendar: PriorYearCalendar,
-        hourly_load: AreaHourlyLoad,
-        *,
-        census_year: int,
-        **kwargs,
-    ) -> None:
-        super().__init__(
-            temperature, temperature_forecast, day_types, census_year=census_year, **kwargs
-        )
-        self.prior_year_calendar = prior_year_calendar
-        self.hourly_load = hourly_load
-
-    def _add_features(self, featured: pd.DataFrame, history: pd.DataFrame) -> pd.DataFrame:
-        """Attach the day-type strategy's features, then the year-ago load.
-
-        Parameters
-        ----------
-        featured : pandas.DataFrame
-            Rows keyed on (trade_date, time_code) with the calendar features.
-        history : pandas.DataFrame
-            Demand history in the ``AreaDemand`` layout.
-
-        Returns
-        -------
-        pandas.DataFrame
-            ``featured`` plus this strategy's ``feature_cols`` (the year-ago
-            load NaN where the day has no reference or the reference hour no
-            load).
-        """
-        featured = super()._add_features(featured, history)
-        return join_prior_year_load(
-            featured, self.prior_year_calendar, self.hourly_load, name=LAG_1Y_FEATURE
-        )
-
-    def _extra_params(self) -> dict[str, object]:
-        """Log the calendar's rule mix and the hourly history's span next to the
-        inherited params.
-
-        Returns
-        -------
-        dict of str to object
-        """
-        rules = self.prior_year_calendar.df["prior_year_reference_rule"].value_counts()
-        load_dates = self.hourly_load.df["load_date"]
-        return {
-            **super()._extra_params(),
-            "prior_year_reference_rules": ",".join(
-                f"{rule}={int(rules.get(rule, 0))}" for rule in PRIOR_YEAR_REFERENCE_RULES
-            ),
-            "lag_1y_periods_per_hour": PERIODS_PER_HOUR,
-            "lag_1y_hourly_load_span": f"{load_dates.min().date()}..{load_dates.max().date()}",
-        }

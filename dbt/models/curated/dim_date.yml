@@ -19,22 +19,6 @@ models:
       nationwide convention with no statutory or tariff basis.
       Keyed by the date itself (Kimball exempts the date dimension from
       surrogate keys).
-      prior_year_reference_date is the day one year earlier that stands for
-      the day in a year-over-year comparison (the demand task's year-ago load
-      feature), with prior_year_reference_rule naming how it was chosen —
-      never null: a working day takes the same weekday 52 weeks back (D-364,
-      same_weekday) when that is a working day too, else the same weekday one
-      week nearer (D-357), else one week farther (D-371)
-      (same_weekday_shifted); a weekend takes D-364 (same_weekday); a holiday
-      takes the nearest day with the same holiday_name_ja within 14 days of
-      the same calendar date a year earlier (same_holiday; a tie goes to the
-      earlier day), else the nearest non-working day to that date
-      (nearest_non_working_day — a new holiday, a one-off move such as the
-      Olympic 海の日, a substitute 休日). References are resolved against a
-      lookup calendar that starts 13 months before the spine, so the first
-      year's references precede the spine and are not themselves rows here.
-      The worked examples behind the rules are pinned in
-      dbt_tests/assert_dim_date_prior_year_reference_examples.sql.
     data_tests:
       - dbt_utils.expression_is_true:
           name: dim_date_weekend_matches_day_of_week
@@ -61,31 +45,6 @@ models:
           name: dim_date_business_day_is_non_holiday_weekday
           arguments:
             expression: "is_business_day = (day_of_week_iso <= 5 and not is_holiday)"
-      # The reference lies 351-380 days back: 357 / 364 / 371 days for the
-      # weekday rules; for the holiday rules up to 14 days either side of the
-      # same calendar date a year earlier, which is itself 365 or 366 days
-      # back (the current seed's references span 357-378).
-      - dbt_utils.expression_is_true:
-          name: dim_date_prior_year_reference_within_range
-          arguments:
-            expression: "datediff(date_key, prior_year_reference_date) between 351 and 380"
-      - dbt_utils.expression_is_true:
-          name: dim_date_prior_year_reference_rule_matches_holiday_flag
-          arguments:
-            expression: >
-              is_holiday = (prior_year_reference_rule in ('same_holiday', 'nearest_non_working_day'))
-      - dbt_utils.expression_is_true:
-          name: dim_date_prior_year_same_weekday_is_364_days_back
-          arguments:
-            expression: >
-              prior_year_reference_rule <> 'same_weekday'
-              or datediff(date_key, prior_year_reference_date) = 364
-      - dbt_utils.expression_is_true:
-          name: dim_date_prior_year_shifted_weekday_is_357_or_371_days_back
-          arguments:
-            expression: >
-              prior_year_reference_rule <> 'same_weekday_shifted'
-              or datediff(date_key, prior_year_reference_date) in (357, 371)
     columns:
       - name: date_key
         data_type: date
@@ -175,28 +134,3 @@ models:
           and お盆, so this is not a "banks open" flag.
         data_tests:
           - not_null
-      - name: prior_year_reference_date
-        data_type: date
-        description: >
-          The day one year earlier that stands for this day in a
-          year-over-year comparison; see the model description for the rules.
-          Never null; for the spine's first year it precedes the spine (a
-          2015 date with no row of its own).
-        data_tests:
-          - not_null
-      - name: prior_year_reference_rule
-        data_type: string
-        description: >
-          How prior_year_reference_date was chosen: same_weekday (D-364),
-          same_weekday_shifted (D-357 or D-371, because D-364 is a holiday),
-          same_holiday (the same holiday_name_ja a year earlier) or
-          nearest_non_working_day (a holiday without a same-name twin).
-        data_tests:
-          - not_null
-          - accepted_values:
-              arguments:
-                values:
-                  - same_weekday
-                  - same_weekday_shifted
-                  - same_holiday
-                  - nearest_non_working_day

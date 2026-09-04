@@ -1,7 +1,8 @@
 # R-004 — Year-ago load on the prior-year reference date
 
-- **Status:** In progress (E-001 run; awaiting the researcher's decision)
-- **Last updated:** 2026-08-31 (E-001 results)
+- **Status:** Not supported (E-001 rejected by the researcher on 2026-09-05; the
+  feature and the `dim_date` column removed)
+- **Last updated:** 2026-09-05 (E-001 decision and removal)
 - **Created:** 2026-08-31
 - **Triggering observations:**
   [O-002 — The working day between 山の日 and お盆 is heavily over-forecast, driven by the D-7 lag](research/demand/observations.md#o-002-the-working-day-between-山の日-and-お盆-is-heavily-over-forecast-driven-by-the-d-7-lag),
@@ -288,5 +289,63 @@ avoids the holiday-adjacent week by design, so the year-ago load cannot
 carry the "working day squeezed before お盆" effect (the bridge-day flag the
 researcher deferred on 2026-08-31 addresses exactly that day) — and the
 feature costs on weekends (+2.8 %), overnight (+5.6 %) and お盆 (+23 %). The
-decision (keep / refine / reject) is the researcher's; recorded here as
-awaiting it.
+decision (keep / refine / reject) is the researcher's.
+
+### Decision
+
+**Decision:** Reject (the researcher, 2026-09-05)
+
+The researcher's reasons, recorded as given: the approach works well for some
+holidays (special days), but overall it does not contribute enough to warrant
+its use; and its way of handling proximity days — days like 2026-08-10, a
+Monday sandwiched between a weekend and 山の日 — is poor, because sometimes
+there are no days in recent history that have the exact same calendar
+characteristics. Resulting change
+([PR #35](https://github.com/hankehly/power-market-analytics/pull/35),
+2026-09-05): `dim_date` loses `prior_year_reference_date` and
+`prior_year_reference_rule` (with their generic tests and the two singular
+tests that pinned the worked examples), and the demand task loses
+`lightgbm_msm_popw_daytype_lag1y` together with the inputs that existed only
+for it (`PriorYearCalendar` / `load_prior_year_calendar`, `AreaHourlyLoad` /
+`load_area_hourly_load`, `join_prior_year_load`). `fct_area_power_usage_hourly`
+stays in the warehouse. The E-001 run, its forecasts, contributions and
+accuracy rows remain in MLflow and the marts as the record of the experiment;
+`lightgbm_msm_popw_daytype` remains the demand baseline and the script
+default.
+
+### Follow-up ideas
+
+- None recorded with the decision. The bridge-day / holiday-window flag the
+  researcher deferred on 2026-08-31 (their other idea from O-002 / O-003) is
+  not part of it.
+
+---
+
+## Current conclusion
+
+E-001 (2026-08-31) tested the researcher's remedy for O-002 / O-003 on the
+matched window (Tokyo, 729 delivery days 2024-08-18..2026-08-17): overall MAE
++0.1 % with the interval over days including zero; holidays −10 %
+(建国記念の日 2026-02-11 −38 %, 元日 / 年末年始 −17 %); the working days before
+お盆 unchanged, お盆 +23 %, weekends +2.8 %, overnight +5.6 %. **Reject**,
+decided by the researcher on 2026-09-05: the year-ago load on a rule-chosen
+prior-year reference date helps some special days but not enough overall,
+and the reference-date rules handle proximity days poorly when recent history
+holds no day with the same calendar characteristics. The column, the strategy
+and its inputs were removed.
+
+## Open questions
+
+- None recorded.
+
+## Final disposition
+
+**Investigation status:** Not supported (E-001; decision 2026-09-05)
+
+**Recommended action:** Done — `dim_date.prior_year_reference_date`,
+`prior_year_reference_rule` and `lightgbm_msm_popw_daytype_lag1y` removed on
+2026-09-05 ([PR #35](https://github.com/hankehly/power-market-analytics/pull/35));
+`lightgbm_msm_popw_daytype` stays the demand baseline and the default of
+`scripts/demand_backtest.py`.
+
+**Superseded by:** —
