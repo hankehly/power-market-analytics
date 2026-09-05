@@ -591,6 +591,16 @@
   `unique` for a single column, `dbt_utils.unique_combination_of_columns` for
   composite keys.
 
+## Writing style (specs, research docs, PR bodies, replies)
+
+The researcher's preferences, stated 2026-09-05 while reviewing the R-005 spec.
+
+- Plain language: short sentences, one idea each; everyday words where the meaning survives
+  ("no gaps" over "gapless", "can be scored" over "selectable"); an aside gets its own
+  sentence or is cut.
+- Short: a decision is one to three lines; a justification appears once, where it belongs.
+  Shortening never drops a decision, number, name or formula — plainer, not vaguer.
+
 ## Docstrings
 
 - Always use NumPy-style docstrings
