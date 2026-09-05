@@ -37,7 +37,7 @@ if RISH or JMA changes the product, re-verify against a live file before trustin
   | 2006-03 | ~5 km grid introduced |
   | 2013 | Forecast horizon extended to 39 h |
   | 2017-12 | Downward shortwave (solar) radiation added to the surface element set |
-  | 2019-03 | 00/12 UTC runs extended to FH51 |
+  | 2019-03 | 00/12 UTC runs extended to FH51 — on RISH the `FH40-51` member first appears for the **2019-03-05 12 UTC** run (verified 2026-09-05; none on 03-04, none on the 03-05 00 UTC run) |
   | 2022-06 | 00/12 UTC runs extended further to FH78 |
 
   This pipeline only reads leads 28–51 ([§4](#4-file-set-and-forecast-lead-table)), so the
@@ -45,7 +45,33 @@ if RISH or JMA changes the product, re-verify against a live file before trustin
   `power_market_analytics.msm.EARLIEST_DELIVERY_DATE` is **2019-04-01**, one month after the
   change, so every ingested delivery day's 12 UTC D−2 run is guaranteed to carry FH51.
   Historical backfills default to `DEFAULT_BACKFILL_START` **2022-04-01** instead, matching
-  the other refresh tasks' backfill start (TEPCO/Kansai actuals, etc.).
+  the other refresh tasks' backfill start (TEPCO/Kansai actuals, etc.). The warehouse has
+  held **2019-04-01 →** since the 2026-09-05 backfill ([§9.2](#92-dbt-build)), which passed
+  `--start-date 2019-04-01` explicitly; a fresh clone must do the same to reproduce it —
+  `just refresh-all` runs the downloader with its defaults and stops at 2022-04-01 (extracts
+  already cached before that date are still loaded: the loader reads every `csv.gz` under
+  the data dir, whatever the download window).
+- **Availability — how far back the archive serves this pipeline** (verified 2026-09-05
+  against the RISH `original` tree, by directory listing and by running the extractor on
+  real files):
+  - RISH holds MSM surface files back to at least 2016 for all eight daily runs, but every
+    run before 2019-03-05 has only the `FH00-15` / `FH16-33` / `FH34-39` members. Under this
+    pipeline's vintage policy ([§3](#3-vintage-policy)) the floor is therefore delivery day
+    **2019-03-07**; `EARLIEST_DELIVERY_DATE` (2019-04-01) keeps a month of margin, and
+    `MsmDownloader.download_range` refuses an earlier `--start-date`.
+  - A 2019-04-01 12 UTC `FH40-51` file decodes with the current extractor unchanged
+    (12 elements × 12 leads, 149 stations).
+  - A 2016-04-01 12 UTC `FH34-39` file carries the same grid and packing as today's
+    ([§5.3](#53-grid-metadata-and-scan-handling)) and the same instantaneous elements, but
+    **no downward shortwave radiation** (0/4/7, added 2017-12), so the completeness check
+    fails as designed ("6 of 72 expected messages are absent").
+  - Reaching 2016 is therefore a vintage-policy or product change, not a start-date change:
+    the MSM **21 UTC D−2** run (FH19–39 → JST 01:00–21:00 of D, 22:00–24:00 uncovered;
+    distributed roughly 08:30 JST D−1, about an hour before the 09:30 cutoff — unverified,
+    RISH mtimes being non-authoritative) or the **GSM** Japan-region surface files
+    (`..._GSM_GPV_Rjp_Lsurf_FD0000-0312_grib2.bin`, 84 h horizon, ~20 km grid, present on
+    RISH for the 2016 12 UTC runs; a separate element/grid configuration). Either also needs
+    the two radiation columns nullable before 2017-12 through raw, `std` and `fct`.
 
 ## 2. The RISH archive
 
@@ -393,7 +419,7 @@ a full reload of 5.7 M rows takes about a minute and lands in ~52 parquet files.
 
 | Flag | Default | Meaning |
 |---|---|---|
-| `--start-date` | `DEFAULT_BACKFILL_START` (2022-04-01) | First delivery day, inclusive |
+| `--start-date` | `DEFAULT_BACKFILL_START` (2022-04-01) | First delivery day, inclusive; 2019-04-01 (`EARLIEST_DELIVERY_DATE`) is the earliest accepted and what the 2026-09-05 backfill passed |
 | `--end-date` | `default_end_date()` (JST today + 1) | Last delivery day, inclusive |
 | `--data-dir` | `data/jma/msm_surface_forecast` | Root for `grib/` downloads and `csv/` extracts |
 | `--force` | off | Re-download every GRIB2 file and rebuild the extract even for a cached delivery day |
@@ -466,6 +492,11 @@ No code change was needed or made — `MsmDownloader`'s injectable `session` par
 code-level seam available if a permanent fix (e.g. a custom `requests.Session` with the
 bundle baked in) is ever wanted. This may resolve itself whenever RISH corrects their
 server's certificate chain; re-check without the workaround periodically.
+
+Re-checked 2026-09-05 before the 2019-04-01 backfill: a plain `requests` call with the stock
+`certifi` bundle verified the chain again, so RISH appears to have fixed it. The combined
+bundle was still passed for that run — as a superset of `certifi` it costs nothing and
+protects a multi-hour run should the chain regress.
 
 ## 9. Verification results (one-day end-to-end, 2026-08-21)
 

@@ -37,7 +37,10 @@
     `load_estat_census_population_mesh.py`.
   - MSM: `download_jma_msm_surface_forecast.py` downloads + decodes, for each delivery day D, the
     three RISH GRIB2 files covering the 12 UTC D-2 run (`--start-date`, `--force`, `--keep-grib`;
-    ~157 MB per delivery day, ~54 GiB/yr), `load_jma_msm_surface_forecast.py`. Both need a
+    ~157 MB per delivery day, ~54 GiB/yr), `load_jma_msm_surface_forecast.py`. `--start-date`
+    defaults to 2022-04-01, but the warehouse holds 2019-04-01 → since the 2026-09-05 backfill;
+    2019-04-01 is the earliest the downloader accepts (the archive's `FH40-51` member starts
+    with the 2019-03-05 12 UTC run), so pass it on a fresh clone. Both need a
     devcontainer image rebuild (`docker compose build devcontainer`) for the eccodes dependency
     before they can run in-container — `power_market_analytics/msm.py` imports eccodes at module
     level; see [docs/JMA-MSM-GPV-Retrieval.md](docs/JMA-MSM-GPV-Retrieval.md) §8.
@@ -334,9 +337,10 @@
   `forecast_temperature_c`: the MSM point forecast for D at the same station
   (`fct_jma_msm_weather_forecast_hourly`, the D-2 12 UTC vintage, `AreaTemperatureForecast` frame
   keyed `trade_date × hour_ending`, joined at the hour containing the period); training rows
-  without a forecast are dropped, so its training set starts on the first MSM day (2022-04-01 —
-  the start of the demand history too, so a matched `lightgbm` baseline needs no `--train-start`
-  today). `lightgbm_msm_popw` (`LightGbmMsmPopWeightedStrategy`, research `demand/R-002`) swaps
+  without a forecast are dropped; MSM covers 2019-04-01 → (since the 2026-09-05 backfill),
+  earlier than the demand history's 2022-04-01 start, so the training set starts with the
+  demand history and a matched `lightgbm` baseline needs no `--train-start` today.
+  `lightgbm_msm_popw` (`LightGbmMsmPopWeightedStrategy`, research `demand/R-002`) swaps
   that feature for `popw_forecast_temperature_c`: the same MSM forecast averaged over the area's
   staffed stations with `fct_census_population_jma_station` weights (latest census vintage,
   logged as `population_weight_census_year`; `load_area_temperature_forecast_population_weighted`
