@@ -245,6 +245,43 @@ class TestBacktestScript:
             sums.reindex(forecasts.index).to_numpy(), forecasts.to_numpy(), rtol=1e-9, atol=1e-3
         )
 
+    def test_diagnostics_frames_are_logged_as_csv(self, spark, curated_warehouse, monkeypatch):
+        script = import_script("demand_backtest")
+        real_build_strategy = script.build_strategy
+        seen: dict[str, object] = {}
+
+        def build_strategy_with_diagnostics(*args, **kwargs):
+            strategy = real_build_strategy(*args, **kwargs)
+
+            def diagnostics(history, run):
+                seen["history_rows"] = len(history)
+                seen["run"] = run
+                mlflow.log_metric("similar_day_share_better_than_lag_364", 0.75)
+                return {
+                    "similar_day_selection": pd.DataFrame(
+                        {"trade_date": ["2024-04-10"], "reference_date": ["2023-04-12"]}
+                    )
+                }
+
+            monkeypatch.setattr(strategy, "diagnostics", diagnostics)
+            return strategy
+
+        monkeypatch.setattr(script, "build_strategy", build_strategy_with_diagnostics)
+        script.main(
+            ["--start-date", "2024-04-10", "--end-date", "2024-04-10", "--shap-nsamples", "20"]
+        )
+        run = last_run()
+        assert seen["history_rows"] == len(curated_warehouse.demand.dropna(subset=["demand_kwh"]))
+        assert seen["run"].result.df["trade_date"].tolist() == [pd.Timestamp("2024-04-10")] * 48
+        assert run.data.metrics["similar_day_share_better_than_lag_364"] == 0.75
+        assert "similar_day_selection.csv" in artifact_names(run.info.run_id)
+        logged = pd.read_csv(
+            mlflow.artifacts.download_artifacts(
+                run_id=run.info.run_id, artifact_path="similar_day_selection.csv"
+            )
+        )
+        assert logged["reference_date"].tolist() == ["2023-04-12"]
+
     def test_strategy_without_contributions_skips_publishing(
         self, spark, curated_warehouse, monkeypatch
     ):
