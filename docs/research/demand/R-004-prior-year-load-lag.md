@@ -389,8 +389,8 @@ and the interval excludes zero.
   2024-08-18 --end-date 2026-08-17 --area tokyo`, no `--train-start`; the
   weights fitted on targets 2019-04-01 to 2024-08-16 (about 1,960 days,
   120 k pairs)
-- **Code or pull request:** planned; stacked on
-  `feature/dim-date-holiday-degree`
+- **Code or pull request:** branch `feature/demand-similar-day-reference` (PR number
+  recorded when opened)
 
 ### Results
 
