@@ -414,8 +414,12 @@ Matched window 2024-08-18 to 2026-08-17, 729 days, `compare_demand_runs.py`
 | Top-10 % demand days MAE | 791,199 | 734,621 | −56,578 | −7.2 % |
 | 2025-08-12 (O-002) daily bias | +3,858,649 | +2,093,837 | −1,764,812 | −46 % |
 | 2026-08-12 (O-002) daily bias | +2,837,390 | +2,282,792 | −554,598 | −20 % |
-| 2025-02-11 (O-003) daily bias | −1,534,427 | −1,659,165 | −124,738 | +8 % |
-| 2026-02-11 (O-003) daily bias | −3,071,435 | −2,760,312 | +311,123 | −10 % |
+| 2025-02-11 (O-003) daily bias | −1,534,427 | −1,659,165 | +124,738 | +8 % |
+| 2026-02-11 (O-003) daily bias | −3,071,435 | −2,760,312 | −311,123 | −10 % |
+
+In the four daily-bias rows the two change columns are the change in the
+error's size (|bias|), so a negative change is an improvement, as in the
+MAE rows; the signed values show the direction of the error.
 
 Daily paired comparison: the candidate is lower on 53.4 % of days (389 of
 729); mean daily-MAE difference −9,007 kWh, 95 % bootstrap CI over days
