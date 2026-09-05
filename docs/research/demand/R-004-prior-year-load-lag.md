@@ -394,7 +394,7 @@ and the interval excludes zero.
   2025-06-14 hole, as in every run; 105 refits; the weights fitted on
   targets 2019-04-01 to 2024-08-16: 1,965 days, 119,865 pairs, fit RMSE
   0.075)
-- **Code or pull request:** branch `feature/demand-similar-day-reference`
+- **Code or pull request:** branch `feature/demand-similar-day-reference`, PR #43
 
 ### Results
 
