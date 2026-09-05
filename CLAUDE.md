@@ -398,9 +398,9 @@
   archive file (216 fields in a single FH16-33 file) — ecCodes needs
   `codes_grib_multi_support_on()` (process-global, re-asserted per call) or it yields only the
   first field. RISH's TLS chain has served a stale intermediate since its leaf cert's
-  2026-05-28 renewal; `requests`/certifi rejects it (browsers/curl tolerate it via AIA chasing)
-  — fetch the correct intermediate and pass a combined bundle via `REQUESTS_CA_BUNDLE` until
-  RISH fixes it. Details: `docs/JMA-MSM-GPV-Retrieval.md` §5.1/§8.4.
+  2026-05-28 renewal (still so on 2026-09-05); `requests`/certifi rejects it (browsers/curl
+  tolerate it via AIA chasing) — fetch the correct intermediate and pass a combined bundle via
+  `REQUESTS_CA_BUNDLE` until RISH fixes it. Details: `docs/JMA-MSM-GPV-Retrieval.md` §5.1/§8.4.
 - Many-file raw reloads: every `CsvLoader` reads its files in a handful of Spark scans since
   2026-08-30 — positional layouts through `_scan_positional` (JMA hourly, TSO area actuals),
   header-based ones one scan per layout (JEPX, OCCTO, MSM: files grouped by the raw bytes of
