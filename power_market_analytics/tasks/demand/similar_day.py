@@ -470,6 +470,12 @@ class SimilarDaySelector:
             dtype="int64",
         )
 
+    @property
+    def first_scorable_day(self) -> pd.Timestamp | None:
+        """The earliest forecast day that can be scored, if any."""
+        scorable = self.scorable_days(self._forecast.days)
+        return None if scorable.empty else scorable[0]
+
     def scorable_days(self, days: Iterable[pd.Timestamp]) -> pd.DatetimeIndex:
         """The delivery days among ``days`` that can be scored.
 

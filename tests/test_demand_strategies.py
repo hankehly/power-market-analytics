@@ -7,12 +7,19 @@ import pytest
 
 from power_market_analytics.tasks.demand.strategies import STRATEGIES, build_strategy
 from power_market_analytics.tasks.demand.strategies.lgbm import (
+    LightGbmMsmPopWeightedDayTypeSimilarDayStrategy,
     LightGbmMsmPopWeightedDayTypeStrategy,
     LightGbmMsmPopWeightedStrategy,
     LightGbmMsmStrategy,
     LightGbmStrategy,
 )
-from tests.conftest import TOKYO_STATION_ID, CuratedWarehouse
+from tests.conftest import (
+    HOLIDAYS_2024_SPRING,
+    HOURLY_LOAD_DAYS,
+    TOKYO_STATION_ID,
+    CuratedWarehouse,
+)
+from tests.test_demand_datasets import expected_day_type
 
 
 class TestRegistry:
@@ -22,8 +29,13 @@ class TestRegistry:
             "lightgbm_msm",
             "lightgbm_msm_popw",
             "lightgbm_msm_popw_daytype",
+            "lightgbm_msm_popw_daytype_simday",
         ]
         assert STRATEGIES["lightgbm"] is LightGbmStrategy
+        assert (
+            STRATEGIES["lightgbm_msm_popw_daytype_simday"]
+            is LightGbmMsmPopWeightedDayTypeSimilarDayStrategy
+        )
         assert STRATEGIES["lightgbm_msm"] is LightGbmMsmStrategy
         assert STRATEGIES["lightgbm_msm_popw"] is LightGbmMsmPopWeightedStrategy
         assert STRATEGIES["lightgbm_msm_popw_daytype"] is LightGbmMsmPopWeightedDayTypeStrategy
@@ -126,3 +138,19 @@ class TestBuildStrategy:
     def test_unknown_name_raises_key_error(self):
         with pytest.raises(KeyError, match="arima"):
             build_strategy("arima", area_code="tokyo")
+
+    def test_similar_day_strategy_loads_its_five_inputs(
+        self, spark, curated_warehouse: CuratedWarehouse
+    ):
+        strategy = build_strategy(
+            "lightgbm_msm_popw_daytype_simday", area_code="tokyo", spark=spark
+        )
+        assert type(strategy) is LightGbmMsmPopWeightedDayTypeSimilarDayStrategy
+        assert strategy.census_year == 2020
+        assert len(strategy.temperature) == len(curated_warehouse.weather)
+        assert len(strategy.hourly_load) == len(curated_warehouse.hourly_load)
+        assert strategy.selector.first_candidate_day == min(HOLIDAYS_2024_SPRING)
+        assert strategy.selector.hourly_load_span == (HOURLY_LOAD_DAYS[0], HOURLY_LOAD_DAYS[-1])
+        assert strategy.day_types.df["day_type"].tolist() == [
+            expected_day_type(d) for d in strategy.day_types.df["trade_date"]
+        ]

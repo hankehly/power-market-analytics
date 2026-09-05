@@ -183,6 +183,16 @@ class TestSelectorSetup:
         assert selector.first_candidate_day == HOLIDAYS[0]
         assert selector.hourly_load_span == (HISTORY_DAYS[0], HISTORY_DAYS[-1])
 
+    def test_first_scorable_day(self, selector):
+        assert selector.first_scorable_day == HOLIDAYS[0] + pd.Timedelta(days=394)
+        none = SimilarDaySelector(
+            make_calendar(),
+            make_forecast(pd.date_range("2024-01-01", "2024-01-05")),
+            make_observed(),
+            make_hourly_load(),
+        )
+        assert none.first_scorable_day is None
+
     def test_bad_window_is_rejected(self):
         with pytest.raises(ValueError, match="window"):
             SimilarDaySelector(
