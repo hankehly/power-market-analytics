@@ -22,6 +22,8 @@ from loguru import logger
 from scipy.optimize import least_squares
 
 from power_market_analytics.common.frames import DomainFrame
+from power_market_analytics.forecasting.frames import GRAIN_COLS
+from power_market_analytics.tasks.demand.features import hour_ending_of
 from power_market_analytics.tasks.demand.frames import (
     AreaHourlyLoad,
     AreaObservedWeather,
@@ -173,6 +175,11 @@ class SimilarDayRetrieval(DomainFrame):
         "oracle_load_difference",
         "selected_rank_by_outcome",
     ]
+
+
+def _empty(frame_cls: type[DomainFrame]) -> pd.DataFrame:
+    """An empty frame with ``frame_cls``'s columns and dtypes."""
+    return pd.DataFrame({col: pd.Series(dtype=dtype) for col, dtype in frame_cls.schema.items()})
 
 
 @dataclasses.dataclass(frozen=True)
@@ -610,3 +617,188 @@ class SimilarDaySelector:
         if self._weights is None:
             raise RuntimeError("similar-day weights are not fitted; call fit(through) first")
         return self._weights
+
+    def _scored(self, days: Iterable[pd.Timestamp]) -> pd.DataFrame:
+        """Window pairs with their distance, lag and gap from the window's centre."""
+        diffs = self.differences(days)
+        df = diffs.df.assign(distance=self.weights.distance(diffs))
+        lag = (df["target_date"] - df["candidate_date"]).dt.days
+        return df.assign(lag_days=lag, centre_gap=(lag - self.center_lag_days).abs())
+
+    def select(self, days: Iterable[pd.Timestamp]) -> SimilarDaySelection:
+        """Pick the nearest window day for every scorable day among ``days``.
+
+        Ties go to the candidate nearest the window's centre, then the earlier
+        date.
+
+        Parameters
+        ----------
+        days : iterable of pandas.Timestamp
+
+        Returns
+        -------
+        SimilarDaySelection
+            One row per scorable day; empty when none is.
+
+        Raises
+        ------
+        RuntimeError
+            Before any fit.
+        """
+        scored = self._scored(days)
+        if scored.empty:
+            return SimilarDaySelection.from_df(_empty(SimilarDaySelection))
+        best = (
+            scored.sort_values(["target_date", "distance", "centre_gap", "candidate_date"])
+            .groupby("target_date", sort=True)
+            .head(1)
+            .set_index("target_date")
+        )
+        ranks = scored.assign(rank=scored.groupby("target_date")["distance"].rank(method="min"))
+        at_centre = ranks[ranks["lag_days"] == self.center_lag_days].set_index("target_date")[
+            "rank"
+        ]
+        counts = scored.groupby("target_date").size()
+        out = pd.DataFrame(
+            {
+                "trade_date": best.index,
+                "reference_date": best["candidate_date"].to_numpy(),
+                "distance": best["distance"].to_numpy(dtype="float64"),
+                "reference_lag_days": best["lag_days"].to_numpy(dtype="int64"),
+                "n_candidates": counts.loc[best.index].to_numpy(dtype="int64"),
+                "lag_364_rank": at_centre.reindex(best.index).to_numpy(dtype="float64"),
+            }
+        )
+        return SimilarDaySelection.from_df(out)
+
+    def retrieval(self, selection: SimilarDaySelection) -> SimilarDayRetrieval:
+        """Judge a selection against what every candidate's load turned out to be.
+
+        Only the selected days whose own hourly load is known are checked.
+
+        Parameters
+        ----------
+        selection : SimilarDaySelection
+
+        Returns
+        -------
+        SimilarDayRetrieval
+            Empty when no selected day has a known load yet.
+        """
+        known = selection.df[selection.df["trade_date"].isin(self._load.days)]
+        scored = self._scored(known["trade_date"]) if not known.empty else pd.DataFrame()
+        if scored.empty:
+            return SimilarDayRetrieval.from_df(_empty(SimilarDayRetrieval))
+        loads = self._load.values["load"]
+        scored = scored.assign(
+            load_difference=load_difference(
+                loads[self._load.days.get_indexer(pd.DatetimeIndex(scored["target_date"]))],
+                loads[self._load.days.get_indexer(pd.DatetimeIndex(scored["candidate_date"]))],
+            )
+        )
+        scored = scored.assign(
+            outcome_rank=scored.groupby("target_date")["load_difference"].rank(method="min")
+        )
+        chosen = scored.merge(
+            known[["trade_date", "reference_date"]].rename(
+                columns={"trade_date": "target_date", "reference_date": "candidate_date"}
+            ),
+            how="inner",
+            on=["target_date", "candidate_date"],
+            validate="one_to_one",
+        ).set_index("target_date")
+        at_centre = scored[scored["lag_days"] == self.center_lag_days].set_index("target_date")[
+            "load_difference"
+        ]
+        oracle = (
+            scored.sort_values(["target_date", "load_difference", "candidate_date"])
+            .groupby("target_date", sort=True)
+            .head(1)
+            .set_index("target_date")
+        )
+        out = pd.DataFrame(
+            {
+                "trade_date": chosen.index,
+                "reference_date": chosen["candidate_date"].to_numpy(),
+                "distance": chosen["distance"].to_numpy(dtype="float64"),
+                "selected_load_difference": chosen["load_difference"].to_numpy(dtype="float64"),
+                "lag_364_load_difference": at_centre.reindex(chosen.index).to_numpy(
+                    dtype="float64"
+                ),
+                "oracle_date": oracle.loc[chosen.index, "candidate_date"].to_numpy(),
+                "oracle_load_difference": oracle.loc[chosen.index, "load_difference"].to_numpy(
+                    dtype="float64"
+                ),
+                "selected_rank_by_outcome": chosen["outcome_rank"].to_numpy(dtype="int64"),
+            }
+        )
+        return SimilarDayRetrieval.from_df(out)
+
+
+def join_similar_day_load(
+    points: pd.DataFrame,
+    selection: SimilarDaySelection,
+    hourly_load: AreaHourlyLoad,
+    *,
+    name: str = SIMILAR_DAY_FEATURE,
+) -> pd.DataFrame:
+    """Attach the selected similar day's hourly load, halved per period.
+
+    For a point (D, time_code) the feature is the hourly load on D's
+    ``reference_date`` at ``hour_ending_of(time_code)`` divided by
+    ``PERIODS_PER_HOUR`` (kWh per 30-minute period, the target's scale); NaN
+    where D has no selection or the reference hour has no load.
+
+    Parameters
+    ----------
+    points : pandas.DataFrame
+        Rows keyed on (trade_date, time_code); other columns pass through.
+    selection : SimilarDaySelection
+    hourly_load : AreaHourlyLoad
+    name : str, optional
+        Name for the new column.
+
+    Returns
+    -------
+    pandas.DataFrame
+        ``points`` plus ``name`` (float64), in the original row order.
+    """
+    keyed = points[GRAIN_COLS].merge(
+        selection.df[["trade_date", "reference_date"]],
+        how="left",
+        on="trade_date",
+        validate="many_to_one",
+    )
+    keyed = keyed.assign(hour_ending=hour_ending_of(keyed["time_code"]))
+    load = hourly_load.df.rename(columns={"load_date": "reference_date"})
+    joined = keyed.merge(
+        load, how="left", on=["reference_date", "hour_ending"], validate="many_to_one"
+    )
+    return points.assign(
+        **{name: joined["demand_kwh"].to_numpy(dtype="float64") / PERIODS_PER_HOUR}
+    )
+
+
+def retrieval_metrics(retrieval: SimilarDayRetrieval) -> dict[str, float]:
+    """Mean realised load differences of the selected, D − 364 and oracle days,
+    and the share of days the selected day beat D − 364 (over days where the
+    latter was a candidate). NaN where a mean has no rows.
+
+    Parameters
+    ----------
+    retrieval : SimilarDayRetrieval
+
+    Returns
+    -------
+    dict of str to float
+    """
+    df = retrieval.df
+    comparable = df.dropna(subset=["lag_364_load_difference"])
+    return {
+        "similar_day_load_difference_selected": float(df["selected_load_difference"].mean()),
+        "similar_day_load_difference_lag_364": float(df["lag_364_load_difference"].mean()),
+        "similar_day_load_difference_oracle": float(df["oracle_load_difference"].mean()),
+        "similar_day_share_better_than_lag_364": float(
+            (comparable["selected_load_difference"] < comparable["lag_364_load_difference"]).mean()
+        ),
+    }
