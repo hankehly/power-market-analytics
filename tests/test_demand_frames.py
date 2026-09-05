@@ -145,3 +145,11 @@ class TestDayCalendar:
     def test_holiday_degree_outside_levels_is_rejected(self):
         with pytest.raises(ValueError, match=r"holiday_degree outside \(0.0, 0.3, 0.5, 0.8, 1.0\)"):
             DayCalendar.from_df(calendar(holiday_degree=[0.0, 0.9]))
+
+
+class TestDayTypeCalendar:
+    def test_code_outside_levels_is_rejected(self):
+        with pytest.raises(ValueError, match="day_type outside 0..2"):
+            DayTypeCalendar.from_df(
+                pd.DataFrame({"trade_date": [DAY], "day_type": np.array([3], dtype="int64")})
+            )
