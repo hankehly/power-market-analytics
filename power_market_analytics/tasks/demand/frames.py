@@ -291,9 +291,10 @@ class DayCalendar(DomainFrame):
             if (df[col] < 0).any():
                 raise ValueError(f"{cls.__name__}: {col} must be >= 0")
         levels = np.asarray(HOLIDAY_DEGREE_LEVELS)
-        off = ~np.isclose(df["holiday_degree"].to_numpy()[:, None], levels[None, :]).any(axis=1)
+        degrees = df["holiday_degree"].to_numpy(dtype="float64")
+        off = ~np.isclose(degrees[:, None], levels[None, :]).any(axis=1)
         if off.any():
-            values = sorted(float(v) for v in df.loc[off, "holiday_degree"].unique())
+            values = sorted(set(float(v) for v in degrees[off]))
             raise ValueError(
                 f"{cls.__name__}: holiday_degree outside {HOLIDAY_DEGREE_LEVELS}: {values}"
             )

@@ -165,6 +165,62 @@ DEMAND_HOLE_TIME_CODES = range(11, 49)
 TEMPERATURE_MISSING_HOURS = {(pd.Timestamp("2024-04-25"), 13), (pd.Timestamp("2024-04-25"), 14)}
 #: Delivery day with no MSM forecast rows at all (a day whose GRIB files were never fetched).
 FORECAST_MISSING_DAY = pd.Timestamp("2024-05-15")
+#: Days of hourly load history (fct_area_power_usage_hourly, tokyo) and of the
+#: dim_date spine: from the earliest window day a DEMAND_DAYS target can have
+#: (394 days before the first) through the last demand day.
+HOURLY_LOAD_DAYS = pd.date_range(DEMAND_DAYS[0] - pd.Timedelta(days=394), DEMAND_DAYS[-1], freq="D")
+CALENDAR_DAYS = HOURLY_LOAD_DAYS
+#: Second-station offsets for the two non-temperature MSM measures.
+SECOND_STATION_FORECAST_HUMIDITY_OFFSET_PCT = 5.0
+SECOND_STATION_FORECAST_RAIN_OFFSET_MM = 0.1
+
+
+def synthetic_hourly_load(day: pd.Timestamp, hour_of_day: int) -> int:
+    """Deterministic hourly energy in kWh: daily shape, weekend dip, slow drift.
+
+    Multiples of 10,000 like the でんき予報 fact (integer 万kW × 10,000).
+    """
+    day_index = (day - HOURLY_LOAD_DAYS[0]).days
+    shape = 30_000_000 - 8_000_000 * math.cos(2 * math.pi * hour_of_day / 24)
+    weekend = -2_000_000 if day.dayofweek >= 5 else 0
+    return int(round((shape + weekend + 10_000 * day_index) / 10_000) * 10_000)
+
+
+def synthetic_holiday_degree(day: pd.Timestamp) -> float:
+    """dim_date.holiday_degree in the fixture: 1.0 on a holiday or Sunday, 0.8 on a
+    Saturday, 0.5 on a working day squeezed between two off days, else 0."""
+    if day in HOLIDAYS_2024_SPRING or day.dayofweek == 6:
+        return 1.0
+    if day.dayofweek == 5:
+        return 0.8
+    before, after = day - pd.Timedelta(days=1), day + pd.Timedelta(days=1)
+    if all(d in HOLIDAYS_2024_SPRING or d.dayofweek >= 5 for d in (before, after)):
+        return 0.5
+    return 0.0
+
+
+def synthetic_humidity(day: pd.Timestamp, hour_ending: int) -> float:
+    """Deterministic hourly relative humidity in %: drier by day, wetter overnight."""
+    day_index = (day - PRICE_DAYS[0]).days
+    return round(
+        65.0 + 0.1 * (day_index % 20) - 10.0 * math.sin(2 * math.pi * (hour_ending - 9) / 24), 1
+    )
+
+
+def synthetic_precipitation(day: pd.Timestamp, hour_ending: int) -> float:
+    """Deterministic hourly rain in mm: dry except a wet afternoon every fifth day."""
+    day_index = (day - PRICE_DAYS[0]).days
+    return 1.5 if day_index % 5 == 0 and 13 <= hour_ending <= 16 else 0.0
+
+
+def synthetic_forecast_humidity(day: pd.Timestamp, hour_ending: int) -> float:
+    """MSM humidity forecast: the observation plus a small hour-dependent error."""
+    return round(synthetic_humidity(day, hour_ending) + 2.0 * math.cos(hour_ending / 4.0), 2)
+
+
+def synthetic_forecast_precipitation(day: pd.Timestamp, hour_ending: int) -> float:
+    """MSM rain forecast: the observation scaled by 0.8 (never negative)."""
+    return round(0.8 * synthetic_precipitation(day, hour_ending), 2)
 
 
 def synthetic_price(day: pd.Timestamp, time_code: int) -> float:
@@ -241,7 +297,11 @@ class CuratedWarehouse:
         Contents of ``fct_demand_forecast_accuracy`` (tokyo; the two matched
         demand runs over ``ACCURACY_DAYS`` and the unmatched one).
     dates : pandas.DataFrame
-        Contents of ``dim_date`` over ``DEMAND_DAYS`` (weekend / holiday flags).
+        Contents of ``dim_date`` over ``CALENDAR_DAYS`` (weekend / holiday flags and
+        ``holiday_degree`` per ``synthetic_holiday_degree``).
+    hourly_load : pandas.DataFrame
+        Contents of ``fct_area_power_usage_hourly`` (tokyo, ``HOURLY_LOAD_DAYS``
+        × hours 0-23, ``synthetic_hourly_load``).
     station_weights : pandas.DataFrame
         Contents of ``fct_census_population_jma_station`` (tokyo area, the
         ``STATION_POPULATION_WEIGHTS`` vintages; plus kansai's and chubu's single
@@ -259,6 +319,7 @@ class CuratedWarehouse:
     station_weights: pd.DataFrame
     demand_accuracy: pd.DataFrame
     dates: pd.DataFrame
+    hourly_load: pd.DataFrame
 
 
 @pytest.fixture(scope="session")
@@ -347,9 +408,10 @@ def curated_warehouse(spark: SparkSession) -> CuratedWarehouse:
     demand_accuracy = pd.DataFrame(demand_accuracy_rows)
     dates = pd.DataFrame(
         {
-            "date_key": [day.date() for day in DEMAND_DAYS],
-            "is_weekend": [day.dayofweek >= 5 for day in DEMAND_DAYS],
-            "is_holiday": [day in HOLIDAYS_2024_SPRING for day in DEMAND_DAYS],
+            "date_key": [day.date() for day in CALENDAR_DAYS],
+            "is_weekend": [day.dayofweek >= 5 for day in CALENDAR_DAYS],
+            "is_holiday": [day in HOLIDAYS_2024_SPRING for day in CALENDAR_DAYS],
+            "holiday_degree": [synthetic_holiday_degree(day) for day in CALENDAR_DAYS],
         }
     )
 
@@ -379,6 +441,24 @@ def curated_warehouse(spark: SparkSession) -> CuratedWarehouse:
                 }
             )
     demand = pd.DataFrame(demand_records).astype({"demand_kwh": "float64"})
+    hourly_load_rows: list[tuple] = []
+    hourly_load_records: list[dict] = []
+    for day in HOURLY_LOAD_DAYS:
+        for hour in range(24):
+            load_kwh = synthetic_hourly_load(day, hour)
+            hourly_load_rows.append(
+                (
+                    day.date(),
+                    hour,
+                    TOKYO_AREA_KEY,
+                    (day + pd.Timedelta(hours=hour)).to_pydatetime(),
+                    load_kwh,
+                )
+            )
+            hourly_load_records.append(
+                {"date_key": day.date(), "hour_of_day": hour, "demand_kwh": load_kwh}
+            )
+    hourly_load = pd.DataFrame(hourly_load_records)
     weather_rows: list[tuple] = []
     weather_records: list[dict] = []
     for day in DEMAND_DAYS:
@@ -395,6 +475,8 @@ def curated_warehouse(spark: SparkSession) -> CuratedWarehouse:
                     (day + pd.Timedelta(hours=hour - 1)).to_pydatetime(),
                     day.date(),
                     temperature,
+                    synthetic_humidity(day, hour),
+                    synthetic_precipitation(day, hour),
                 )
             )
             weather_records.append(
@@ -403,6 +485,8 @@ def curated_warehouse(spark: SparkSession) -> CuratedWarehouse:
                     "date_key": day.date(),
                     "hour_ending": hour,
                     "temperature_c": temperature,
+                    "humidity_pct": synthetic_humidity(day, hour),
+                    "precipitation_mm": synthetic_precipitation(day, hour),
                 }
             )
     weather = pd.DataFrame(weather_records).astype({"temperature_c": "float64"})
@@ -414,15 +498,22 @@ def curated_warehouse(spark: SparkSession) -> CuratedWarehouse:
         # The single ingested vintage: the 12 UTC run of D-2 (21:00 JST).
         reference_at = (day - pd.Timedelta(days=2) + pd.Timedelta(hours=21)).to_pydatetime()
         for hour in range(1, 25):
-            for station_id, offset in (
-                (TOKYO_STATION_ID, 0.0),
-                (TOKYO_SECOND_STATION_ID, SECOND_STATION_FORECAST_OFFSET_C),
+            for station_id, offset, humidity_offset, rain_offset in (
+                (TOKYO_STATION_ID, 0.0, 0.0, 0.0),
+                (
+                    TOKYO_SECOND_STATION_ID,
+                    SECOND_STATION_FORECAST_OFFSET_C,
+                    SECOND_STATION_FORECAST_HUMIDITY_OFFSET_PCT,
+                    SECOND_STATION_FORECAST_RAIN_OFFSET_MM,
+                ),
             ):
                 if station_id == TOKYO_SECOND_STATION_ID and (day, hour) == (
                     SECOND_STATION_MISSING_HOUR
                 ):
                     continue
                 forecast = synthetic_forecast_temperature(day, hour) + offset
+                humidity = synthetic_forecast_humidity(day, hour) + humidity_offset
+                rain = synthetic_forecast_precipitation(day, hour) + rain_offset
                 forecast_rows.append(
                     (
                         station_id,
@@ -431,6 +522,8 @@ def curated_warehouse(spark: SparkSession) -> CuratedWarehouse:
                         (day + pd.Timedelta(hours=hour - 1)).to_pydatetime(),
                         day.date(),
                         forecast,
+                        humidity,
+                        rain,
                     )
                 )
                 forecast_records.append(
@@ -439,6 +532,8 @@ def curated_warehouse(spark: SparkSession) -> CuratedWarehouse:
                         "date_key": day.date(),
                         "hour_ending": hour,
                         "forecast_temperature_c": forecast,
+                        "forecast_relative_humidity_pct": humidity,
+                        "forecast_precipitation_mm": rain,
                     }
                 )
     # chubu: one hour forecast by two MSM runs (the D-2 12 UTC one and a later one).
@@ -455,6 +550,8 @@ def curated_warehouse(spark: SparkSession) -> CuratedWarehouse:
                 (day + pd.Timedelta(hours=hour - 1)).to_pydatetime(),
                 day.date(),
                 12.0,
+                55.0,
+                0.0,
             )
         )
     weather_forecast = pd.DataFrame(forecast_records)
@@ -519,12 +616,13 @@ def curated_warehouse(spark: SparkSession) -> CuratedWarehouse:
     spark.createDataFrame(
         weather_rows,
         "station_id string, observed_at timestamp, observed_hour_start_at timestamp, "
-        "date_key date, temperature_c double",
+        "date_key date, temperature_c double, humidity_pct double, precipitation_mm double",
     ).write.mode("overwrite").saveAsTable("pma_curated.fct_jma_weather_hourly")
     spark.createDataFrame(
         forecast_rows,
         "station_id string, forecast_reference_at timestamp, forecast_valid_at timestamp, "
-        "forecast_hour_start_at timestamp, date_key date, temperature_c double",
+        "forecast_hour_start_at timestamp, date_key date, temperature_c double, "
+        "relative_humidity_pct double, precipitation_mm double",
     ).write.mode("overwrite").saveAsTable("pma_curated.fct_jma_msm_weather_forecast_hourly")
     spark.createDataFrame(
         station_weights,
@@ -537,8 +635,13 @@ def curated_warehouse(spark: SparkSession) -> CuratedWarehouse:
         "actual_demand_kwh double, forecast_demand_kwh double",
     ).write.mode("overwrite").saveAsTable("pma_curated.fct_demand_forecast_accuracy")
     spark.createDataFrame(
-        dates, "date_key date, is_weekend boolean, is_holiday boolean"
+        dates, "date_key date, is_weekend boolean, is_holiday boolean, holiday_degree double"
     ).write.mode("overwrite").saveAsTable("pma_curated.dim_date")
+    spark.createDataFrame(
+        hourly_load_rows,
+        "date_key date, hour_of_day int, area_key int, delivery_datetime timestamp, "
+        "demand_kwh bigint",
+    ).write.mode("overwrite").saveAsTable("pma_curated.fct_area_power_usage_hourly")
     return CuratedWarehouse(
         areas=AREAS,
         prices=prices,
@@ -551,4 +654,5 @@ def curated_warehouse(spark: SparkSession) -> CuratedWarehouse:
         station_weights=station_weights,
         demand_accuracy=demand_accuracy,
         dates=dates,
+        hourly_load=hourly_load,
     )
