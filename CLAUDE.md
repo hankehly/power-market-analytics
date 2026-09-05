@@ -68,6 +68,12 @@
   second job on every push.
 - `just python <args>` / `just exec <cmd>` / `just shell` — run inside the devcontainer.
 - `just dbt <args>` — dbt from `/workspace/dbt` (e.g. `just dbt build`, `just dbt show --inline "select ..." --limit 5`).
+  `just dbt parse` needs no warehouse (parse never opens a connection) and is the one dbt step
+  the `ci` workflow runs — a `dbt parse` job on every push: full locked `uv sync`, `dbt deps`
+  (versions from `dbt/package-lock.yml`), then `dbt parse` from `dbt/`, ~8 s after the
+  install. It catches model/source YAML, enforced-contract, ref/source, Jinja and
+  test-argument errors; the data tests (`dbt build`) still need the thriftserver and do not
+  run in CI.
 - `just sql` — beeline shell on the thriftserver.
 - `just python scripts/spot_price_backtest.py --strategy lightgbm --area tokyo` — day-ahead
   backtest (strategies: `previous_day`, `lightgbm`, `lightgbm_occto`; areas =
@@ -440,8 +446,8 @@
   new Python should come with tests; the coverage gate is 100% locally and in the GitHub
   Actions `ci` workflow, and the `if __name__ == "__main__":` guard is the only excluded
   line). Validate data/model changes with `just dbt build`
-  (contracts + tests) and Python changes with `just lint` + `just mypy` (both also CI
-  jobs); loaders/downloaders are
+  (contracts + tests; CI only runs `dbt parse`) and Python changes with `just lint` +
+  `just mypy` (both also CI jobs); loaders/downloaders are
   also checked end-to-end by running their `scripts/` entry point in the devcontainer.
 - Long-running ops (scrapes, raw reloads, `dbt build`) must run as main-session background
   Bash tasks — a subagent that backgrounds a job and ends its turn gets reaped with the job.

@@ -1,12 +1,12 @@
 name: ci
 
 # On every push (and on demand): the unit tests with their coverage gate, a
-# ruff lint pass, a mypy type-check, and a checkov scan of the IaC. All the
-# gates live in the repo config — coverage in pyproject.toml
-# ([tool.coverage.report] fail_under), ruff in [tool.ruff], mypy in
-# [tool.mypy], checkov in .checkov.yaml — so `just test` / `just lint` /
-# `just mypy` / `just checkov` locally and these jobs fail on exactly the
-# same conditions.
+# ruff lint pass, a mypy type-check, a checkov scan of the IaC, and a parse of
+# the dbt project. All the gates live in the repo config — coverage in
+# pyproject.toml ([tool.coverage.report] fail_under), ruff in [tool.ruff],
+# mypy in [tool.mypy], checkov in .checkov.yaml, the dbt project under dbt/ —
+# so `just test` / `just lint` / `just mypy` / `just checkov` / `just dbt
+# parse` locally and these jobs fail on exactly the same conditions.
 on:
   push:
   workflow_dispatch:
@@ -107,3 +107,39 @@ jobs:
       # justfile — bump both together.
       - name: Run checkov
         run: uvx checkov@3.3.11
+
+  dbt-parse:
+    name: dbt parse
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # No telemetry ping from a CI runner.
+      DBT_SEND_ANONYMOUS_USAGE_STATS: "false"
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v10.0.1  # no moving major tag past v7; pin the full version
+        with:
+          enable-cache: true
+          python-version: "3.13"
+
+      # dbt-core and the dbt-spark adapter are runtime dependencies of the
+      # project (the profile's `type: spark` needs the adapter registered
+      # even to parse), so this is the full locked install, like mypy's.
+      - name: Install dependencies (locked)
+        run: uv sync --locked
+
+      # dbt_packages/ is gitignored; dbt deps installs the versions pinned in
+      # dbt/package-lock.yml (dbt_utils, whose macros the generic tests use).
+      - name: Install dbt packages (locked)
+        run: uv run --no-sync dbt deps
+        working-directory: dbt
+
+      # Same as `just dbt parse`: a full parse of the project — model and
+      # source YAML, enforced contracts, ref/source resolution, Jinja, test
+      # arguments — which never opens a connection, so the profile's
+      # thriftserver host (dbt/profiles.yml) is never resolved. The data
+      # tests still need the warehouse: `just dbt build`.
+      - name: Run dbt parse
+        run: uv run --no-sync dbt parse
+        working-directory: dbt
