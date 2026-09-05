@@ -1,6 +1,8 @@
 # Learned similar-day reference load for the demand task — design
 
-Date: 2026-09-05. Status: **approved in chat 2026-09-05**. Research: `demand/R-004`, experiment E-002.
+Date: 2026-09-05. Status: **approved in chat 2026-09-05**; implemented the same day per
+`docs/superpowers/plans/2026-09-05-demand-similar-day-reference.md`, with the deviations noted
+in §4.1–4.2. Research: `demand/R-004`, experiment E-002.
 
 ## 1. Goal
 
@@ -122,9 +124,10 @@ One row per `dim_date` day that has a day before and after it. Key: `trade_date`
 
 `DayCalendar.day_types()` returns the `DayTypeCalendar` the parent strategy needs, so
 `dim_date` is read once. `datasets.load_day_calendar(spark=None)` reads the columns above and
-computes the two holiday distances with window functions over the spine (no gaps), then
-drops the days before the spine's first holiday and after its last so both distances are
-defined (the spine starts 2016-01-01, a holiday), and logs the counts.
+computes the two holiday distances in pandas with a forward and a backward fill over the
+spine (no gaps; as implemented, in place of SQL window functions), then drops the days before
+the spine's first holiday and after its last so both distances are defined (the spine starts
+2016-01-01, a holiday), and logs the counts.
 `load_day_types` does not change.
 
 ### 4.2 Candidates
@@ -142,11 +145,14 @@ Both profile frames are population-weighted over the area's staffed stations wit
 weights, renormalised over the stations that have a value for the hour, one row per
 `trade_date × hour_ending` 1..24:
 
-- Forecast, target side: `AreaTemperatureForecast` and
-  `load_area_temperature_forecast_population_weighted` gain
-  `forecast_relative_humidity_pct` and `forecast_precipitation_mm` (nullable).
+- Forecast, target side: a new frame `AreaWeatherForecast` (`forecast_temperature_c`,
+  `forecast_relative_humidity_pct`, `forecast_precipitation_mm`, nullable) from
+  `load_area_weather_forecast_population_weighted`; its `temperature_forecast()` view is the
+  parent's `AreaTemperatureForecast`, so that frame and its loader stay as they were (as
+  implemented: many tests build `AreaTemperatureForecast`, so widening it was not worth it).
 - Observed, candidate side: a new frame `AreaObservedWeather` (`temperature_c`,
-  `humidity_pct`, `precipitation_mm`, nullable) and
+  `humidity_pct`, `precipitation_mm`, nullable; keyed `obs_date × hour_ending` like
+  `AreaTemperature`) and
   `load_area_observed_weather_population_weighted(area_code, census_year)` over
   `fct_jma_weather_hourly` and `fct_census_population_jma_station`. The parent's observed
   `wavg_temperature_c` feature stays single-station.
@@ -289,8 +295,8 @@ the strategy type.
 
 ## 7. Dependencies and docs
 
-- `dim_date.holiday_degree` from branch `feature/dim-date-holiday-degree`. The E-002 PR is
-  stacked on that branch until it merges.
+- `dim_date.holiday_degree` from branch `feature/dim-date-holiday-degree`, merged to `main`
+  as PR #42 on 2026-09-05 before the E-002 branch was cut.
 - `pyproject.toml`: declare `scipy>=1.18`. Add `scipy-stubs` or an `ignore_missing_imports`
   entry if mypy needs it.
 - No dbt or dashboard change. The feature shows up as one more SHAP component.
