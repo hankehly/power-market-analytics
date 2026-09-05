@@ -345,6 +345,22 @@ class TestLoadDayCalendar:
         with pytest.raises(ValueError, match="No calendar days found in dim_date"):
             load_day_calendar(spark=spark)
 
+    def test_dim_date_without_a_holiday_raises(self, spark, monkeypatch):
+        days = pd.date_range("2024-04-01", "2024-04-05")
+        monkeypatch.setattr(
+            "power_market_analytics.tasks.demand.datasets.query_pandas",
+            lambda *a, **k: pd.DataFrame(
+                {
+                    "trade_date": [d.date() for d in days],
+                    "is_weekend": [False] * 5,
+                    "is_holiday": [False] * 5,
+                    "holiday_degree": [0.0] * 5,
+                }
+            ),
+        )
+        with pytest.raises(ValueError, match="dim_date has no named holiday"):
+            load_day_calendar(spark=spark)
+
 
 def weighted(first: float, second: float | None, w1: float, w2: float) -> float:
     if second is None:

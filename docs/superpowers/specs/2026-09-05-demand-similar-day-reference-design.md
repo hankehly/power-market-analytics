@@ -38,7 +38,7 @@ of 2026-09-02 to 09-04.
    profiles from `fct_jma_weather_hourly` (from 2016-01-01). A candidate's load came from
    its actual weather, and the target has only a forecast; the model already mixes the two
    this way (forecast for D, observed lags). So the first day that can be scored is
-   2019-04-01, every A-1 training row has the feature, and E-001 needs no `--train-start`.
+   2019-04-01, every A-1 training row has the feature, and E-002 needs no `--train-start`.
 5. **Seven distance parts, all continuous** (the researcher's list, 2026-09-05): distance
    in calendar days, temperature difference, humidity difference, rainfall difference, days
    since the last holiday, days until the next holiday,
@@ -54,7 +54,7 @@ of 2026-09-02 to 09-04.
    from 2019-04-01. The A-1 target would have limited the fit to targets from 2022-04.
 7. **The weights are fitted once per run**, on every pair whose target day is before the
    first forecast day. They are then frozen and logged to MLflow (confirmed 2026-09-05).
-   Two follow-ups, not part of E-001: check how much the weights move over time (fit them
+   Two follow-ups, not part of E-002: check how much the weights move over time (fit them
    on successive yearly or rolling windows of targets and compare), and refit them during
    the backtest at each LightGBM refit if they do move.
 8. **One feature: the single nearest day.** Top-K days, the distance itself and a blended
@@ -205,12 +205,12 @@ Nonlinear least squares on the paper's cost `Σ_k (y_k − (α·d_k + β))²`, s
 - Start: equal weights; `α` and `β` from a straight-line fit of `y` on that distance. No
   randomness.
 - If the solver fails: `RuntimeError`. Fewer than 8 pairs: `ValueError`.
-- E-001 size: about 120 k pairs, well under a second.
+- E-002 size: about 120 k pairs, well under a second.
 
 ### 4.6 `SimilarDaySelector`
 
 ```
-SimilarDaySelector(calendar, temperature_forecast, weather_observed, hourly_load, *,
+SimilarDaySelector(calendar, weather_forecast, weather_observed, hourly_load, *,
                    center_lag_days=364, half_width_days=30)
   .training_pairs(through) -> SimilarDayTrainingPairs   # scorable targets up to `through`
   .fit(through) -> SimilarDayWeights                     # stores; .weights raises before
@@ -250,9 +250,9 @@ selector by itself, apart from what LightGBM does with the feature.
 - `feature_cols` = the parent's plus `similar_day_demand_kwh`, with a matching eval-set
   class. `categorical_feature_cols` does not change.
 - `lookback_days` stays 8. The feature reads the hourly frame, not the history slice.
-- `__init__(temperature, temperature_forecast, day_calendar, weather_observed, hourly_load,
-  *, census_year, window_half_width_days=30, **kwargs)`: passes `day_calendar.day_types()`
-  to the parent and builds the selector.
+- `__init__(temperature, weather_forecast, day_calendar, weather_observed, hourly_load, *,
+  census_year, window_half_width_days=30, **kwargs)`: passes `weather_forecast.temperature_forecast()`
+  and `day_calendar.day_types()` to the parent and builds the selector.
 - `predict`: calls `selector.ensure_fitted(through=history.df["trade_date"].max())` before
   `super().predict`. The first history the engine passes ends at the first target day's
   cutoff, which is the right fitting set, and the parent's refit needs the weights already
@@ -346,7 +346,7 @@ dashboard changes.
   and the restored
   `load_area_hourly_load` with its fixture table.
 - `test_demand_strategies.py`: `build_strategy`. Both script tests: the hook's artifacts.
-- In the devcontainer: the E-001 run, `just dbt build --select
+- In the devcontainer: the E-002 run, `just dbt build --select
   +fct_demand_forecast_accuracy +fct_demand_forecast_contribution`,
   `compare_demand_runs.py`, and the retrieval summary.
 

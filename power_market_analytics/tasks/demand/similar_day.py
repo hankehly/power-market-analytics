@@ -69,6 +69,12 @@ def _check_non_negative(name: str, df: pd.DataFrame, columns: Iterable[str]) -> 
             raise ValueError(f"{name}: {col} must be >= 0")
 
 
+def _check_reference_precedes(name: str, df: pd.DataFrame, column: str) -> None:
+    """A reference day must lie strictly in the past of its delivery day (no leakage)."""
+    if (df[column] >= df["trade_date"]).any():
+        raise ValueError(f"{name}: {column} must precede trade_date")
+
+
 class DayPairDifferences(DomainFrame):
     """The seven distance parts of (target day, candidate day) pairs.
 
@@ -117,10 +123,13 @@ class SimilarDayTrainingPairs(DayPairDifferences):
 class SimilarDaySelection(DomainFrame):
     """The similar day chosen for each delivery day.
 
-    ``reference_lag_days`` = ``trade_date − reference_date`` in days;
-    ``n_candidates`` the window days that could be scored; ``lag_364_rank``
-    the distance rank (1 = nearest) of the plain same-weekday day one year
-    back, NaN when it was not a candidate.
+    ``reference_lag_days`` = ``trade_date − reference_date`` in days, always
+    positive: a reference day lies strictly in the past (the frame rejects
+    the delivery day itself or a later day, whatever produced the row; the
+    selector's own rows come from its window only). ``n_candidates`` is the
+    window days that could be scored; ``lag_364_rank`` the distance rank
+    (1 = nearest) of the plain same-weekday day one year back, NaN when it
+    was not a candidate.
 
     Grain: (trade_date).
     """
@@ -138,6 +147,7 @@ class SimilarDaySelection(DomainFrame):
 
     @classmethod
     def _validate_extra(cls, df: pd.DataFrame) -> None:
+        _check_reference_precedes(cls.__name__, df, "reference_date")
         lag = (df["trade_date"] - df["reference_date"]).dt.days
         if (lag != df["reference_lag_days"]).any():
             raise ValueError(
@@ -175,6 +185,11 @@ class SimilarDayRetrieval(DomainFrame):
         "oracle_load_difference",
         "selected_rank_by_outcome",
     ]
+
+    @classmethod
+    def _validate_extra(cls, df: pd.DataFrame) -> None:
+        _check_reference_precedes(cls.__name__, df, "reference_date")
+        _check_reference_precedes(cls.__name__, df, "oracle_date")
 
 
 def _empty(frame_cls: type[DomainFrame]) -> pd.DataFrame:
