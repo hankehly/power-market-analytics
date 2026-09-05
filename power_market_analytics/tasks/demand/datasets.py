@@ -547,8 +547,8 @@ def load_day_calendar(spark: SparkSession | None = None) -> DayCalendar:
     Raises
     ------
     ValueError
-        If ``dim_date`` returns no rows or the result violates the
-        DayCalendar contract.
+        If ``dim_date`` returns no rows, holds no holiday, or the result
+        violates the DayCalendar contract.
     """
     pdf = query_pandas(
         """
@@ -585,6 +585,10 @@ def load_day_calendar(spark: SparkSession | None = None) -> DayCalendar:
         )
         .reset_index(drop=True)
     )
+    if pdf.empty:
+        raise ValueError(
+            "dim_date has no named holiday (is_holiday), so the holiday distances are undefined"
+        )
     logger.info(
         "load_day_calendar: {} days ({}..{}), {} holidays, holiday_degree > 0 on {} days",
         len(pdf),

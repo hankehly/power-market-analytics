@@ -302,6 +302,39 @@ class TestPairFrames:
         with pytest.raises(ValueError, match="load_difference must be >= 0"):
             SimilarDayTrainingPairs.from_df(df)
 
+    def test_selection_rejects_a_reference_on_or_after_the_day(self):
+        base = {
+            "distance": [1.0],
+            "reference_lag_days": np.array([0], dtype="int64"),
+            "n_candidates": np.array([61], dtype="int64"),
+            "lag_364_rank": [1.0],
+        }
+        with pytest.raises(ValueError, match="reference_date must precede trade_date"):
+            SimilarDaySelection.from_df(
+                pd.DataFrame({"trade_date": [D], "reference_date": [D], **base})
+            )
+        future = {**base, "reference_lag_days": np.array([-1], dtype="int64")}
+        with pytest.raises(ValueError, match="reference_date must precede trade_date"):
+            SimilarDaySelection.from_df(
+                pd.DataFrame(
+                    {"trade_date": [D], "reference_date": [D + pd.Timedelta(days=1)], **future}
+                )
+            )
+
+    def test_retrieval_rejects_a_reference_on_or_after_the_day(self):
+        row = {
+            "trade_date": [D],
+            "reference_date": [D_MINUS_364],
+            "distance": [1.0],
+            "selected_load_difference": [0.1],
+            "lag_364_load_difference": [0.1],
+            "oracle_date": [D],
+            "oracle_load_difference": [0.05],
+            "selected_rank_by_outcome": np.array([2], dtype="int64"),
+        }
+        with pytest.raises(ValueError, match="oracle_date must precede trade_date"):
+            SimilarDayRetrieval.from_df(pd.DataFrame(row))
+
     def test_selection_checks_the_lag(self):
         df = pd.DataFrame(
             {
