@@ -410,10 +410,11 @@ just dbt build
 `just refresh-all` runs the same three steps (the downloader with its defaults) after every
 other source.
 
-`scripts/load_jma_msm_surface_forecast.py` reads all ~1,600 daily `csv.gz` extracts in a single
+`scripts/load_jma_msm_surface_forecast.py` reads all ~2,700 daily `csv.gz` extracts in a single
 Spark scan (they share one header line, so `CsvLoader`'s header-grouped default read applies):
-a full reload of 5.7 M rows takes about a minute and lands in ~52 parquet files. Before
-2026-08-30 the loader unioned one frame per file, which needed the 20g driver.
+a full reload of 9.7 M rows takes under a minute (46 s for 2,716 files on 2026-09-05) and
+lands in 88 parquet files (349 MB). Before 2026-08-30 the loader unioned one frame per file,
+which needed the 20g driver.
 
 `scripts/download_jma_msm_surface_forecast.py` flags:
 
@@ -540,6 +541,20 @@ file exactly 3,576 rows, 5,743,056 raw rows loaded) surfaced one real-data refin
 which the build is again fully green. A dozen transient RISH connection resets during the
 run were absorbed by the per-file retry; two laptop-sleep network outages exhausted the
 retries, and the resumable cache picked up at the first missing day on relaunch.
+
+The 2019-04-01 extension (run 2026-09-05, `--start-date 2019-04-01` with the default end
+date, host-side): **1,110 new delivery days** — 2019-04-01 → 2022-03-31 plus the 14 days
+2026-08-24 → 2026-09-06 that post-dated the first backfill, the 1,606 cached days skipped —
+**174.8 GB of GRIB2** fetched sequentially in **1.56 h** (09:58 → 11:32 JST, ~710 delivery
+days/hour: RISH served ~30 MB/s this time against ~3.5 MB/s in August), no retries or errors,
+222 MB of new `csv.gz` extracts, every file exactly 3,576 rows, no missing day anywhere in
+2019-04-01 → 2026-09-06 (2,716 extracts, 542 MB). Reload: **9,712,416 raw rows in 46 s**,
+88 parquet files. The full `just dbt build` then read PASS=820 ERROR=1 — the one failure the
+`relative_humidity_pct` 0–100 range test on the fct, 7 rows of 100.001–100.015 in 2019-11 and
+2020-03, the same packing overshoot as cloud cover, allowed the same way
+([§7](#7-warehouse-models), PR #37) — after which it is fully green again: **PASS=821 WARN=0
+ERROR=0**. `fct_jma_msm_weather_forecast_hourly` now spans **2019-04-01 → 2026-09-06**: 149
+stations × 2,716 delivery days, 9,712,416 rows.
 
 ### 9.3 Downloader/loader
 
