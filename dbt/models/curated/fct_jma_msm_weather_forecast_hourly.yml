@@ -119,12 +119,17 @@ models:
                 max_value: 50
       - name: relative_humidity_pct
         data_type: double
-        description: Relative humidity at forecast_valid_at in percent, at the nearest MSM grid point.
+        description: >
+          Relative humidity at forecast_valid_at in percent, at the nearest MSM
+          grid point. Kept as decoded: like total_cloud_cover_pct, the GRIB2
+          packing of this field overshoots 100 by up to ~0.015 on a handful of
+          rows (7 of 9.7 M in the 2019-04 → 2026-09 backfill, all in 2019-11
+          and 2020-03), so the range test allows 100.1.
         data_tests:
           - dbt_utils.accepted_range:
               arguments:
                 min_value: 0
-                max_value: 100
+                max_value: 100.1
       - name: u_wind_ms
         data_type: double
         description: Eastward wind component at forecast_valid_at in m/s, at the nearest MSM grid point.
