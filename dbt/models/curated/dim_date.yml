@@ -45,6 +45,27 @@ models:
           name: dim_date_business_day_is_non_holiday_weekday
           arguments:
             expression: "is_business_day = (day_of_week_iso <= 5 and not is_holiday)"
+      # A Sunday or a national holiday (the customary names never win over an
+      # official one) is a full holiday.
+      - dbt_utils.expression_is_true:
+          name: dim_date_holiday_degree_sunday_or_national_holiday_is_one
+          arguments:
+            expression: >
+              holiday_degree = 1.0
+              or not (
+                day_of_week_iso = 7
+                or (is_holiday and holiday_name_ja not in ('年末年始', 'ゴールデンウィーク', 'お盆'))
+              )
+      # Every non-working day scores at least a Saturday; a working day scores
+      # 0 unless sandwiched between off days.
+      - dbt_utils.expression_is_true:
+          name: dim_date_holiday_degree_non_business_day_at_least_saturday
+          arguments:
+            expression: "is_business_day or holiday_degree >= 0.8"
+      - dbt_utils.expression_is_true:
+          name: dim_date_holiday_degree_business_day_is_sandwich_value
+          arguments:
+            expression: "not is_business_day or holiday_degree in (0, 0.3, 0.5)"
     columns:
       - name: date_key
         data_type: date
@@ -134,3 +155,24 @@ models:
           and お盆, so this is not a "banks open" flag.
         data_tests:
           - not_null
+      - name: holiday_degree
+        data_type: double
+        description: >
+          休日度合い, how much of a non-working day the date is, 0 to 1: the
+          largest of three graded values after JP 4448226 B2 (新日本製鐵, 2000;
+          docs/research/papers.md). Type 1, calendar: 1.0 on a Sunday or a
+          national holiday, 0.8 on a Saturday, 0 on a weekday. Type 2, special
+          period: 0.8 on the first day of 年末年始 (12/30), ゴールデンウィーク
+          (4/29) and お盆 (8/13), 1.0 on their other days (12/30-1/3, 4/29-5/5,
+          8/13-8/16). Type 3, sandwiched: 0.5 on a single working day with a
+          non-working day on each side (飛び石連休の中日), 0.3 on each of two
+          consecutive working days between non-working days (二飛び石連休の中日);
+          longer runs of working days score 0. "Non-working" is not
+          is_business_day, so the customary periods count as off days on both
+          sides. Design: docs/superpowers/specs/2026-09-05-dim-date-holiday-degree-design.md.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [0, 0.3, 0.5, 0.8, 1.0]
+                quote: false
