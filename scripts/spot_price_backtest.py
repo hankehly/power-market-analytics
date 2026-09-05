@@ -137,6 +137,8 @@ def main(argv: list[str] | None = None) -> None:
             )
             publish_contribution_records(TASK, contribution_records)
             mlflow.set_tag("contribution_table", TASK.contribution_table)
+        for stem, frame in strategy.diagnostics(prices, run).items():
+            log_dataframe(frame, f"{stem}.csv")
         heatmaps = error_heatmaps(
             TASK, result, title=f"Error by year and time code — {args.strategy}, {args.area}"
         )
