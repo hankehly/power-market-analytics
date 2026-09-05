@@ -1,8 +1,10 @@
-# R-004 — Year-ago load on the prior-year reference date
+# R-004 — Year-ago load from a prior-year reference day
 
-- **Status:** Not supported (E-001 rejected by the researcher on 2026-09-05; the
-  feature and the `dim_date` column removed)
-- **Last updated:** 2026-09-05 (E-001 decision and removal)
+- **Status:** In progress — E-001 (rule-chosen reference date) rejected by the
+  researcher on 2026-09-05, its feature and `dim_date` column removed; E-002
+  (learned similar-day selector) planned the same day, design spec
+  `docs/superpowers/specs/2026-09-05-demand-similar-day-reference-design.md`
+- **Last updated:** 2026-09-05 (question broadened; E-002 planned)
 - **Created:** 2026-08-31
 - **Triggering observations:**
   [O-002 — The working day between 山の日 and お盆 is heavily over-forecast, driven by the D-7 lag](research/demand/observations.md#o-002-the-working-day-between-山の日-and-お盆-is-heavily-over-forecast-driven-by-the-d-7-lag),
@@ -14,11 +16,16 @@
 
 ## Question
 
-Does giving the model the load of the same day one year earlier — the
-warehouse's `dim_date.prior_year_reference_date`, aligned by weekday and
-holiday rather than by calendar date — improve Tokyo-area day-ahead demand
+Does giving the model the load of a reference day one year earlier — a day
+chosen to stand for the target day — improve Tokyo-area day-ahead demand
 forecasts, in particular on the days where the D-7 lag or the day type alone
 misleads it?
+
+Broadened on 2026-09-05 after E-001. As first written, the question named one
+way of choosing the day: the warehouse's `dim_date.prior_year_reference_date`,
+the same weekday or the same-named holiday by rule. E-001 rejected that rule,
+not the year-ago load itself. E-002 chooses the day with a learned similar-day
+selector instead.
 
 ## Motivation
 
@@ -58,12 +65,14 @@ matched backtest starts in 2022-08.
 
 ## Current predictive hypothesis
 
-> We believe that adding the year-ago load — the hourly load on
-> `dim_date.prior_year_reference_date` at the hour containing the period, per
-> period — to `lightgbm_msm_popw_daytype` will reduce out-of-sample MAE,
-> because the two motivating error patterns (O-002, O-003) are days whose
-> level one week earlier, or whose day-type average, does not represent them,
-> while the same weekday or the same holiday one year earlier does.
+> We believe that giving `lightgbm_msm_popw_daytype` the load of a reference
+> day one year earlier, per period, will reduce out-of-sample MAE, because
+> the two motivating error patterns (O-002, O-003) are days whose level one
+> week earlier, or whose day-type average, does not represent them, while a
+> well-chosen day one year earlier does.
+
+How the reference day is chosen is each experiment's hypothesis: a calendar
+rule in E-001, a learned similar-day selector in E-002.
 
 ## Scope and constraints
 
@@ -73,8 +82,10 @@ matched backtest starts in 2022-08.
   days ≤ D-2; observed-weather features use complete observation days ≤ D-2
   at 東京 s47662; forecast features use the MSM vintage referenced 21:00 JST
   D-2 population-weighted over the area's 21 weighted stations; the day type
-  and the prior-year reference of D are known from the calendar; the year-ago
-  load is a year old
+  and the calendar attributes of D are known from the calendar; the year-ago
+  load and, in E-002, the candidates' observed weather are at least 334 days
+  old, and the selector's weights are fitted only on pairs whose target day
+  precedes the first forecast day
 - **Baseline:** `lightgbm_msm_popw_daytype` — the R-003 E-001 candidate as
   re-run with SHAP contributions on 2026-08-26,
   [`0a6b8a5560d445d5b9705bde99cf13ae`](http://localhost:5005/#/experiments/2/runs/0a6b8a5560d445d5b9705bde99cf13ae)
@@ -318,6 +329,94 @@ default.
 - None recorded with the decision. The bridge-day / holiday-window flag the
   researcher deferred on 2026-08-31 (their other idea from O-002 / O-003) is
   not part of it.
+- Taken up as E-002: choose the reference day with a learned selector instead
+  of a rule.
+
+---
+
+## E-002 — Year-ago load of a learned similar day
+
+### Why this experiment
+
+E-001 helped some holidays (−10 %) but its rule failed on proximity days:
+history often has no day with the same calendar shape, so the rule fell back
+to an ordinary week and O-002's days did not move. A learned selector always
+returns the nearest day, and the data decide how much calendar shape, season
+and weather matter (Park, Song and Kwon 2020, §2.2). Design:
+`docs/superpowers/specs/2026-09-05-demand-similar-day-reference-design.md`.
+
+### Experiment hypothesis
+
+Adding `similar_day_demand_kwh` — the でんき予報 hourly load of the nearest
+day in D − 364 ± 30, at the hour containing the period, divided by 2 — to
+`lightgbm_msm_popw_daytype` lowers out-of-sample MAE, especially on
+proximity days and holidays.
+
+### Change
+
+Strategy `lightgbm_msm_popw_daytype_simday` = the baseline + the feature.
+The reference day is the nearest of the 61 days in D − 364 ± 30 under a
+weighted distance over seven parts (calendar days from D − 364; the target's
+forecast against the candidate's observed temperature, humidity and rain;
+days since and until a named holiday; holiday degree), the weights fitted
+once per run on past pairs. Parts, fit and frames: the design spec.
+
+### Expected evidence
+
+- Overall MAE lower than the baseline's
+- The retrieval check: the selected day's realised load difference below the
+  plain D − 364 day's on most forecast days
+- Proximity days (O-002) and holidays (O-003) improve; お盆 does not worsen
+  as it did in E-001 (+23 %)
+- Less plausible: the selector does not beat D − 364 on the retrieval check,
+  or MAE rises
+
+### Decision rule
+
+Keep if overall MAE is lower, the bootstrap interval over days excludes zero,
+and no day type gets materially worse. Refine if the retrieval check beats
+D − 364 but the model does not improve (then top-K days, or the distance as a
+feature). Inconclusive if the interval includes zero. Reject if MAE is higher
+and the interval excludes zero.
+
+### Execution
+
+- **MLflow experiment:** `demand`
+- **Baseline run:**
+  [`0a6b8a5560d445d5b9705bde99cf13ae`](http://localhost:5005/#/experiments/2/runs/0a6b8a5560d445d5b9705bde99cf13ae),
+  compared as run, as in E-001
+- **Candidate runs:** `lightgbm_msm_popw_daytype_simday --start-date
+  2024-08-18 --end-date 2026-08-17 --area tokyo`, no `--train-start`; the
+  weights fitted on targets 2019-04-01 to 2024-08-16 (about 1,960 days,
+  120 k pairs)
+- **Code or pull request:** planned; stacked on
+  `feature/dim-date-holiday-degree`
+
+### Results
+
+| Metric | Baseline | Candidate | Absolute change | Relative change |
+|---|---:|---:|---:|---:|
+| Overall MAE | 594,325 | — | — | — |
+| Important segment MAE | — | — | — | — |
+| Mean error / bias | — | — | — | — |
+
+Plus the retrieval check (selected vs D − 364 vs oracle load difference, and
+the share of days the selector beats D − 364) and the fitted weights.
+
+### Interpretation
+
+Pending.
+
+### Decision
+
+**Decision:** Pending
+
+### Follow-up ideas
+
+- Weight variability over time: fit the weights on yearly or rolling windows
+  of targets and compare
+- Refit the weights during the backtest, at each LightGBM refit, if they move
+- Top-K similar days; the distance itself as a feature; a blended curve
 
 ---
 
@@ -334,18 +433,23 @@ and the reference-date rules handle proximity days poorly when recent history
 holds no day with the same calendar characteristics. The column, the strategy
 and its inputs were removed.
 
+E-002 (planned 2026-09-05) keeps the feature and replaces the rule with a
+learned similar-day selector; the question was broadened accordingly.
+
 ## Open questions
 
 - None recorded.
 
 ## Final disposition
 
-**Investigation status:** Not supported (E-001; decision 2026-09-05)
+**Investigation status:** In progress (E-001 rejected 2026-09-05; E-002 planned)
 
-**Recommended action:** Done — `dim_date.prior_year_reference_date`,
+**Recommended action after E-001:** Done — `dim_date.prior_year_reference_date`,
 `prior_year_reference_rule` and `lightgbm_msm_popw_daytype_lag1y` removed on
 2026-09-05 ([PR #35](https://github.com/hankehly/power-market-analytics/pull/35));
 `lightgbm_msm_popw_daytype` stays the demand baseline and the default of
 `scripts/demand_backtest.py`.
 
 **Superseded by:** —
+
+**Next:** run E-002 once its implementation lands.
