@@ -494,10 +494,11 @@ code-level seam available if a permanent fix (e.g. a custom `requests.Session` w
 bundle baked in) is ever wanted. This may resolve itself whenever RISH corrects their
 server's certificate chain; re-check without the workaround periodically.
 
-Re-checked 2026-09-05 before the 2019-04-01 backfill: a plain `requests` call with the stock
-`certifi` bundle verified the chain again, so RISH appears to have fixed it. The combined
-bundle was still passed for that run — as a superset of `certifi` it costs nothing and
-protects a multi-hour run should the chain regress.
+Re-checked 2026-09-05 before the 2019-04-01 backfill: **still broken** — `openssl s_client`
+shows the server sending the G7 intermediate for its G8-issued leaf (verify return code 21),
+and a plain `requests` call with stock `certifi` 2026.06.17 fails with the same error; that
+backfill ran with the combined bundle. Probe with `REQUESTS_CA_BUNDLE` unset: with the
+variable exported, every call in the process verifies and the probe reports a false fix.
 
 ## 9. Verification results (one-day end-to-end, 2026-08-21)
 
