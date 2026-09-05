@@ -363,10 +363,13 @@ Every weather value column is the **nearest MSM grid point's** value
 grid point's elevation and terrain can differ materially from the station's own
 ([§9.4](#94-forecast-vs-observed-comparison) shows this in the verified numbers). `dbt_utils.accepted_range`
 tests on the fct model encode the physically-derived plausibility bounds (e.g.
-`relative_humidity_pct` 0–100, `grid_distance_km` 0–5). One deliberate allowance:
-`total_cloud_cover_pct` is tested against 0–100.1, because the GRIB2 packing of that field
-overshoots 100 by up to ~0.011 on rare rows (157 of 5.7 M in the full backfill); values are
-kept as decoded rather than clamped, and the three layer covers stay within 0–100.
+`low_cloud_cover_pct` 0–100, `grid_distance_km` 0–5). One deliberate allowance:
+`total_cloud_cover_pct` and `relative_humidity_pct` are tested against 0–100.1, because the
+GRIB2 packing of those fields overshoots 100 on rare rows — cloud cover by up to ~0.011
+(157 of 5.7 M rows in the 2022-04 → 2026-08 backfill), relative humidity by up to ~0.015
+(7 of 9.7 M rows once the 2019-04-01 backfill was loaded, all in 2019-11 and 2020-03);
+values are kept as decoded rather than clamped, and the three layer covers stay within
+0–100.
 
 ## 8. Operations
 
