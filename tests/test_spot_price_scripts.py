@@ -114,6 +114,48 @@ class TestCompareScript:
 
 
 class TestBacktestScript:
+    def test_diagnostics_frames_are_logged_as_csv(self, spark, curated_warehouse, monkeypatch):
+        script = import_script("spot_price_backtest")
+        real_build_strategy = script.build_strategy
+        seen: dict[str, object] = {}
+
+        def build_strategy_with_diagnostics(*args, **kwargs):
+            strategy = real_build_strategy(*args, **kwargs)
+
+            def diagnostics(history, run):
+                seen["history_rows"] = len(history)
+                seen["run"] = run
+                mlflow.log_metric("spot_diagnostic_value", 1.5)
+                return {"spot_diagnostic": pd.DataFrame({"value": [1.5]})}
+
+            monkeypatch.setattr(strategy, "diagnostics", diagnostics)
+            return strategy
+
+        monkeypatch.setattr(script, "build_strategy", build_strategy_with_diagnostics)
+        script.main(
+            [
+                "--strategy",
+                "previous_day",
+                "--area",
+                "tokyo",
+                "--start-date",
+                "2024-04-10",
+                "--end-date",
+                "2024-04-10",
+            ]
+        )
+        run = last_run()
+        assert seen["history_rows"] == len(curated_warehouse.prices)
+        assert seen["run"].result.df["trade_date"].tolist() == [pd.Timestamp("2024-04-10")] * 48
+        assert run.data.metrics["spot_diagnostic_value"] == 1.5
+        assert "spot_diagnostic.csv" in artifact_names(run.info.run_id)
+        logged = pd.read_csv(
+            mlflow.artifacts.download_artifacts(
+                run_id=run.info.run_id, artifact_path="spot_diagnostic.csv"
+            )
+        )
+        assert logged["value"].tolist() == [1.5]
+
     def test_previous_day_over_a_pinned_window(self, spark, curated_warehouse):
         script = import_script("spot_price_backtest")
         script.main(
