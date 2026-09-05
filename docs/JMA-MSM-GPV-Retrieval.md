@@ -37,7 +37,7 @@ if RISH or JMA changes the product, re-verify against a live file before trustin
   | 2006-03 | ~5 km grid introduced |
   | 2013 | Forecast horizon extended to 39 h |
   | 2017-12 | Downward shortwave (solar) radiation added to the surface element set |
-  | 2019-03 | 00/12 UTC runs extended to FH51 |
+  | 2019-03 | 00/12 UTC runs extended to FH51 — on RISH the `FH40-51` member first appears for the **2019-03-05 12 UTC** run (verified 2026-09-05; none on 03-04, none on the 03-05 00 UTC run) |
   | 2022-06 | 00/12 UTC runs extended further to FH78 |
 
   This pipeline only reads leads 28–51 ([§4](#4-file-set-and-forecast-lead-table)), so the
@@ -45,7 +45,33 @@ if RISH or JMA changes the product, re-verify against a live file before trustin
   `power_market_analytics.msm.EARLIEST_DELIVERY_DATE` is **2019-04-01**, one month after the
   change, so every ingested delivery day's 12 UTC D−2 run is guaranteed to carry FH51.
   Historical backfills default to `DEFAULT_BACKFILL_START` **2022-04-01** instead, matching
-  the other refresh tasks' backfill start (TEPCO/Kansai actuals, etc.).
+  the other refresh tasks' backfill start (TEPCO/Kansai actuals, etc.). The warehouse has
+  held **2019-04-01 →** since the 2026-09-05 backfill ([§9.2](#92-dbt-build)), which passed
+  `--start-date 2019-04-01` explicitly; a fresh clone must do the same to reproduce it —
+  `just refresh-all` runs the downloader with its defaults and stops at 2022-04-01 (extracts
+  already cached before that date are still loaded: the loader reads every `csv.gz` under
+  the data dir, whatever the download window).
+- **Availability — how far back the archive serves this pipeline** (verified 2026-09-05
+  against the RISH `original` tree, by directory listing and by running the extractor on
+  real files):
+  - RISH holds MSM surface files back to at least 2016 for all eight daily runs, but every
+    run before 2019-03-05 has only the `FH00-15` / `FH16-33` / `FH34-39` members. Under this
+    pipeline's vintage policy ([§3](#3-vintage-policy)) the floor is therefore delivery day
+    **2019-03-07**; `EARLIEST_DELIVERY_DATE` (2019-04-01) keeps a month of margin, and
+    `MsmDownloader.download_range` refuses an earlier `--start-date`.
+  - A 2019-04-01 12 UTC `FH40-51` file decodes with the current extractor unchanged
+    (12 elements × 12 leads, 149 stations).
+  - A 2016-04-01 12 UTC `FH34-39` file carries the same grid and packing as today's
+    ([§5.3](#53-grid-metadata-and-scan-handling)) and the same instantaneous elements, but
+    **no downward shortwave radiation** (0/4/7, added 2017-12), so the completeness check
+    fails as designed ("6 of 72 expected messages are absent").
+  - Reaching 2016 is therefore a vintage-policy or product change, not a start-date change:
+    the MSM **21 UTC D−2** run (FH19–39 → JST 01:00–21:00 of D, 22:00–24:00 uncovered;
+    distributed roughly 08:30 JST D−1, about an hour before the 09:30 cutoff — unverified,
+    RISH mtimes being non-authoritative) or the **GSM** Japan-region surface files
+    (`..._GSM_GPV_Rjp_Lsurf_FD0000-0312_grib2.bin`, 84 h horizon, ~20 km grid, present on
+    RISH for the 2016 12 UTC runs; a separate element/grid configuration). Either also needs
+    the two radiation columns nullable before 2017-12 through raw, `std` and `fct`.
 
 ## 2. The RISH archive
 
@@ -363,10 +389,13 @@ Every weather value column is the **nearest MSM grid point's** value
 grid point's elevation and terrain can differ materially from the station's own
 ([§9.4](#94-forecast-vs-observed-comparison) shows this in the verified numbers). `dbt_utils.accepted_range`
 tests on the fct model encode the physically-derived plausibility bounds (e.g.
-`relative_humidity_pct` 0–100, `grid_distance_km` 0–5). One deliberate allowance:
-`total_cloud_cover_pct` is tested against 0–100.1, because the GRIB2 packing of that field
-overshoots 100 by up to ~0.011 on rare rows (157 of 5.7 M in the full backfill); values are
-kept as decoded rather than clamped, and the three layer covers stay within 0–100.
+`low_cloud_cover_pct` 0–100, `grid_distance_km` 0–5). One deliberate allowance:
+`total_cloud_cover_pct` and `relative_humidity_pct` are tested against 0–100.1, because the
+GRIB2 packing of those fields overshoots 100 on rare rows — cloud cover by up to ~0.011
+(157 of 5.7 M rows in the 2022-04 → 2026-08 backfill), relative humidity by up to ~0.015
+(7 of 9.7 M rows once the 2019-04-01 backfill was loaded, all in 2019-11 and 2020-03);
+values are kept as decoded rather than clamped, and the three layer covers stay within
+0–100.
 
 ## 8. Operations
 
@@ -381,16 +410,17 @@ just dbt build
 `just refresh-all` runs the same three steps (the downloader with its defaults) after every
 other source.
 
-`scripts/load_jma_msm_surface_forecast.py` reads all ~1,600 daily `csv.gz` extracts in a single
+`scripts/load_jma_msm_surface_forecast.py` reads all ~2,700 daily `csv.gz` extracts in a single
 Spark scan (they share one header line, so `CsvLoader`'s header-grouped default read applies):
-a full reload of 5.7 M rows takes about a minute and lands in ~52 parquet files. Before
-2026-08-30 the loader unioned one frame per file, which needed the 20g driver.
+a full reload of 9.7 M rows takes under a minute (46 s for 2,716 files on 2026-09-05) and
+lands in 88 parquet files (349 MB). Before 2026-08-30 the loader unioned one frame per file,
+which needed the 20g driver.
 
 `scripts/download_jma_msm_surface_forecast.py` flags:
 
 | Flag | Default | Meaning |
 |---|---|---|
-| `--start-date` | `DEFAULT_BACKFILL_START` (2022-04-01) | First delivery day, inclusive |
+| `--start-date` | `DEFAULT_BACKFILL_START` (2022-04-01) | First delivery day, inclusive; 2019-04-01 (`EARLIEST_DELIVERY_DATE`) is the earliest accepted and what the 2026-09-05 backfill passed |
 | `--end-date` | `default_end_date()` (JST today + 1) | Last delivery day, inclusive |
 | `--data-dir` | `data/jma/msm_surface_forecast` | Root for `grib/` downloads and `csv/` extracts |
 | `--force` | off | Re-download every GRIB2 file and rebuild the extract even for a cached delivery day |
@@ -464,6 +494,12 @@ code-level seam available if a permanent fix (e.g. a custom `requests.Session` w
 bundle baked in) is ever wanted. This may resolve itself whenever RISH corrects their
 server's certificate chain; re-check without the workaround periodically.
 
+Re-checked 2026-09-05 before the 2019-04-01 backfill: **still broken** — `openssl s_client`
+shows the server sending the G7 intermediate for its G8-issued leaf (verify return code 21),
+and a plain `requests` call with stock `certifi` 2026.06.17 fails with the same error; that
+backfill ran with the combined bundle. Probe with `REQUESTS_CA_BUNDLE` unset: with the
+variable exported, every call in the process verifies and the probe reports a false fix.
+
 ## 9. Verification results (one-day end-to-end, 2026-08-21)
 
 Verified by running the full pipeline — download, decode, load, `dbt build` — for delivery
@@ -506,6 +542,20 @@ file exactly 3,576 rows, 5,743,056 raw rows loaded) surfaced one real-data refin
 which the build is again fully green. A dozen transient RISH connection resets during the
 run were absorbed by the per-file retry; two laptop-sleep network outages exhausted the
 retries, and the resumable cache picked up at the first missing day on relaunch.
+
+The 2019-04-01 extension (run 2026-09-05, `--start-date 2019-04-01` with the default end
+date, host-side): **1,110 new delivery days** — 2019-04-01 → 2022-03-31 plus the 14 days
+2026-08-24 → 2026-09-06 that post-dated the first backfill, the 1,606 cached days skipped —
+**174.8 GB of GRIB2** fetched sequentially in **1.56 h** (09:58 → 11:32 JST, ~710 delivery
+days/hour: RISH served ~30 MB/s this time against ~3.5 MB/s in August), no retries or errors,
+222 MB of new `csv.gz` extracts, every file exactly 3,576 rows, no missing day anywhere in
+2019-04-01 → 2026-09-06 (2,716 extracts, 542 MB). Reload: **9,712,416 raw rows in 46 s**,
+88 parquet files. The full `just dbt build` then read PASS=820 ERROR=1 — the one failure the
+`relative_humidity_pct` 0–100 range test on the fct, 7 rows of 100.001–100.015 in 2019-11 and
+2020-03, the same packing overshoot as cloud cover, allowed the same way
+([§7](#7-warehouse-models), PR #37) — after which it is fully green again: **PASS=821 WARN=0
+ERROR=0**. `fct_jma_msm_weather_forecast_hourly` now spans **2019-04-01 → 2026-09-06**: 149
+stations × 2,716 delivery days, 9,712,416 rows.
 
 ### 9.3 Downloader/loader
 
