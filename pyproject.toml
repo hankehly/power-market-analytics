@@ -23,6 +23,7 @@ dependencies = [
     "pyspark[ml,pandas-on-spark]==4.1.1",
     "pyyaml>=6.0",
     "requests>=2.32.0",
+    "scipy>=1.18",
     "shap>=0.52.0",
     "loguru>=0.7.3",
 ]
@@ -52,7 +53,7 @@ disable_error_code = ["annotation-unchecked"]
 
 # Libraries that ship no type stubs or py.typed marker.
 [[tool.mypy.overrides]]
-module = ["eccodes.*", "gribapi.*", "plotly.*", "shap.*"]
+module = ["eccodes.*", "gribapi.*", "plotly.*", "scipy.*", "shap.*"]
 ignore_missing_imports = true
 
 [tool.ruff]

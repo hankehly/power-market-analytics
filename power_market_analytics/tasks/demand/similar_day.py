@@ -19,6 +19,7 @@ from collections.abc import Iterable
 import numpy as np
 import pandas as pd
 from loguru import logger
+from scipy.optimize import least_squares
 
 from power_market_analytics.common.frames import DomainFrame
 from power_market_analytics.tasks.demand.frames import (
@@ -210,6 +211,174 @@ def _complete_profiles(df: pd.DataFrame, date_col: str, columns: dict[str, str])
     )
 
 
+def load_difference(target: np.ndarray, candidate: np.ndarray) -> np.ndarray:
+    """The paper's Eq. (3): mean absolute relative difference of two hourly load curves.
+
+    Parameters
+    ----------
+    target, candidate : numpy.ndarray
+        Shape (n, 24); the target's loads are positive.
+
+    Returns
+    -------
+    numpy.ndarray
+        Shape (n,).
+    """
+    return np.mean(np.abs(target - candidate) / target, axis=1)
+
+
+def _softmax(scores: np.ndarray) -> np.ndarray:
+    """Weights of the parts: softmax of the free scores with the last part's score fixed at 0."""
+    full = np.append(scores, 0.0)
+    exp = np.exp(full - full.max())
+    return exp / exp.sum()
+
+
+def _distance(scaled: np.ndarray, weights: np.ndarray) -> np.ndarray:
+    """``sqrt(Σ_j w_j · scaled_j²)`` per row."""
+    return np.sqrt((scaled**2) @ weights)
+
+
+@dataclasses.dataclass(frozen=True)
+class SimilarDayWeights:
+    """A fitted similar-day distance: ``d = sqrt(Σ_j w_j (Δ_j / s_j)²)``, ``ŷ = α d + β``.
+
+    Attributes
+    ----------
+    components : tuple of str
+        The parts, in ``SIMILAR_DAY_COMPONENTS`` order.
+    weights : numpy.ndarray
+        Non-negative, summing to one: each part's share of the squared distance.
+    scales : numpy.ndarray
+        The RMS of each part over the training pairs (1 where a part was all zero).
+    alpha, beta : float
+        The straight line from distance to load difference (``alpha >= 0``).
+    n_pairs, n_targets : int
+        Training pairs and distinct target days.
+    fit_from, fit_through : pandas.Timestamp
+        First and last target day of the fit.
+    fit_rmse : float
+        RMSE of ``ŷ`` against the realised load differences.
+    """
+
+    components: tuple[str, ...]
+    weights: np.ndarray
+    scales: np.ndarray
+    alpha: float
+    beta: float
+    n_pairs: int
+    n_targets: int
+    fit_from: pd.Timestamp
+    fit_through: pd.Timestamp
+    fit_rmse: float
+
+    def distance(self, differences: DayPairDifferences) -> np.ndarray:
+        """The distance of every pair.
+
+        Parameters
+        ----------
+        differences : DayPairDifferences
+
+        Returns
+        -------
+        numpy.ndarray
+            One value per row of ``differences``.
+        """
+        parts = differences.df[list(self.components)].to_numpy(dtype="float64")
+        return _distance(parts / self.scales, self.weights)
+
+    def as_params(self) -> dict[str, object]:
+        """The fit as MLflow run params.
+
+        Returns
+        -------
+        dict of str to object
+        """
+        return {
+            "similar_day_weights": ",".join(
+                f"{c}={w:.4f}" for c, w in zip(self.components, self.weights, strict=True)
+            ),
+            "similar_day_scales": ",".join(
+                f"{c}={s:.4g}" for c, s in zip(self.components, self.scales, strict=True)
+            ),
+            "similar_day_alpha": round(self.alpha, 6),
+            "similar_day_beta": round(self.beta, 6),
+            "similar_day_fit_n_pairs": self.n_pairs,
+            "similar_day_fit_n_targets": self.n_targets,
+            "similar_day_fit_from": str(self.fit_from.date()),
+            "similar_day_fit_through": str(self.fit_through.date()),
+            "similar_day_fit_rmse": round(self.fit_rmse, 6),
+        }
+
+
+def fit_similar_day_weights(pairs: SimilarDayTrainingPairs) -> SimilarDayWeights:
+    """Fit the distance weights by nonlinear least squares on the paper's cost.
+
+    Minimises ``Σ_k (y_k − (α d_k + β))²`` over the free softmax scores (the
+    last part's score is fixed at 0 so the weights are identified), ``α ≥ 0``
+    and ``β``, with ``scipy.optimize.least_squares`` (``trf``). Every part is
+    first divided by its RMS over the pairs, so a weight reads as a share.
+    The start is equal weights with ``α``, ``β`` from the straight-line fit
+    of ``y`` on that distance; nothing is random.
+
+    Parameters
+    ----------
+    pairs : SimilarDayTrainingPairs
+
+    Returns
+    -------
+    SimilarDayWeights
+
+    Raises
+    ------
+    ValueError
+        Fewer than ``MIN_FIT_PAIRS`` pairs.
+    RuntimeError
+        The solver did not converge.
+    """
+    df = pairs.df
+    if len(df) < MIN_FIT_PAIRS:
+        raise ValueError(f"{len(df)} training pairs; at least {MIN_FIT_PAIRS} are needed")
+    parts = df[list(SIMILAR_DAY_COMPONENTS)].to_numpy(dtype="float64")
+    y = df["load_difference"].to_numpy(dtype="float64")
+    rms = np.sqrt(np.mean(parts**2, axis=0))
+    scales = np.where(rms > 0, rms, 1.0)
+    scaled = parts / scales
+    n_free = len(SIMILAR_DAY_COMPONENTS) - 1
+    start_distance = _distance(scaled, _softmax(np.zeros(n_free)))
+    spread = float(np.var(start_distance))
+    alpha0 = (
+        max(float(np.cov(start_distance, y, bias=True)[0, 1] / spread), 0.0) if spread > 0 else 0.0
+    )
+    beta0 = float(np.mean(y) - alpha0 * np.mean(start_distance))
+
+    def residuals(theta: np.ndarray) -> np.ndarray:
+        weights = _softmax(theta[:n_free])
+        return y - (theta[n_free] * _distance(scaled, weights) + theta[n_free + 1])
+
+    lower = np.concatenate([np.full(n_free, -np.inf), [0.0, -np.inf]])
+    result = least_squares(
+        residuals,
+        np.concatenate([np.zeros(n_free), [alpha0, beta0]]),
+        bounds=(lower, np.inf),
+        method="trf",
+    )
+    if not result.success:
+        raise RuntimeError(f"similar-day weight fit failed: {result.message}")
+    return SimilarDayWeights(
+        components=SIMILAR_DAY_COMPONENTS,
+        weights=_softmax(result.x[:n_free]),
+        scales=scales,
+        alpha=float(result.x[n_free]),
+        beta=float(result.x[n_free + 1]),
+        n_pairs=len(df),
+        n_targets=int(df["target_date"].nunique()),
+        fit_from=df["target_date"].min(),
+        fit_through=df["target_date"].max(),
+        fit_rmse=float(np.sqrt(np.mean(result.fun**2))),
+    )
+
+
 class SimilarDaySelector:
     """Scores, fits and selects similar days for the demand task.
 
@@ -269,6 +438,7 @@ class SimilarDaySelector:
                 "calendar row"
             )
         self._candidates = pd.DatetimeIndex(candidates).sort_values()
+        self._weights: SimilarDayWeights | None = None
         self.first_candidate_day: pd.Timestamp = self._candidates[0]
         self.hourly_load_span: tuple[pd.Timestamp, pd.Timestamp] = (
             self._load.days[0],
@@ -364,3 +534,79 @@ class SimilarDaySelector:
         out = pairs[["target_date", "candidate_date"]].assign(**parts)
         out = out.sort_values(["target_date", "candidate_date"], ignore_index=True)
         return DayPairDifferences.from_df(out[list(DayPairDifferences.schema)])
+
+    def training_pairs(self, through: pd.Timestamp) -> SimilarDayTrainingPairs:
+        """Every window pair of the scorable forecast days on or before ``through``
+        whose own hourly load is known, with the realised load difference.
+
+        Parameters
+        ----------
+        through : pandas.Timestamp
+            Last target day allowed (the newest day the strategy may see).
+
+        Returns
+        -------
+        SimilarDayTrainingPairs
+        """
+        through = pd.Timestamp(through)
+        targets = self._forecast.days[self._forecast.days <= through]
+        diffs = self.differences(targets[targets.isin(self._load.days)]).df
+        loads = self._load.values["load"]
+        realised = load_difference(
+            loads[self._load.days.get_indexer(pd.DatetimeIndex(diffs["target_date"]))],
+            loads[self._load.days.get_indexer(pd.DatetimeIndex(diffs["candidate_date"]))],
+        )
+        return SimilarDayTrainingPairs.from_df(diffs.assign(load_difference=realised))
+
+    def fit(self, through: pd.Timestamp) -> SimilarDayWeights:
+        """Fit and store the weights on the training pairs up to ``through``.
+
+        Parameters
+        ----------
+        through : pandas.Timestamp
+
+        Returns
+        -------
+        SimilarDayWeights
+
+        Raises
+        ------
+        ValueError
+            No pair has a target day on or before ``through`` (or too few).
+        RuntimeError
+            The solver did not converge.
+        """
+        pairs = self.training_pairs(through)
+        if len(pairs) == 0:
+            raise ValueError(
+                f"no training pairs with a target day on or before {pd.Timestamp(through).date()}"
+            )
+        self._weights = fit_similar_day_weights(pairs)
+        logger.info("SimilarDaySelector: fitted on {}", self._weights.as_params())
+        return self._weights
+
+    def ensure_fitted(self, through: pd.Timestamp) -> SimilarDayWeights:
+        """Fit once; later calls return the stored weights whatever ``through`` is.
+
+        Parameters
+        ----------
+        through : pandas.Timestamp
+
+        Returns
+        -------
+        SimilarDayWeights
+        """
+        return self._weights if self._weights is not None else self.fit(through)
+
+    @property
+    def weights(self) -> SimilarDayWeights:
+        """The fitted weights.
+
+        Raises
+        ------
+        RuntimeError
+            Before any fit.
+        """
+        if self._weights is None:
+            raise RuntimeError("similar-day weights are not fitted; call fit(through) first")
+        return self._weights

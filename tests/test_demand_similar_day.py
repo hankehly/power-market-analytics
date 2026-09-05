@@ -27,6 +27,9 @@ from power_market_analytics.tasks.demand.similar_day import (
     SimilarDaySelection,
     SimilarDaySelector,
     SimilarDayTrainingPairs,
+    SimilarDayWeights,
+    fit_similar_day_weights,
+    load_difference,
 )
 
 #: Calendar, observations and hourly load: 2023-01-01 .. 2024-04-30.
@@ -299,3 +302,145 @@ class TestPairFrames:
         )
         with pytest.raises(ValueError, match="reference_lag_days must equal"):
             SimilarDaySelection.from_df(df)
+
+
+class TestLoadDifference:
+    def test_mean_absolute_relative_difference_per_row(self):
+        target = np.array([[100.0] * 24, [200.0] * 24])
+        candidate = np.array([[110.0] * 24, [150.0] * 24])
+        assert load_difference(target, candidate).tolist() == pytest.approx([0.1, 0.25])
+
+
+class TestTrainingPairs:
+    def test_targets_up_to_through_with_a_known_load(self, selector):
+        through = pd.Timestamp("2024-03-31")
+        pairs = selector.training_pairs(through)
+        assert type(pairs) is SimilarDayTrainingPairs
+        # The first scorable forecast day: its window must start on the first candidate.
+        first = HOLIDAYS[0] + pd.Timedelta(days=394)
+        targets = pairs.df["target_date"].unique()
+        assert targets.min() == first
+        assert targets.max() == through
+        assert len(pairs) == len(pd.date_range(first, through)) * 61
+        t, c = D - pd.Timedelta(days=14), D_MINUS_364 - pd.Timedelta(days=14)
+        row = pairs.df.set_index(["target_date", "candidate_date"]).loc[(t, c)]
+        expected = np.mean(
+            [abs(load_at(t, h) - load_at(c, h)) / load_at(t, h) for h in range(1, 25)]
+        )
+        assert row["load_difference"] == pytest.approx(expected)
+
+    def test_no_pairs_before_the_first_scorable_day(self, selector):
+        assert len(selector.training_pairs(pd.Timestamp("2024-01-31"))) == 0
+
+
+def planted_pairs(
+    n: int = 400, seed: int = 0
+) -> tuple[SimilarDayTrainingPairs, np.ndarray, float, float]:
+    rng = np.random.default_rng(seed)
+    parts = np.abs(rng.normal(size=(n, 7))) * np.array([10, 3, 8, 0.5, 5, 5, 0.4])
+    planted = np.array([0.30, 0.25, 0.05, 0.05, 0.15, 0.10, 0.10])
+    scales = np.sqrt(np.mean(parts**2, axis=0))
+    distance = np.sqrt(((parts / scales) ** 2) @ planted)
+    alpha, beta = 2.0, 0.1
+    y = alpha * distance + beta
+    days = pd.date_range("2024-02-07", periods=n, freq="D")
+    df = pd.DataFrame(parts, columns=list(SIMILAR_DAY_COMPONENTS)).assign(
+        target_date=days, candidate_date=days - pd.Timedelta(days=364), load_difference=y
+    )
+    return SimilarDayTrainingPairs.from_df(df), planted, alpha, beta
+
+
+class TestFitSimilarDayWeights:
+    def test_recovers_planted_weights(self):
+        pairs, planted, alpha, beta = planted_pairs()
+        fitted = fit_similar_day_weights(pairs)
+        assert type(fitted) is SimilarDayWeights
+        assert fitted.components == SIMILAR_DAY_COMPONENTS
+        np.testing.assert_allclose(fitted.weights, planted, atol=1e-3)
+        assert fitted.weights.sum() == pytest.approx(1.0)
+        assert (fitted.weights >= 0).all()
+        assert fitted.alpha == pytest.approx(alpha, abs=1e-3)
+        assert fitted.beta == pytest.approx(beta, abs=1e-3)
+        assert fitted.fit_rmse == pytest.approx(0.0, abs=1e-6)
+        assert fitted.n_pairs == 400
+        assert fitted.n_targets == 400
+        assert fitted.fit_from == pd.Timestamp("2024-02-07")
+        assert fitted.fit_through == pd.Timestamp("2024-02-07") + pd.Timedelta(days=399)
+        # distance() reproduces the planted distance up to the fitted weights.
+        np.testing.assert_allclose(
+            fitted.distance(pairs), (pairs.df["load_difference"] - beta) / alpha, atol=1e-3
+        )
+
+    def test_as_params(self):
+        fitted = fit_similar_day_weights(planted_pairs()[0])
+        params = fitted.as_params()
+        assert set(params) == {
+            "similar_day_weights",
+            "similar_day_scales",
+            "similar_day_alpha",
+            "similar_day_beta",
+            "similar_day_fit_n_pairs",
+            "similar_day_fit_n_targets",
+            "similar_day_fit_from",
+            "similar_day_fit_through",
+            "similar_day_fit_rmse",
+        }
+        assert str(params["similar_day_weights"]).startswith("calendar_days=0.30")
+        assert params["similar_day_fit_from"] == "2024-02-07"
+        assert params["similar_day_fit_n_pairs"] == 400
+
+    def test_too_few_pairs(self):
+        pairs, _, _, _ = planted_pairs(n=MIN_FIT_PAIRS - 1)
+        with pytest.raises(
+            ValueError, match=f"{MIN_FIT_PAIRS - 1} training pairs; at least {MIN_FIT_PAIRS}"
+        ):
+            fit_similar_day_weights(pairs)
+
+    def test_all_parts_zero_fits_the_mean(self):
+        days = pd.date_range("2024-02-07", periods=MIN_FIT_PAIRS, freq="D")
+        df = pd.DataFrame(
+            np.zeros((MIN_FIT_PAIRS, 7)), columns=list(SIMILAR_DAY_COMPONENTS)
+        ).assign(
+            target_date=days,
+            candidate_date=days - pd.Timedelta(days=364),
+            load_difference=np.arange(MIN_FIT_PAIRS) / 10,
+        )
+        fitted = fit_similar_day_weights(SimilarDayTrainingPairs.from_df(df))
+        assert fitted.beta == pytest.approx(np.mean(np.arange(MIN_FIT_PAIRS) / 10), abs=1e-6)
+        assert (fitted.scales == 1.0).all()
+
+    def test_solver_failure(self, monkeypatch):
+        import power_market_analytics.tasks.demand.similar_day as module
+
+        class Failed:
+            success = False
+            message = "maximum iterations"
+
+        monkeypatch.setattr(module, "least_squares", lambda *a, **k: Failed())
+        with pytest.raises(RuntimeError, match="similar-day weight fit failed: maximum iterations"):
+            fit_similar_day_weights(planted_pairs()[0])
+
+
+class TestSelectorFit:
+    def test_weights_before_fit_raise(self):
+        fresh = SimilarDaySelector(
+            make_calendar(), make_forecast(), make_observed(), make_hourly_load()
+        )
+        with pytest.raises(RuntimeError, match="not fitted"):
+            fresh.weights
+
+    def test_fit_once_and_reuse(self):
+        fresh = SimilarDaySelector(
+            make_calendar(), make_forecast(), make_observed(), make_hourly_load()
+        )
+        first = fresh.ensure_fitted(pd.Timestamp("2024-03-31"))
+        assert fresh.weights is first
+        assert fresh.ensure_fitted(pd.Timestamp("2024-04-15")) is first
+        assert first.fit_through == pd.Timestamp("2024-03-31")
+        assert first.n_pairs == len(fresh.training_pairs(pd.Timestamp("2024-03-31")))
+
+    def test_fit_without_pairs_raises(self, selector):
+        with pytest.raises(
+            ValueError, match="no training pairs with a target day on or before 2024-01-31"
+        ):
+            selector.fit(pd.Timestamp("2024-01-31"))
