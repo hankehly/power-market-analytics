@@ -415,7 +415,7 @@
   `createDataFrame` (でんき予報) — and validation errors name the offending files.
   Measured full reloads: JMA 1,608 files / 13.7 M rows ~50 s warm (~100 s cold, fine at
   `SPARK_DRIVER_MEMORY=4g`), TEPCO / Kansai ~1,600 daily files ~15 s / ~8 s, e-Stat 302 files
-  / 0.94 M rows ~19 s, MSM 1,606 `csv.gz` / 5.7 M rows ~61 s (52 parquet files — Spark bin-packs
+  / 0.94 M rows ~19 s, MSM 2,716 `csv.gz` / 9.7 M rows ~46 s (88 parquet files — Spark bin-packs
   the unsplittable gz files), JEPX 11 files ~13 s, OCCTO seconds. Before that the per-file
   `unionByName` default cost ~8 min of planning and a 45 MiB task binary per 1,600 files
   (~1 h 45 min per JMA load on a 20g driver), which is why the compose default is still
