@@ -39,20 +39,37 @@ from power_market_analytics.tasks.demand.frames import (
     DemandBacktestResult,
     DemandForecast,
 )
+from power_market_analytics.tasks.demand.similar_day import (
+    SIMILAR_DAY_COMPONENTS,
+    SIMILAR_DAY_FEATURE,
+    SimilarDayRetrieval,
+    SimilarDaySelection,
+)
 from power_market_analytics.tasks.demand.strategies.lgbm import (
     DEMAND_LAG_FEATURE,
     FEATURE_COLS,
     MSM_FEATURE_COLS,
     MSM_POPW_DAY_TYPE_FEATURE_COLS,
     MSM_POPW_FEATURE_COLS,
+    SIMILAR_DAY_FEATURE_COLS,
     DemandLightGbmEvalSet,
     DemandLightGbmMsmEvalSet,
     DemandLightGbmMsmPopWeightedDayTypeEvalSet,
+    DemandLightGbmMsmPopWeightedDayTypeSimilarDayEvalSet,
     DemandLightGbmMsmPopWeightedEvalSet,
+    LightGbmMsmPopWeightedDayTypeSimilarDayStrategy,
     LightGbmMsmPopWeightedDayTypeStrategy,
     LightGbmMsmPopWeightedStrategy,
     LightGbmMsmStrategy,
     LightGbmStrategy,
+)
+from tests.test_demand_similar_day import HOLIDAYS as SIM_HOLIDAYS
+from tests.test_demand_similar_day import (
+    load_at,
+    make_calendar,
+    make_forecast,
+    make_hourly_load,
+    make_observed,
 )
 
 
@@ -790,3 +807,221 @@ class TestMsmPopWeightedDayTypeBacktestEvalAndEvaluate:
         assert finished.data.metrics["n_refits"] == 2.0
         artifacts = {a.path for a in mlflow.MlflowClient().list_artifacts(active.info.run_id)}
         assert {"shap_beeswarm_plot.png", "shap_feature_importance_plot.png"} <= artifacts
+
+
+#: The similar-day strategy needs a year of candidates: demand and temperature from
+#: 2024-02-01, weather profiles, hourly load and the calendar from 2023 (the
+#: test_demand_similar_day fixtures).
+SIM_DEMAND_DAYS = pd.date_range("2024-02-01", "2024-04-29", freq="D")
+SIM_D = pd.Timestamp("2024-04-10")
+
+
+@pytest.fixture(scope="module")
+def sim_inputs():
+    return {
+        "demand": make_demand(SIM_DEMAND_DAYS),
+        "temperature": make_temperature(SIM_DEMAND_DAYS),
+        "weather_forecast": make_forecast(),
+        "day_calendar": make_calendar(),
+        "weather_observed": make_observed(),
+        "hourly_load": make_hourly_load(),
+    }
+
+
+def make_sim_strategy(inputs, **kwargs) -> LightGbmMsmPopWeightedDayTypeSimilarDayStrategy:
+    return LightGbmMsmPopWeightedDayTypeSimilarDayStrategy(
+        inputs["temperature"],
+        inputs["weather_forecast"],
+        inputs["day_calendar"],
+        inputs["weather_observed"],
+        inputs["hourly_load"],
+        census_year=2020,
+        train_window_days=30,
+        **kwargs,
+    )
+
+
+class TestSimilarDayClassAttributes:
+    def test_features_and_frames(self):
+        cls = LightGbmMsmPopWeightedDayTypeSimilarDayStrategy
+        assert cls.name == "lightgbm_msm_popw_daytype_simday"
+        assert issubclass(cls, LightGbmMsmPopWeightedDayTypeStrategy)
+        assert SIMILAR_DAY_FEATURE_COLS == (*MSM_POPW_DAY_TYPE_FEATURE_COLS, SIMILAR_DAY_FEATURE)
+        assert cls.feature_cols == SIMILAR_DAY_FEATURE_COLS
+        assert cls.categorical_feature_cols == (DAY_TYPE_FEATURE,)
+        assert cls.lookback_days == LightGbmStrategy.lookback_days
+        assert cls.eval_set_cls is DemandLightGbmMsmPopWeightedDayTypeSimilarDayEvalSet
+        assert list(DemandLightGbmMsmPopWeightedDayTypeSimilarDayEvalSet.schema) == [
+            "trade_date",
+            "time_code",
+            "month",
+            "day_of_week",
+            TEMPERATURE_FEATURE,
+            DEMAND_LAG_FEATURE,
+            POPW_FORECAST_TEMPERATURE_FEATURE,
+            DAY_TYPE_FEATURE,
+            SIMILAR_DAY_FEATURE,
+            "actual_demand_kwh",
+            "forecast_demand_kwh",
+        ]
+        assert (
+            SIMILAR_DAY_FEATURE
+            in DemandLightGbmMsmPopWeightedDayTypeSimilarDayEvalSet.non_null_cols
+        )
+
+
+class TestSimilarDayPredict:
+    def test_first_predict_fits_then_joins_the_selected_days_load(self, sim_inputs):
+        strategy = make_sim_strategy(sim_inputs)
+        history = visible(sim_inputs["demand"], SIM_D)
+        forecast = strategy.predict(SIM_D, history)
+        assert isinstance(forecast, DemandForecast)
+        weights = strategy.selector.weights
+        assert weights.fit_through == history.df["trade_date"].max()
+        assert weights.fit_from == SIM_HOLIDAYS[0] + pd.Timedelta(days=394)
+        record = strategy._shap_records[SIM_D]
+        assert list(record.columns) == [
+            "trade_date",
+            "time_code",
+            *[c for c in SIMILAR_DAY_FEATURE_COLS if c != "time_code"],
+            *[f"shap_{c}" for c in SIMILAR_DAY_FEATURE_COLS],
+            "shap_expected_value",
+        ]
+        selection = strategy._selections[SIM_D]
+        assert list(selection.columns) == list(SimilarDaySelection.schema)
+        assert selection.equals(strategy.selector.select([SIM_D]).df)
+        reference = selection.iloc[0]["reference_date"]
+        expected = [load_at(reference, (tc + 1) // 2) / 2 for tc in range(1, 49)]
+        assert record[SIMILAR_DAY_FEATURE].tolist() == pytest.approx(expected)
+        reconstructed = record[list(strategy.shap_cols)].sum(axis=1) + record["shap_expected_value"]
+        np.testing.assert_allclose(
+            reconstructed.to_numpy(), forecast.df["forecast_demand_kwh"].to_numpy(), atol=1e-3
+        )
+
+    def test_weights_are_fitted_once(self, sim_inputs):
+        strategy = make_sim_strategy(sim_inputs)
+        strategy.predict(SIM_D, visible(sim_inputs["demand"], SIM_D))
+        first = strategy.selector.weights
+        later = SIM_D + pd.Timedelta(days=7)
+        strategy.predict(later, visible(sim_inputs["demand"], later))
+        assert strategy.selector.weights is first
+        assert set(strategy._selections) == {SIM_D, later}
+
+    def test_a_day_without_pairs_yet_is_unforecastable(self, sim_inputs):
+        strategy = make_sim_strategy(sim_inputs)
+        # History ends 02-06, before the first scorable target 02-07.
+        early = pd.Timestamp("2024-02-08")
+        with pytest.raises(
+            ForecastUnavailableError,
+            match="no training pairs with a target day on or before 2024-02-06",
+        ):
+            strategy.predict(early, visible(sim_inputs["demand"], early))
+
+    def test_a_day_outside_the_calendar_is_unforecastable(self, sim_inputs):
+        strategy = make_sim_strategy(sim_inputs)
+        strategy.predict(SIM_D, visible(sim_inputs["demand"], SIM_D))
+        beyond = pd.Timestamp("2024-04-30")  # after the calendar's last holiday
+        with pytest.raises(
+            ForecastUnavailableError,
+            match=rf"features \['{DAY_TYPE_FEATURE}', '{SIMILAR_DAY_FEATURE}'\] unavailable",
+        ):
+            strategy.predict(beyond, visible(sim_inputs["demand"], beyond))
+
+    def test_build_eval_set_before_predict_raises(self, sim_inputs):
+        strategy = make_sim_strategy(sim_inputs)
+        no_forecasts = BacktestRun(
+            DemandBacktestResult.from_df(
+                pd.DataFrame(
+                    {
+                        "trade_date": pd.to_datetime([]),
+                        "time_code": np.array([], dtype="int64"),
+                        "actual_demand_kwh": np.array([], dtype="float64"),
+                        "forecast_demand_kwh": np.array([], dtype="float64"),
+                    }
+                )
+            ),
+            (),
+        )
+        with pytest.raises(RuntimeError, match="not fitted"):
+            strategy.build_eval_set(sim_inputs["demand"], SIM_D, SIM_D, run=no_forecasts)
+
+
+SIM_WINDOW_START = pd.Timestamp("2024-04-08")
+SIM_WINDOW_END = pd.Timestamp("2024-04-14")
+
+
+class TestSimilarDayBacktestEvalAndEvaluate:
+    @pytest.fixture(scope="class")
+    def backtested(self, sim_inputs):
+        strategy = make_sim_strategy(sim_inputs, refit_every_days=7)
+        return strategy, run_backtest(
+            strategy, sim_inputs["demand"], SIM_WINDOW_START, SIM_WINDOW_END
+        )
+
+    def test_backtest_covers_the_window(self, backtested):
+        _, run = backtested
+        assert run.skipped_days == ()
+        assert len(run.result) == 7 * 48
+
+    def test_eval_set_and_contributions_carry_the_feature(self, backtested, sim_inputs):
+        strategy, run = backtested
+        eval_set = strategy.build_eval_set(
+            sim_inputs["demand"], SIM_WINDOW_START, SIM_WINDOW_END, run=run
+        )
+        assert type(eval_set) is DemandLightGbmMsmPopWeightedDayTypeSimilarDayEvalSet
+        assert len(eval_set) == 7 * 48
+        assert eval_set.df[SIMILAR_DAY_FEATURE].notna().all()
+        contributions = strategy.contributions()
+        assert SIMILAR_DAY_FEATURE in set(contributions.df["component"])
+
+    def test_evaluate_logs_the_selector_params(self, backtested, sim_inputs):
+        strategy, run = backtested
+        eval_set = strategy.build_eval_set(
+            sim_inputs["demand"], SIM_WINDOW_START, SIM_WINDOW_END, run=run
+        )
+        with mlflow.start_run() as active:
+            strategy.evaluate(eval_set, explainability_nsamples=20)
+        params = mlflow.get_run(active.info.run_id).data.params
+        assert params["lgbm_feature_cols"] == ",".join(SIMILAR_DAY_FEATURE_COLS)
+        assert params["similar_day_center_lag_days"] == "364"
+        assert params["similar_day_window_half_width_days"] == "30"
+        assert params["similar_day_components"] == ",".join(SIMILAR_DAY_COMPONENTS)
+        assert params["similar_day_weights"].startswith("calendar_days=")
+        assert params["similar_day_first_selectable_day"] == "2024-02-07"
+        assert params["similar_day_hourly_load_span"] == "2023-01-01..2024-04-30"
+        assert params["similar_day_periods_per_hour"] == "2"
+        assert params["similar_day_fit_through"] == "2024-04-06"
+
+    def test_diagnostics_frames_and_metrics(self, backtested, sim_inputs):
+        strategy, run = backtested
+        with mlflow.start_run() as active:
+            frames = strategy.diagnostics(sim_inputs["demand"], run)
+        assert set(frames) == {"similar_day_selection", "similar_day_retrieval"}
+        selection = SimilarDaySelection.from_df(frames["similar_day_selection"])
+        retrieval = SimilarDayRetrieval.from_df(frames["similar_day_retrieval"])
+        window = list(pd.date_range(SIM_WINDOW_START, SIM_WINDOW_END))
+        assert selection.df["trade_date"].tolist() == window
+        assert retrieval.df["trade_date"].tolist() == window
+        metrics = mlflow.get_run(active.info.run_id).data.metrics
+        assert set(metrics) == {
+            "similar_day_load_difference_selected",
+            "similar_day_load_difference_lag_364",
+            "similar_day_load_difference_oracle",
+            "similar_day_share_better_than_lag_364",
+        }
+        assert 0 <= metrics["similar_day_share_better_than_lag_364"] <= 1
+
+    def test_diagnostics_without_forecasts_is_empty(self, sim_inputs):
+        strategy = make_sim_strategy(sim_inputs)
+        empty = DemandBacktestResult.from_df(
+            pd.DataFrame(
+                {
+                    "trade_date": pd.to_datetime([]),
+                    "time_code": np.array([], dtype="int64"),
+                    "actual_demand_kwh": np.array([], dtype="float64"),
+                    "forecast_demand_kwh": np.array([], dtype="float64"),
+                }
+            )
+        )
+        with mlflow.start_run():
+            assert strategy.diagnostics(sim_inputs["demand"], BacktestRun(empty, ())) == {}

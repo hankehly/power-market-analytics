@@ -7,12 +7,17 @@ from pyspark.sql import SparkSession
 
 from power_market_analytics.forecasting.strategy import ForecastStrategy
 from power_market_analytics.tasks.demand.datasets import (
+    load_area_hourly_load,
+    load_area_observed_weather_population_weighted,
     load_area_temperature,
     load_area_temperature_forecast,
     load_area_temperature_forecast_population_weighted,
+    load_area_weather_forecast_population_weighted,
+    load_day_calendar,
     load_day_types,
 )
 from power_market_analytics.tasks.demand.strategies.lgbm import (
+    LightGbmMsmPopWeightedDayTypeSimilarDayStrategy,
     LightGbmMsmPopWeightedDayTypeStrategy,
     LightGbmMsmPopWeightedStrategy,
     LightGbmMsmStrategy,
@@ -26,6 +31,9 @@ STRATEGIES: dict[str, type[LightGbmStrategy]] = {
     LightGbmMsmStrategy.name: LightGbmMsmStrategy,
     LightGbmMsmPopWeightedStrategy.name: LightGbmMsmPopWeightedStrategy,
     LightGbmMsmPopWeightedDayTypeStrategy.name: LightGbmMsmPopWeightedDayTypeStrategy,
+    LightGbmMsmPopWeightedDayTypeSimilarDayStrategy.name: (
+        LightGbmMsmPopWeightedDayTypeSimilarDayStrategy
+    ),
 }
 
 
@@ -43,8 +51,10 @@ def build_strategy(
     ``train_start_date`` forwarded; strategies that also consume the MSM
     forecast temperature get it loaded too — at the representative station,
     or population-weighted over the area's stations with the latest census
-    vintage — and the day-type strategy the ``dim_date`` calendar as well.
-    Callers only deal in registry names.
+    vintage — the day-type strategy the ``dim_date`` calendar as well, and the
+    similar-day strategy the population-weighted weather forecast and
+    observations, the holiday calendar and the hourly load. Callers only deal
+    in registry names.
 
     Parameters
     ----------
@@ -72,6 +82,20 @@ def build_strategy(
     """
     cls = STRATEGIES[name]
     temperature = load_area_temperature(area_code, spark=spark)
+    if issubclass(cls, LightGbmMsmPopWeightedDayTypeSimilarDayStrategy):
+        weather = load_area_weather_forecast_population_weighted(area_code, spark=spark)
+        observed = load_area_observed_weather_population_weighted(
+            area_code, census_year=weather.census_year, spark=spark
+        )
+        return cls(
+            temperature,
+            weather.forecast,
+            load_day_calendar(spark=spark),
+            observed.weather,
+            load_area_hourly_load(area_code, spark=spark),
+            census_year=weather.census_year,
+            train_start_date=train_start_date,
+        )
     if issubclass(cls, LightGbmMsmPopWeightedDayTypeStrategy):
         weighted = load_area_temperature_forecast_population_weighted(area_code, spark=spark)
         return cls(

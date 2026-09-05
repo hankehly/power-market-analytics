@@ -1,21 +1,26 @@
 """LightGBM strategies for area demand: the calendar + temperature + D-7 lag
 baseline, the same model plus the MSM forecast temperature at the representative
 station, the same again with that forecast population-weighted over the area's
-stations, and that one plus the delivery day's type as a categorical."""
+stations, that one plus the delivery day's type as a categorical, and that one
+plus the load of a learned similar day one year earlier."""
 
 from __future__ import annotations
 
+import math
 from typing import ClassVar
 
+import mlflow
 import pandas as pd
 
+from power_market_analytics.forecasting.backtest import BacktestRun
 from power_market_analytics.forecasting.features import join_lag
-from power_market_analytics.forecasting.frames import GRAIN_COLS
+from power_market_analytics.forecasting.frames import GRAIN_COLS, DayAheadForecast, HalfHourlySeries
 from power_market_analytics.forecasting.lgbm import (
     CALENDAR_FEATURE_COLS,
     LightGbmEvalSetBase,
     SlidingWindowLightGbmStrategy,
 )
+from power_market_analytics.forecasting.strategy import ForecastUnavailableError
 from power_market_analytics.tasks.demand import TASK
 from power_market_analytics.tasks.demand.features import (
     DAY_TYPE_FEATURE,
@@ -30,9 +35,23 @@ from power_market_analytics.tasks.demand.features import (
 )
 from power_market_analytics.tasks.demand.frames import (
     DAY_TYPE_LEVELS,
+    AreaHourlyLoad,
+    AreaObservedWeather,
     AreaTemperature,
     AreaTemperatureForecast,
+    AreaWeatherForecast,
+    DayCalendar,
     DayTypeCalendar,
+)
+from power_market_analytics.tasks.demand.similar_day import (
+    PERIODS_PER_HOUR,
+    SIMILAR_DAY_COMPONENTS,
+    SIMILAR_DAY_FEATURE,
+    SIMILAR_DAY_WINDOW_HALF_WIDTH_DAYS,
+    SimilarDaySelection,
+    SimilarDaySelector,
+    join_similar_day_load,
+    retrieval_metrics,
 )
 
 DEMAND_LAG_FEATURE = "lag_7d_demand_kwh"
@@ -40,6 +59,7 @@ FEATURE_COLS = (*CALENDAR_FEATURE_COLS, TEMPERATURE_FEATURE, DEMAND_LAG_FEATURE)
 MSM_FEATURE_COLS = (*FEATURE_COLS, FORECAST_TEMPERATURE_FEATURE)
 MSM_POPW_FEATURE_COLS = (*FEATURE_COLS, POPW_FORECAST_TEMPERATURE_FEATURE)
 MSM_POPW_DAY_TYPE_FEATURE_COLS = (*MSM_POPW_FEATURE_COLS, DAY_TYPE_FEATURE)
+SIMILAR_DAY_FEATURE_COLS = (*MSM_POPW_DAY_TYPE_FEATURE_COLS, SIMILAR_DAY_FEATURE)
 TARGET_COL = TASK.actual_col
 FORECAST_COL = TASK.forecast_col
 
@@ -387,3 +407,198 @@ class LightGbmMsmPopWeightedDayTypeStrategy(LightGbmMsmPopWeightedStrategy):
         """
         levels = ",".join(f"{code}={level}" for code, level in enumerate(DAY_TYPE_LEVELS))
         return {**super()._extra_params(), "day_type_levels": levels}
+
+
+class DemandLightGbmMsmPopWeightedDayTypeSimilarDayEvalSet(
+    DemandLightGbmMsmPopWeightedDayTypeEvalSet
+):
+    """Design matrix for :class:`LightGbmMsmPopWeightedDayTypeSimilarDayStrategy`:
+    the day-type design matrix plus the similar day's load per period.
+
+    Grain: (trade_date, time_code).
+    """
+
+    feature_cols = SIMILAR_DAY_FEATURE_COLS
+    schema = {
+        "trade_date": "datetime64[ns]",
+        "time_code": "int64",
+        "month": "int64",
+        "day_of_week": "int64",
+        TEMPERATURE_FEATURE: "float64",
+        DEMAND_LAG_FEATURE: "float64",
+        POPW_FORECAST_TEMPERATURE_FEATURE: "float64",
+        DAY_TYPE_FEATURE: "int64",
+        SIMILAR_DAY_FEATURE: "float64",
+        TARGET_COL: "float64",
+        FORECAST_COL: "float64",
+    }
+    non_null_cols = [*SIMILAR_DAY_FEATURE_COLS, TARGET_COL, FORECAST_COL]
+
+
+class LightGbmMsmPopWeightedDayTypeSimilarDayStrategy(LightGbmMsmPopWeightedDayTypeStrategy):
+    """:class:`LightGbmMsmPopWeightedDayTypeStrategy` plus the load of a learned
+    similar day one year earlier (``similar_day_demand_kwh``).
+
+    Experiment E-002 of docs/research/demand/R-004-prior-year-load-lag.md. A
+    :class:`SimilarDaySelector` picks, for every delivery day, the nearest
+    day in D − 364 ± 30 under a seven-part weighted distance whose weights are
+    fitted once per run — on the first :meth:`predict`, over every pair whose
+    target day the strategy may see — then frozen. The chosen day's でんき予報
+    hourly load, halved per period, is the feature. Training rows and target
+    days that cannot be scored get NaN and are dropped or skipped as usual.
+
+    Parameters
+    ----------
+    temperature : AreaTemperature
+        Hourly observed temperature at the representative station.
+    weather_forecast : AreaWeatherForecast
+        Population-weighted MSM forecast of temperature, humidity and rain by
+        delivery day; its temperature is the parent's forecast feature.
+    day_calendar : DayCalendar
+        Holiday attributes of every day; its day types are the parent's.
+    weather_observed : AreaObservedWeather
+        Population-weighted observed temperature, humidity and rain.
+    hourly_load : AreaHourlyLoad
+        The でんき予報 hourly load.
+    census_year : int
+        Census vintage of the population weights, logged to the run.
+    window_half_width_days : int, optional
+        Half width of the candidate window around D − 364.
+    **kwargs
+        Forwarded to the parent.
+    """
+
+    name = "lightgbm_msm_popw_daytype_simday"
+    feature_cols = SIMILAR_DAY_FEATURE_COLS
+    eval_set_cls = DemandLightGbmMsmPopWeightedDayTypeSimilarDayEvalSet
+
+    def __init__(
+        self,
+        temperature: AreaTemperature,
+        weather_forecast: AreaWeatherForecast,
+        day_calendar: DayCalendar,
+        weather_observed: AreaObservedWeather,
+        hourly_load: AreaHourlyLoad,
+        *,
+        census_year: int,
+        window_half_width_days: int = SIMILAR_DAY_WINDOW_HALF_WIDTH_DAYS,
+        **kwargs,
+    ) -> None:
+        super().__init__(
+            temperature,
+            weather_forecast.temperature_forecast(),
+            day_calendar.day_types(),
+            census_year=census_year,
+            **kwargs,
+        )
+        self.hourly_load = hourly_load
+        self.selector = SimilarDaySelector(
+            day_calendar,
+            weather_forecast,
+            weather_observed,
+            hourly_load,
+            half_width_days=window_half_width_days,
+        )
+        self._selections: dict[pd.Timestamp, pd.DataFrame] = {}
+
+    def predict(self, target_date: pd.Timestamp, history: HalfHourlySeries) -> DayAheadForecast:
+        """Fit the selector once on the visible history, then score the day.
+
+        Parameters
+        ----------
+        target_date : pandas.Timestamp
+        history : HalfHourlySeries
+
+        Returns
+        -------
+        DayAheadForecast
+
+        Raises
+        ------
+        ForecastUnavailableError
+            If no training pair exists by the day's cutoff, or the parent
+            cannot forecast the day.
+        """
+        target_date = pd.Timestamp(target_date).as_unit("ns")
+        try:
+            self.selector.ensure_fitted(history.df["trade_date"].max())
+        except ValueError as exc:
+            raise ForecastUnavailableError(f"{self.name}: {exc}") from exc
+        forecast = super().predict(target_date, history)
+        self._selections[target_date] = self.selector.select([target_date]).df
+        return forecast
+
+    def _add_features(self, featured: pd.DataFrame, history: pd.DataFrame) -> pd.DataFrame:
+        """The parent's features, then the selected similar day's load per period.
+
+        Parameters
+        ----------
+        featured : pandas.DataFrame
+            Rows keyed on (trade_date, time_code) with the calendar features.
+        history : pandas.DataFrame
+            Demand history in the ``AreaDemand`` layout.
+
+        Returns
+        -------
+        pandas.DataFrame
+            ``featured`` plus this strategy's ``feature_cols`` (the similar
+            day's load NaN on days that cannot be scored).
+        """
+        featured = super()._add_features(featured, history)
+        selection = self.selector.select(featured["trade_date"].unique())
+        return join_similar_day_load(
+            featured, selection, self.hourly_load, name=SIMILAR_DAY_FEATURE
+        )
+
+    def _extra_params(self) -> dict[str, object]:
+        """Log the window, the parts and the fitted weights next to the inherited params.
+
+        Returns
+        -------
+        dict of str to object
+        """
+        first = self.selector.first_scorable_day
+        start, end = self.selector.hourly_load_span
+        return {
+            **super()._extra_params(),
+            "similar_day_center_lag_days": self.selector.center_lag_days,
+            "similar_day_window_half_width_days": self.selector.half_width_days,
+            "similar_day_components": ",".join(SIMILAR_DAY_COMPONENTS),
+            **self.selector.weights.as_params(),
+            "similar_day_first_selectable_day": "none" if first is None else str(first.date()),
+            "similar_day_hourly_load_span": f"{start.date()}..{end.date()}",
+            "similar_day_periods_per_hour": PERIODS_PER_HOUR,
+        }
+
+    def diagnostics(self, history: HalfHourlySeries, run: BacktestRun) -> dict[str, pd.DataFrame]:
+        """The forecast days' selections and the retrieval check, with four metrics logged.
+
+        Parameters
+        ----------
+        history : HalfHourlySeries
+            Unused: the selector holds the hourly load itself.
+        run : BacktestRun
+
+        Returns
+        -------
+        dict of str to pandas.DataFrame
+            ``similar_day_selection`` and ``similar_day_retrieval``; empty
+            when no forecast day was recorded.
+        """
+        days = [
+            d for d in pd.to_datetime(run.result.df["trade_date"].unique()) if d in self._selections
+        ]
+        if not days:
+            return {}
+        selection = SimilarDaySelection.from_df(
+            pd.concat([self._selections[d] for d in sorted(days)], ignore_index=True)
+        )
+        retrieval = self.selector.retrieval(selection)
+        mlflow.log_metrics(
+            {
+                key: value
+                for key, value in retrieval_metrics(retrieval).items()
+                if not math.isnan(value)
+            }
+        )
+        return {"similar_day_selection": selection.df, "similar_day_retrieval": retrieval.df}
