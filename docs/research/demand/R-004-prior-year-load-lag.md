@@ -2,9 +2,10 @@
 
 - **Status:** In progress — E-001 (rule-chosen reference date) rejected by the
   researcher on 2026-09-05, its feature and `dim_date` column removed; E-002
-  (learned similar-day selector) planned the same day, design spec
+  (learned similar-day selector) run the same day, decision pending with the
+  researcher; design spec
   `docs/superpowers/specs/2026-09-05-demand-similar-day-reference-design.md`
-- **Last updated:** 2026-09-05 (question broadened; E-002 planned)
+- **Last updated:** 2026-09-05 (E-002 results)
 - **Created:** 2026-08-31
 - **Triggering observations:**
   [O-002 — The working day between 山の日 and お盆 is heavily over-forecast, driven by the D-7 lag](research/demand/observations.md#o-002-the-working-day-between-山の日-and-お盆-is-heavily-over-forecast-driven-by-the-d-7-lag),
@@ -385,31 +386,96 @@ and the interval excludes zero.
 - **Baseline run:**
   [`0a6b8a5560d445d5b9705bde99cf13ae`](http://localhost:5005/#/experiments/2/runs/0a6b8a5560d445d5b9705bde99cf13ae),
   compared as run, as in E-001
-- **Candidate runs:** `lightgbm_msm_popw_daytype_simday --start-date
-  2024-08-18 --end-date 2026-08-17 --area tokyo`, no `--train-start`; the
-  weights fitted on targets 2019-04-01 to 2024-08-16 (about 1,960 days,
-  120 k pairs)
-- **Code or pull request:** branch `feature/demand-similar-day-reference` (PR number
-  recorded when opened)
+- **Candidate runs:**
+  [`008868fe59274abfb49f128e29aa28fe`](http://localhost:5005/#/experiments/2/runs/008868fe59274abfb49f128e29aa28fe)
+  (2026-09-05, `lightgbm_msm_popw_daytype_simday --start-date 2024-08-18
+  --end-date 2026-08-17 --area tokyo`, no `--train-start`; 729 delivery days,
+  34,954 predictions, one skipped day — 2025-06-21, the D-7 successor of the
+  2025-06-14 hole, as in every run; 105 refits; the weights fitted on
+  targets 2019-04-01 to 2024-08-16: 1,965 days, 119,865 pairs, fit RMSE
+  0.075)
+- **Code or pull request:** branch `feature/demand-similar-day-reference`
 
 ### Results
 
+Matched window 2024-08-18 to 2026-08-17, 729 days, `compare_demand_runs.py`
+(kWh per 30-minute period).
+
 | Metric | Baseline | Candidate | Absolute change | Relative change |
 |---|---:|---:|---:|---:|
-| Overall MAE | 594,325 | — | — | — |
-| Important segment MAE | — | — | — | — |
-| Mean error / bias | — | — | — | — |
+| Overall MAE | 594,325 | 585,362 | −8,963 | −1.5 % |
+| MAPE | 3.66 % | 3.61 % | −0.05 pt | −1.4 % |
+| Mean error / bias | −14,967 | −28,365 | −13,399 | — |
+| Weekday MAE | 590,209 | 561,769 | −28,440 | −4.8 % |
+| Weekend MAE | 551,514 | 587,210 | +35,695 | +6.5 % |
+| Holiday MAE | 765,403 | 765,760 | +357 | +0.0 % |
+| Evening MAE | 562,684 | 520,278 | −42,406 | −7.5 % |
+| Overnight MAE | 374,014 | 385,373 | +11,360 | +3.0 % |
+| Top-10 % demand days MAE | 791,199 | 734,621 | −56,578 | −7.2 % |
+| 2025-08-12 (O-002) daily bias | +3,858,649 | +2,093,837 | −1,764,812 | −46 % |
+| 2026-08-12 (O-002) daily bias | +2,837,390 | +2,282,792 | −554,598 | −20 % |
+| 2025-02-11 (O-003) daily bias | −1,534,427 | −1,659,165 | −124,738 | +8 % |
+| 2026-02-11 (O-003) daily bias | −3,071,435 | −2,760,312 | +311,123 | −10 % |
 
-Plus the retrieval check (selected vs D − 364 vs oracle load difference, and
-the share of days the selector beats D − 364) and the fitted weights.
+Daily paired comparison: the candidate is lower on 53.4 % of days (389 of
+729); mean daily-MAE difference −9,007 kWh, 95 % bootstrap CI over days
+[−26,812, +8,548] (10,000 resamples, seed 0); median −14,615 kWh; the ten
+most-improved days account for 142 % of the total absolute-error reduction.
+By month the sign flips often (2025-02 +14 %, 2026-03 +17 %, 2025-04 −18 %,
+2026-06 −18 %); by season autumn −7.7 %, winter −1.8 %, spring +2.4 %,
+summer +0.4 %.
+
+![MAE by month](assets/R-004-E-002-mae-by-month.png)
+
+Retrieval check (the run's `similar_day_retrieval.csv`, 729 forecast days,
+the paper's load difference, Eq. 3): selected day 0.048 mean (0.042 median),
+the plain D − 364 day 0.075 (0.056), the oracle 0.021 (0.019); the selected
+day beats D − 364 on 59.1 % of days and is D − 364 itself on 13.4 %; by
+realised outcome the selected day ranks a median 7th of the 61 candidates
+(rank 1 on 14.3 %). Chosen lags: 364 on 98 days, 371 on 56, 365 on 49, 357
+on 48, 363 on 42; the rest spread over the window.
+
+Fitted weights (shares of the squared distance): `holiday_degree` 0.477,
+`temperature` 0.432, `calendar_days` 0.053, `days_since_holiday` 0.038,
+`rain` 0.0003, `humidity` 0.000, `days_until_holiday` 0.000; α = 0.108,
+β = 0.022. SHAP mass of the run (share of Σ|contribution|):
+`similar_day_demand_kwh` 50.0 %, `time_code` 13.3 %,
+`popw_forecast_temperature_c` 12.7 %, `wavg_temperature_c` 6.6 %,
+`day_type` 6.4 %, `lag_7d_demand_kwh` 4.3 %, `day_of_week` 3.9 %, `month`
+2.8 %.
 
 ### Interpretation
 
-Pending.
+The feature is used heavily (half the SHAP mass) and lowers overall MAE by
+1.5 %, but the interval over days includes zero and the gain sits on a few
+days: the ten most-improved days carry more than the whole reduction, and
+the month-by-month sign flips. Where it helps: weekdays (−4.8 %), evenings
+(−7.5 %), the top-10 % demand days (−7.2 %), and the O-002 days — the
+working day before お盆 is over-forecast by 46 % less in 2025 and 20 % less
+in 2026, which E-001's rule could not touch. Where it hurts: weekends
+(+6.5 %), overnight (+3.0 %), and the bias moves further negative. Holidays
+are unchanged overall; of the O-003 days one improves (2026-02-11, −10 %)
+and one worsens (2025-02-11, +8 %).
+
+The retrieval check says the selector does its own job only partly: it
+beats the plain D − 364 day on 59 % of days and its picks are on average
+36 % closer to the target's load than D − 364 (0.048 vs 0.075), but they
+remain far from the best candidate (0.021), ranking a median 7th of 61.
+The learned weights sit almost entirely on the holiday degree and the
+temperature; humidity, rain and days-until-holiday get none.
+
+### Reading against the decision rule
+
+Overall MAE is lower (−1.5 %), but the bootstrap interval over days includes
+zero, and one day type (weekends, +6.5 %) is materially worse: by the rule
+that is **Inconclusive**, not Keep. The retrieval check beats D − 364, and
+the model does improve, so the Refine branch (top-K, the distance as a
+feature) is not triggered by its own condition either.
 
 ### Decision
 
-**Decision:** Pending
+**Decision:** Pending — the researcher's call (recorded 2026-09-05 with the
+results; the rule reads Inconclusive).
 
 ### Follow-up ideas
 
@@ -433,8 +499,11 @@ and the reference-date rules handle proximity days poorly when recent history
 holds no day with the same calendar characteristics. The column, the strategy
 and its inputs were removed.
 
-E-002 (planned 2026-09-05) keeps the feature and replaces the rule with a
-learned similar-day selector; the question was broadened accordingly.
+E-002 (run 2026-09-05) keeps the feature and replaces the rule with a
+learned similar-day selector: overall MAE −1.5 % (594,325 → 585,362) with
+the interval over days including zero; weekdays −4.8 %, evenings −7.5 %,
+the working day before お盆 −46 % / −20 %; weekends +6.5 %. The selector
+beats the plain D − 364 day on 59 % of days. Decision pending.
 
 ## Open questions
 
@@ -442,7 +511,7 @@ learned similar-day selector; the question was broadened accordingly.
 
 ## Final disposition
 
-**Investigation status:** In progress (E-001 rejected 2026-09-05; E-002 planned)
+**Investigation status:** In progress (E-001 rejected 2026-09-05; E-002 run 2026-09-05, decision pending)
 
 **Recommended action after E-001:** Done — `dim_date.prior_year_reference_date`,
 `prior_year_reference_rule` and `lightgbm_msm_popw_daytype_lag1y` removed on
@@ -452,4 +521,4 @@ learned similar-day selector; the question was broadened accordingly.
 
 **Superseded by:** —
 
-**Next:** run E-002 once its implementation lands.
+**Next:** the researcher's E-002 decision.
