@@ -24,12 +24,15 @@ from power_market_analytics.tasks.demand.similar_day import (
     SIMILAR_DAY_FEATURE,
     SIMILAR_DAY_WINDOW_HALF_WIDTH_DAYS,
     DayPairDifferences,
+    SimilarDayRetrieval,
     SimilarDaySelection,
     SimilarDaySelector,
     SimilarDayTrainingPairs,
     SimilarDayWeights,
     fit_similar_day_weights,
+    join_similar_day_load,
     load_difference,
+    retrieval_metrics,
 )
 
 #: Calendar, observations and hourly load: 2023-01-01 .. 2024-04-30.
@@ -444,3 +447,169 @@ class TestSelectorFit:
             ValueError, match="no training pairs with a target day on or before 2024-01-31"
         ):
             selector.fit(pd.Timestamp("2024-01-31"))
+
+
+@pytest.fixture(scope="module")
+def fitted(selector) -> SimilarDaySelector:
+    selector.ensure_fitted(pd.Timestamp("2024-03-31"))
+    return selector
+
+
+def hand_weights(**shares: float) -> SimilarDayWeights:
+    weights = np.array([shares.get(c, 0.0) for c in SIMILAR_DAY_COMPONENTS])
+    return SimilarDayWeights(
+        components=SIMILAR_DAY_COMPONENTS,
+        weights=weights / weights.sum(),
+        scales=np.ones(7),
+        alpha=1.0,
+        beta=0.0,
+        n_pairs=8,
+        n_targets=8,
+        fit_from=pd.Timestamp("2024-02-07"),
+        fit_through=pd.Timestamp("2024-02-14"),
+        fit_rmse=0.0,
+    )
+
+
+class TestSelect:
+    def test_nearest_candidate(self, fitted):
+        selection = fitted.select([D, pd.Timestamp("2023-12-31")])
+        assert type(selection) is SimilarDaySelection
+        assert len(selection) == 1
+        row = selection.df.iloc[0]
+        assert row["trade_date"] == D
+        assert 334 <= row["reference_lag_days"] <= 394
+        assert row["n_candidates"] == 61
+        assert 1 <= row["lag_364_rank"] <= 61
+        diffs = fitted.differences([D])
+        distances = pd.Series(fitted.weights.distance(diffs), index=diffs.df["candidate_date"])
+        assert row["distance"] == pytest.approx(distances.min())
+        assert row["reference_date"] == distances.idxmin()
+
+    def test_tie_goes_to_the_centre_then_the_earlier_day(self):
+        # A calendar-days-only distance is |lag - 364|: D - 364 wins outright, and without
+        # it lags 363 and 365 tie at 1, both one day from the centre, so the earlier wins.
+        selector = SimilarDaySelector(
+            make_calendar(), make_forecast(), make_observed(), make_hourly_load()
+        )
+        selector._weights = hand_weights(calendar_days=1.0)
+        assert selector.select([D]).df.iloc[0]["reference_date"] == D_MINUS_364
+        without_centre = SimilarDaySelector(
+            make_calendar(),
+            make_forecast(),
+            make_observed(null_hours={(D_MINUS_364, 1)}),
+            make_hourly_load(),
+        )
+        without_centre._weights = hand_weights(calendar_days=1.0)
+        row = without_centre.select([D]).df.iloc[0]
+        assert row["reference_date"] == D - pd.Timedelta(days=365)
+        assert np.isnan(row["lag_364_rank"])
+        assert row["n_candidates"] == 60
+
+    def test_nothing_scorable_gives_an_empty_frame(self, fitted):
+        selection = fitted.select([pd.Timestamp("2023-12-31")])
+        assert len(selection) == 0
+        assert list(selection.df.columns) == list(SimilarDaySelection.schema)
+
+    def test_select_before_fit_raises(self):
+        fresh = SimilarDaySelector(
+            make_calendar(), make_forecast(), make_observed(), make_hourly_load()
+        )
+        with pytest.raises(RuntimeError, match="not fitted"):
+            fresh.select([D])
+
+
+class TestJoinSimilarDayLoad:
+    def test_hourly_load_of_the_reference_halved_per_period(self, fitted):
+        selection = fitted.select([D])
+        reference = selection.df.iloc[0]["reference_date"]
+        points = pd.DataFrame(
+            {
+                "trade_date": [D] * 48 + [pd.Timestamp("2023-12-31")] * 2,
+                "time_code": list(range(1, 49)) + [1, 2],
+            }
+        )
+        points["time_code"] = points["time_code"].astype("int64")
+        joined = join_similar_day_load(points, selection, make_hourly_load())
+        assert list(joined.columns) == ["trade_date", "time_code", SIMILAR_DAY_FEATURE]
+        expected = [load_at(reference, (tc + 1) // 2) / PERIODS_PER_HOUR for tc in range(1, 49)]
+        assert joined[SIMILAR_DAY_FEATURE].head(48).tolist() == pytest.approx(expected)
+        assert joined[SIMILAR_DAY_FEATURE].tail(2).isna().all()
+
+    def test_custom_name(self, fitted):
+        selection = fitted.select([D])
+        points = pd.DataFrame({"trade_date": [D], "time_code": np.array([1], dtype="int64")})
+        assert "ref_kwh" in join_similar_day_load(
+            points, selection, make_hourly_load(), name="ref_kwh"
+        )
+
+
+class TestRetrieval:
+    def test_outcomes_per_forecast_day(self, fitted):
+        days = [D, D + pd.Timedelta(days=1), pd.Timestamp("2024-04-30")]  # 04-30: no calendar row
+        selection = fitted.select(days)
+        retrieval = fitted.retrieval(selection)
+        assert type(retrieval) is SimilarDayRetrieval
+        assert retrieval.df["trade_date"].tolist() == [D, D + pd.Timedelta(days=1)]
+        row = retrieval.df.set_index("trade_date").loc[D]
+        sel = selection.df.set_index("trade_date").loc[D]
+        assert row["reference_date"] == sel["reference_date"]
+        assert row["distance"] == sel["distance"]
+        candidates = fitted.differences([D]).df["candidate_date"]
+        realised = {
+            c: np.mean([abs(load_at(D, h) - load_at(c, h)) / load_at(D, h) for h in range(1, 25)])
+            for c in candidates
+        }
+        assert row["selected_load_difference"] == pytest.approx(realised[sel["reference_date"]])
+        assert row["lag_364_load_difference"] == pytest.approx(realised[D_MINUS_364])
+        assert row["oracle_load_difference"] == pytest.approx(min(realised.values()))
+        assert row["oracle_date"] == min(realised, key=lambda c: (realised[c], c))
+        assert row["oracle_load_difference"] <= row["selected_load_difference"]
+        assert row["selected_rank_by_outcome"] >= 1
+
+    def test_lag_364_is_nan_when_it_was_not_a_candidate(self):
+        selector = SimilarDaySelector(
+            make_calendar(),
+            make_forecast(),
+            make_observed(null_hours={(D_MINUS_364, 1)}),
+            make_hourly_load(),
+        )
+        selector.ensure_fitted(pd.Timestamp("2024-03-31"))
+        retrieval = selector.retrieval(selector.select([D]))
+        assert np.isnan(retrieval.df.iloc[0]["lag_364_load_difference"])
+
+    def test_days_without_a_known_load_are_left_out(self):
+        # A forecast day after the hourly load ends: selectable, not checkable.
+        beyond = SimilarDaySelector(
+            make_calendar(),
+            make_forecast(),
+            make_observed(),
+            make_hourly_load(pd.date_range("2023-01-01", "2024-04-09")),
+        )
+        beyond.ensure_fitted(pd.Timestamp("2024-03-31"))
+        retrieval = beyond.retrieval(beyond.select([D]))
+        assert len(retrieval) == 0
+        assert list(retrieval.df.columns) == list(SimilarDayRetrieval.schema)
+
+
+class TestRetrievalMetrics:
+    def test_means_and_share(self):
+        df = pd.DataFrame(
+            {
+                "trade_date": pd.to_datetime(["2024-04-10", "2024-04-11", "2024-04-12"]),
+                "reference_date": pd.to_datetime(["2023-04-12", "2023-04-13", "2023-04-14"]),
+                "distance": [1.0, 1.0, 1.0],
+                "selected_load_difference": [0.02, 0.05, 0.03],
+                "lag_364_load_difference": [0.04, 0.04, np.nan],
+                "oracle_date": pd.to_datetime(["2023-04-12", "2023-04-20", "2023-04-14"]),
+                "oracle_load_difference": [0.02, 0.01, 0.03],
+                "selected_rank_by_outcome": np.array([1, 5, 1], dtype="int64"),
+            }
+        )
+        metrics = retrieval_metrics(SimilarDayRetrieval.from_df(df))
+        assert metrics == {
+            "similar_day_load_difference_selected": pytest.approx(0.1 / 3),
+            "similar_day_load_difference_lag_364": pytest.approx(0.04),
+            "similar_day_load_difference_oracle": pytest.approx(0.02),
+            "similar_day_share_better_than_lag_364": pytest.approx(0.5),
+        }
