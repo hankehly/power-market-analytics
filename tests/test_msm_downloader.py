@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import csv
 import datetime
+import functools
 import gzip
 import hashlib
 import json
@@ -73,7 +74,16 @@ def constant_value(element_key: str, lead_hours: int, flat_index: int) -> float:
 
 def file_content(source_file, missing=None) -> bytes:
     """A complete, real archive member for one of DELIVERY_DATE's three files."""
+    if missing is None:
+        return _complete_file_content(source_file)
     return b"".join(day_messages(source_file, REFERENCE_AT, GRID, constant_value, missing=missing))
+
+
+@functools.cache
+def _complete_file_content(source_file) -> bytes:
+    # Encoded once per process: ecCodes takes ~50 ms per member and every
+    # `complete_session` needs all three.
+    return b"".join(day_messages(source_file, REFERENCE_AT, GRID, constant_value))
 
 
 def complete_session(missing_for_file0=None) -> "FakeSession":
