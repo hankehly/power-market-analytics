@@ -5,7 +5,12 @@ from __future__ import annotations
 from pathlib import Path
 
 from power_market_analytics.area_actuals import AreaActualsCsvLoader, AreaActualsDownloader
-from power_market_analytics.kansai import KANSAI, KansaiAreaCsvLoader, KansaiAreaDownloader
+from power_market_analytics.kansai import (
+    KANSAI,
+    KansaiAreaCsvLoader,
+    KansaiAreaDownloader,
+    area_demand_generation,
+)
 
 
 class TestKansaiSource:
@@ -57,3 +62,10 @@ class TestKansaiSubclasses:
     def test_loader_is_bound_to_kansai_source(self):
         assert issubclass(KansaiAreaCsvLoader, AreaActualsCsvLoader)
         assert KansaiAreaCsvLoader.source is KANSAI
+
+
+class TestKansaiPackage:
+    def test_package_re_exports_the_area_actuals_names(self):
+        assert area_demand_generation.KANSAI is KANSAI
+        assert area_demand_generation.KansaiAreaDownloader is KansaiAreaDownloader
+        assert area_demand_generation.KansaiAreaCsvLoader is KansaiAreaCsvLoader
