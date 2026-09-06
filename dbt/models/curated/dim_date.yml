@@ -19,6 +19,13 @@ models:
       nationwide convention with no statutory or tariff basis.
       Keyed by the date itself (Kimball exempts the date dimension from
       surrogate keys).
+      Carries the standard calendar features of Azure AutoML forecasting
+      (learn.microsoft.com, concept-automl-forecasting-calendar-features) at
+      daily grain: year, half, quarter, month, month_name (month_lbl),
+      day_of_month (day), day_of_week_iso (wday, Monday = 1 here and 0 there),
+      day_name (wday_lbl), day_of_quarter (qday) and day_of_year (yday). Not
+      carried: year_iso, week, and the sub-daily ones (hour through hour12),
+      which are dim_delivery_period's business.
     data_tests:
       - dbt_utils.expression_is_true:
           name: dim_date_weekend_matches_day_of_week
@@ -66,6 +73,20 @@ models:
           name: dim_date_holiday_degree_business_day_is_sandwich_value
           arguments:
             expression: "not is_business_day or holiday_degree in (0, 0.3, 0.5)"
+      # The calendar features against formulas independent of the model's:
+      # the half from the month, the day counts from datediff.
+      - dbt_utils.expression_is_true:
+          name: dim_date_half_matches_month
+          arguments:
+            expression: "half = (case when month <= 6 then 1 else 2 end)"
+      - dbt_utils.expression_is_true:
+          name: dim_date_day_of_quarter_matches_datediff
+          arguments:
+            expression: "day_of_quarter = datediff(date_key, make_date(year, (quarter - 1) * 3 + 1, 1)) + 1"
+      - dbt_utils.expression_is_true:
+          name: dim_date_day_of_year_matches_datediff
+          arguments:
+            expression: "day_of_year = datediff(date_key, make_date(year, 1, 1)) + 1"
     columns:
       - name: date_key
         data_type: date
@@ -76,6 +97,15 @@ models:
         data_type: int
         data_tests:
           - not_null
+      - name: half
+        data_type: int
+        description: Half of the calendar year, 1 before July 1 and 2 from it.
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 1
+                max_value: 2
       - name: quarter
         data_type: int
         data_tests:
@@ -97,6 +127,28 @@ models:
               arguments:
                 min_value: 1
                 max_value: 31
+      - name: day_of_quarter
+        data_type: int
+        description: >
+          Day within the calendar quarter, 1 on its first day through 90, 91
+          or 92 on its last.
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 1
+                max_value: 92
+      - name: day_of_year
+        data_type: int
+        description: >
+          Day within the calendar year, 1 on January 1 through 365, or 366 in
+          a leap year.
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 1
+                max_value: 366
       - name: day_of_week_iso
         data_type: int
         description: ISO day of week, 1 = Monday through 7 = Sunday.
