@@ -34,6 +34,7 @@ from power_market_analytics.tasks.demand.similar_day import (
     load_difference,
     retrieval_metrics,
 )
+from tests.conftest import synthetic_calendar_counts
 
 #: Calendar, observations and hourly load: 2023-01-01 .. 2024-04-30.
 HISTORY_DAYS = pd.date_range("2023-01-01", "2024-04-30", freq="D")
@@ -99,11 +100,19 @@ def make_calendar(days=HISTORY_DAYS) -> DayCalendar:
                 "days_since_holiday": (day - before[-1]).days,
                 "days_until_holiday": (after[0] - day).days,
                 "holiday_degree": holiday_degree_at(day),
+                **synthetic_calendar_counts(day),
+                "is_business_day": day.dayofweek < 5 and day not in HOLIDAYS,
             }
         )
+    counts = ("half", "quarter", "day_of_month", "day_of_quarter", "day_of_year", "fiscal_quarter")
     return DayCalendar.from_df(
         pd.DataFrame(rows).astype(
-            {"day_type": "int64", "days_since_holiday": "int64", "days_until_holiday": "int64"}
+            {
+                "day_type": "int64",
+                "days_since_holiday": "int64",
+                "days_until_holiday": "int64",
+                **{col: "int64" for col in counts},
+            }
         )
     )
 
