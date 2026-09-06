@@ -114,7 +114,8 @@ that month's zip immediately; the live intraday copy updates every 30 min
 
 ## 6. Downloading and loading with `power_market_analytics.kansai`
 
-`power_market_analytics/kansai.py` supplies the `KANSAI` `AreaActualsSource`
+`power_market_analytics/kansai/area_demand_generation.py` (the `kansai/` package holds
+one module per Kansai dataset and re-exports these names) supplies the `KANSAI` `AreaActualsSource`
 (URL template, 2022-04, both member-name generations, both accepted headers,
 `archive_includes_current_day`), a thin `KansaiAreaDownloader`, and
 `KansaiAreaCsvLoader`, which binds the shared positional loader to the spec.
