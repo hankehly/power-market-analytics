@@ -81,19 +81,29 @@ def records_by_key(records):
     return {(r.station_id, r.forecast_lead_hours): r for r in records}
 
 
-@pytest.fixture
-def constant_file(tmp_path):
+# Both members are encoded once per module (ecCodes takes ~50 ms per 72-message
+# file) into their own directories; the tests only read them.
+@pytest.fixture(scope="module")
+def constant_file(tmp_path_factory):
     """A complete FH16-33 member whose every point holds the element's base value."""
     return build_day_file(
-        tmp_path / SOURCE_FILE.file_name, SOURCE_FILE, REFERENCE_AT, GRID, constant_value
+        tmp_path_factory.mktemp("constant") / SOURCE_FILE.file_name,
+        SOURCE_FILE,
+        REFERENCE_AT,
+        GRID,
+        constant_value,
     )
 
 
-@pytest.fixture
-def varying_file(tmp_path):
+@pytest.fixture(scope="module")
+def varying_file(tmp_path_factory):
     """A complete FH16-33 member whose value differs per (element, lead, grid point)."""
     return build_day_file(
-        tmp_path / SOURCE_FILE.file_name, SOURCE_FILE, REFERENCE_AT, GRID, varying_value
+        tmp_path_factory.mktemp("varying") / SOURCE_FILE.file_name,
+        SOURCE_FILE,
+        REFERENCE_AT,
+        GRID,
+        varying_value,
     )
 
 
@@ -293,8 +303,8 @@ class TestMultiFieldEnvelopes:
 
     @pytest.fixture
     def multi_field_file(self, tmp_path):
-        # A distinct name: `varying_file` shares this tmp_path and would
-        # otherwise overwrite the envelope with a plain concatenation.
+        # A distinct name, so it can never be mistaken for the concatenated
+        # `varying_file` it is compared against.
         return build_multi_field_file(
             tmp_path / f"multi_{SOURCE_FILE.file_name}",
             day_messages(SOURCE_FILE, REFERENCE_AT, GRID, varying_value),

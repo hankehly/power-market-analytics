@@ -277,14 +277,13 @@ class CsvLoader:
         try:
             # The hidden source-file column serves validation only.
             out = df.drop(SOURCE_FILE_COL)
-            n_rows = df.count()
+            n_rows = self._validate(df)
             logger.info(
                 "Read shape=({}, {}); schema: {}",
                 n_rows,
                 len(out.columns),
                 ", ".join(f"{f.name}:{f.dataType.simpleString()}" for f in out.schema),
             )
-            self._validate(df)
             self._write(out)
         finally:
             df.unpersist()
@@ -668,28 +667,81 @@ class CsvLoader:
             col = col.cast(column.type)
         return col.alias(column.name)
 
-    def _validate(self, df: DataFrame) -> None:
+    def _validate(self, df: DataFrame) -> int:
+        """Check the non-nullable columns and the grain; count the rows on the way.
+
+        One query yields the row count, the null count of every non-nullable
+        column and the number of distinct grain keys, so a load pays one Spark
+        SQL execution here instead of one per check. With a grain the counts
+        are taken per key first and then summed: the number of keys is the
+        distinct count (a null key is a group, as under ``distinct()``), and
+        the per-key sums are the totals. That costs the same hash aggregate as
+        the old ``distinct().count()`` alone, whereas a ``count_distinct`` next
+        to other aggregates makes Spark expand every row once per aggregate.
+
+        Parameters
+        ----------
+        df : pyspark.sql.DataFrame
+            The loaded frame, ``SOURCE_FILE_COL`` included, so a failure can be
+            reported per file.
+
+        Returns
+        -------
+        int
+            Number of rows in ``df``.
+
+        Raises
+        ------
+        ValueError
+            If a non-nullable column contains nulls, or the grain is not unique.
+        """
         non_nullable = [c.name for c in self.schema.columns if not c.nullable]
-        if non_nullable:
-            # collect()[0] over first(): an aggregation always yields one row,
-            # and unlike first() the element is not Optional.
-            null_counts = df.select(
-                [F.count(F.when(F.col(name).isNull(), True)).alias(name) for name in non_nullable]
-            ).collect()[0]
-            bad = {name: null_counts[name] for name in non_nullable if null_counts[name]}
-            if bad:
-                raise ValueError(
-                    "Non-nullable columns contain nulls after casting "
-                    f"(null count per column): {bad}{self._nulls_by_file(df, list(bad))}"
-                )
-        if self.schema.grain:
-            total = df.count()
-            distinct = df.select(self.schema.grain).distinct().count()
-            if distinct != total:
-                raise ValueError(
-                    f"Grain {self.schema.grain} is not unique: "
-                    f"{total} rows but {distinct} distinct keys{self._duplicates_by_file(df)}"
-                )
+        grain = self.schema.grain
+        # The per-key frame holds the grain columns next to these aliases, so
+        # an alias must not resolve to a contract column (case-insensitively,
+        # as Spark does by default) or the sums below would be ambiguous.
+        taken = {name.lower() for name in df.columns}
+
+        def alias(base: str) -> str:
+            name, n = base, 0
+            while name.lower() in taken:
+                n += 1
+                name = f"{base}_{n}"
+            taken.add(name.lower())
+            return name
+
+        rows, keys = alias("__validate_rows"), alias("__validate_keys")
+        nulls = {name: alias(f"__validate_nulls_{i}") for i, name in enumerate(non_nullable)}
+        null_counts = [
+            F.count(F.when(F.col(name).isNull(), True)).alias(alias)
+            for name, alias in nulls.items()
+        ]
+        if grain:
+            per_key = df.groupBy(*grain).agg(F.count(F.lit(1)).alias(rows), *null_counts)
+            # An empty frame has no keys, and a sum over no rows is null.
+            summary = per_key.agg(
+                F.coalesce(F.sum(rows), F.lit(0)).alias(rows),
+                F.count(F.lit(1)).alias(keys),
+                *[F.coalesce(F.sum(alias), F.lit(0)).alias(alias) for alias in nulls.values()],
+            )
+        else:
+            summary = df.agg(F.count(F.lit(1)).alias(rows), *null_counts)
+        # collect()[0] over first(): an aggregation always yields one row,
+        # and unlike first() the element is not Optional.
+        stats = summary.collect()[0]
+        n_rows: int = stats[rows]
+        bad = {name: stats[alias] for name, alias in nulls.items() if stats[alias]}
+        if bad:
+            raise ValueError(
+                "Non-nullable columns contain nulls after casting "
+                f"(null count per column): {bad}{self._nulls_by_file(df, list(bad))}"
+            )
+        if grain and stats[keys] != n_rows:
+            raise ValueError(
+                f"Grain {grain} is not unique: "
+                f"{n_rows} rows but {stats[keys]} distinct keys{self._duplicates_by_file(df)}"
+            )
+        return n_rows
 
     def _nulls_by_file(self, df: DataFrame, columns: list[str]) -> str:
         """Null counts of ``columns`` per source file, as an error-message suffix.
