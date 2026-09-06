@@ -22,7 +22,7 @@ dependencies = [
     "pydantic-settings>=2.14.1",
     "pyspark[ml,pandas-on-spark]==4.1.1",
     "pyyaml>=6.0",
-    "requests>=2.32.0",
+    "requests>=2.32.3",
     "scipy>=1.18",
     "shap>=0.52.0",
     "loguru>=0.7.3",
