@@ -1,11 +1,11 @@
 # R-004 — Year-ago load from a prior-year reference day
 
-- **Status:** In progress — E-001 (rule-chosen reference date) rejected by the
+- **Status:** Supported — E-001 (rule-chosen reference date) rejected by the
   researcher on 2026-09-05, its feature and `dim_date` column removed; E-002
-  (learned similar-day selector) run the same day, decision pending with the
-  researcher; design spec
+  (learned similar-day selector) run the same day and **kept** by the
+  researcher on 2026-09-06; design spec
   `docs/superpowers/specs/2026-09-05-demand-similar-day-reference-design.md`
-- **Last updated:** 2026-09-05 (E-002 results)
+- **Last updated:** 2026-09-06 (E-002 decision)
 - **Created:** 2026-08-31
 - **Triggering observations:**
   [O-002 — The working day between 山の日 and お盆 is heavily over-forecast, driven by the D-7 lag](research/demand/observations.md#o-002-the-working-day-between-山の日-and-お盆-is-heavily-over-forecast-driven-by-the-d-7-lag),
@@ -431,6 +431,30 @@ summer +0.4 %.
 
 ![MAE by month](assets/R-004-E-002-mae-by-month.png)
 
+The baseline's ten worst days (daily MAE, kWh per period) and the candidate on
+the same days — nine of the ten improve; the exception, a Sunday, is flat:
+
+| Day | Baseline | Candidate | Change |
+|---|---:|---:|---:|
+| 2025-08-12 Tue, day before お盆 (O-002) | 3,858,649 | 2,093,837 | −45.7 % |
+| 2026-02-11 Wed, 建国記念の日 (O-003) | 3,071,435 | 2,760,312 | −10.1 % |
+| 2026-08-12 Wed, day before お盆 (O-002) | 2,837,390 | 2,282,792 | −19.5 % |
+| 2025-12-29 Mon, day before 年末年始 | 2,610,079 | 1,802,442 | −30.9 % |
+| 2025-01-13 Mon, 成人の日 | 2,592,018 | 2,330,530 | −10.1 % |
+| 2026-02-08 Sun | 2,449,929 | 2,462,569 | +0.5 % |
+| 2024-12-20 Fri | 2,088,766 | 1,391,854 | −33.4 % |
+| 2025-03-05 Wed | 2,064,800 | 1,705,323 | −17.4 % |
+| 2025-04-01 Tue, first working day of the fiscal year | 2,031,790 | 710,133 | −65.0 % |
+| 2025-01-04 Sat, end of 年末年始 | 1,836,299 | 1,415,392 | −22.9 % |
+
+The proximity day E-001 could not handle, 2026-08-10 (the Monday between a
+Sunday and 山の日), is the clearest case: the selector picked 2025-08-12, the
+working day before お盆 one year earlier (lag 363; the plain D − 364 day was
+山の日 2025, ranked 10th), and the day's MAE fell from 1,531,659 to 647,311
+(−58 %), the bias from +1,531,659 to +562,271. For 2026-08-12 it picked the
+same 2025-08-12 (lag 365) and the MAE fell 19.5 %, although by realised load
+difference that pick ranked 6th of 61 behind the plain D − 364 day.
+
 Retrieval check (the run's `similar_day_retrieval.csv`, 729 forecast days,
 the paper's load difference, Eq. 3): selected day 0.048 mean (0.042 median),
 the plain D − 364 day 0.075 (0.056), the oracle 0.021 (0.019); the selected
@@ -478,8 +502,12 @@ feature) is not triggered by its own condition either.
 
 ### Decision
 
-**Decision:** Pending — the researcher's call (recorded 2026-09-05 with the
-results; the rule reads Inconclusive).
+**Decision:** Keep — decided by the researcher on 2026-09-06. The MAE of the
+worst days is reduced, which is what the investigation set out to do (the
+triggering observations were made on the worst-performing days): nine of the
+baseline's ten worst days improve, the proximity days among them. Overall MAE
+is lower too; the bootstrap interval says that overall gain could be chance,
+but the feature is kept for how it handles those difficult proximity days.
 
 ### Follow-up ideas
 
@@ -506,8 +534,11 @@ and its inputs were removed.
 E-002 (run 2026-09-05) keeps the feature and replaces the rule with a
 learned similar-day selector: overall MAE −1.5 % (594,325 → 585,362) with
 the interval over days including zero; weekdays −4.8 %, evenings −7.5 %,
-the working day before お盆 −46 % / −20 %; weekends +6.5 %. The selector
-beats the plain D − 364 day on 59 % of days. Decision pending.
+the working day before お盆 −46 % / −20 %, the 2026-08-10 proximity day
+−58 %; weekends +6.5 %. Nine of the baseline's ten worst days improve. The
+selector beats the plain D − 364 day on 59 % of days. **Keep**, decided by
+the researcher on 2026-09-06: the worst days, which the investigation set
+out to fix, are where the feature helps.
 
 ## Open questions
 
@@ -515,7 +546,7 @@ beats the plain D − 364 day on 59 % of days. Decision pending.
 
 ## Final disposition
 
-**Investigation status:** In progress (E-001 rejected 2026-09-05; E-002 run 2026-09-05, decision pending)
+**Investigation status:** Supported (E-002 kept; decision 2026-09-06)
 
 **Recommended action after E-001:** Done — `dim_date.prior_year_reference_date`,
 `prior_year_reference_rule` and `lightgbm_msm_popw_daytype_lag1y` removed on
@@ -525,4 +556,6 @@ beats the plain D − 364 day on 59 % of days. Decision pending.
 
 **Superseded by:** —
 
-**Next:** the researcher's E-002 decision.
+**Next:** decide whether `lightgbm_msm_popw_daytype_simday` becomes the demand
+baseline and the script default. It is Tokyo-only until another TSO's でんき予報
+is loaded, so as the default it would fail for `--area kansai`.
