@@ -1072,6 +1072,65 @@ class TestDashboardSpecs:
             spec.value_columns_sql, "f"
         )
 
+    def test_comparison_metrics(self, script, spot, demand):
+        a, b = "abs_error_mwh", "baseline_abs_error_mwh"
+        assert demand.delta_mae_sql == f"avg({a}) - avg({b})"
+        assert demand.delta_mae_pct_sql == f"100 * (avg({a}) - avg({b})) / avg({b})"
+        assert demand.baseline_mae_metric == script.avg_metric(b, "Baseline MAE (MWh)")
+        assert demand.candidate_mae_metric == script.avg_metric(a, "Candidate MAE (MWh)")
+        assert demand.delta_mae_metric == script.sql_metric(
+            demand.delta_mae_sql, "ΔMAE", option_name="delta_mae"
+        )
+        assert demand.delta_mae_pct_metric == script.sql_metric(
+            demand.delta_mae_pct_sql, "ΔMAE %", option_name="delta_mae_pct"
+        )
+        assert demand.delta_abs_bias_metric == script.sql_metric(
+            "abs(avg(error_mwh)) - abs(avg(baseline_error_mwh))",
+            "Δ|bias|",
+            option_name="delta_abs_bias",
+        )
+        assert demand.delta_wape_metric == script.sql_metric(
+            f"sum({a}) / sum(actual_demand_mwh) - sum({b}) / sum(actual_demand_mwh)",
+            "ΔWAPE",
+            option_name="delta_wape",
+        )
+        assert demand.matched_coverage_metric == script.sql_metric(
+            "count(*) / max(candidate_periods)", "Matched coverage"
+        )
+        assert demand.matched_days_metric == script.sql_metric(
+            "count(distinct date_key)", "Matched days"
+        )
+        assert demand.days_candidate_lower_metric == script.sql_metric(
+            "count(distinct case when daily_delta_abs_error_mwh < 0 then date_key end)"
+            " / count(distinct date_key)",
+            "Days candidate lower",
+        )
+        assert demand.median_daily_delta_metric == script.sql_metric(
+            "percentile(daily_delta_abs_error_mwh, 0.5)",
+            "Median daily ΔMAE",
+            option_name="median_daily_delta_mae",
+        )
+        assert demand.error_reduction_metric == script.sql_metric(
+            f"sum({b}) - sum({a})", "Error reduction"
+        )
+        assert demand.better_worse_metrics("x") == [
+            script.sql_metric("least(x, 0)", "Better"),
+            script.sql_metric("greatest(x, 0)", "Worse"),
+        ]
+        assert spot.baseline_mae_metric["column"]["column_name"] == "baseline_abs_error_jpy_kwh"
+        assert spot.baseline_mae_metric["label"] == "Baseline MAE (JPY/kWh)"
+        assert spot.delta_wape_metric["sqlExpression"] == (
+            "sum(abs_error_jpy_kwh) / sum(actual_price_jpy_kwh)"
+            " - sum(baseline_abs_error_jpy_kwh) / sum(actual_price_jpy_kwh)"
+        )
+        assert spot.days_candidate_lower_metric["sqlExpression"].startswith(
+            "count(distinct case when daily_delta_abs_error_jpy_kwh < 0"
+        )
+
+    def test_delta_band_chart_title(self, spot, demand):
+        assert spot.delta_band_chart_title == "ΔMAE % by actual price band"
+        assert demand.delta_band_chart_title == "ΔMAE % by actual demand band"
+
 
 # --------------------------------------------------------------------------- dataset
 class TestUpsertDataset:
@@ -1273,6 +1332,11 @@ class TestMetrics:
             "label": "P90 abs error",
             "optionName": "metric_p90_abs_error",
         }
+
+    def test_sql_metric_takes_an_explicit_option_name(self, script):
+        m = script.sql_metric("avg(a) - avg(b)", "ΔMAE", option_name="delta_mae")
+        assert m["optionName"] == "metric_delta_mae"
+        assert m["label"] == "ΔMAE"
 
 
 # --------------------------------------------------------------------------- chart params
