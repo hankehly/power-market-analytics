@@ -272,7 +272,9 @@ selector by itself, apart from what LightGBM does with the feature.
 - A registry entry, and a `build_strategy` branch before the day-type one that also loads
   `load_day_calendar`, `load_area_observed_weather_population_weighted(area_code,
   census_year)` and `load_area_hourly_load(area_code)`. The loader raises for an area
-  without the series. The baseline and the script default do not change.
+  without the series. The baseline and the script default do not change. (On 2026-09-06 the
+  researcher made the strategy the Tokyo demand baseline — R-004 E-002 decision; the script
+  default is unchanged because the strategy runs for Tokyo only.)
 
 **Leakage.** D's selection uses calendar attributes, the MSM forecast for D (available
 before 09:30 on D-1) and candidate data — loads and observed weather — at least 334 days
