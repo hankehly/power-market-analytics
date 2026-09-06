@@ -6,32 +6,38 @@ One dashboard per forecasting task — "Spot Price Forecast Analysis" and
 REST API, so everything is reproducible from the repo after a
 ``docker compose down -v``:
 
-- three virtual datasets per dashboard: ``<task>_forecast_analysis`` — the
+- four virtual datasets per dashboard: ``<task>_forecast_analysis`` — the
   task's forecast accuracy mart joined to dim_area / dim_delivery_period /
   dim_date, plus presentation columns (``run_label``, actual-value bands, day
   types) — ``<task>_forecast_explanation`` — the contribution fact, one
-  row per period x component, joined to the accuracy mart — and
+  row per period x component, joined to the accuracy mart —
   ``<task>_forecast_comparison`` — the accuracy mart self-joined, the Run
   filter's run against the Baseline filter's, both pinned in the SQL with
-  Jinja
-- charts on three tabs: **Accuracy** — KPI tiles (MAE, bias, RMSE, RMSE/MAE,
-  WAPE, P90), error structure (bars + heatmaps + day-type slices),
-  calibration & distribution (actual-value-band MAE, calibration curve, error
-  histogram), runs & drilldown (run leaderboard, worst days, 30-minute
-  detail) — **Explanation (SHAP)** — base / forecast / actual /
-  net-effect tiles, the waterfall of mean per-period feature contributions,
-  the component table, and the contributions by period — stacked bars with the
-  forecast and the actual, both relative to the base, as lines on the same axis
-  — and **Compare** — delta KPI tiles coloured by sign (ΔMAE, ΔMAE %,
-  Δ|bias|, ΔWAPE), matched coverage / days / share of days lower / median
-  daily ΔMAE, diverging Better / Worse bars of ΔMAE % by segment, ΔMAE %
-  heatmaps, daily ΔMAE bars, the cumulative error reduction, most-improved /
-  most-worsened day tables, and a three-line 30-minute detail
+  Jinja — and ``<task>_forecast_explanation_comparison`` — the contribution
+  fact self-joined the same way on the periods both runs explained, one row
+  per period x component of either run
+- charts on three tabs, each built by its ``build_<tab>_tab`` function:
+  **Accuracy** — KPI tiles (MAE, bias, RMSE, RMSE/MAE, WAPE, P90), error
+  structure (bars + heatmaps + day-type slices), calibration & distribution
+  (actual-value-band MAE, calibration curve, error histogram), runs &
+  drilldown (run leaderboard, worst days, 30-minute detail) —
+  **Explanation (SHAP)** — base / forecast / actual / net-effect tiles, the
+  waterfall of mean per-period feature contributions, the component table,
+  and the contributions by period — stacked bars with the forecast and the
+  actual, both relative to the base, as lines on the same axis — and
+  **Compare** — delta KPI tiles coloured by sign (ΔMAE, ΔMAE %, Δ|bias|,
+  ΔWAPE), matched coverage / days / share of days lower / median daily ΔMAE,
+  diverging Better / Worse bars of ΔMAE % by segment, ΔMAE % heatmaps, daily
+  ΔMAE bars, the cumulative error reduction, most-improved / most-worsened
+  day tables, the explanation vs baseline (Δ base / Δ net effect / Δ forecast
+  tiles, the waterfall of per-component contribution deltas and its table),
+  and a three-line 30-minute detail
 - the dashboard, with a required single-select Run filter (all charts except
   the cross-run leaderboard) plus an optional Day filter scoped to the
-  Explanation tab (cascading from Run), plus a required single-select
-  Baseline filter scoped to the Compare tab; the 30-minute detail charts
-  carry their own data-zoom slider for navigating the backtest window
+  Explanation tab and the Compare tab's explanation-vs-baseline section
+  (cascading from Run), plus a required single-select Baseline filter scoped
+  to the Compare tab; the 30-minute detail charts carry their own data-zoom
+  slider for navigating the backtest window
 
 The two dashboards share chart names (a chart is identified by its name
 *within its dataset*), differing only where the quantity shows through: the
@@ -300,7 +306,7 @@ select
     when d.is_weekend then 'Weekend'
     else 'Weekday'
   end as day_type,
-  d.holiday_name_ja,
+  coalesce(d.holiday_name_ja, '') as holiday_name_ja,
   m.area_code,
   m.area_name_en,
   m.run_id,
@@ -343,6 +349,141 @@ COMMON_COMPARISON_COLUMNS = (
     ("baseline_run_label", "STRING", False),
     ("baseline_strategy", "STRING", False),
     ("candidate_periods", "BIGINT", False),
+)
+
+# Shared skeleton of every task's explanation-comparison dataset: the
+# contribution fact self-joined — the Run filter's run (candidate) against the
+# Baseline filter's run — on the periods both runs explained (one base row per
+# period per run), one row per period x component of either run.
+#
+# Both runs are pinned by Jinja like the comparison dataset. A component only
+# one run has still gets a row per period (the cross join with the union of
+# both runs' components), with that run's contribution and the other side's
+# 0 — a feature a model lacks contributes nothing — so its whole contribution
+# is the delta; feature values stay null where the run lacks the feature.
+# component_order keeps the candidate's feature order and pushes baseline-only
+# components after it (100 + their order; the label pads to three digits).
+# The filters' values are echoed as constant columns because Superset applies
+# them as an outer WHERE on run_label / baseline_run_label, and no run column
+# survives the joins for a component the candidate lacks.
+EXPLANATION_COMPARISON_DATASET_SQL_TEMPLATE = string.Template("""\
+{% set candidate = filter_values('run_label') %}
+{% set baseline = filter_values('baseline_run_label') %}
+with runs as (
+select
+  c.*,
+  $run_label_sql as run_label
+from $contribution_table c
+join pma_curated.dim_area a on c.area_key = a.area_key
+),
+candidate as (
+select *
+from runs
+where {% if candidate %}run_label = '{{ candidate[0] | replace("'", "''") }}'{% else %}1 = 0{% endif %}
+),
+baseline as (
+select *
+from runs
+where {% if baseline %}run_label = '{{ baseline[0] | replace("'", "''") }}'{% else %}1 = 0{% endif %}
+),
+periods as (
+select c.date_key, c.trade_datetime, c.time_code, c.area_key, c.run_id, b.run_id as baseline_run_id
+from candidate c
+join baseline b
+  on b.date_key = c.date_key
+  and b.time_code = c.time_code
+  and b.area_key = c.area_key
+where c.is_base and b.is_base
+),
+components as (
+select distinct component from candidate
+union
+select distinct component from baseline
+),
+matched as (
+select
+  p.date_key,
+  p.trade_datetime,
+  p.time_code,
+  p.area_key,
+  k.component,
+  coalesce(c.component_order, 100 + b.component_order) as component_order,
+  coalesce(c.is_base, b.is_base) as is_base,
+  c.feature_value,
+  b.feature_value as baseline_feature_value,
+$explanation_comparison_value_columns_sql
+from periods p
+cross join components k
+left join candidate c
+  on c.date_key = p.date_key
+  and c.time_code = p.time_code
+  and c.area_key = p.area_key
+  and c.component = k.component
+left join baseline b
+  on b.date_key = p.date_key
+  and b.time_code = p.time_code
+  and b.area_key = p.area_key
+  and b.component = k.component
+left join $accuracy_table fc
+  on fc.run_id = p.run_id
+  and fc.date_key = p.date_key
+  and fc.time_code = p.time_code
+  and fc.area_key = p.area_key
+left join $accuracy_table fb
+  on fb.run_id = p.baseline_run_id
+  and fb.date_key = p.date_key
+  and fb.time_code = p.time_code
+  and fb.area_key = p.area_key
+)
+select
+  m.date_key,
+  date_format(m.date_key, 'yyyy-MM-dd') as trade_date_label,
+  m.trade_datetime,
+  m.time_code,
+  p.hour_of_day,
+  p.day_part,
+  d.day_name,
+  case
+    when d.is_holiday then 'Holiday'
+    when d.is_weekend then 'Weekend'
+    else 'Weekday'
+  end as day_type,
+  a.area_code,
+  a.area_name_en,
+  {% if candidate %}'{{ candidate[0] | replace("'", "''") }}'{% else %}cast(null as string){% endif %} as run_label,
+  {% if baseline %}'{{ baseline[0] | replace("'", "''") }}'{% else %}cast(null as string){% endif %} as baseline_run_label,
+  m.component,
+  m.component_order,
+  concat(lpad(cast(m.component_order as string), 3, '0'), ' ', m.component) as component_label,
+  m.is_base,
+  m.feature_value,
+  m.baseline_feature_value,
+$value_select_sql
+from matched m
+join pma_curated.dim_area a on m.area_key = a.area_key
+join pma_curated.dim_delivery_period p on m.time_code = p.time_code
+join pma_curated.dim_date d on m.date_key = d.date_key
+""")
+
+COMMON_EXPLANATION_COMPARISON_COLUMNS = (
+    ("date_key", "DATE", True),
+    ("trade_date_label", "STRING", False),
+    ("trade_datetime", "TIMESTAMP", True),
+    ("time_code", "INT", False),
+    ("hour_of_day", "INT", False),
+    ("day_part", "STRING", False),
+    ("day_name", "STRING", False),
+    ("day_type", "STRING", False),
+    ("area_code", "STRING", False),
+    ("area_name_en", "STRING", False),
+    ("run_label", "STRING", False),
+    ("baseline_run_label", "STRING", False),
+    ("component", "STRING", False),
+    ("component_order", "INT", False),
+    ("component_label", "STRING", False),
+    ("is_base", "BOOLEAN", False),
+    ("feature_value", "DOUBLE", False),
+    ("baseline_feature_value", "DOUBLE", False),
 )
 
 
@@ -493,6 +634,9 @@ class DashboardSpec:
     comparison_dataset_name: str
     comparison_value_columns_sql: str
     comparison_value_columns: tuple[tuple[str, str, bool], ...]
+    explanation_comparison_dataset_name: str
+    explanation_comparison_value_columns_sql: str
+    explanation_comparison_value_columns: tuple[tuple[str, str, bool], ...]
 
     @property
     def dataset_sql(self) -> str:
@@ -623,6 +767,36 @@ class DashboardSpec:
             (self.daily_delta_abs_error_col, "DOUBLE", False),
             ("is_first_matched_period", "BOOLEAN", False),
         ]
+
+    @property
+    def baseline_contribution_col(self) -> str:
+        """The baseline run's contribution column of the explanation-comparison dataset."""
+        return f"baseline_{self.contribution_col}"
+
+    @property
+    def delta_contribution_col(self) -> str:
+        """Candidate contribution − baseline contribution, per period and component."""
+        return f"delta_{self.contribution_col}"
+
+    @property
+    def explanation_comparison_dataset_sql(self) -> str:
+        """The explanation-comparison dataset's SQL: the shared Jinja template around this
+        task's value block."""
+        return EXPLANATION_COMPARISON_DATASET_SQL_TEMPLATE.substitute(
+            run_label_sql=RUN_LABEL_SQL.format(f="c", a="a"),
+            contribution_table=self.contribution_table,
+            accuracy_table=self.accuracy_table,
+            explanation_comparison_value_columns_sql=self.explanation_comparison_value_columns_sql,
+            value_select_sql=",\n".join(
+                f"  m.{name}" for name, _, _ in self.explanation_comparison_value_columns
+            ),
+        )
+
+    @property
+    def explanation_comparison_dataset_columns(self) -> list[tuple[str, str, bool]]:
+        """(column_name, generic type, is temporal) for every explanation-comparison column,
+        in select order."""
+        return [*COMMON_EXPLANATION_COMPARISON_COLUMNS, *self.explanation_comparison_value_columns]
 
     @property
     def contribution_metric(self) -> dict:
@@ -781,6 +955,49 @@ class DashboardSpec:
             sql_metric(f"greatest({expression}, 0)", "Worse"),
         ]
 
+    # -- explanation-comparison dataset (contribution deltas, candidate − baseline)
+
+    @property
+    def delta_contribution_metric(self) -> dict:
+        """Mean per period of candidate contribution − baseline contribution (per component)."""
+        return avg_metric(self.delta_contribution_col, f"Δ contribution ({self.unit})")
+
+    @property
+    def baseline_contribution_metric(self) -> dict:
+        return avg_metric(self.baseline_contribution_col, f"Baseline contribution ({self.unit})")
+
+    @property
+    def candidate_contribution_metric(self) -> dict:
+        return avg_metric(self.contribution_col, f"Candidate contribution ({self.unit})")
+
+    @property
+    def delta_base_value_metric(self) -> dict:
+        """Candidate base value − baseline base value, mean per period."""
+        return sql_metric(
+            f"avg(case when is_base then {self.delta_contribution_col} end)",
+            "Δ base value",
+            option_name="delta_base_value",
+        )
+
+    @property
+    def delta_net_effect_metric(self) -> dict:
+        """Σ over features of the contribution delta, per period (= Δ forecast − Δ base)."""
+        return sql_metric(
+            f"sum(case when not is_base then {self.delta_contribution_col} end)"
+            " / count(distinct date_key, time_code)",
+            "Δ net feature effect",
+            option_name="delta_net_feature_effect",
+        )
+
+    @property
+    def delta_forecast_metric(self) -> dict:
+        """Candidate forecast − baseline forecast, mean per period of the selection."""
+        return sql_metric(
+            f"avg({self.forecast_col}) - avg({self.baseline_forecast_col})",
+            "Δ forecast",
+            option_name="delta_forecast",
+        )
+
 
 SPOT_PRICE = DashboardSpec(
     task="spot_price",
@@ -870,6 +1087,22 @@ SPOT_PRICE = DashboardSpec(
         ("abs_error_jpy_kwh", "DOUBLE", False),
         ("baseline_abs_error_jpy_kwh", "DOUBLE", False),
         ("delta_abs_error_jpy_kwh", "DOUBLE", False),
+    ),
+    explanation_comparison_dataset_name="spot_price_forecast_explanation_comparison",
+    explanation_comparison_value_columns_sql="""\
+  coalesce(c.contribution_price_jpy_kwh, 0) as contribution_price_jpy_kwh,
+  coalesce(b.contribution_price_jpy_kwh, 0) as baseline_contribution_price_jpy_kwh,
+  coalesce(c.contribution_price_jpy_kwh, 0) - coalesce(b.contribution_price_jpy_kwh, 0) as delta_contribution_price_jpy_kwh,
+  fc.forecast_price_jpy_kwh,
+  fb.forecast_price_jpy_kwh as baseline_forecast_price_jpy_kwh,
+  fc.actual_price_jpy_kwh""",
+    explanation_comparison_value_columns=(
+        ("contribution_price_jpy_kwh", "DOUBLE", False),
+        ("baseline_contribution_price_jpy_kwh", "DOUBLE", False),
+        ("delta_contribution_price_jpy_kwh", "DOUBLE", False),
+        ("forecast_price_jpy_kwh", "DOUBLE", False),
+        ("baseline_forecast_price_jpy_kwh", "DOUBLE", False),
+        ("actual_price_jpy_kwh", "DOUBLE", False),
     ),
 )
 
@@ -964,6 +1197,22 @@ DEMAND = DashboardSpec(
         ("abs_error_mwh", "DOUBLE", False),
         ("baseline_abs_error_mwh", "DOUBLE", False),
         ("delta_abs_error_mwh", "DOUBLE", False),
+    ),
+    explanation_comparison_dataset_name="demand_forecast_explanation_comparison",
+    explanation_comparison_value_columns_sql="""\
+  coalesce(c.contribution_demand_kwh, 0) / 1000 as contribution_mwh,
+  coalesce(b.contribution_demand_kwh, 0) / 1000 as baseline_contribution_mwh,
+  (coalesce(c.contribution_demand_kwh, 0) - coalesce(b.contribution_demand_kwh, 0)) / 1000 as delta_contribution_mwh,
+  fc.forecast_demand_kwh / 1000 as forecast_demand_mwh,
+  fb.forecast_demand_kwh / 1000 as baseline_forecast_demand_mwh,
+  fc.actual_demand_kwh / 1000 as actual_demand_mwh""",
+    explanation_comparison_value_columns=(
+        ("contribution_mwh", "DOUBLE", False),
+        ("baseline_contribution_mwh", "DOUBLE", False),
+        ("delta_contribution_mwh", "DOUBLE", False),
+        ("forecast_demand_mwh", "DOUBLE", False),
+        ("baseline_forecast_demand_mwh", "DOUBLE", False),
+        ("actual_demand_mwh", "DOUBLE", False),
     ),
 )
 
@@ -1874,6 +2123,78 @@ def comparison_detail_params(spec: DashboardSpec, dataset_id: int) -> dict:
     }
 
 
+def delta_waterfall_params(spec: DashboardSpec, dataset_id: int) -> dict:
+    """Params for the waterfall of contribution deltas, candidate − baseline, per component.
+
+    The Explanation tab's waterfall on the explanation-comparison dataset: one
+    bar per component of either run (candidate feature order, baseline-only
+    components last), each the mean per period of the contribution delta; the
+    Total bar is Δ net effect. The base row is filtered out like the plain
+    waterfall (Δ base value is a tile).
+
+    Parameters
+    ----------
+    spec : DashboardSpec
+    dataset_id : int
+        The explanation-comparison dataset.
+
+    Returns
+    -------
+    dict
+    """
+    return {
+        **waterfall_params(spec, dataset_id),
+        "metric": spec.delta_contribution_metric,
+        "increase_label": "Higher than baseline",
+        "decrease_label": "Lower than baseline",
+        "total_label": "Δ net effect",
+        "x_axis_label": "Component (candidate feature order; baseline-only features last)",
+    }
+
+
+def delta_feature_table_params(spec: DashboardSpec, dataset_id: int) -> dict:
+    """Params for the component table of both runs' contributions and their delta.
+
+    Keeps the base row (order 000), so each contribution column sums to its
+    run's forecast; sorted by ``Order`` (the candidate's feature order,
+    baseline-only components last).
+
+    Parameters
+    ----------
+    spec : DashboardSpec
+    dataset_id : int
+        The explanation-comparison dataset.
+
+    Returns
+    -------
+    dict
+    """
+    order = sql_metric("min(component_order)", "Order")
+    baseline = spec.baseline_contribution_metric
+    candidate = spec.candidate_contribution_metric
+    delta = spec.delta_contribution_metric
+    return {
+        "datasource": f"{dataset_id}__table",
+        "viz_type": "table",
+        "query_mode": "aggregate",
+        "groupby": ["component_label"],
+        "metrics": [order, baseline, candidate, delta],
+        "adhoc_filters": [],
+        "timeseries_limit_metric": order,
+        "order_desc": False,
+        "row_limit": 100,
+        "server_page_length": 20,
+        "table_timestamp_format": "smart_date",
+        "column_config": {
+            "Order": {"d3NumberFormat": ",d"},
+            baseline["label"]: {"d3NumberFormat": spec.contribution_format},
+            candidate["label"]: {"d3NumberFormat": spec.contribution_format},
+            delta["label"]: {"d3NumberFormat": spec.contribution_format},
+        },
+        "extra_form_data": {},
+    }
+
+
 def waterfall_params(spec: DashboardSpec, dataset_id: int) -> dict:
     """Params for the SHAP waterfall of the selected day / period.
 
@@ -2417,265 +2738,134 @@ def attach_charts(client: SupersetClient, dashboard_id: int, chart_ids: list[int
         client._put_json(f"/api/v1/chart/{chart_id}", {"dashboards": [dashboard_id]})
 
 
-def build_dashboard(
-    client: SupersetClient,
-    database_id: int,
-    spec: DashboardSpec,
-    baseline_run: str | None = None,
-) -> int:
-    """Build or refresh one task's dashboard end to end and return its id.
+# A chart factory: (chart name, params, dataset id) -> chart id. build_dashboard
+# binds one to its client so the tab builders below stay free of HTTP.
+ChartFactory = Callable[[str, dict, int], int]
+
+# The Compare tab's charts on the explanation-comparison dataset: they read a
+# Day like the Explanation tab (in the Day filter's scope, targets of the day
+# tables' cross-filters), unlike the rest of the tab.
+EXPLANATION_VS_BASELINE_CHART_NAMES = (
+    "Δ base value vs baseline",
+    "Δ net feature effect vs baseline",
+    "Δ forecast vs baseline",
+    "SHAP waterfall vs baseline",
+    "Contributions vs baseline",
+)
+
+
+@dataclass(frozen=True)
+class DashboardTab:
+    """One top-level tab: its charts by name, in creation order, and its layout.
 
     Parameters
     ----------
-    client : SupersetClient
-    database_id : int
-        Superset id of the Spark Thriftserver connection.
-    spec : DashboardSpec
-    baseline_run : str, optional
-        ``run_id`` or prefix for the Baseline filter's default; see
-        ``run_defaults``.
+    title : str
+        The tab title.
+    charts : dict of str to int
+        Chart name → Superset chart id, in creation order.
+    sections : list of dict
+        ``build_position_json`` sections: ``{"header": str | None, "rows":
+        [[(chart_id, name, width, height), ...], ...]}``.
+    """
+
+    title: str
+    charts: dict[str, int]
+    sections: list[dict[str, Any]]
+
+    @property
+    def chart_ids(self) -> list[int]:
+        """The tab's chart ids in creation order."""
+        return list(self.charts.values())
+
+    @property
+    def layout(self) -> dict[str, Any]:
+        """The tab as ``build_position_json`` takes it."""
+        return {"title": self.title, "sections": self.sections}
+
+
+def _chart_adder(
+    chart: ChartFactory, charts: dict[str, int], dataset_id: int
+) -> Callable[[str, dict], int]:
+    """An ``add(name, params)`` that creates a chart on ``dataset_id`` through ``chart``
+    and records its id under ``name`` in ``charts``.
+
+    Parameters
+    ----------
+    chart : ChartFactory
+    charts : dict of str to int
+        The tab's chart registry, filled in creation order.
+    dataset_id : int
+        The dataset every chart added through this function reads.
 
     Returns
     -------
-    int
+    callable
     """
-    dataset_id = upsert_dataset(
-        client, database_id, spec.dataset_name, spec.dataset_sql, spec.dataset_columns
-    )
-    logger.info("dataset {}: id={}", spec.dataset_name, dataset_id)
-    explanation_id = upsert_dataset(
-        client,
-        database_id,
-        spec.explanation_dataset_name,
-        spec.explanation_dataset_sql,
-        spec.explanation_dataset_columns,
-    )
-    logger.info("dataset {}: id={}", spec.explanation_dataset_name, explanation_id)
-    comparison_id = upsert_dataset(
-        client,
-        database_id,
-        spec.comparison_dataset_name,
-        spec.comparison_dataset_sql,
-        spec.comparison_dataset_columns,
-    )
-    logger.info("dataset {}: id={}", spec.comparison_dataset_name, comparison_id)
 
-    def chart(name: str, params: dict, on: int = dataset_id) -> int:
-        chart_id = upsert_chart(client, name, on, params)
-        logger.info("chart {}: {}", chart_id, name)
-        return chart_id
+    def add(name: str, params: dict) -> int:
+        charts[name] = chart(name, params, dataset_id)
+        return charts[name]
 
+    return add
+
+
+def build_accuracy_tab(chart: ChartFactory, spec: DashboardSpec, dataset_id: int) -> DashboardTab:
+    """Create the Accuracy tab's charts on the analysis dataset and lay them out.
+
+    Parameters
+    ----------
+    chart : ChartFactory
+    spec : DashboardSpec
+    dataset_id : int
+        The analysis dataset.
+
+    Returns
+    -------
+    DashboardTab
+    """
+    charts: dict[str, int] = {}
+    add = _chart_adder(chart, charts, dataset_id)
     unit, fmt = spec.unit, spec.number_format
 
     # KPI tiles
-    kpi_mae = chart("Overall MAE", big_number_params(dataset_id, spec.mae_metric, unit, fmt))
-    kpi_bias = chart(
+    kpi_mae = add("Overall MAE", big_number_params(dataset_id, spec.mae_metric, unit, fmt))
+    kpi_bias = add(
         "Bias (mean error)",
         big_number_params(
             dataset_id, spec.bias_metric, f"{unit}; + = over-forecast", spec.signed_number_format
         ),
     )
-    kpi_rmse = chart("RMSE", big_number_params(dataset_id, spec.rmse_metric, unit, fmt))
-    kpi_ratio = chart(
+    kpi_rmse = add("RMSE", big_number_params(dataset_id, spec.rmse_metric, unit, fmt))
+    kpi_ratio = add(
         "RMSE / MAE",
         big_number_params(dataset_id, spec.rmse_mae_metric, ">1.3 = spike-heavy errors", ",.2f"),
     )
-    kpi_wape = chart(
+    kpi_wape = add(
         "WAPE", big_number_params(dataset_id, spec.wape_metric, "Σ|error| / Σ actual", ".1%")
     )
-    kpi_p90 = chart("P90 abs error", big_number_params(dataset_id, spec.p90_metric, unit, fmt))
+    kpi_p90 = add("P90 abs error", big_number_params(dataset_id, spec.p90_metric, unit, fmt))
 
     # Error structure
-    mae_year = chart("MAE by year", bar_params(spec, dataset_id, "year"))
-    mae_tc = chart("MAE by time code", bar_params(spec, dataset_id, "time_code"))
-    heat_tc = chart("MAE by year and time code", heatmap_params(spec, dataset_id, "time_code"))
-    heat_month = chart("MAE by year and month", heatmap_params(spec, dataset_id, "month"))
-    mae_dow = chart("MAE by day of week", bar_params(spec, dataset_id, "day_of_week"))
-    mae_daypart = chart("MAE by day part", bar_params(spec, dataset_id, "day_part"))
-    mae_daytype = chart("MAE by day type", bar_params(spec, dataset_id, "day_type"))
+    mae_year = add("MAE by year", bar_params(spec, dataset_id, "year"))
+    mae_tc = add("MAE by time code", bar_params(spec, dataset_id, "time_code"))
+    heat_tc = add("MAE by year and time code", heatmap_params(spec, dataset_id, "time_code"))
+    heat_month = add("MAE by year and month", heatmap_params(spec, dataset_id, "month"))
+    mae_dow = add("MAE by day of week", bar_params(spec, dataset_id, "day_of_week"))
+    mae_daypart = add("MAE by day part", bar_params(spec, dataset_id, "day_part"))
+    mae_daytype = add("MAE by day type", bar_params(spec, dataset_id, "day_type"))
 
     # Calibration & distribution
-    mae_band = chart(spec.band_chart_title, bar_params(spec, dataset_id, spec.band_col))
-    calibration = chart(spec.calibration_chart_title, calibration_params(spec, dataset_id))
-    histogram = chart("Error distribution", histogram_params(spec, dataset_id))
+    mae_band = add(spec.band_chart_title, bar_params(spec, dataset_id, spec.band_col))
+    calibration = add(spec.calibration_chart_title, calibration_params(spec, dataset_id))
+    histogram = add("Error distribution", histogram_params(spec, dataset_id))
 
     # Runs & drilldown
-    leaderboard = chart("Run leaderboard", leaderboard_params(spec, dataset_id))
-    worst_days = chart("Worst days", worst_days_params(spec, dataset_id))
-    detail = chart("Forecast vs actual (30-min detail)", detail_params(spec, dataset_id))
+    leaderboard = add("Run leaderboard", leaderboard_params(spec, dataset_id))
+    worst_days = add("Worst days", worst_days_params(spec, dataset_id))
+    detail = add("Forecast vs actual (30-min detail)", detail_params(spec, dataset_id))
 
-    # Explanation (SHAP): the contribution fact, filtered by Run + Day
-    per_period = f"{unit}; mean per period"
-    kpi_base = chart(
-        "Base value",
-        big_number_params(
-            explanation_id,
-            spec.base_value_metric,
-            f"{unit}; model expected value, mean per period",
-            fmt,
-        ),
-        explanation_id,
-    )
-    kpi_forecast = chart(
-        "Forecast (selection)",
-        big_number_params(
-            explanation_id, avg_metric(spec.forecast_col, "Forecast"), per_period, fmt
-        ),
-        explanation_id,
-    )
-    kpi_actual = chart(
-        "Actual (selection)",
-        big_number_params(explanation_id, avg_metric(spec.actual_col, "Actual"), per_period, fmt),
-        explanation_id,
-    )
-    kpi_net = chart(
-        "Net feature effect",
-        big_number_params(
-            explanation_id,
-            spec.net_effect_metric,
-            f"{unit}; forecast − base",
-            spec.signed_number_format,
-        ),
-        explanation_id,
-    )
-    waterfall = chart("SHAP waterfall", waterfall_params(spec, explanation_id), explanation_id)
-    feature_table = chart(
-        "Feature values & contributions", feature_table_params(spec, explanation_id), explanation_id
-    )
-    by_period = chart(
-        "Contributions by period",
-        contribution_by_period_params(spec, explanation_id),
-        explanation_id,
-    )
-
-    # Compare: the comparison dataset, filtered by Run (candidate) + Baseline
-    signed = spec.signed_number_format
-    cmp_base_mae = chart(
-        "Baseline MAE",
-        big_number_params(
-            comparison_id,
-            spec.baseline_mae_metric,
-            f"{unit}; the Baseline run, matched periods",
-            fmt,
-        ),
-        comparison_id,
-    )
-    cmp_cand_mae = chart(
-        "Candidate MAE",
-        big_number_params(
-            comparison_id, spec.candidate_mae_metric, f"{unit}; the Run, matched periods", fmt
-        ),
-        comparison_id,
-    )
-    cmp_delta_mae = chart(
-        "ΔMAE vs baseline",
-        delta_big_number_params(
-            comparison_id, spec.delta_mae_metric, f"{unit}; − = candidate better", signed
-        ),
-        comparison_id,
-    )
-    cmp_delta_pct = chart(
-        "ΔMAE % vs baseline",
-        delta_big_number_params(
-            comparison_id, spec.delta_mae_pct_metric, "%; − = candidate better", "+,.1f"
-        ),
-        comparison_id,
-    )
-    cmp_delta_bias = chart(
-        "Δ|bias| vs baseline",
-        delta_big_number_params(
-            comparison_id, spec.delta_abs_bias_metric, f"{unit}; − = candidate less biased", signed
-        ),
-        comparison_id,
-    )
-    cmp_delta_wape = chart(
-        "ΔWAPE vs baseline",
-        delta_big_number_params(
-            comparison_id, spec.delta_wape_metric, "− = candidate better", "+.2%"
-        ),
-        comparison_id,
-    )
-    cmp_coverage = chart(
-        "Matched coverage",
-        big_number_params(
-            comparison_id,
-            spec.matched_coverage_metric,
-            "share of the candidate's periods the baseline also scored",
-            ".1%",
-        ),
-        comparison_id,
-    )
-    cmp_days = chart(
-        "Matched days",
-        big_number_params(
-            comparison_id, spec.matched_days_metric, "delivery days both runs scored", ",d"
-        ),
-        comparison_id,
-    )
-    cmp_days_lower = chart(
-        "Days candidate lower",
-        big_number_params(
-            comparison_id,
-            spec.days_candidate_lower_metric,
-            "share of matched days with a lower daily MAE",
-            ".1%",
-        ),
-        comparison_id,
-    )
-    cmp_median = chart(
-        "Median daily ΔMAE",
-        delta_big_number_params(
-            comparison_id, spec.median_daily_delta_metric, f"{unit}; − = candidate better", signed
-        ),
-        comparison_id,
-    )
-    cmp_tc = chart(
-        "ΔMAE % by time code", delta_bar_params(spec, comparison_id, "time_code"), comparison_id
-    )
-    cmp_daypart = chart(
-        "ΔMAE % by day part", delta_bar_params(spec, comparison_id, "day_part"), comparison_id
-    )
-    cmp_daytype = chart(
-        "ΔMAE % by day type", delta_bar_params(spec, comparison_id, "day_type"), comparison_id
-    )
-    cmp_dow = chart(
-        "ΔMAE % by day of week", delta_bar_params(spec, comparison_id, "day_of_week"), comparison_id
-    )
-    cmp_band = chart(
-        spec.delta_band_chart_title,
-        delta_bar_params(spec, comparison_id, spec.band_col),
-        comparison_id,
-    )
-    cmp_year = chart("ΔMAE % by year", delta_bar_params(spec, comparison_id, "year"), comparison_id)
-    cmp_heat_month = chart(
-        "ΔMAE % by year and month",
-        delta_heatmap_params(spec, comparison_id, "month"),
-        comparison_id,
-    )
-    cmp_heat_tc = chart(
-        "ΔMAE % by year and time code",
-        delta_heatmap_params(spec, comparison_id, "time_code"),
-        comparison_id,
-    )
-    cmp_daily = chart("Daily ΔMAE", daily_delta_bar_params(spec, comparison_id), comparison_id)
-    cmp_cumulative = chart(
-        "Cumulative error reduction",
-        cumulative_reduction_params(spec, comparison_id),
-        comparison_id,
-    )
-    cmp_improved = chart(
-        "Most improved days", ranked_days_params(spec, comparison_id, improved=True), comparison_id
-    )
-    cmp_worsened = chart(
-        "Most worsened days", ranked_days_params(spec, comparison_id, improved=False), comparison_id
-    )
-    cmp_detail = chart(
-        "Candidate vs baseline vs actual (30-min detail)",
-        comparison_detail_params(spec, comparison_id),
-        comparison_id,
-    )
-
-    accuracy_sections: list[dict[str, Any]] = [
+    sections: list[dict[str, Any]] = [
         {
             "header": None,
             "rows": [
@@ -2721,7 +2911,65 @@ def build_dashboard(
             ],
         },
     ]
-    explanation_sections: list[dict[str, Any]] = [
+    return DashboardTab("Accuracy", charts, sections)
+
+
+def build_explanation_tab(
+    chart: ChartFactory, spec: DashboardSpec, explanation_id: int
+) -> DashboardTab:
+    """Create the Explanation (SHAP) tab's charts on the explanation dataset and lay them out.
+
+    Parameters
+    ----------
+    chart : ChartFactory
+    spec : DashboardSpec
+    explanation_id : int
+        The explanation dataset.
+
+    Returns
+    -------
+    DashboardTab
+    """
+    charts: dict[str, int] = {}
+    add = _chart_adder(chart, charts, explanation_id)
+    unit, fmt = spec.unit, spec.number_format
+    per_period = f"{unit}; mean per period"
+
+    kpi_base = add(
+        "Base value",
+        big_number_params(
+            explanation_id,
+            spec.base_value_metric,
+            f"{unit}; model expected value, mean per period",
+            fmt,
+        ),
+    )
+    kpi_forecast = add(
+        "Forecast (selection)",
+        big_number_params(
+            explanation_id, avg_metric(spec.forecast_col, "Forecast"), per_period, fmt
+        ),
+    )
+    kpi_actual = add(
+        "Actual (selection)",
+        big_number_params(explanation_id, avg_metric(spec.actual_col, "Actual"), per_period, fmt),
+    )
+    kpi_net = add(
+        "Net feature effect",
+        big_number_params(
+            explanation_id,
+            spec.net_effect_metric,
+            f"{unit}; forecast − base",
+            spec.signed_number_format,
+        ),
+    )
+    waterfall = add("SHAP waterfall", waterfall_params(spec, explanation_id))
+    feature_table = add(
+        "Feature values & contributions", feature_table_params(spec, explanation_id)
+    )
+    by_period = add("Contributions by period", contribution_by_period_params(spec, explanation_id))
+
+    sections: list[dict[str, Any]] = [
         {
             "header": None,
             "rows": [
@@ -2739,7 +2987,166 @@ def build_dashboard(
             ],
         },
     ]
-    compare_sections: list[dict[str, Any]] = [
+    return DashboardTab("Explanation (SHAP)", charts, sections)
+
+
+def build_compare_tab(
+    chart: ChartFactory,
+    spec: DashboardSpec,
+    comparison_id: int,
+    explanation_comparison_id: int,
+) -> DashboardTab:
+    """Create the Compare tab's charts and lay them out.
+
+    The accuracy comparison charts read the comparison dataset; the
+    ``EXPLANATION_VS_BASELINE_CHART_NAMES`` charts read the
+    explanation-comparison dataset.
+
+    Parameters
+    ----------
+    chart : ChartFactory
+    spec : DashboardSpec
+    comparison_id : int
+        The comparison dataset (candidate vs baseline accuracy rows).
+    explanation_comparison_id : int
+        The explanation-comparison dataset (candidate vs baseline contributions).
+
+    Returns
+    -------
+    DashboardTab
+    """
+    charts: dict[str, int] = {}
+    add = _chart_adder(chart, charts, comparison_id)
+    unit, fmt = spec.unit, spec.number_format
+    signed = spec.signed_number_format
+
+    cmp_base_mae = add(
+        "Baseline MAE",
+        big_number_params(
+            comparison_id,
+            spec.baseline_mae_metric,
+            f"{unit}; the Baseline run, matched periods",
+            fmt,
+        ),
+    )
+    cmp_cand_mae = add(
+        "Candidate MAE",
+        big_number_params(
+            comparison_id, spec.candidate_mae_metric, f"{unit}; the Run, matched periods", fmt
+        ),
+    )
+    cmp_delta_mae = add(
+        "ΔMAE vs baseline",
+        delta_big_number_params(
+            comparison_id, spec.delta_mae_metric, f"{unit}; − = candidate better", signed
+        ),
+    )
+    cmp_delta_pct = add(
+        "ΔMAE % vs baseline",
+        delta_big_number_params(
+            comparison_id, spec.delta_mae_pct_metric, "%; − = candidate better", "+,.1f"
+        ),
+    )
+    cmp_delta_bias = add(
+        "Δ|bias| vs baseline",
+        delta_big_number_params(
+            comparison_id, spec.delta_abs_bias_metric, f"{unit}; − = candidate less biased", signed
+        ),
+    )
+    cmp_delta_wape = add(
+        "ΔWAPE vs baseline",
+        delta_big_number_params(
+            comparison_id, spec.delta_wape_metric, "− = candidate better", "+.2%"
+        ),
+    )
+    cmp_coverage = add(
+        "Matched coverage",
+        big_number_params(
+            comparison_id,
+            spec.matched_coverage_metric,
+            "share of the candidate's periods the baseline also scored",
+            ".1%",
+        ),
+    )
+    cmp_days = add(
+        "Matched days",
+        big_number_params(
+            comparison_id, spec.matched_days_metric, "delivery days both runs scored", ",d"
+        ),
+    )
+    cmp_days_lower = add(
+        "Days candidate lower",
+        big_number_params(
+            comparison_id,
+            spec.days_candidate_lower_metric,
+            "share of matched days with a lower daily MAE",
+            ".1%",
+        ),
+    )
+    cmp_median = add(
+        "Median daily ΔMAE",
+        delta_big_number_params(
+            comparison_id, spec.median_daily_delta_metric, f"{unit}; − = candidate better", signed
+        ),
+    )
+    cmp_tc = add("ΔMAE % by time code", delta_bar_params(spec, comparison_id, "time_code"))
+    cmp_daypart = add("ΔMAE % by day part", delta_bar_params(spec, comparison_id, "day_part"))
+    cmp_daytype = add("ΔMAE % by day type", delta_bar_params(spec, comparison_id, "day_type"))
+    cmp_dow = add("ΔMAE % by day of week", delta_bar_params(spec, comparison_id, "day_of_week"))
+    cmp_band = add(
+        spec.delta_band_chart_title, delta_bar_params(spec, comparison_id, spec.band_col)
+    )
+    cmp_year = add("ΔMAE % by year", delta_bar_params(spec, comparison_id, "year"))
+    cmp_heat_month = add(
+        "ΔMAE % by year and month", delta_heatmap_params(spec, comparison_id, "month")
+    )
+    cmp_heat_tc = add(
+        "ΔMAE % by year and time code", delta_heatmap_params(spec, comparison_id, "time_code")
+    )
+    cmp_daily = add("Daily ΔMAE", daily_delta_bar_params(spec, comparison_id))
+    cmp_cumulative = add(
+        "Cumulative error reduction", cumulative_reduction_params(spec, comparison_id)
+    )
+    cmp_improved = add("Most improved days", ranked_days_params(spec, comparison_id, improved=True))
+    cmp_worsened = add(
+        "Most worsened days", ranked_days_params(spec, comparison_id, improved=False)
+    )
+    cmp_detail = add(
+        "Candidate vs baseline vs actual (30-min detail)",
+        comparison_detail_params(spec, comparison_id),
+    )
+
+    # Explanation vs baseline: the explanation-comparison dataset, filtered by
+    # Run + Baseline + Day
+    x_id = explanation_comparison_id
+    add_x = _chart_adder(chart, charts, x_id)
+    x_fmt = spec.contribution_format
+    d_base, d_net, d_forecast, d_waterfall, d_table = EXPLANATION_VS_BASELINE_CHART_NAMES
+    xp_base = add_x(
+        d_base,
+        delta_big_number_params(
+            x_id,
+            spec.delta_base_value_metric,
+            f"{unit}; candidate − baseline, mean per period",
+            x_fmt,
+        ),
+    )
+    xp_net = add_x(
+        d_net,
+        delta_big_number_params(
+            x_id, spec.delta_net_effect_metric, f"{unit}; Σ feature Δ per period", x_fmt
+        ),
+    )
+    xp_forecast = add_x(
+        d_forecast,
+        delta_big_number_params(
+            x_id, spec.delta_forecast_metric, f"{unit}; = Δ base + Δ net effect", x_fmt
+        ),
+    )
+    xp_waterfall = add_x(d_waterfall, delta_waterfall_params(spec, x_id))
+    xp_table = add_x(d_table, delta_feature_table_params(spec, x_id))
+
+    sections: list[dict[str, Any]] = [
         {
             "header": None,
             "rows": [
@@ -2781,10 +3188,19 @@ def build_dashboard(
             "rows": [
                 [(cmp_daily, "Daily ΔMAE", 12, 44)],
                 [(cmp_cumulative, "Cumulative error reduction", 12, 40)],
+                [(cmp_improved, "Most improved days", 12, 40)],
+                [(cmp_worsened, "Most worsened days", 12, 40)],
+            ],
+        },
+        {
+            "header": "Explanation vs baseline (SHAP; mean per period of the Day, or of the run when Day is empty)",
+            "rows": [
                 [
-                    (cmp_improved, "Most improved days", 6, 40),
-                    (cmp_worsened, "Most worsened days", 6, 40),
+                    (xp_base, d_base, 4, 24),
+                    (xp_net, d_net, 4, 24),
+                    (xp_forecast, d_forecast, 4, 24),
                 ],
+                [(xp_waterfall, d_waterfall, 8, 46), (xp_table, d_table, 4, 46)],
             ],
         },
         {
@@ -2792,72 +3208,81 @@ def build_dashboard(
             "rows": [[(cmp_detail, "Candidate vs baseline vs actual (30-min detail)", 12, 60)]],
         },
     ]
-    tabs = [
-        {"title": "Accuracy", "sections": accuracy_sections},
-        {"title": "Explanation (SHAP)", "sections": explanation_sections},
-        {"title": "Compare", "sections": compare_sections},
+    return DashboardTab("Compare", charts, sections)
+
+
+def build_dashboard(
+    client: SupersetClient,
+    database_id: int,
+    spec: DashboardSpec,
+    baseline_run: str | None = None,
+) -> int:
+    """Build or refresh one task's dashboard end to end and return its id.
+
+    Parameters
+    ----------
+    client : SupersetClient
+    database_id : int
+        Superset id of the Spark Thriftserver connection.
+    spec : DashboardSpec
+    baseline_run : str, optional
+        ``run_id`` or prefix for the Baseline filter's default; see
+        ``run_defaults``.
+
+    Returns
+    -------
+    int
+    """
+
+    def dataset(name: str, sql: str, columns: list[tuple[str, str, bool]]) -> int:
+        dataset_id = upsert_dataset(client, database_id, name, sql, columns)
+        logger.info("dataset {}: id={}", name, dataset_id)
+        return dataset_id
+
+    dataset_id = dataset(spec.dataset_name, spec.dataset_sql, spec.dataset_columns)
+    explanation_id = dataset(
+        spec.explanation_dataset_name,
+        spec.explanation_dataset_sql,
+        spec.explanation_dataset_columns,
+    )
+    comparison_id = dataset(
+        spec.comparison_dataset_name, spec.comparison_dataset_sql, spec.comparison_dataset_columns
+    )
+    explanation_comparison_id = dataset(
+        spec.explanation_comparison_dataset_name,
+        spec.explanation_comparison_dataset_sql,
+        spec.explanation_comparison_dataset_columns,
+    )
+
+    def chart(name: str, params: dict, on: int) -> int:
+        chart_id = upsert_chart(client, name, on, params)
+        logger.info("chart {}: {}", chart_id, name)
+        return chart_id
+
+    accuracy = build_accuracy_tab(chart, spec, dataset_id)
+    explanation = build_explanation_tab(chart, spec, explanation_id)
+    compare = build_compare_tab(chart, spec, comparison_id, explanation_comparison_id)
+    tabs = [accuracy, explanation, compare]
+    all_charts = [chart_id for tab in tabs for chart_id in tab.chart_ids]
+
+    leaderboard = accuracy.charts["Run leaderboard"]
+    worst_days = accuracy.charts["Worst days"]
+    detail = accuracy.charts["Forecast vs actual (30-min detail)"]
+    cmp_detail = compare.charts["Candidate vs baseline vs actual (30-min detail)"]
+    cmp_improved = compare.charts["Most improved days"]
+    cmp_worsened = compare.charts["Most worsened days"]
+    # The charts that explain a Day: the Explanation tab and the Compare tab's
+    # explanation-vs-baseline section (the Day filter's scope, and what a day
+    # click in the day tables drills into).
+    explained = [
+        *explanation.chart_ids,
+        *(compare.charts[name] for name in EXPLANATION_VS_BASELINE_CHART_NAMES),
     ]
-    analysis_charts = [
-        kpi_mae,
-        kpi_bias,
-        kpi_rmse,
-        kpi_ratio,
-        kpi_wape,
-        kpi_p90,
-        mae_year,
-        mae_tc,
-        heat_tc,
-        heat_month,
-        mae_dow,
-        mae_daypart,
-        mae_daytype,
-        mae_band,
-        calibration,
-        histogram,
-        leaderboard,
-        worst_days,
-        detail,
-    ]
-    explanation_charts = [
-        kpi_base,
-        kpi_forecast,
-        kpi_actual,
-        kpi_net,
-        waterfall,
-        feature_table,
-        by_period,
-    ]
-    comparison_charts = [
-        cmp_base_mae,
-        cmp_cand_mae,
-        cmp_delta_mae,
-        cmp_delta_pct,
-        cmp_delta_bias,
-        cmp_delta_wape,
-        cmp_coverage,
-        cmp_days,
-        cmp_days_lower,
-        cmp_median,
-        cmp_tc,
-        cmp_daypart,
-        cmp_daytype,
-        cmp_dow,
-        cmp_band,
-        cmp_year,
-        cmp_heat_month,
-        cmp_heat_tc,
-        cmp_daily,
-        cmp_cumulative,
-        cmp_improved,
-        cmp_worsened,
-        cmp_detail,
-    ]
-    all_charts = [*analysis_charts, *explanation_charts, *comparison_charts]
     chart_configuration = build_chart_configuration(
         {
-            worst_days: [detail, *explanation_charts, cmp_detail],
-            cmp_improved: [cmp_detail, *explanation_charts],
-            cmp_worsened: [cmp_detail, *explanation_charts],
+            worst_days: [detail, *explained, cmp_detail],
+            cmp_improved: [cmp_detail, *explained],
+            cmp_worsened: [cmp_detail, *explained],
         },
         all_charts,
     )
@@ -2872,15 +3297,15 @@ def build_dashboard(
     dashboard_id = upsert_dashboard(
         client,
         spec,
-        build_position_json(spec, tabs),
+        build_position_json(spec, [tab.layout for tab in tabs]),
         build_native_filters(
             dataset_id=dataset_id,
             run_excluded=[leaderboard],
             default_run_label=default_run,
             explanation_dataset_id=explanation_id,
-            day_excluded=[*analysis_charts, *comparison_charts],
+            day_excluded=[c for c in all_charts if c not in explained],
             default_day_label=default_day,
-            baseline_excluded=[*analysis_charts, *explanation_charts],
+            baseline_excluded=[*accuracy.chart_ids, *explanation.chart_ids],
             default_baseline_label=default_baseline,
         ),
         chart_configuration,
