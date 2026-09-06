@@ -7,6 +7,7 @@ import pytest
 
 from power_market_analytics.tasks.demand.strategies import STRATEGIES, build_strategy
 from power_market_analytics.tasks.demand.strategies.lgbm import (
+    LightGbmMsmPopWeightedDayTypeSimilarDayCalendarStrategy,
     LightGbmMsmPopWeightedDayTypeSimilarDayStrategy,
     LightGbmMsmPopWeightedDayTypeStrategy,
     LightGbmMsmPopWeightedStrategy,
@@ -14,6 +15,7 @@ from power_market_analytics.tasks.demand.strategies.lgbm import (
     LightGbmStrategy,
 )
 from tests.conftest import (
+    CALENDAR_DAYS,
     HOLIDAYS_2024_SPRING,
     HOURLY_LOAD_DAYS,
     TOKYO_STATION_ID,
@@ -30,11 +32,16 @@ class TestRegistry:
             "lightgbm_msm_popw",
             "lightgbm_msm_popw_daytype",
             "lightgbm_msm_popw_daytype_simday",
+            "lightgbm_msm_popw_daytype_simday_calendar",
         ]
         assert STRATEGIES["lightgbm"] is LightGbmStrategy
         assert (
             STRATEGIES["lightgbm_msm_popw_daytype_simday"]
             is LightGbmMsmPopWeightedDayTypeSimilarDayStrategy
+        )
+        assert (
+            STRATEGIES["lightgbm_msm_popw_daytype_simday_calendar"]
+            is LightGbmMsmPopWeightedDayTypeSimilarDayCalendarStrategy
         )
         assert STRATEGIES["lightgbm_msm"] is LightGbmMsmStrategy
         assert STRATEGIES["lightgbm_msm_popw"] is LightGbmMsmPopWeightedStrategy
@@ -154,3 +161,18 @@ class TestBuildStrategy:
         assert strategy.day_types.df["day_type"].tolist() == [
             expected_day_type(d) for d in strategy.day_types.df["trade_date"]
         ]
+
+    def test_calendar_strategy_loads_the_similar_day_inputs_and_keeps_the_calendar(
+        self, spark, curated_warehouse: CuratedWarehouse
+    ):
+        strategy = build_strategy(
+            "lightgbm_msm_popw_daytype_simday_calendar", area_code="tokyo", spark=spark
+        )
+        assert type(strategy) is LightGbmMsmPopWeightedDayTypeSimilarDayCalendarStrategy
+        assert strategy.census_year == 2020
+        assert len(strategy.hourly_load) == len(curated_warehouse.hourly_load)
+        # The whole dim_date spine between its first and last holiday, with the counts.
+        first, last = min(HOLIDAYS_2024_SPRING), max(HOLIDAYS_2024_SPRING)
+        assert len(strategy.day_calendar) == (last - first).days + 1
+        assert len(strategy.day_calendar) < len(CALENDAR_DAYS)
+        assert "day_of_quarter" in strategy.day_calendar.df.columns
