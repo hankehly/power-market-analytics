@@ -1060,6 +1060,18 @@ class TestDashboardSpecs:
         assert "count(*) over () as candidate_periods" in sql
         assert "join baseline b\n  on b.date_key = c.date_key" in sql
 
+    def test_comparison_band_expression_matches_the_analysis_dataset(self, spec):
+        # The Compare tab's bands must be the Accuracy tab's bands: the same
+        # case expression, on the candidate alias instead of the fact alias.
+        def band_block(sql: str, alias: str) -> str:
+            start = sql.index("  case\n")
+            end = sql.index(f" as {spec.band_col}", start) + len(f" as {spec.band_col}")
+            return sql[start:end].replace(f"{alias}.", "@.")
+
+        assert band_block(spec.comparison_value_columns_sql, "c") == band_block(
+            spec.value_columns_sql, "f"
+        )
+
 
 # --------------------------------------------------------------------------- dataset
 class TestUpsertDataset:
