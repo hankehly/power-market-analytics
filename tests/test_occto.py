@@ -503,7 +503,7 @@ class TestIssueDownloadKey:
     def test_error_screen_instead_of_json_is_transient_and_names_its_message(self):
         with pytest.raises(
             OcctoTransientError,
-            match=r"reference/ok answered with the portal's error screen "
+            match=r"reference/ok did not return JSON "
             rf"\(Content-Type='text/html;charset=UTF-8'\): {SESSION_TIMEOUT}$",
         ):
             self.issue(error_screen(SESSION_TIMEOUT))
@@ -582,7 +582,7 @@ class TestFetchCsv:
     def test_error_screen_is_transient_and_names_its_message(self):
         with pytest.raises(
             OcctoTransientError,
-            match=r"reference/download answered with the portal's error screen "
+            match=r"reference/download did not return an attachment "
             r"\(Content-Type='text/html;charset=UTF-8'\): 不正なリクエストです。$",
         ):
             self.fetch(error_screen(BAD_REQUEST))

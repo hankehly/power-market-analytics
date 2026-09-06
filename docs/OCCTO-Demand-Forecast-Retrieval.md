@@ -193,8 +193,8 @@ All with HTTP 200:
 series came back as the error screen right after `ok` had issued the pair. Nothing
 reproduced it: the same window minutes later, three demand → reserve-rate runs back to
 back, a `download` sent to another of the portal's four backends (`HSERVERID`; sessions
-are replicated, so it succeeds) and two sessions holding the same same-second
-`downloadKey` (`YYYYMMDDHHMMSS_CF01S010C` is session-scoped; both succeed) all passed.
+are replicated, so it succeeds) and two sessions that received the identical `downloadKey`
+in the same second (`YYYYMMDDHHMMSS_CF01S010C` is session-scoped; both succeed) all passed.
 `OcctoBulkDownloader` therefore retries such a window
 ([§8](#8-downloading-and-loading-with-power_market_analyticsoccto)).
 
@@ -385,7 +385,7 @@ portal issues a new session and a new key/token pair (a used pair is one-shot). 
 of the request itself — a validation `errMessage`, an HTTP 4xx, a CSV with the wrong
 header — is raised at once. Transient failures are `OcctoTransientError` (a subclass of `OcctoDownloadError`),
 raised after the last attempt with the page's message, e.g.
-`reference/download answered with the portal's error screen (Content-Type='text/html;charset=UTF-8'): 不正なリクエストです。`;
+`reference/download did not return an attachment (Content-Type='text/html;charset=UTF-8'): 不正なリクエストです。`;
 each retry is logged as a warning with that message.
 
 ```python
