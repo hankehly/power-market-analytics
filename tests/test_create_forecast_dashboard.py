@@ -1601,6 +1601,70 @@ class TestChartParams:
         assert p["truncateYAxis"] is False
         assert p["extra_form_data"] == {}
 
+    def test_label_colors_name_the_roles(self, script):
+        assert script.LABEL_COLORS == {
+            "Candidate": "#1FA8C9",
+            "Baseline": "#B2B2B2",
+            "Actual": "#222222",
+            "Better": "#1FA8C9",
+            "Worse": "#FF7F44",
+        }
+
+    def test_delta_big_number_colours_the_value_by_sign(self, script, demand):
+        p = script.delta_big_number_params(7, demand.delta_mae_metric, "MWh", "+,.1f")
+        plain = script.big_number_params(7, demand.delta_mae_metric, "MWh", "+,.1f")
+        assert {k: v for k, v in p.items() if k != "conditional_formatting"} == plain
+        assert p["conditional_formatting"] == [
+            {"colorScheme": "#1FA8C9", "column": "ΔMAE", "operator": "<", "targetValue": 0},
+            {"colorScheme": "#FF7F44", "column": "ΔMAE", "operator": ">", "targetValue": 0},
+        ]
+
+    def test_delta_bar_is_a_stacked_better_worse_bar_of_mae_pct(self, script, spec):
+        p = script.delta_bar_params(spec, 7, "day_part")
+        assert p["datasource"] == "7__table"
+        assert p["viz_type"] == "echarts_timeseries_bar"
+        assert p["x_axis"] == "day_part"
+        assert p["x_axis_sort"] == "day_part"
+        assert p["x_axis_sort_asc"] is True
+        assert p["time_grain_sqla"] is None
+        assert p["metrics"] == spec.better_worse_metrics(spec.delta_mae_pct_sql)
+        assert p["stack"] == "Stack"
+        assert p["show_legend"] is True
+        assert p["zoomable"] is False
+        assert p["row_limit"] == 10000
+        assert p["y_axis_format"] == "+,.1f"
+        assert p["y_axis_title"] == "ΔMAE % vs baseline"
+        assert p["truncateYAxis"] is False
+        assert p["rich_tooltip"] is True
+
+    def test_daily_delta_bar_is_the_unit_delta_by_day_and_zoomable(self, script, spec):
+        p = script.daily_delta_bar_params(spec, 7)
+        segment = script.delta_bar_params(spec, 7, "date_key")
+        assert p["x_axis"] == "date_key"
+        assert p["metrics"] == spec.better_worse_metrics(spec.delta_mae_sql)
+        assert p["zoomable"] is True
+        assert p["y_axis_format"] == "+" + spec.axis_format
+        assert p["y_axis_title"] == f"Daily ΔMAE ({spec.unit}) vs baseline"
+        for key in ("viz_type", "stack", "show_legend", "row_limit", "x_axis_sort_asc"):
+            assert p[key] == segment[key]
+
+    def test_delta_heatmap_is_diverging_with_symmetric_bounds(self, script, spec):
+        p = script.delta_heatmap_params(spec, 7, "month")
+        plain = script.heatmap_params(spec, 7, "month")
+        assert p["metric"] == spec.delta_mae_pct_metric
+        assert p["linear_color_scheme"] == "blue_white_yellow"
+        assert p["value_bounds"] == [-30, 30]
+        assert p["y_axis_format"] == "+,.1f"
+        assert {
+            k: v
+            for k, v in p.items()
+            if k not in ("metric", "linear_color_scheme", "value_bounds", "y_axis_format")
+        } == {
+            k: v
+            for k, v in plain.items()
+            if k not in ("metric", "linear_color_scheme", "value_bounds", "y_axis_format")
+        }
+
     def test_every_builder_targets_the_dataset_and_starts_unfiltered(self, script, spec):
         builders = [
             lambda: script.big_number_params(12, spec.mae_metric, "x", ",.1f"),

@@ -1531,6 +1531,182 @@ NOT_BASE_FILTER = {
 }
 
 
+# Fixed series colours (dashboard ``label_colors``): the comparison charts
+# name roles, not runs, so the same colour means the same thing for any pair.
+# Blue / orange is a cool-warm pair that survives colour-vision deficiency; the
+# delta tiles and the delta heatmaps' blue-white-yellow scheme put "better" on
+# the same blue pole. "Actual" also recolours the Accuracy tab's detail line.
+LABEL_COLORS = {
+    "Candidate": "#1FA8C9",
+    "Baseline": "#B2B2B2",
+    "Actual": "#222222",
+    "Better": "#1FA8C9",
+    "Worse": "#FF7F44",
+}
+
+# ΔMAE % colour-scale bounds of the delta heatmaps, symmetric so white = no change.
+DELTA_HEATMAP_BOUND_PCT = 30
+
+
+def delta_big_number_params(
+    dataset_id: int, metric: dict, subheader: str, number_format: str
+) -> dict:
+    """Params for a signed-delta KPI tile: the value turns blue below zero, orange above.
+
+    Parameters
+    ----------
+    dataset_id : int
+    metric : dict
+        Ad-hoc metric definition; its label names the result column the
+        conditional formatting reads.
+    subheader : str
+        Small caption under the number (include units and the sign's meaning).
+    number_format : str
+        d3 number format, e.g. ``+,.1f``.
+
+    Returns
+    -------
+    dict
+    """
+    params = big_number_params(dataset_id, metric, subheader, number_format)
+    params["conditional_formatting"] = [
+        {
+            "colorScheme": LABEL_COLORS["Better"],
+            "column": metric["label"],
+            "operator": "<",
+            "targetValue": 0,
+        },
+        {
+            "colorScheme": LABEL_COLORS["Worse"],
+            "column": metric["label"],
+            "operator": ">",
+            "targetValue": 0,
+        },
+    ]
+    return params
+
+
+def _delta_bar_params(
+    spec: DashboardSpec,
+    dataset_id: int,
+    x_axis: str,
+    *,
+    expression: str,
+    y_axis_title: str,
+    y_axis_format: str,
+    zoomable: bool,
+) -> dict:
+    """Params for a diverging bar of a signed delta over ``x_axis``.
+
+    Two stacked series, Better (≤ 0) and Worse (≥ 0), so each bar hangs
+    below or rises above zero in its own colour; the legend names them.
+    """
+    return {
+        "datasource": f"{dataset_id}__table",
+        "viz_type": "echarts_timeseries_bar",
+        "x_axis": x_axis,
+        "time_grain_sqla": None,
+        "x_axis_sort": x_axis,
+        "x_axis_sort_asc": True,
+        "metrics": spec.better_worse_metrics(expression),
+        "groupby": [],
+        "adhoc_filters": [],
+        "stack": "Stack",
+        "zoomable": zoomable,
+        "order_desc": False,
+        "row_limit": 10000,
+        "show_legend": True,
+        "legendType": "scroll",
+        "legendOrientation": "top",
+        "rich_tooltip": True,
+        "tooltipTimeFormat": "smart_date",
+        "y_axis_format": y_axis_format,
+        "y_axis_title": y_axis_title,
+        "y_axis_title_margin": 30,
+        "truncateYAxis": False,
+        "color_scheme": "supersetColors",
+        "x_axis_time_format": "smart_date",
+        "extra_form_data": {},
+    }
+
+
+def delta_bar_params(spec: DashboardSpec, dataset_id: int, x_axis: str) -> dict:
+    """Params for the ΔMAE % (candidate vs baseline) diverging bar over a segment axis.
+
+    Parameters
+    ----------
+    spec : DashboardSpec
+    dataset_id : int
+        The comparison dataset.
+    x_axis : str
+        Comparison-dataset column for the x axis (``day_part``, ``time_code``, …).
+
+    Returns
+    -------
+    dict
+    """
+    return _delta_bar_params(
+        spec,
+        dataset_id,
+        x_axis,
+        expression=spec.delta_mae_pct_sql,
+        y_axis_title="ΔMAE % vs baseline",
+        y_axis_format="+,.1f",
+        zoomable=False,
+    )
+
+
+def daily_delta_bar_params(spec: DashboardSpec, dataset_id: int) -> dict:
+    """Params for the daily ΔMAE (in the unit) diverging bar over the window, zoomable.
+
+    Parameters
+    ----------
+    spec : DashboardSpec
+    dataset_id : int
+        The comparison dataset.
+
+    Returns
+    -------
+    dict
+    """
+    return _delta_bar_params(
+        spec,
+        dataset_id,
+        "date_key",
+        expression=spec.delta_mae_sql,
+        y_axis_title=f"Daily ΔMAE ({spec.unit}) vs baseline",
+        y_axis_format="+" + spec.axis_format,
+        zoomable=True,
+    )
+
+
+def delta_heatmap_params(spec: DashboardSpec, dataset_id: int, x_axis: str) -> dict:
+    """Params for a ΔMAE % heatmap (year on y, ``x_axis`` on x) on a diverging scale.
+
+    ``blue_white_yellow`` with bounds ±``DELTA_HEATMAP_BOUND_PCT``: white is
+    "no change", blue better, yellow worse.
+
+    Parameters
+    ----------
+    spec : DashboardSpec
+    dataset_id : int
+        The comparison dataset.
+    x_axis : str
+        ``time_code`` or ``month``.
+
+    Returns
+    -------
+    dict
+    """
+    return {
+        **heatmap_params(spec, dataset_id, x_axis),
+        "metric": spec.delta_mae_pct_metric,
+        "linear_color_scheme": "blue_white_yellow",
+        "value_bounds": [-DELTA_HEATMAP_BOUND_PCT, DELTA_HEATMAP_BOUND_PCT],
+        "y_axis_format": "+,.1f",
+    }
+
+
 def waterfall_params(spec: DashboardSpec, dataset_id: int) -> dict:
     """Params for the SHAP waterfall of the selected day / period.
 
