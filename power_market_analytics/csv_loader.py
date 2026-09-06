@@ -697,8 +697,21 @@ class CsvLoader:
         """
         non_nullable = [c.name for c in self.schema.columns if not c.nullable]
         grain = self.schema.grain
-        rows, keys = "__validate_rows", "__validate_keys"
-        nulls = {name: f"__validate_nulls_{i}" for i, name in enumerate(non_nullable)}
+        # The per-key frame holds the grain columns next to these aliases, so
+        # an alias must not resolve to a contract column (case-insensitively,
+        # as Spark does by default) or the sums below would be ambiguous.
+        taken = {name.lower() for name in df.columns}
+
+        def alias(base: str) -> str:
+            name, n = base, 0
+            while name.lower() in taken:
+                n += 1
+                name = f"{base}_{n}"
+            taken.add(name.lower())
+            return name
+
+        rows, keys = alias("__validate_rows"), alias("__validate_keys")
+        nulls = {name: alias(f"__validate_nulls_{i}") for i, name in enumerate(non_nullable)}
         null_counts = [
             F.count(F.when(F.col(name).isNull(), True)).alias(alias)
             for name, alias in nulls.items()

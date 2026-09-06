@@ -458,6 +458,30 @@ class TestCsvLoaderLoad:
         assert n_rows == 3
         assert executions.executionsCount() - before == 1
 
+    def test_grain_columns_named_like_the_validation_aliases_still_load(self, spark, tmp_path):
+        # The per-key counts carry aliases; a contract may use those names (in
+        # any case: Spark resolves case-insensitively), so they are generated
+        # around the frame's columns rather than assumed free.
+        schema = CsvTableSchema.model_validate(
+            {
+                "grain": ["__validate_rows", "__VALIDATE_NULLS_0"],
+                "columns": [
+                    {"name": "__validate_rows", "type": "int", "nullable": False},
+                    {"name": "__VALIDATE_NULLS_0", "type": "int", "nullable": False},
+                ],
+            }
+        )
+        header = "__validate_rows,__VALIDATE_NULLS_0"
+        write_utf8(tmp_path / "a.csv", [header, "1,1", "1,2"])
+        loader = CsvLoader(schema, tmp_path, "test_csv_loader.aliases", spark=spark)
+        assert loader.load() == 2
+
+        write_utf8(tmp_path / "b.csv", [header, "1,2"])
+        with pytest.raises(
+            ValueError, match=re.escape("is not unique: 3 rows but 2 distinct keys")
+        ):
+            loader.load()
+
     def test_header_only_files_load_zero_rows(self, spark, tmp_path):
         # No keys at all: the summed counts are 0, not null, and 0 keys = 0 rows.
         write_utf8(tmp_path / "a.csv", FILE_A[:1])
