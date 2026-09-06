@@ -237,6 +237,8 @@ COMMON_EXPLANATION_COLUMNS = (
 # candidate_periods = the candidate's count before the join (for the coverage
 # tile); the daily_* columns are window averages over the day's matched
 # periods, one constant per day, so tiles and tables can aggregate per day.
+# is_first_matched_period marks one row per matched day, so a per-day metric
+# (the median daily ΔMAE) can aggregate over days rather than over period rows.
 # A string.Template ($name) because the SQL carries Jinja braces.
 COMPARISON_DATASET_SQL_TEMPLATE = string.Template("""\
 {% set candidate = filter_values('run_label') %}
@@ -312,7 +314,8 @@ select
 $value_select_sql
   avg(m.$abs_error_col) over (partition by m.date_key) as $daily_abs_error_col,
   avg(m.$baseline_abs_error_col) over (partition by m.date_key) as $daily_baseline_abs_error_col,
-  avg(m.$delta_abs_error_col) over (partition by m.date_key) as $daily_delta_abs_error_col
+  avg(m.$delta_abs_error_col) over (partition by m.date_key) as $daily_delta_abs_error_col,
+  row_number() over (partition by m.date_key order by m.time_code) = 1 as is_first_matched_period
 from matched m
 join pma_curated.dim_delivery_period p on m.time_code = p.time_code
 join pma_curated.dim_date d on m.date_key = d.date_key
@@ -618,6 +621,7 @@ class DashboardSpec:
             (self.daily_abs_error_col, "DOUBLE", False),
             (self.daily_baseline_abs_error_col, "DOUBLE", False),
             (self.daily_delta_abs_error_col, "DOUBLE", False),
+            ("is_first_matched_period", "BOOLEAN", False),
         ]
 
     @property
@@ -741,8 +745,9 @@ class DashboardSpec:
 
     @property
     def median_daily_delta_metric(self) -> dict:
+        """Median over matched days of (candidate daily MAE − baseline daily MAE)."""
         return sql_metric(
-            f"percentile({self.daily_delta_abs_error_col}, 0.5)",
+            f"percentile(case when is_first_matched_period then {self.daily_delta_abs_error_col} end, 0.5)",
             "Median daily ΔMAE",
             option_name="median_daily_delta_mae",
         )
