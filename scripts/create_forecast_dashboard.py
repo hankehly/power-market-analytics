@@ -131,7 +131,7 @@ join pma_curated.dim_date d on f.date_key = d.date_key
 # (column_name, generic type, is temporal) for the shared head of the select
 # list — kept in sync with DATASET_SQL_TEMPLATE so reruns can override stale
 # column metadata after a SQL change. ``baseline_run_label`` repeats the label
-# so the Baseline native filter (Task 8) can list the runs from this dataset.
+# so the Baseline native filter can list the runs from this dataset.
 COMMON_DATASET_COLUMNS = (
     ("date_key", "DATE", True),
     ("trade_datetime", "TIMESTAMP", True),
@@ -1423,7 +1423,10 @@ def histogram_params(spec: DashboardSpec, dataset_id: int) -> dict:
 
 
 def leaderboard_params(spec: DashboardSpec, dataset_id: int) -> dict:
-    """Params for the cross-run leaderboard table (best MAE first) with each run's window, so a matched baseline is recognisable.
+    """Params for the cross-run leaderboard table (best MAE first).
+
+    Shows each run's window (first / last day, days) so a matched baseline is
+    recognisable in the list.
 
     Excluded from the Run filter so all runs stay visible side by side.
 
@@ -1645,6 +1648,25 @@ def _delta_bar_params(
 
     Two stacked series, Better (≤ 0) and Worse (≥ 0), so each bar hangs
     below or rises above zero in its own colour; the legend names them.
+
+    Parameters
+    ----------
+    spec : DashboardSpec
+    dataset_id : int
+        The comparison dataset.
+    x_axis : str
+        Comparison-dataset column for the x axis.
+    expression : str
+        Signed aggregate expression the bar splits by sign (``least`` /
+        ``greatest`` of it against 0).
+    y_axis_title, y_axis_format : str
+        Axis title and d3 format of the delta.
+    zoomable : bool
+        Whether to add the data-zoom slider (the daily bars over the window).
+
+    Returns
+    -------
+    dict
     """
     return {
         "datasource": f"{dataset_id}__table",
