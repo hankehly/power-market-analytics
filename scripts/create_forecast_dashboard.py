@@ -44,6 +44,8 @@ import json
 import os
 import re
 import string
+import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -55,6 +57,11 @@ ADMIN_USER = os.environ.get("SUPERSET_ADMIN_USER", "admin")
 ADMIN_PASSWORD = os.environ.get("SUPERSET_ADMIN_PASSWORD", "admin")
 
 DATABASE_NAME = "Spark Thriftserver"
+
+# Superset's Flask-Limiter allows 50 requests per second per client (a global
+# limit); the builder's chart loops burst past it, so a 429 is retried after
+# the server's Retry-After pause (1 s when absent), this many times.
+RATE_LIMIT_RETRIES = 5
 
 # The Run / Baseline filters' option text and the datasets' run_label:
 # published_at | area | strategy | run_id prefix (newest first when sorted
@@ -965,6 +972,9 @@ class SupersetClient:
     session : requests.Session, optional
         HTTP session to issue every request through (the login included);
         a fresh ``requests.Session()`` when omitted. Injectable for tests.
+
+    Rate-limited answers (429) are retried after the server's Retry-After
+    pause, up to ``RATE_LIMIT_RETRIES`` times.
     """
 
     def __init__(
@@ -985,20 +995,45 @@ class SupersetClient:
         csrf = self._get_json("/api/v1/security/csrf_token/")["result"]
         self.session.headers["X-CSRFToken"] = csrf
 
+    def _json(self, send: Callable[[], requests.Response]) -> dict:
+        """Send a request, retrying Superset's 429 rate-limit answers, and return the JSON.
+
+        Parameters
+        ----------
+        send : callable
+            Issues the request and returns the response; called again after
+            each rate-limited answer.
+
+        Returns
+        -------
+        dict
+
+        Raises
+        ------
+        requests.HTTPError
+            On any non-2xx answer, a 429 on the last attempt included.
+        """
+        response = send()
+        for _ in range(RATE_LIMIT_RETRIES):
+            if response.status_code != 429:
+                break
+            pause = float(response.headers.get("Retry-After", 1))
+            logger.info("Superset rate limit (429); retrying in {} s", pause)
+            time.sleep(pause)
+            response = send()
+        response.raise_for_status()
+        return response.json()
+
     def _get_json(self, path: str, params: dict | None = None) -> dict:
-        r = self.session.get(f"{self.base_url}{path}", params=params)
-        r.raise_for_status()
-        return r.json()
+        return self._json(lambda: self.session.get(f"{self.base_url}{path}", params=params))
 
     def _post_json(self, path: str, payload: dict) -> dict:
-        r = self.session.post(f"{self.base_url}{path}", json=payload)
-        r.raise_for_status()
-        return r.json()
+        return self._json(lambda: self.session.post(f"{self.base_url}{path}", json=payload))
 
     def _put_json(self, path: str, payload: dict, params: dict | None = None) -> dict:
-        r = self.session.put(f"{self.base_url}{path}", json=payload, params=params)
-        r.raise_for_status()
-        return r.json()
+        return self._json(
+            lambda: self.session.put(f"{self.base_url}{path}", json=payload, params=params)
+        )
 
     def find_one(self, resource: str, **filters: str | int) -> int | None:
         """Return the id of the first ``resource`` row matching every filter.
