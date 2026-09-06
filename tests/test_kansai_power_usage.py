@@ -6,6 +6,9 @@ import datetime
 from pathlib import Path
 
 import pytest
+
+from power_market_analytics.area_actuals import AreaActualsDownloader, AreaActualsDownloadError
+from power_market_analytics.csv_loader import CsvTableSchema
 from power_market_analytics.kansai.power_usage import (
     HOURLY_HEADER_2016,
     HOURLY_HEADER_2019,
@@ -16,9 +19,6 @@ from power_market_analytics.kansai.power_usage import (
     KansaiPowerUsageCsvLoader,
     KansaiPowerUsageDownloader,
 )
-
-from power_market_analytics.area_actuals import AreaActualsDownloader, AreaActualsDownloadError
-from power_market_analytics.csv_loader import CsvTableSchema
 from power_market_analytics.power_usage import (
     CORRECTION_MARKER,
     PowerUsageCsvLoader,
