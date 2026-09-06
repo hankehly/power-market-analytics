@@ -54,3 +54,9 @@ SQLALCHEMY_DATABASE_URI = (
 # mode: every MCP request runs as this Superset user. Local-only stack; the port
 # is bound to 127.0.0.1 on the host.
 MCP_DEV_USERNAME = "admin"
+
+# Jinja templating in virtual-dataset SQL, so the forecast dashboards' comparison
+# dataset can read the Baseline native filter's value with filter_values()
+# (scripts/create_forecast_dashboard.py). Off by default in Superset; local-only
+# stack, admin-only users.
+FEATURE_FLAGS = {"ENABLE_TEMPLATE_PROCESSING": True}

@@ -28,7 +28,11 @@ narrow them as the question requires.
   (`scripts/compare_spot_price_runs.py`); actual-price bands, the calibration
   curve, the error histogram, and the per-day SHAP waterfall (mean per
   period) of the **Explanation (SHAP)** tab (Day filter)
-  (Superset **Spot Price Forecast Analysis**)
+  (Superset **Spot Price Forecast Analysis**); its **Compare** tab shows a
+  run against a Baseline run (matched periods only): ΔMAE by day part, day
+  of week, month, price band and time code, the share of days lower, the
+  median daily ΔMAE and the most improved / worsened days — the bootstrap
+  CI stays in the compare script
 - **Evaluation method:** rolling out-of-sample backtest over identical
   delivery dates and training rows for baseline and candidate; accuracy rows
   in `fct_spot_price_forecast_accuracy` after
