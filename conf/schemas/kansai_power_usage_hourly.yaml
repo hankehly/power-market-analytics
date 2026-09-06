@@ -1,0 +1,32 @@
+description: >
+  関西電力送配電 でんき予報 過去の電力使用実績 — Kansai-area hourly 電力使用状況:
+  the 1時間平均 demand of each hour in 万kW (1 万kW = 10 MW), as published on
+  https://www.kansai-td.co.jp/denkiyoho/download/. Source files: the daily
+  members (YYYYMMDD_juyo1_kansai.csv through 2025-11, juyo_06_YYYYMMDD.csv
+  from 2025-12) of the monthly https://www.kansai-td.co.jp/yamasou/YYYYMM_jisseki.zip
+  archives, 2016-04 onward. Three hourly layouts feed one table:
+  DATE,TIME,当日実績(万kW),予想値(万kW),使用率(%) (2016-04-01 → 2019-09-11),
+  + 供給力想定値(万kW) (2019-09-12 → 2025-12-24), + 供給力(万kW) instead
+  (2025-12-25 →); the warehouse keeps TEPCO's column names (forecast_mankw =
+  予想値, the day's last intraday forecast; supply_capacity_mankw = 供給力想定値
+  / 供給力, null before 2019-09-12). Files are pre-parsed in Python by
+  KansaiPowerUsageCsvLoader (the shared PowerUsageCsvLoader: multi-section
+  layout, trailing commas stripped — 60 files were re-saved from Excel — and
+  the one 修正後 correction row, 2016-04-24 00:00, applied); contract sources
+  are the __-prefixed names it emits. file_updated_at is the file's UPDATE
+  stamp (01:10 on target_date + 1). The daily files also hold a 5-minute
+  table; it is not loaded. Kansai never published 2024-03-31 (site
+  maintenance). Format, quirks and the comparison against the A-1 series:
+  docs/Kansai-Power-Usage-Retrieval.md.
+
+grain: [target_date, hour_start]
+
+columns:
+  - { name: target_date, source: __target_date, type: date, format: yyyyMMdd, nullable: false }
+  - { name: hour_start, source: __hour_start, type: int, nullable: false }
+  - { name: demand_mankw, source: __demand_mankw, type: double, nullable: false }
+  - { name: forecast_mankw, source: __forecast_mankw, type: double }
+  - { name: usage_rate_pct, source: __usage_rate_pct, type: double }
+  - { name: supply_capacity_mankw, source: __supply_capacity_mankw, type: double }
+  - { name: file_updated_at, source: __file_updated_at, type: timestamp, format: yyyyMMdd HH:mm:ss, nullable: false }
+  - { name: source_file, source: __source_file, type: string, nullable: false }

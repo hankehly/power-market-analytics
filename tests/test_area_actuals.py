@@ -50,6 +50,9 @@ class TestAreaActualsSource:
     def test_archive_includes_current_day_defaults_to_false(self):
         assert SOURCE.archive_includes_current_day is False
 
+    def test_known_missing_days_default_to_none(self):
+        assert SOURCE.known_missing_days == frozenset()
+
     def test_source_is_immutable(self):
         with pytest.raises(AttributeError):
             SOURCE.code = "other"  # type: ignore[misc]
@@ -63,6 +66,7 @@ import zipfile  # noqa: E402
 from pathlib import Path  # noqa: E402
 
 import requests  # noqa: E402
+from loguru import logger  # noqa: E402
 
 from power_market_analytics.area_actuals import (  # noqa: E402
     AreaActualsDownloader,
@@ -257,6 +261,52 @@ class TestAreaActualsDownloader:
         assert calls == month_range(SOURCE.earliest_month, (yesterday.year, yesterday.month))
         assert calls[0] == (2022, 4)
         assert calls[-1] == (yesterday.year, yesterday.month)
+
+    def test_download_tolerates_a_known_missing_day_in_a_settled_month(self, tmp_path):
+        # Kansai's でんき予報 never published 2024-03-31 (site maintenance); a
+        # spec lists such days so a settled month may lack them.
+        members = {f"DEMO_JISEKI_202507{d:02d}.csv": b"x" for d in range(1, 32) if d != 20}
+        source = dataclasses.replace(
+            SOURCE, known_missing_days=frozenset({datetime.date(2025, 7, 20)})
+        )
+        dl = AreaActualsDownloader(
+            source, data_dir=tmp_path, session=FakeSession(FakeResponse(make_zip(members)))
+        )
+
+        assert len(dl.download(2025, 7, today=datetime.date(2025, 9, 1))) == 30
+
+    def test_download_still_rejects_an_unlisted_missing_day(self, tmp_path):
+        members = {
+            f"DEMO_JISEKI_202507{d:02d}.csv": b"x" for d in range(1, 32) if d not in (20, 21)
+        }
+        source = dataclasses.replace(
+            SOURCE, known_missing_days=frozenset({datetime.date(2025, 7, 20)})
+        )
+        dl = AreaActualsDownloader(
+            source, data_dir=tmp_path, session=FakeSession(FakeResponse(make_zip(members)))
+        )
+
+        with pytest.raises(AreaActualsDownloadError, match="missing 1 day") as exc:
+            dl.download(2025, 7, today=datetime.date(2025, 9, 1))
+        assert "20250721" in str(exc.value)
+        assert "20250720" not in str(exc.value)
+
+    def test_download_logs_a_known_missing_day_that_is_published(self, tmp_path):
+        members = {f"DEMO_JISEKI_202507{d:02d}.csv": b"x" for d in range(1, 32)}
+        source = dataclasses.replace(
+            SOURCE, known_missing_days=frozenset({datetime.date(2025, 7, 20)})
+        )
+        dl = AreaActualsDownloader(
+            source, data_dir=tmp_path, session=FakeSession(FakeResponse(make_zip(members)))
+        )
+        messages: list[str] = []
+        sink = logger.add(lambda m: messages.append(m.record["message"]), level="INFO")
+        try:
+            assert len(dl.download(2025, 7, today=datetime.date(2025, 9, 1))) == 31
+        finally:
+            logger.remove(sink)
+
+        assert any("20250720" in m and "known-missing" in m for m in messages)
 
 
 # --------------------------------------------------------------------------- loader
