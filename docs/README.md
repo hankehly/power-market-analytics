@@ -488,7 +488,11 @@ newest run with KPI tiles (MAE, bias, RMSE, RMSE/MAE, WAPE, P90),
 error-structure heatmaps and day-type slices, calibration and
 error-distribution views, a cross-run leaderboard, a worst-days drill list
 (click a row to cross-filter the dashboard to that day), and a zoomable
-30-minute forecast-vs-actual detail. The two are the same layout with the
+30-minute forecast-vs-actual detail. A **Compare** tab puts the run against a
+**Baseline** run chosen in a second filter: delta tiles, diverging ΔMAE %
+bars by segment, ΔMAE % heatmaps, daily ΔMAE, the cumulative error
+reduction, most-improved / most-worsened day tables and a three-line
+detail, over the periods both runs scored. The two are the same layout with the
 same chart names; only the quantity shows through — JPY/kWh vs kWh (demand
 values are SI-formatted, `1.098M`), and "MAE by actual price band" /
 "Calibration: forecast vs actual price level" become "… actual demand band"
@@ -497,6 +501,8 @@ values are SI-formatted, `1.098M`), and "MAE by actual price band" /
 ![Spot Price Forecast Analysis dashboard](img/superset/forecast-dashboard.png)
 
 ![Demand Forecast Analysis dashboard](img/superset/demand-forecast-dashboard.png)
+
+![Demand Forecast Analysis dashboard — Compare tab](img/superset/demand-forecast-dashboard-compare.png)
 
 ## Development environment
 
