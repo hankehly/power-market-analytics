@@ -377,11 +377,13 @@ issues one key/token pair per date window in the same session and concatenates t
 windows into one file; see [§9.2](#92-bulk-download-and-the-150000-row-cap)).
 
 A window the portal fails to serve — its error screen ([§3.4](#34-failure-modes)), the
-session-timeout JSON or an HTTP 5xx — is retried: `max_attempts=3` per window,
-`retry_wait=5.0` s before each retry, and every retry clears the cookie jar, logs in again
-and asks for a new key/token pair (a used pair is one-shot). A rejection of the request
-itself — a validation `errMessage`, an HTTP 4xx, a CSV with the wrong header — is raised at
-once. Transient failures are `OcctoTransientError` (a subclass of `OcctoDownloadError`),
+session-timeout JSON, a login without a session cookie or an HTTP 5xx at any step — is
+retried: `max_attempts=3` per window, `retry_wait=5.0` s before each retry. An attempt is
+the `LOGIN_login` GET (first window, and every retry), the `ok` and the `download`; a
+failure at any of the three consumes it, and every retry clears the cookie jar first so the
+portal issues a new session and a new key/token pair (a used pair is one-shot). A rejection
+of the request itself — a validation `errMessage`, an HTTP 4xx, a CSV with the wrong
+header — is raised at once. Transient failures are `OcctoTransientError` (a subclass of `OcctoDownloadError`),
 raised after the last attempt with the page's message, e.g.
 `reference/download answered with the portal's error screen (Content-Type='text/html;charset=UTF-8'): 不正なリクエストです。`;
 each retry is logged as a warning with that message.

@@ -173,14 +173,17 @@ class OcctoBulkDownloader:
     for the half-hourly reserve-rate series), so callers are expected to
     simply re-download on every refresh rather than manage incremental pulls.
 
-    A window whose handshake the portal fails to serve — its HTTP-200 error
-    screen (不正なリクエストです, the session-timeout page), the session-timeout
-    JSON, or an HTTP 5xx — is retried up to ``max_attempts`` times, each
-    attempt after ``retry_wait`` seconds and from a fresh anonymous session
-    with a fresh key/token pair (a used pair is one-shot). Answers that reject
-    the request itself — a validation ``errMessage``, an HTTP 4xx, a CSV with
-    the wrong header — are raised at once. The 2026-09-06 refresh failed on one
-    error screen that no rerun could reproduce.
+    A window the portal fails to serve — its HTTP-200 error screen
+    (不正なリクエストです, the session-timeout page), the session-timeout JSON,
+    a login without a session cookie, or an HTTP 5xx at any step — is retried
+    up to ``max_attempts`` times. An attempt is the login (first window, and
+    every retry), the ``ok`` and the ``download``; a failure at any of the
+    three consumes it. Every retry waits ``retry_wait`` seconds and starts
+    from a fresh anonymous session with a fresh key/token pair (a used pair
+    is one-shot). Answers that reject the request itself — a validation
+    ``errMessage``, an HTTP 4xx, a CSV with the wrong header — are raised at
+    once. The 2026-09-06 refresh failed on one error screen that no rerun
+    could reproduce.
 
     Parameters
     ----------
@@ -300,9 +303,10 @@ class OcctoBulkDownloader:
 
         chunks: list[bytes] = []
         with self.session_factory() as session:
-            self._open_session(session)
-            for window_from, window_to in windows:
-                content = self._fetch_window(session, spec, window_from, window_to)
+            for index, (window_from, window_to) in enumerate(windows):
+                content = self._fetch_window(
+                    session, spec, window_from, window_to, login=index == 0
+                )
                 logger.info(
                     "Fetched {} window {}..{} ({} bytes)",
                     dataset,
@@ -376,17 +380,23 @@ class OcctoBulkDownloader:
         spec: OcctoDataset,
         window_from: datetime.date | None,
         window_to: datetime.date | None,
+        login: bool,
     ) -> bytes:
-        """Run one window's ``ok`` → ``download`` handshake, retrying transient failures.
+        """Fetch one window, retrying attempts the portal fails to serve.
 
-        Every retry waits ``retry_wait`` seconds, then logs in again on a
-        cleared cookie jar so the portal issues a fresh anonymous session and
-        a fresh key/token pair.
+        An attempt is the ``LOGIN_login`` GET (when ``login`` — the first
+        window, and every retry), then the ``ok`` → ``download`` handshake;
+        a transient failure at any of the three steps consumes the attempt.
+        Every retry waits ``retry_wait`` seconds and starts from a cleared
+        cookie jar, so the portal issues a fresh anonymous session and a fresh
+        key/token pair.
         """
         selection = self._selection(spec, window_from, window_to)
         attempt = 1
         while True:
             try:
+                if login:
+                    self._open_session(session)
                 download_key, request_token = self._issue_download_key(session, selection)
                 content = self._fetch_csv(session, selection, download_key, request_token)
             except (OcctoTransientError, requests.HTTPError) as exc:
@@ -405,7 +415,7 @@ class OcctoBulkDownloader:
                 )
                 time.sleep(self.retry_wait)
                 session.cookies.clear()
-                self._open_session(session)
+                login = True
                 attempt += 1
                 continue
             self._verify_csv(spec, content)
@@ -422,7 +432,7 @@ class OcctoBulkDownloader:
         response = session.get(f"{BASE_URL}/LOGIN_login", timeout=self.timeout)
         response.raise_for_status()
         if "JSESSIONID" not in session.cookies:
-            raise OcctoDownloadError("OCCTO did not issue a session cookie on LOGIN_login")
+            raise OcctoTransientError("OCCTO did not issue a session cookie on LOGIN_login")
 
     def _issue_download_key(
         self, session: requests.Session, selection: dict[str, str]
