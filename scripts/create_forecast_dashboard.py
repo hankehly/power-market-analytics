@@ -6,23 +6,32 @@ One dashboard per forecasting task — "Spot Price Forecast Analysis" and
 REST API, so everything is reproducible from the repo after a
 ``docker compose down -v``:
 
-- two virtual datasets per dashboard: ``<task>_forecast_analysis`` — the
+- three virtual datasets per dashboard: ``<task>_forecast_analysis`` — the
   task's forecast accuracy mart joined to dim_area / dim_delivery_period /
   dim_date, plus presentation columns (``run_label``, actual-value bands, day
-  types) — and ``<task>_forecast_explanation`` — the contribution fact, one
-  row per period x component, joined to the accuracy mart
-- charts on two tabs: **Accuracy** — KPI tiles (MAE, bias, RMSE, RMSE/MAE,
+  types) — ``<task>_forecast_explanation`` — the contribution fact, one
+  row per period x component, joined to the accuracy mart — and
+  ``<task>_forecast_comparison`` — the accuracy mart self-joined, the Run
+  filter's run against the Baseline filter's, both pinned in the SQL with
+  Jinja
+- charts on three tabs: **Accuracy** — KPI tiles (MAE, bias, RMSE, RMSE/MAE,
   WAPE, P90), error structure (bars + heatmaps + day-type slices),
   calibration & distribution (actual-value-band MAE, calibration curve, error
   histogram), runs & drilldown (run leaderboard, worst days, 30-minute
-  detail) — and **Explanation (SHAP)** — base / forecast / actual /
+  detail) — **Explanation (SHAP)** — base / forecast / actual /
   net-effect tiles, the waterfall of mean per-period feature contributions,
   the component table, and the contributions by period — stacked bars with the
   forecast and the actual, both relative to the base, as lines on the same axis
+  — and **Compare** — delta KPI tiles coloured by sign (ΔMAE, ΔMAE %,
+  Δ|bias|, ΔWAPE), matched coverage / days / share of days lower / median
+  daily ΔMAE, diverging Better / Worse bars of ΔMAE % by segment, ΔMAE %
+  heatmaps, daily ΔMAE bars, the cumulative error reduction, most-improved /
+  most-worsened day tables, and a three-line 30-minute detail
 - the dashboard, with a required single-select Run filter (all charts except
   the cross-run leaderboard) plus an optional Day filter scoped to the
-  Explanation tab (cascading from Run); the 30-minute detail chart carries
-  its own data-zoom slider for navigating the backtest window
+  Explanation tab (cascading from Run), plus a required single-select
+  Baseline filter scoped to the Compare tab; the 30-minute detail charts
+  carry their own data-zoom slider for navigating the backtest window
 
 The two dashboards share chart names (a chart is identified by its name
 *within its dataset*), differing only where the quantity shows through: the
@@ -32,6 +41,7 @@ Run inside the devcontainer (needs the compose network):
 
     python scripts/create_forecast_dashboard.py                 # every dashboard
     python scripts/create_forecast_dashboard.py --task demand   # one of them
+    python scripts/create_forecast_dashboard.py --task demand --baseline-run 0a6b8a55
 
 Environment: ``SUPERSET_URL`` (default ``http://superset:8088``),
 ``SUPERSET_ADMIN_USER`` (``admin``), ``SUPERSET_ADMIN_PASSWORD`` (``admin``).

@@ -131,9 +131,9 @@
   `DashboardSpec` (dataset SQL, unit, formats, band/calibration columns) drives one shared set of
   chart/layout builders; charts are matched by name *within their dataset*, so both dashboards
   share chart names. Rerun after `docker compose down -v` or after editing a spec.
-  Each dashboard has two virtual datasets — `<task>_forecast_analysis` (the accuracy mart) and
+  Each dashboard has three virtual datasets — `<task>_forecast_analysis` (the accuracy mart) and
   `<task>_forecast_explanation` (`fct_<task>_forecast_contribution` joined to the accuracy mart:
-  one row per period × component, so AVG-only metrics) — and two top-level tabs: **Accuracy**
+  one row per period × component, so AVG-only metrics) — and three top-level tabs: **Accuracy**
   (KPI tiles, error structure, calibration & distribution, runs & drilldown) and
   **Explanation (SHAP)**, where a **Day** native filter (scoped to that tab; cascades from Run,
   defaults to the default run's last day; empty = the run's mean decomposition; every value is
@@ -145,7 +145,22 @@
   the contributions' scale around zero) with two lines on the same axis — `Forecast − base`, the
   signed sum of the bars (a stack of mixed signs has no visible edge for it), and
   `Actual − base`; the gap between the lines is the period's error. Both line metrics read the
-  base off the period's base row, so the chart's query B is unfiltered. Runs
+  base off the period's base row, so the chart's query B is unfiltered.
+  **Compare** — a third virtual dataset `<task>_forecast_comparison` (the accuracy mart self-joined
+  on day × time code × area: the Run filter's run as the candidate against a **Baseline** native
+  filter's run, both pinned inside the dataset SQL with Superset Jinja `filter_values()`, so
+  `conf/superset/superset_config.py` sets `ENABLE_TEMPLATE_PROCESSING`; inner join, so only
+  periods both runs scored count) drives delta tiles coloured by sign (ΔMAE, ΔMAE %, Δ|bias|,
+  ΔWAPE; blue = candidate better, orange = worse), matched coverage / days / share of days lower /
+  median daily ΔMAE, diverging Better / Worse bars of ΔMAE % by time code, day part, day type, day
+  of week, actual band and year, ΔMAE % heatmaps (blue-white-yellow, ±30 %), daily ΔMAE bars, the
+  cumulative error reduction, Most improved / Most worsened days tables (cross-filtering the
+  detail and the Explanation tab) and a three-line 30-minute detail. The Baseline filter is scoped
+  to that tab, reads its options from the analysis dataset's `baseline_run_label` alias, and opens
+  on the newest other run with the same area and window as the newest run (`--baseline-run
+  <run_id or prefix>` overrides); the bootstrap CI over days stays in `compare_<task>_runs.py`.
+  Run labels are `published_at | area | strategy | run_id prefix` (`RUN_LABEL_SQL`, one
+  definition); the leaderboard shows each run's first / last day and day count. Runs
   published before 2026-08-26 have no contributions and show an empty tab until re-run. After a
   backtest run, both marts must be rebuilt before the dashboards make sense — `just dbt build
   --select +fct_<task>_forecast_accuracy +fct_<task>_forecast_contribution`;

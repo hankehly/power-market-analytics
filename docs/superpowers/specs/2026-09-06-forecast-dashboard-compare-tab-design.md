@@ -129,10 +129,12 @@ join pma_curated.dim_area a ... join dim_delivery_period p ... join dim_date d .
 - Description: "Reference run; the Compare tab shows the Run (candidate) against it over
   the periods both runs scored".
 - Default on load: the newest *other* run with the same area, first day, last day and
-  period count as the default Run. `latest_run()` returns it from one query (window over
-  the runs grouped by run). `--baseline-run <run_id or 8-char prefix>` overrides it; a
-  dashboard whose mart has no such run keeps the rule and logs a warning. With no
-  matching run the filter has no default and the tab shows "No data" until one is picked.
+  period count as the default Run. `run_defaults()` runs one query listing the mart's
+  runs (label, area, first / last day, period count, newest first) and applies the rule
+  and the `--baseline-run` override in Python, returning a `RunDefaults` (run label, last
+  day, baseline label or None); a `--baseline-run <run_id or 8-char prefix>` that matches
+  no run keeps the rule and logs a warning. With no matching run the filter has no
+  default and the tab shows "No data" until one is picked.
 - Choosing the candidate itself is allowed; every delta is then zero.
 
 ### 3. Metrics (properties on `DashboardSpec`)
@@ -169,10 +171,10 @@ Every chart reads the comparison dataset. Titles say what the number is relative
    ΔMAE.
 3. **Where the candidate wins** (section): stacked bars of Better / Worse (ΔMAE %) by
    time code (full width); by day part, day type and day of week (three across); by the
-   spec's actual band and by year (two across). Tooltips carry both MAEs through the
-   rich tooltip. Then two heatmaps of ΔMAE %, year × month and year × time code, on
-   `blue_white_yellow` with `value_bounds` ±30 so white is "no change" and blue is
-   better.
+   spec's actual band and by year (two across). The tooltip shows the delta; the two
+   MAE levels are on the tiles and the day tables. Then two heatmaps of ΔMAE %, year ×
+   month and year × time code, on `blue_white_yellow` with `value_bounds` ±30 so white
+   is "no change" and blue is better.
 4. **Day by day** (section): daily ΔMAE as Better / Worse bars over the window
    (x = `date_key`, zoomable, full width); the running total of the error reduction as a
    line (`rolling_type: cumsum` over the daily `Error reduction`, full width): a steady
@@ -218,8 +220,11 @@ the delta tiles use the same two colours; the heatmaps' blue-white-yellow scheme
   `delta_bar_params`, `delta_heatmap_params`, `daily_delta_bar_params`,
   `cumulative_reduction_params`, `ranked_days_params(direction)`,
   `comparison_detail_params`. Existing builders are untouched except the leaderboard.
-- `build_native_filters` gains the Baseline filter (keyword-only parameters); `latest_run`
-  returns `(run_label, last_day, baseline_label | None)`; `main` gains `--baseline-run`.
+- `build_native_filters` gains the Baseline filter (keyword-only parameters);
+  `run_defaults()` runs one query listing the mart's runs (label, area, first / last day,
+  period count, newest first) and applies the rule and the `--baseline-run` override in
+  Python, returning a `RunDefaults` (run label, last day, baseline label or None); `main`
+  gains `--baseline-run`.
 - `build_position_json` is unchanged: the tab is a third entry in `tabs`.
 
 ### 7. Superset configuration
