@@ -454,7 +454,7 @@ class OcctoBulkDownloader:
             payload = response.json()
         except ValueError:
             raise OcctoTransientError(
-                "reference/ok answered with the portal's error screen "
+                "reference/ok did not return JSON "
                 f"(Content-Type={response.headers.get('Content-Type')!r}): "
                 f"{_error_page_message(response.content)}"
             ) from None
@@ -493,7 +493,7 @@ class OcctoBulkDownloader:
         response.raise_for_status()
         if "attachment" not in response.headers.get("Content-Disposition", ""):
             raise OcctoTransientError(
-                "reference/download answered with the portal's error screen "
+                "reference/download did not return an attachment "
                 f"(Content-Type={response.headers.get('Content-Type')!r}): "
                 f"{_error_page_message(response.content)}"
             )
