@@ -288,5 +288,6 @@ Taken after PR #49 merged, at the researcher's request.
    name in creation order, layout sections). Creation order is unchanged, so the chart ids the
    tests pin only shift by the extra dataset.
 3. **Day tables** are stacked full width, so the ΔMAE % column is no longer clipped.
-4. **Null holiday names** render blank (`coalesce(holiday_name_ja, '')`) instead of
-   Superset's "Not Applicable".
+4. **Holiday names** are blank on non-holidays (`case when is_holiday then holiday_name_ja
+   else '' end`): `dim_date` stores the Kimball placeholder "Not Applicable" there, which the
+   day tables showed on every ordinary day.

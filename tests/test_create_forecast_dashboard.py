@@ -697,7 +697,7 @@ select
     when d.is_weekend then 'Weekend'
     else 'Weekday'
   end as day_type,
-  coalesce(d.holiday_name_ja, '') as holiday_name_ja,
+  case when d.is_holiday then d.holiday_name_ja else '' end as holiday_name_ja,
   m.area_code,
   m.area_name_en,
   m.run_id,
@@ -2745,6 +2745,7 @@ EXPECTED_COMPARE_TAB_CHILDREN = [
     "HEADER-2-3",
     "ROW-2-3-0",
     "ROW-2-3-1",
+    "ROW-2-3-2",
     "HEADER-2-4",
     "ROW-2-4-0",
 ]
@@ -3053,14 +3054,17 @@ class TestBuildDashboard:
             "height": 24,
             "sliceName": "Δ base value vs baseline",
         }
-        assert position["ROW-2-3-1"]["children"] == ["CHART-66", "CHART-67"]
+        # the waterfall and its table each take a full-width row (a five-column
+        # table clips at half width)
+        assert position["ROW-2-3-1"]["children"] == ["CHART-66"]
         assert (position["CHART-66"]["meta"]["width"], position["CHART-66"]["meta"]["height"]) == (
-            8,
+            12,
             46,
         )
+        assert position["ROW-2-3-2"]["children"] == ["CHART-67"]
         assert (position["CHART-67"]["meta"]["width"], position["CHART-67"]["meta"]["height"]) == (
-            4,
-            46,
+            12,
+            40,
         )
         assert position["ROW-2-4-0"]["children"] == ["CHART-62"]
         assert position["CHART-62"]["meta"]["height"] == 60
