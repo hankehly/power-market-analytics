@@ -2345,7 +2345,12 @@ def attach_charts(client: SupersetClient, dashboard_id: int, chart_ids: list[int
         client._put_json(f"/api/v1/chart/{chart_id}", {"dashboards": [dashboard_id]})
 
 
-def build_dashboard(client: SupersetClient, database_id: int, spec: DashboardSpec) -> int:
+def build_dashboard(
+    client: SupersetClient,
+    database_id: int,
+    spec: DashboardSpec,
+    baseline_run: str | None = None,
+) -> int:
     """Build or refresh one task's dashboard end to end and return its id.
 
     Parameters
@@ -2354,6 +2359,9 @@ def build_dashboard(client: SupersetClient, database_id: int, spec: DashboardSpe
     database_id : int
         Superset id of the Spark Thriftserver connection.
     spec : DashboardSpec
+    baseline_run : str, optional
+        ``run_id`` or prefix for the Baseline filter's default; see
+        ``run_defaults``.
 
     Returns
     -------
@@ -2371,6 +2379,14 @@ def build_dashboard(client: SupersetClient, database_id: int, spec: DashboardSpe
         spec.explanation_dataset_columns,
     )
     logger.info("dataset {}: id={}", spec.explanation_dataset_name, explanation_id)
+    comparison_id = upsert_dataset(
+        client,
+        database_id,
+        spec.comparison_dataset_name,
+        spec.comparison_dataset_sql,
+        spec.comparison_dataset_columns,
+    )
+    logger.info("dataset {}: id={}", spec.comparison_dataset_name, comparison_id)
 
     def chart(name: str, params: dict, on: int = dataset_id) -> int:
         chart_id = upsert_chart(client, name, on, params)
@@ -2460,6 +2476,133 @@ def build_dashboard(client: SupersetClient, database_id: int, spec: DashboardSpe
         explanation_id,
     )
 
+    # Compare: the comparison dataset, filtered by Run (candidate) + Baseline
+    signed = spec.signed_number_format
+    cmp_base_mae = chart(
+        "Baseline MAE",
+        big_number_params(
+            comparison_id,
+            spec.baseline_mae_metric,
+            f"{unit}; the Baseline run, matched periods",
+            fmt,
+        ),
+        comparison_id,
+    )
+    cmp_cand_mae = chart(
+        "Candidate MAE",
+        big_number_params(
+            comparison_id, spec.candidate_mae_metric, f"{unit}; the Run, matched periods", fmt
+        ),
+        comparison_id,
+    )
+    cmp_delta_mae = chart(
+        "ΔMAE vs baseline",
+        delta_big_number_params(
+            comparison_id, spec.delta_mae_metric, f"{unit}; − = candidate better", signed
+        ),
+        comparison_id,
+    )
+    cmp_delta_pct = chart(
+        "ΔMAE % vs baseline",
+        delta_big_number_params(
+            comparison_id, spec.delta_mae_pct_metric, "%; − = candidate better", "+,.1f"
+        ),
+        comparison_id,
+    )
+    cmp_delta_bias = chart(
+        "Δ|bias| vs baseline",
+        delta_big_number_params(
+            comparison_id, spec.delta_abs_bias_metric, f"{unit}; − = candidate less biased", signed
+        ),
+        comparison_id,
+    )
+    cmp_delta_wape = chart(
+        "ΔWAPE vs baseline",
+        delta_big_number_params(
+            comparison_id, spec.delta_wape_metric, "− = candidate better", "+.2%"
+        ),
+        comparison_id,
+    )
+    cmp_coverage = chart(
+        "Matched coverage",
+        big_number_params(
+            comparison_id,
+            spec.matched_coverage_metric,
+            "share of the candidate's periods the baseline also scored",
+            ".1%",
+        ),
+        comparison_id,
+    )
+    cmp_days = chart(
+        "Matched days",
+        big_number_params(
+            comparison_id, spec.matched_days_metric, "delivery days both runs scored", ",d"
+        ),
+        comparison_id,
+    )
+    cmp_days_lower = chart(
+        "Days candidate lower",
+        big_number_params(
+            comparison_id,
+            spec.days_candidate_lower_metric,
+            "share of matched days with a lower daily MAE",
+            ".1%",
+        ),
+        comparison_id,
+    )
+    cmp_median = chart(
+        "Median daily ΔMAE",
+        delta_big_number_params(
+            comparison_id, spec.median_daily_delta_metric, f"{unit}; − = candidate better", signed
+        ),
+        comparison_id,
+    )
+    cmp_tc = chart(
+        "ΔMAE % by time code", delta_bar_params(spec, comparison_id, "time_code"), comparison_id
+    )
+    cmp_daypart = chart(
+        "ΔMAE % by day part", delta_bar_params(spec, comparison_id, "day_part"), comparison_id
+    )
+    cmp_daytype = chart(
+        "ΔMAE % by day type", delta_bar_params(spec, comparison_id, "day_type"), comparison_id
+    )
+    cmp_dow = chart(
+        "ΔMAE % by day of week", delta_bar_params(spec, comparison_id, "day_of_week"), comparison_id
+    )
+    cmp_band = chart(
+        spec.delta_band_chart_title,
+        delta_bar_params(spec, comparison_id, spec.band_col),
+        comparison_id,
+    )
+    cmp_year = chart("ΔMAE % by year", delta_bar_params(spec, comparison_id, "year"), comparison_id)
+    cmp_heat_month = chart(
+        "ΔMAE % by year and month",
+        delta_heatmap_params(spec, comparison_id, "month"),
+        comparison_id,
+    )
+    cmp_heat_tc = chart(
+        "ΔMAE % by year and time code",
+        delta_heatmap_params(spec, comparison_id, "time_code"),
+        comparison_id,
+    )
+    cmp_daily = chart("Daily ΔMAE", daily_delta_bar_params(spec, comparison_id), comparison_id)
+    cmp_cumulative = chart(
+        "Cumulative error reduction",
+        cumulative_reduction_params(spec, comparison_id),
+        comparison_id,
+    )
+    cmp_improved = chart(
+        "Most improved days", ranked_days_params(spec, comparison_id, improved=True), comparison_id
+    )
+    cmp_worsened = chart(
+        "Most worsened days", ranked_days_params(spec, comparison_id, improved=False), comparison_id
+    )
+    cmp_detail = chart(
+        "Candidate vs baseline vs actual (30-min detail)",
+        comparison_detail_params(spec, comparison_id),
+        comparison_id,
+    )
+
     accuracy_sections: list[dict[str, Any]] = [
         {
             "header": None,
@@ -2524,9 +2667,63 @@ def build_dashboard(client: SupersetClient, database_id: int, spec: DashboardSpe
             ],
         },
     ]
+    compare_sections: list[dict[str, Any]] = [
+        {
+            "header": None,
+            "rows": [
+                [
+                    (cmp_base_mae, "Baseline MAE", 2, 24),
+                    (cmp_cand_mae, "Candidate MAE", 2, 24),
+                    (cmp_delta_mae, "ΔMAE vs baseline", 2, 24),
+                    (cmp_delta_pct, "ΔMAE % vs baseline", 2, 24),
+                    (cmp_delta_bias, "Δ|bias| vs baseline", 2, 24),
+                    (cmp_delta_wape, "ΔWAPE vs baseline", 2, 24),
+                ],
+                [
+                    (cmp_coverage, "Matched coverage", 3, 24),
+                    (cmp_days, "Matched days", 3, 24),
+                    (cmp_days_lower, "Days candidate lower", 3, 24),
+                    (cmp_median, "Median daily ΔMAE", 3, 24),
+                ],
+            ],
+        },
+        {
+            "header": "Where the candidate wins (ΔMAE % vs baseline)",
+            "rows": [
+                [(cmp_tc, "ΔMAE % by time code", 12, 36)],
+                [
+                    (cmp_daypart, "ΔMAE % by day part", 4, 36),
+                    (cmp_daytype, "ΔMAE % by day type", 4, 36),
+                    (cmp_dow, "ΔMAE % by day of week", 4, 36),
+                ],
+                [
+                    (cmp_band, spec.delta_band_chart_title, 6, 36),
+                    (cmp_year, "ΔMAE % by year", 6, 36),
+                ],
+                [(cmp_heat_month, "ΔMAE % by year and month", 12, 46)],
+                [(cmp_heat_tc, "ΔMAE % by year and time code", 12, 50)],
+            ],
+        },
+        {
+            "header": "Day by day",
+            "rows": [
+                [(cmp_daily, "Daily ΔMAE", 12, 44)],
+                [(cmp_cumulative, "Cumulative error reduction", 12, 40)],
+                [
+                    (cmp_improved, "Most improved days", 6, 40),
+                    (cmp_worsened, "Most worsened days", 6, 40),
+                ],
+            ],
+        },
+        {
+            "header": "Detail",
+            "rows": [[(cmp_detail, "Candidate vs baseline vs actual (30-min detail)", 12, 60)]],
+        },
+    ]
     tabs = [
         {"title": "Accuracy", "sections": accuracy_sections},
         {"title": "Explanation (SHAP)", "sections": explanation_sections},
+        {"title": "Compare", "sections": compare_sections},
     ]
     analysis_charts = [
         kpi_mae,
@@ -2558,14 +2755,48 @@ def build_dashboard(client: SupersetClient, database_id: int, spec: DashboardSpe
         feature_table,
         by_period,
     ]
-    all_charts = [*analysis_charts, *explanation_charts]
-    cross_filter_targets = [detail, *explanation_charts]
-    chart_configuration = build_chart_configuration({worst_days: cross_filter_targets}, all_charts)
+    comparison_charts = [
+        cmp_base_mae,
+        cmp_cand_mae,
+        cmp_delta_mae,
+        cmp_delta_pct,
+        cmp_delta_bias,
+        cmp_delta_wape,
+        cmp_coverage,
+        cmp_days,
+        cmp_days_lower,
+        cmp_median,
+        cmp_tc,
+        cmp_daypart,
+        cmp_daytype,
+        cmp_dow,
+        cmp_band,
+        cmp_year,
+        cmp_heat_month,
+        cmp_heat_tc,
+        cmp_daily,
+        cmp_cumulative,
+        cmp_improved,
+        cmp_worsened,
+        cmp_detail,
+    ]
+    all_charts = [*analysis_charts, *explanation_charts, *comparison_charts]
+    chart_configuration = build_chart_configuration(
+        {
+            worst_days: [detail, *explanation_charts, cmp_detail],
+            cmp_improved: [cmp_detail, *explanation_charts],
+            cmp_worsened: [cmp_detail, *explanation_charts],
+        },
+        all_charts,
+    )
 
-    defaults = run_defaults(client, database_id, spec)
+    defaults = run_defaults(client, database_id, spec, baseline_run)
     default_run = None if defaults is None else defaults.run_label
     default_day = None if defaults is None else defaults.last_day
-    logger.info("default run: {} (last day: {})", default_run, default_day)
+    default_baseline = None if defaults is None else defaults.baseline_run_label
+    logger.info(
+        "defaults: run {} (last day {}), baseline {}", default_run, default_day, default_baseline
+    )
     dashboard_id = upsert_dashboard(
         client,
         spec,
@@ -2575,10 +2806,10 @@ def build_dashboard(client: SupersetClient, database_id: int, spec: DashboardSpe
             run_excluded=[leaderboard],
             default_run_label=default_run,
             explanation_dataset_id=explanation_id,
-            day_excluded=analysis_charts,
+            day_excluded=[*analysis_charts, *comparison_charts],
             default_day_label=default_day,
-            baseline_excluded=all_charts,
-            default_baseline_label=None,
+            baseline_excluded=[*analysis_charts, *explanation_charts],
+            default_baseline_label=default_baseline,
         ),
         chart_configuration,
     )
@@ -2597,7 +2828,9 @@ def main(argv: list[str] | None = None) -> None:
         Command-line arguments (``--url``, ``--user``, ``--password``, each
         defaulting to the corresponding ``SUPERSET_*`` environment value;
         ``--task``, repeatable, one of ``DASHBOARDS`` — every dashboard when
-        omitted). ``None`` reads ``sys.argv``.
+        omitted; ``--baseline-run``, the Compare tab's Baseline filter
+        default, passed to every dashboard built). ``None`` reads
+        ``sys.argv``.
     """
     parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
     parser.add_argument("--url", default=SUPERSET_URL, help="Superset root URL")
@@ -2608,6 +2841,14 @@ def main(argv: list[str] | None = None) -> None:
         action="append",
         choices=list(DASHBOARDS),
         help="dashboard to build (repeatable); default: all of them",
+    )
+    parser.add_argument(
+        "--baseline-run",
+        default=None,
+        help=(
+            "run_id (or prefix) the Compare tab's Baseline filter opens on; default: the newest "
+            "other run with the same area and window as the newest run"
+        ),
     )
     args = parser.parse_args(argv)
 
@@ -2621,7 +2862,7 @@ def main(argv: list[str] | None = None) -> None:
         )
 
     for task in args.task or list(DASHBOARDS):
-        build_dashboard(client, database_id, DASHBOARDS[task])
+        build_dashboard(client, database_id, DASHBOARDS[task], baseline_run=args.baseline_run)
 
 
 if __name__ == "__main__":
