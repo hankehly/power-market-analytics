@@ -1,7 +1,8 @@
 # R-005 — Calendar features from dim_date
 
-- **Status:** Not supported
-- **Last updated:** 2026-09-06 (E-001 rejected by the researcher)
+- **Status:** In progress
+- **Last updated:** 2026-09-06 (E-001 rejected by the researcher; E-002 and
+  E-003 run, decisions pending)
 - **Created:** 2026-09-06
 - **Triggering observation:** None — modeling idea
 - **Related investigations:**
@@ -225,6 +226,277 @@ reference strategy.
 
 ### Follow-up ideas
 
+The researcher asked on 2026-09-06 for two more strategies, each adding one
+part of E-001's set on its own: `holiday_degree` (E-002) and the two holiday
+distances (E-003).
+
+## E-002 — Add holiday_degree alone
+
+### Why this experiment
+
+E-001 left open whether its holiday gain survives without the nine other
+features and which of the ten carries it. The researcher asked on 2026-09-06
+for a strategy that adds `holiday_degree` alone.
+
+### Experiment hypothesis
+
+Adding `holiday_degree` alone to the baseline's feature set, as a plain
+numeric column, lowers overall MAE on the matched window — the
+investigation's hypothesis restricted to this one feature.
+
+### Change
+
+- **Feature** — `HOLIDAY_DEGREE_FEATURE_COLS` (`tasks/demand/features.py`) =
+  `holiday_degree`, the graded 休日度合い of `dim_date` (0 / 0.3 / 0.5 / 0.8 /
+  1.0), joined to every training and prediction row on the delivery day by
+  E-001's `join_day_calendar`, restricted to this column. Not categorical.
+  The nine other calendar attributes are left out.
+- **Strategy** — `lightgbm_msm_popw_daytype_simday_holidaydegree`
+  (`LightGbmMsmPopWeightedDayTypeSimilarDayHolidayDegreeStrategy`): E-001's
+  strategy with its `calendar_feature_cols` narrowed to that one column (the
+  E-001 class gained the attribute for this). Inputs, model parameters, refit
+  cadence, population weights (2020 census) and the similar-day selector are
+  unchanged, so the feature is the only difference from the baseline.
+
+### Expected evidence
+
+Pre-registered from the investigation's stated expectation:
+
+- Lower overall MAE than the baseline's 585,362 kWh on the matched window
+- Overall MAE unchanged or higher, or a gain in one segment offset by a loss
+  elsewhere, would make the hypothesis less plausible
+- E-001's one gain was on holidays (−10.0 %): whether that segment moves
+  without the nine other features is the open question this run answers
+
+### Decision rule
+
+The standing rule of R-004 E-002, as in E-001. The decision is the
+researcher's.
+
+### Execution
+
+- **MLflow experiment:** `demand`
+- **Baseline run:**
+  [`008868fe59274abfb49f128e29aa28fe`](http://localhost:5005/#/experiments/2/runs/008868fe59274abfb49f128e29aa28fe),
+  compared as run
+- **Candidate runs:**
+  [`a8da46c57cd745c1a7c2b311c7085de0`](http://localhost:5005/#/experiments/2/runs/a8da46c57cd745c1a7c2b311c7085de0)
+  (2026-09-06, `lightgbm_msm_popw_daytype_simday_holidaydegree --start-date
+  2024-08-18 --end-date 2026-08-17 --area tokyo`, no `--train-start`; 729
+  delivery days, 34,954 predictions, one skipped day — 2025-06-21, as in
+  every run; 105 refits; 8.4 min; the selector fitted to the same weights
+  as the baseline and E-001 runs, so the feature is the only difference)
+- **Code or pull request:** branch `feature/demand-holiday-features`, stacked
+  on `feature/demand-calendar-features` (PR #51)
+
+### Results
+
+Matched window 2024-08-18 to 2026-08-17, 729 days, `compare_demand_runs.py`
+(kWh per 30-minute period).
+
+| Metric | Baseline | Candidate | Absolute change | Relative change |
+|---|---:|---:|---:|---:|
+| Overall MAE | 585,362 | 587,038 | +1,676 | +0.3 % |
+| MAPE | 3.61 % | 3.62 % | +0.01 pt | +0.3 % |
+| Mean error / bias | −28,365 | −23,903 | +4,462 | — |
+| Weekday MAE | 561,769 | 562,757 | +988 | +0.2 % |
+| Weekend MAE | 587,210 | 586,937 | −272 | −0.0 % |
+| Holiday MAE | 765,760 | 779,177 | +13,416 | +1.8 % |
+| Overnight MAE | 385,373 | 386,808 | +1,435 | +0.4 % |
+| Morning MAE | 559,934 | 555,272 | −4,662 | −0.8 % |
+| Daytime MAE | 749,628 | 752,171 | +2,543 | +0.3 % |
+| Evening MAE | 520,278 | 522,863 | +2,585 | +0.5 % |
+| Winter MAE (Dec–Feb) | 681,699 | 688,962 | +7,263 | +1.1 % |
+| Spring MAE (Mar–May) | 537,595 | 540,815 | +3,221 | +0.6 % |
+| Summer MAE (Jun–Aug) | 661,742 | 659,041 | −2,702 | −0.4 % |
+| Autumn MAE (Sep–Nov) | 461,906 | 460,878 | −1,028 | −0.2 % |
+| Top-10 % demand days MAE | 734,621 | 733,818 | −803 | −0.1 % |
+
+Daily paired comparison over the 729 days: the candidate is lower on 51.0 %
+of days (372); mean daily-MAE difference +1,686 kWh, 95 % bootstrap
+interval over days [−3,659, +6,970] (10,000 resamples, seed 0); median
+−614 kWh. By calendar month the candidate is lower in 12 of 25 months and
+higher in 13; the largest increases are 2026-04 (+7.1 %), 2026-02 (+6.3 %)
+and 2024-12 (+3.2 %), the largest decreases 2026-08 (−5.5 %) and 2025-01
+(−5.1 %).
+
+![MAE by month](assets/R-005-E-002-mae-by-month.png)
+
+Share of the mean absolute SHAP contribution per feature
+(`fct_demand_forecast_contribution`, both runs):
+
+| Feature | Baseline | Candidate |
+|---|---:|---:|
+| `similar_day_demand_kwh` | 50.0 % | 49.5 % |
+| `time_code` | 13.3 % | 13.3 % |
+| `popw_forecast_temperature_c` | 12.7 % | 12.8 % |
+| `wavg_temperature_c` | 6.6 % | 6.6 % |
+| `day_type` | 6.4 % | 2.9 % |
+| `lag_7d_demand_kwh` | 4.3 % | 4.5 % |
+| `day_of_week` | 3.9 % | 3.0 % |
+| `month` | 2.8 % | 2.6 % |
+| `holiday_degree` | — | 4.8 % |
+
+### Interpretation
+
+The overall error is unchanged within noise: +0.3 %, an interval over days
+that straddles zero, the candidate lower on half the days and in 12 of 25
+months. No segment moves by more than 2 % either way. Holidays, E-001's one
+gain, are 1.8 % worse here; mornings (−0.8 %), summer and autumn improve
+slightly.
+
+`holiday_degree` takes 4.8 % of the attribution mass, most of it from
+`day_type` (6.4 % → 2.9 %) and `day_of_week` (3.9 % → 3.0 %); every other
+share is within 0.5 points of the baseline's.
+
+Limitations: as in E-001, one area and one 729-day window.
+
+### Reading against the decision rule
+
+Overall MAE is 0.3 % higher and the interval over days includes zero, so
+the standing rule reads *Inconclusive*. No day type is materially worse.
+
+### Decision
+
+**Decision:** pending — the researcher's call. The strategy is registered.
+
+### Follow-up ideas
+
+—
+
+## E-003 — Add the two holiday distances alone
+
+### Why this experiment
+
+The second of the two strategies the researcher asked for on 2026-09-06:
+E-001's set reduced to the distances to the nearest holiday.
+
+### Experiment hypothesis
+
+Adding `days_since_holiday` and `days_until_holiday` alone to the baseline's
+feature set, as plain numeric columns, lowers overall MAE on the matched
+window — the investigation's hypothesis restricted to these two features.
+
+### Change
+
+- **Features** — `HOLIDAY_DISTANCE_FEATURE_COLS` (`tasks/demand/features.py`)
+  = `days_since_holiday`, `days_until_holiday`: calendar days from the
+  delivery day back to the last and forward to the next `dim_date.is_holiday`
+  day (0 on a holiday), computed by `load_day_calendar` over the spine and
+  joined per delivery day by E-001's `join_day_calendar`, restricted to these
+  two columns. Not categorical. The eight other calendar attributes are left
+  out.
+- **Strategy** — `lightgbm_msm_popw_daytype_simday_holidaydistance`
+  (`LightGbmMsmPopWeightedDayTypeSimilarDayHolidayDistanceStrategy`): E-001's
+  strategy with `calendar_feature_cols` narrowed to the two columns;
+  everything else as in E-002, so the two features are the only difference
+  from the baseline.
+
+### Expected evidence
+
+As for E-002: lower overall MAE than 585,362 kWh supports the hypothesis; an
+unchanged or higher overall MAE, or an offset gain, makes it less plausible;
+the holiday segment is the one to watch.
+
+### Decision rule
+
+The standing rule of R-004 E-002, as in E-001. The decision is the
+researcher's.
+
+### Execution
+
+- **MLflow experiment:** `demand`
+- **Baseline run:**
+  [`008868fe59274abfb49f128e29aa28fe`](http://localhost:5005/#/experiments/2/runs/008868fe59274abfb49f128e29aa28fe),
+  compared as run
+- **Candidate runs:**
+  [`f7153839b2d34f5fbbed4deb479835b3`](http://localhost:5005/#/experiments/2/runs/f7153839b2d34f5fbbed4deb479835b3)
+  (2026-09-06, `lightgbm_msm_popw_daytype_simday_holidaydistance --start-date
+  2024-08-18 --end-date 2026-08-17 --area tokyo`, no `--train-start`; 729
+  delivery days, 34,954 predictions, one skipped day — 2025-06-21; 105
+  refits; 5.4 min; the same selector weights as the baseline run, so the two
+  features are the only difference)
+- **Code or pull request:** branch `feature/demand-holiday-features`, stacked
+  on `feature/demand-calendar-features` (PR #51)
+
+### Results
+
+Matched window 2024-08-18 to 2026-08-17, 729 days, `compare_demand_runs.py`
+(kWh per 30-minute period).
+
+| Metric | Baseline | Candidate | Absolute change | Relative change |
+|---|---:|---:|---:|---:|
+| Overall MAE | 585,362 | 623,183 | +37,822 | +6.5 % |
+| MAPE | 3.61 % | 3.84 % | +0.23 pt | +6.4 % |
+| Mean error / bias | −28,365 | −41,675 | −13,310 | — |
+| Weekday MAE | 561,769 | 609,543 | +47,774 | +8.5 % |
+| Weekend MAE | 587,210 | 608,937 | +21,727 | +3.7 % |
+| Holiday MAE | 765,760 | 777,052 | +11,292 | +1.5 % |
+| Overnight MAE | 385,373 | 422,455 | +37,081 | +9.6 % |
+| Morning MAE | 559,934 | 604,398 | +44,463 | +7.9 % |
+| Daytime MAE | 749,628 | 782,950 | +33,323 | +4.4 % |
+| Evening MAE | 520,278 | 564,126 | +43,848 | +8.4 % |
+| Winter MAE (Dec–Feb) | 681,699 | 696,783 | +15,084 | +2.2 % |
+| Spring MAE (Mar–May) | 537,595 | 583,728 | +46,134 | +8.6 % |
+| Summer MAE (Jun–Aug) | 661,742 | 728,980 | +67,238 | +10.2 % |
+| Autumn MAE (Sep–Nov) | 461,906 | 484,363 | +22,457 | +4.9 % |
+| Top-10 % demand days MAE | 734,621 | 821,633 | +87,012 | +11.8 % |
+
+Daily paired comparison over the 729 days: the candidate is lower on 45.8 %
+of days (334); mean daily-MAE difference +37,742 kWh, 95 % bootstrap
+interval over days [+22,513, +53,333] (10,000 resamples, seed 0); median
++9,534 kWh. By calendar month the candidate is lower in 8 of 25 months
+(2024-09, 2024-12, 2025-05, 2025-08, 2025-10, 2025-12, 2026-02, 2026-08)
+and higher in 17; the largest increases are 2025-07 (+29.7 %), 2026-07
+(+25.9 %), 2025-01 (+18.0 %), 2026-03 (+17.2 %) and 2024-11 (+15.3 %), the
+largest decreases 2024-12 (−11.6 %) and 2025-12 (−9.3 %).
+
+![MAE by month](assets/R-005-E-003-mae-by-month.png)
+
+Share of the mean absolute SHAP contribution per feature
+(`fct_demand_forecast_contribution`, both runs):
+
+| Feature | Baseline | Candidate |
+|---|---:|---:|
+| `similar_day_demand_kwh` | 50.0 % | 50.7 % |
+| `time_code` | 13.3 % | 11.6 % |
+| `popw_forecast_temperature_c` | 12.7 % | 11.8 % |
+| `wavg_temperature_c` | 6.6 % | 5.3 % |
+| `day_type` | 6.4 % | 3.7 % |
+| `lag_7d_demand_kwh` | 4.3 % | 5.6 % |
+| `day_of_week` | 3.9 % | 3.9 % |
+| `month` | 2.8 % | 2.2 % |
+| `days_since_holiday` | — | 3.0 % |
+| `days_until_holiday` | — | 2.3 % |
+
+### Interpretation
+
+The overall error rises 6.5 % and the rise is broad: every day part (+4.4 %
+to +9.6 %), every day type (weekdays +8.5 %, weekends +3.7 %, holidays
++1.5 %), every season, the top-10 % demand days (+11.8 %) and 17 of 25
+months. The largest increases are the two Julys (2025-07 +29.7 %, 2026-07
++25.9 %), 2025-01 and 2026-03; the largest decreases the two Decembers
+(2024-12 −11.6 %, 2025-12 −9.3 %). The bias grows from −28,365 to −41,675
+kWh.
+
+The two distances take 5.3 % of the attribution mass between them (3.0 %
+and 2.3 %), from `day_type` (6.4 % → 3.7 %), `time_code` (13.3 % →
+11.6 %) and the observed temperature (6.6 % → 5.3 %); the D-7 lag's share
+rises (4.3 % → 5.6 %).
+
+Limitations: as in E-001, one area and one 729-day window.
+
+### Reading against the decision rule
+
+Overall MAE is higher and the interval over days excludes zero on the
+positive side, so the standing rule reads *Reject*. Every day type is worse.
+
+### Decision
+
+**Decision:** pending — the researcher's call. The strategy is registered.
+
+### Follow-up ideas
+
 —
 
 ---
@@ -239,15 +511,25 @@ broad deterioration across day parts, weekdays, weekends and seasons and a
 hypothesis that the ten features carry predictive value the model lacks is
 not supported on this window.
 
+E-002 and E-003 (2026-09-06): neither part on its own lowers the error.
+`holiday_degree` alone leaves overall MAE unchanged within noise (+0.3 %,
+interval over days [−3,659, +6,970]) and makes holidays 1.8 % worse; the
+two holiday distances alone raise it 6.5 % ([+22,513, +53,333]) across
+every day part, day type and season. E-001's holiday gain (−10.0 %) appears
+with neither subset. Decisions pending with the researcher.
+
 ## Open questions
 
-- Whether the holiday gain survives without the nine other features, and
-  which of the ten carries it (the per-day SHAP waterfall of the Explanation
-  tab shows the candidate run's decomposition on any holiday)
+- Which of E-001's ten features carries its holiday gain: not
+  `holiday_degree` alone (E-002, holidays +1.8 %) and not the two holiday
+  distances alone (E-003, +1.5 %); the seven others, and combinations, are
+  untested (the per-day SHAP waterfall of the Explanation tab shows any run's
+  decomposition on any holiday)
 
 ## Final disposition
 
-**Investigation status:** Not supported
+**Investigation status:** In progress — E-001 Not supported; E-002 and E-003
+run 2026-09-06, decisions pending
 **Recommended action:** keep the baseline `lightgbm_msm_popw_daytype_simday`;
-no production change. The strategy stays registered as a reference.
+no production change. The three strategies are registered as references.
 **Superseded by:** —

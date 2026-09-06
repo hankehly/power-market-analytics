@@ -3,7 +3,8 @@ baseline, the same model plus the MSM forecast temperature at the representative
 station, the same again with that forecast population-weighted over the area's
 stations, that one plus the delivery day's type as a categorical, that one
 plus the load of a learned similar day one year earlier, and that one plus the
-delivery day's ``dim_date`` calendar attributes."""
+delivery day's ``dim_date`` calendar attributes — all ten, the holiday degree
+alone, or the two distances to the nearest holiday."""
 
 from __future__ import annotations
 
@@ -27,6 +28,8 @@ from power_market_analytics.tasks.demand.features import (
     DAY_CALENDAR_FEATURE_COLS,
     DAY_TYPE_FEATURE,
     FORECAST_TEMPERATURE_FEATURE,
+    HOLIDAY_DEGREE_FEATURE_COLS,
+    HOLIDAY_DISTANCE_FEATURE_COLS,
     POPW_FORECAST_TEMPERATURE_FEATURE,
     TEMPERATURE_FEATURE,
     TEMPERATURE_HALF_LIFE_DAYS,
@@ -64,6 +67,11 @@ MSM_POPW_FEATURE_COLS = (*FEATURE_COLS, POPW_FORECAST_TEMPERATURE_FEATURE)
 MSM_POPW_DAY_TYPE_FEATURE_COLS = (*MSM_POPW_FEATURE_COLS, DAY_TYPE_FEATURE)
 SIMILAR_DAY_FEATURE_COLS = (*MSM_POPW_DAY_TYPE_FEATURE_COLS, SIMILAR_DAY_FEATURE)
 SIMILAR_DAY_CALENDAR_FEATURE_COLS = (*SIMILAR_DAY_FEATURE_COLS, *DAY_CALENDAR_FEATURE_COLS)
+SIMILAR_DAY_HOLIDAY_DEGREE_FEATURE_COLS = (*SIMILAR_DAY_FEATURE_COLS, *HOLIDAY_DEGREE_FEATURE_COLS)
+SIMILAR_DAY_HOLIDAY_DISTANCE_FEATURE_COLS = (
+    *SIMILAR_DAY_FEATURE_COLS,
+    *HOLIDAY_DISTANCE_FEATURE_COLS,
+)
 TARGET_COL = TASK.actual_col
 FORECAST_COL = TASK.forecast_col
 
@@ -656,7 +664,9 @@ class LightGbmMsmPopWeightedDayTypeSimilarDayCalendarStrategy(
     ``days_until_holiday`` — are joined to every training and prediction row
     from the :class:`DayCalendar` the parent already receives, as plain
     numeric columns; ``day_type`` stays the only categorical. A day outside
-    the calendar is unforecastable, as for the parent.
+    the calendar is unforecastable, as for the parent. A subclass narrows the
+    attributes joined by setting ``calendar_feature_cols`` (with matching
+    ``feature_cols`` and ``eval_set_cls``).
 
     Parameters
     ----------
@@ -680,6 +690,8 @@ class LightGbmMsmPopWeightedDayTypeSimilarDayCalendarStrategy(
     name = "lightgbm_msm_popw_daytype_simday_calendar"
     feature_cols = SIMILAR_DAY_CALENDAR_FEATURE_COLS
     eval_set_cls = DemandLightGbmMsmPopWeightedDayTypeSimilarDayCalendarEvalSet
+    #: The ``DayCalendar`` columns joined as features, in ``feature_cols`` order.
+    calendar_feature_cols: tuple[str, ...] = DAY_CALENDAR_FEATURE_COLS
 
     def __init__(
         self,
@@ -720,4 +732,90 @@ class LightGbmMsmPopWeightedDayTypeSimilarDayCalendarStrategy(
             attributes NaN on days outside the calendar).
         """
         featured = super()._add_features(featured, history)
-        return join_day_calendar(featured, self.day_calendar)
+        return join_day_calendar(featured, self.day_calendar, cols=self.calendar_feature_cols)
+
+
+def _calendar_subset_schema(cols: tuple[str, ...]) -> dict[str, str]:
+    """Eval-set schema of the calendar design matrix restricted to ``cols``.
+
+    Parameters
+    ----------
+    cols : tuple of str
+        The ``DAY_CALENDAR_FEATURE_COLS`` kept, in that tuple's order.
+
+    Returns
+    -------
+    dict of str to str
+        Column → pandas dtype of
+        :class:`DemandLightGbmMsmPopWeightedDayTypeSimilarDayCalendarEvalSet`
+        with the other calendar columns dropped.
+    """
+    dropped = set(DAY_CALENDAR_FEATURE_COLS) - set(cols)
+    calendar_schema = DemandLightGbmMsmPopWeightedDayTypeSimilarDayCalendarEvalSet.schema
+    return {col: dtype for col, dtype in calendar_schema.items() if col not in dropped}
+
+
+class DemandLightGbmMsmPopWeightedDayTypeSimilarDayHolidayDegreeEvalSet(
+    DemandLightGbmMsmPopWeightedDayTypeSimilarDayCalendarEvalSet
+):
+    """Design matrix for :class:`LightGbmMsmPopWeightedDayTypeSimilarDayHolidayDegreeStrategy`:
+    the similar-day design matrix plus the delivery day's holiday degree.
+
+    Grain: (trade_date, time_code).
+    """
+
+    feature_cols = SIMILAR_DAY_HOLIDAY_DEGREE_FEATURE_COLS
+    schema = _calendar_subset_schema(HOLIDAY_DEGREE_FEATURE_COLS)
+    non_null_cols = [*SIMILAR_DAY_HOLIDAY_DEGREE_FEATURE_COLS, TARGET_COL, FORECAST_COL]
+
+
+class DemandLightGbmMsmPopWeightedDayTypeSimilarDayHolidayDistanceEvalSet(
+    DemandLightGbmMsmPopWeightedDayTypeSimilarDayCalendarEvalSet
+):
+    """Design matrix for
+    :class:`LightGbmMsmPopWeightedDayTypeSimilarDayHolidayDistanceStrategy`: the
+    similar-day design matrix plus the days since and until the nearest holiday.
+
+    Grain: (trade_date, time_code).
+    """
+
+    feature_cols = SIMILAR_DAY_HOLIDAY_DISTANCE_FEATURE_COLS
+    schema = _calendar_subset_schema(HOLIDAY_DISTANCE_FEATURE_COLS)
+    non_null_cols = [*SIMILAR_DAY_HOLIDAY_DISTANCE_FEATURE_COLS, TARGET_COL, FORECAST_COL]
+
+
+class LightGbmMsmPopWeightedDayTypeSimilarDayHolidayDegreeStrategy(
+    LightGbmMsmPopWeightedDayTypeSimilarDayCalendarStrategy
+):
+    """:class:`LightGbmMsmPopWeightedDayTypeSimilarDayStrategy` plus the delivery
+    day's ``holiday_degree`` alone.
+
+    Experiment E-002 of docs/research/demand/R-005-calendar-features.md: the
+    baseline's inputs and features plus the graded 休日度合い of ``dim_date``
+    (0 / 0.3 / 0.5 / 0.8 / 1.0), joined as the parent joins all ten; the nine
+    other calendar attributes are left out. Same constructor as the parent.
+    """
+
+    name = "lightgbm_msm_popw_daytype_simday_holidaydegree"
+    feature_cols = SIMILAR_DAY_HOLIDAY_DEGREE_FEATURE_COLS
+    eval_set_cls = DemandLightGbmMsmPopWeightedDayTypeSimilarDayHolidayDegreeEvalSet
+    calendar_feature_cols = HOLIDAY_DEGREE_FEATURE_COLS
+
+
+class LightGbmMsmPopWeightedDayTypeSimilarDayHolidayDistanceStrategy(
+    LightGbmMsmPopWeightedDayTypeSimilarDayCalendarStrategy
+):
+    """:class:`LightGbmMsmPopWeightedDayTypeSimilarDayStrategy` plus the days
+    since and until the nearest holiday.
+
+    Experiment E-003 of docs/research/demand/R-005-calendar-features.md: the
+    baseline's inputs and features plus ``days_since_holiday`` and
+    ``days_until_holiday`` (calendar days to the nearest ``dim_date.is_holiday``
+    day, 0 on a holiday), joined as the parent joins all ten; the eight other
+    calendar attributes are left out. Same constructor as the parent.
+    """
+
+    name = "lightgbm_msm_popw_daytype_simday_holidaydistance"
+    feature_cols = SIMILAR_DAY_HOLIDAY_DISTANCE_FEATURE_COLS
+    eval_set_cls = DemandLightGbmMsmPopWeightedDayTypeSimilarDayHolidayDistanceEvalSet
+    calendar_feature_cols = HOLIDAY_DISTANCE_FEATURE_COLS
