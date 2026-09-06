@@ -13,6 +13,10 @@ day), downloads and decodes the three GRIB2 files covering D
 under ``--data-dir/csv/``, reusing an already-cached extract unless
 ``--force``. The three GRIB2 files are deleted after a successful extract
 unless ``--keep-grib``.
+
+TLS needs no setup: RISH has sent an incomplete certificate chain since
+2026-05-28, and the downloader's default session trusts the missing
+intermediate CA directly (``power_market_analytics.msm.default_session``).
 """
 
 import argparse

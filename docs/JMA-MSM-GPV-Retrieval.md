@@ -468,37 +468,55 @@ call rather than silently treated as complete. GRIB2 files already downloaded be
 mid-day failure are left in place (for inspection, and to avoid re-downloading them on
 retry) even though the day itself isn't marked done.
 
-### 8.4 RISH TLS chain workaround
+### 8.4 RISH TLS chain: the vendored intermediate CA
 
 Since a server-side leaf certificate renewal on **2026-05-28**,
 `database.rish.kyoto-u.ac.jp` serves a **stale intermediate** ("NII Open Domain CA - G7
 RSA") for a leaf now issued by "NII Open Domain CA - G8 RSA" — an incomplete chain. Browsers
 and macOS `curl` tolerate this (they chase the correct intermediate via the leaf's Authority
 Information Access extension); Python's `requests`/`certifi` does not, and download attempts
-fail with `unable to get local issuer certificate`.
+fail with `unable to get local issuer certificate`. The leaf is valid until 2026-12-12, so
+the broken chain lasts at least until RISH's next renewal.
 
-**Workaround** (used for this pipeline's verification run and documented here for future
-operators, until RISH fixes their chain): fetch the missing G8 intermediate certificate from
-the leaf's AIA URL, append it in PEM form to a copy of the `certifi` bundle, and point
-`REQUESTS_CA_BUNDLE` at the combined file for the download step:
+**Built-in fix (since 2026-09-06).** The G8 intermediate is checked in as
+`power_market_analytics/certs/nii-open-domain-ca-g8-rsa.pem` — fetched from the leaf's AIA
+URL `http://repo1.secomtrust.net/sppca/nii/odca4/nii-odca4g8rsa.cer`, valid 2025-08-21 →
+2040-08-21, sha256 fingerprint
+`7A:4A:D9:E1:BA:2D:FB:08:F7:52:A1:24:03:2F:70:58:86:80:62:E9:84:17:85:62:3E:B4:13:67:83:A5:3F:FC`.
+`msm.default_session()`, the session `MsmDownloader` uses when none is injected, mounts an
+HTTPS adapter whose `ssl.SSLContext` holds certifi's roots plus that certificate, so the
+leaf verifies with G8 as a trust anchor. This relies on partial-chain verification: G8's own
+root ("SECOM TLS RSA Root CA 2024") is not in certifi 2026.06.17 either, but Python 3.13's
+and urllib3's default contexts set `VERIFY_X509_PARTIAL_CHAIN`, which accepts an
+intermediate in the trust store as an anchor. Nothing to configure: `just refresh-all`, the
+script in the devcontainer and a host-side run all verify. `REQUESTS_CA_BUNDLE`, if set, is
+still honoured (urllib3 loads it into the same context).
+
+Before this, the fix was a manual `REQUESTS_CA_BUNDLE=<certifi + G8 bundle>` on every
+host-side run. That is why `just refresh-all`, which runs the script in the container with
+stock certifi, could not get past the MSM download step (noticed 2026-09-06, the first
+refresh after the MSM steps joined the recipe).
+
+**Checking whether RISH has fixed their chain.** Do this occasionally. Once fixed, the
+vendored certificate is harmless but can be dropped, together with `default_session`.
 
 ```bash
-curl -s http://repo1.secomtrust.net/sppca/nii/odca4/nii-odca4g8rsa.cer | \
-  openssl x509 -inform der -outform pem >> combined-ca-bundle.pem
-cat "$(python -c 'import certifi; print(certifi.where())')" >> combined-ca-bundle.pem
-REQUESTS_CA_BUNDLE=combined-ca-bundle.pem uv run python scripts/download_jma_msm_surface_forecast.py ...
+echo | openssl s_client -connect database.rish.kyoto-u.ac.jp:443 \
+  -servername database.rish.kyoto-u.ac.jp 2>&1 | grep -E "^ *[0-9] s:| i:|Verify return code"
 ```
 
-No code change was needed or made — `MsmDownloader`'s injectable `session` parameter is the
-code-level seam available if a permanent fix (e.g. a custom `requests.Session` with the
-bundle baked in) is ever wanted. This may resolve itself whenever RISH corrects their
-server's certificate chain; re-check without the workaround periodically.
+Broken: certificate 1 is the G7 intermediate and the verify return code is 21 (unable to
+verify the first certificate). Fixed: certificate 1 is G8 and the code is 0. Do not judge the
+built-in fix with `openssl s_client -CAfile <bundle>`: without `-partial_chain` it reports
+code 2 for a bundle Python accepts.
 
-Re-checked 2026-09-05 before the 2019-04-01 backfill: **still broken** — `openssl s_client`
-shows the server sending the G7 intermediate for its G8-issued leaf (verify return code 21),
-and a plain `requests` call with stock `certifi` 2026.06.17 fails with the same error; that
-backfill ran with the combined bundle. Probe with `REQUESTS_CA_BUNDLE` unset: with the
-variable exported, every call in the process verifies and the probe reports a false fix.
+History. Re-checked 2026-09-05 before the 2019-04-01 backfill: still broken (`openssl`
+verify return code 21; a plain `requests` call with stock `certifi` 2026.06.17 fails with the
+same error); that backfill ran with the manual bundle. Re-checked 2026-09-06: still broken;
+the built-in fix was verified end to end in the devcontainer with `REQUESTS_CA_BUNDLE`
+unset — delivery day 2026-09-07, 3 files, 3,576 records, the same sha256s as the host-side
+download. Probe with `REQUESTS_CA_BUNDLE` unset: with the variable exported, every call in
+the process verifies and the probe reports a false fix.
 
 ## 9. Verification results (one-day end-to-end, 2026-08-21)
 
