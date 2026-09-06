@@ -22,7 +22,7 @@ import requests
 from tests.support import import_script
 
 BASE = "http://superset.test:8088"
-DEFAULT_LABEL = "2026-08-18 09:00 | tokyo | abcdef12"
+DEFAULT_LABEL = "2026-08-18 09:00 | tokyo | lightgbm | abcdef12"
 DEFAULT_LAST_DAY = "2026-08-17"
 
 # The exact rison the client must send for an equality lookup: one or more
@@ -302,8 +302,15 @@ select
   concat(
     date_format(f.published_at, 'yyyy-MM-dd HH:mm'),
     ' | ', a.area_code,
+    ' | ', f.strategy,
     ' | ', substring(f.run_id, 1, 8)
   ) as run_label,
+  concat(
+    date_format(f.published_at, 'yyyy-MM-dd HH:mm'),
+    ' | ', a.area_code,
+    ' | ', f.strategy,
+    ' | ', substring(f.run_id, 1, 8)
+  ) as baseline_run_label,
   f.strategy,
   f.published_at,
   f.forecast_issued_ts,
@@ -358,8 +365,15 @@ select
   concat(
     date_format(f.published_at, 'yyyy-MM-dd HH:mm'),
     ' | ', a.area_code,
+    ' | ', f.strategy,
     ' | ', substring(f.run_id, 1, 8)
   ) as run_label,
+  concat(
+    date_format(f.published_at, 'yyyy-MM-dd HH:mm'),
+    ' | ', a.area_code,
+    ' | ', f.strategy,
+    ' | ', substring(f.run_id, 1, 8)
+  ) as baseline_run_label,
   f.strategy,
   f.published_at,
   f.forecast_issued_ts,
@@ -405,6 +419,7 @@ COMMON_COLUMNS_HEAD = [
     ("area_name_en", "STRING", False),
     ("run_id", "STRING", False),
     ("run_label", "STRING", False),
+    ("baseline_run_label", "STRING", False),
     ("strategy", "STRING", False),
     ("published_at", "TIMESTAMP", True),
     ("forecast_issued_ts", "TIMESTAMP", True),
@@ -451,6 +466,7 @@ select
   concat(
     date_format(c.published_at, 'yyyy-MM-dd HH:mm'),
     ' | ', a.area_code,
+    ' | ', c.strategy,
     ' | ', substring(c.run_id, 1, 8)
   ) as run_label,
   c.strategy,
@@ -594,6 +610,22 @@ class TestDashboardSpecs:
 
     def test_demand_dataset_sql(self, demand):
         assert demand.dataset_sql == DEMAND_DATASET_SQL
+
+    def test_run_label_has_one_definition(self, script, spec):
+        label = script.RUN_LABEL_SQL.format(f="f", a="a")
+        assert label == (
+            "concat(\n"
+            "    date_format(f.published_at, 'yyyy-MM-dd HH:mm'),\n"
+            "    ' | ', a.area_code,\n"
+            "    ' | ', f.strategy,\n"
+            "    ' | ', substring(f.run_id, 1, 8)\n"
+            "  )"
+        )
+        assert spec.dataset_sql.count(f"  {label} as run_label,\n") == 1
+        assert spec.dataset_sql.count(f"  {label} as baseline_run_label,\n") == 1
+        assert f"  {script.RUN_LABEL_SQL.format(f='c', a='a')} as run_label,\n" in (
+            spec.explanation_dataset_sql
+        )
 
     def test_dataset_columns_follow_the_sql(self, spot, demand):
         assert spot.dataset_columns == SPOT_COLUMNS
@@ -836,7 +868,7 @@ class TestLatestRun:
         assert payload["runAsync"] is False
         assert f"from {spec.accuracy_table} f" in payload["sql"]
         assert "date_format(max(f.date_key), 'yyyy-MM-dd') as last_day" in payload["sql"]
-        assert "group by f.run_id, f.published_at, a.area_code" in payload["sql"]
+        assert "group by f.run_id, f.strategy, f.published_at, a.area_code" in payload["sql"]
         assert "order by f.published_at desc" in payload["sql"]
         assert "limit 1" in payload["sql"]
         assert "as run_label" in payload["sql"]

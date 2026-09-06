@@ -55,6 +55,19 @@ ADMIN_PASSWORD = os.environ.get("SUPERSET_ADMIN_PASSWORD", "admin")
 
 DATABASE_NAME = "Spark Thriftserver"
 
+# The Run / Baseline filters' option text and the datasets' run_label:
+# published_at | area | strategy | run_id prefix (newest first when sorted
+# descending). One definition, formatted with the fact's alias ``f`` and
+# dim_area's alias ``a``, so every dataset and the default-run query build the
+# label identically — a filter value only matches a chart's rows when they do.
+RUN_LABEL_SQL = """\
+concat(
+    date_format({f}.published_at, 'yyyy-MM-dd HH:mm'),
+    ' | ', {a}.area_code,
+    ' | ', {f}.strategy,
+    ' | ', substring({f}.run_id, 1, 8)
+  )"""
+
 # Shared skeleton of every task's virtual dataset: calendar / delivery-period
 # / area context, the run label, then the task's value and error columns
 # (in the task's display unit) and the unit-free percentage errors.
@@ -82,11 +95,8 @@ select
   a.area_code,
   a.area_name_en,
   f.run_id,
-  concat(
-    date_format(f.published_at, 'yyyy-MM-dd HH:mm'),
-    ' | ', a.area_code,
-    ' | ', substring(f.run_id, 1, 8)
-  ) as run_label,
+  {run_label_sql} as run_label,
+  {run_label_sql} as baseline_run_label,
   f.strategy,
   f.published_at,
   f.forecast_issued_ts,
@@ -102,7 +112,8 @@ join pma_curated.dim_date d on f.date_key = d.date_key
 
 # (column_name, generic type, is temporal) for the shared head of the select
 # list — kept in sync with DATASET_SQL_TEMPLATE so reruns can override stale
-# column metadata after a SQL change.
+# column metadata after a SQL change. ``baseline_run_label`` repeats the label
+# so the Baseline native filter (Task 8) can list the runs from this dataset.
 COMMON_DATASET_COLUMNS = (
     ("date_key", "DATE", True),
     ("trade_datetime", "TIMESTAMP", True),
@@ -123,6 +134,7 @@ COMMON_DATASET_COLUMNS = (
     ("area_name_en", "STRING", False),
     ("run_id", "STRING", False),
     ("run_label", "STRING", False),
+    ("baseline_run_label", "STRING", False),
     ("strategy", "STRING", False),
     ("published_at", "TIMESTAMP", True),
     ("forecast_issued_ts", "TIMESTAMP", True),
@@ -152,11 +164,7 @@ select
   a.area_code,
   a.area_name_en,
   c.run_id,
-  concat(
-    date_format(c.published_at, 'yyyy-MM-dd HH:mm'),
-    ' | ', a.area_code,
-    ' | ', substring(c.run_id, 1, 8)
-  ) as run_label,
+  {run_label_sql} as run_label,
   c.strategy,
   c.published_at,
   c.component,
@@ -335,6 +343,7 @@ class DashboardSpec:
         return DATASET_SQL_TEMPLATE.format(
             value_columns_sql=self.value_columns_sql,
             accuracy_table=self.accuracy_table,
+            run_label_sql=RUN_LABEL_SQL.format(f="f", a="a"),
         )
 
     @property
@@ -385,6 +394,7 @@ class DashboardSpec:
             explanation_value_columns_sql=self.explanation_value_columns_sql,
             contribution_table=self.contribution_table,
             accuracy_table=self.accuracy_table,
+            run_label_sql=RUN_LABEL_SQL.format(f="c", a="a"),
         )
 
     @property
@@ -714,15 +724,11 @@ def latest_run(
     """
     sql = f"""\
 select
-  concat(
-    date_format(f.published_at, 'yyyy-MM-dd HH:mm'),
-    ' | ', a.area_code,
-    ' | ', substring(f.run_id, 1, 8)
-  ) as run_label,
+  {RUN_LABEL_SQL.format(f="f", a="a")} as run_label,
   date_format(max(f.date_key), 'yyyy-MM-dd') as last_day
 from {spec.accuracy_table} f
 join pma_curated.dim_area a on f.area_key = a.area_key
-group by f.run_id, f.published_at, a.area_code
+group by f.run_id, f.strategy, f.published_at, a.area_code
 order by f.published_at desc
 limit 1
 """
