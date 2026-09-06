@@ -12,6 +12,8 @@ from power_market_analytics.tasks.demand.features import (
     DAY_TYPE_FEATURE,
     DAY_TYPE_LEVELS,
     FORECAST_TEMPERATURE_FEATURE,
+    HOLIDAY_DEGREE_FEATURE_COLS,
+    HOLIDAY_DISTANCE_FEATURE_COLS,
     POPW_FORECAST_TEMPERATURE_FEATURE,
     TEMPERATURE_FEATURE,
     TEMPERATURE_HALF_LIFE_DAYS,
@@ -325,3 +327,28 @@ class TestJoinDayCalendar:
         out = join_day_calendar(points([1]).assign(month=4), make_day_calendar({0: {}}))
         assert list(out.columns) == ["trade_date", "time_code", "month", *DAY_CALENDAR_FEATURE_COLS]
         assert out["month"].iloc[0] == 4
+
+
+class TestHolidayFeatureColumnSubsets:
+    def test_the_two_subsets_of_the_calendar_features(self):
+        assert HOLIDAY_DEGREE_FEATURE_COLS == ("holiday_degree",)
+        assert HOLIDAY_DISTANCE_FEATURE_COLS == ("days_since_holiday", "days_until_holiday")
+        assert set(HOLIDAY_DEGREE_FEATURE_COLS) < set(DAY_CALENDAR_FEATURE_COLS)
+        assert set(HOLIDAY_DISTANCE_FEATURE_COLS) < set(DAY_CALENDAR_FEATURE_COLS)
+
+    def test_join_day_calendar_attaches_only_the_requested_columns(self):
+        calendar = make_day_calendar(
+            {0: {"holiday_degree": 0.5, "days_since_holiday": 1, "days_until_holiday": 4}}
+        )
+        out = join_day_calendar(points([1, 2]), calendar, cols=HOLIDAY_DISTANCE_FEATURE_COLS)
+        assert list(out.columns) == [
+            "trade_date",
+            "time_code",
+            "days_since_holiday",
+            "days_until_holiday",
+        ]
+        assert out["days_since_holiday"].tolist() == [1.0, 1.0]
+        assert out["days_until_holiday"].tolist() == [4.0, 4.0]
+        degree = join_day_calendar(points([1]), calendar, cols=HOLIDAY_DEGREE_FEATURE_COLS)
+        assert list(degree.columns) == ["trade_date", "time_code", "holiday_degree"]
+        assert degree["holiday_degree"].iloc[0] == 0.5
