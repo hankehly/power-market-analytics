@@ -7,6 +7,7 @@ import pytest
 
 from power_market_analytics.tasks.demand.strategies import STRATEGIES, build_strategy
 from power_market_analytics.tasks.demand.strategies.lgbm import (
+    LightGbmMsmPopWeightedDayTypeSimilarDayCalendarCountStrategy,
     LightGbmMsmPopWeightedDayTypeSimilarDayCalendarStrategy,
     LightGbmMsmPopWeightedDayTypeSimilarDayHolidayDegreeStrategy,
     LightGbmMsmPopWeightedDayTypeSimilarDayHolidayDistanceStrategy,
@@ -35,6 +36,7 @@ class TestRegistry:
             "lightgbm_msm_popw_daytype",
             "lightgbm_msm_popw_daytype_simday",
             "lightgbm_msm_popw_daytype_simday_calendar",
+            "lightgbm_msm_popw_daytype_simday_calendarcounts",
             "lightgbm_msm_popw_daytype_simday_holidaydegree",
             "lightgbm_msm_popw_daytype_simday_holidaydistance",
         ]
@@ -46,6 +48,10 @@ class TestRegistry:
         assert (
             STRATEGIES["lightgbm_msm_popw_daytype_simday_calendar"]
             is LightGbmMsmPopWeightedDayTypeSimilarDayCalendarStrategy
+        )
+        assert (
+            STRATEGIES["lightgbm_msm_popw_daytype_simday_calendarcounts"]
+            is LightGbmMsmPopWeightedDayTypeSimilarDayCalendarCountStrategy
         )
         assert (
             STRATEGIES["lightgbm_msm_popw_daytype_simday_holidaydegree"]
@@ -200,9 +206,13 @@ class TestBuildStrategy:
                 "lightgbm_msm_popw_daytype_simday_holidaydistance",
                 LightGbmMsmPopWeightedDayTypeSimilarDayHolidayDistanceStrategy,
             ),
+            (
+                "lightgbm_msm_popw_daytype_simday_calendarcounts",
+                LightGbmMsmPopWeightedDayTypeSimilarDayCalendarCountStrategy,
+            ),
         ],
     )
-    def test_holiday_feature_strategies_load_the_similar_day_inputs(
+    def test_calendar_subset_strategies_load_the_similar_day_inputs(
         self, spark, curated_warehouse: CuratedWarehouse, name, cls
     ):
         strategy = build_strategy(name, area_code="tokyo", spark=spark)

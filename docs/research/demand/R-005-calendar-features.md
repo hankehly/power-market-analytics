@@ -1,8 +1,8 @@
 # R-005 — Calendar features from dim_date
 
 - **Status:** In progress
-- **Last updated:** 2026-09-06 (E-001 rejected by the researcher; E-002 and
-  E-003 run, decisions pending)
+- **Last updated:** 2026-09-06 (E-001, E-002 and E-003 rejected by the
+  researcher; E-004 run, decision pending)
 - **Created:** 2026-09-06
 - **Triggering observation:** None — modeling idea
 - **Related investigations:**
@@ -226,9 +226,9 @@ reference strategy.
 
 ### Follow-up ideas
 
-The researcher asked on 2026-09-06 for two more strategies, each adding one
-part of E-001's set on its own: `holiday_degree` (E-002) and the two holiday
-distances (E-003).
+The researcher asked on 2026-09-06 for three more strategies, each adding one
+part of E-001's set on its own: `holiday_degree` (E-002), the two holiday
+distances (E-003) and the six calendar counts (E-004).
 
 ## E-002 — Add holiday_degree alone
 
@@ -358,7 +358,9 @@ the standing rule reads *Inconclusive*. No day type is materially worse.
 
 ### Decision
 
-**Decision:** pending — the researcher's call. The strategy is registered.
+**Decision:** Reject — decided by the researcher on 2026-09-06. The baseline
+stays `lightgbm_msm_popw_daytype_simday`; the strategy remains registered as
+a reference strategy.
 
 ### Follow-up ideas
 
@@ -493,6 +495,152 @@ positive side, so the standing rule reads *Reject*. Every day type is worse.
 
 ### Decision
 
+**Decision:** Reject — decided by the researcher on 2026-09-06. The baseline
+stays `lightgbm_msm_popw_daytype_simday`; the strategy remains registered as
+a reference strategy.
+
+### Follow-up ideas
+
+—
+
+## E-004 — Add the six calendar counts alone
+
+### Why this experiment
+
+The third one-part strategy the researcher asked for on 2026-09-06, after
+rejecting E-002 and E-003: E-001's set reduced to the calendar counts —
+where the day sits in the half-year, quarter, month and year.
+
+### Experiment hypothesis
+
+Adding `half`, `quarter`, `day_of_month`, `day_of_quarter`, `day_of_year`
+and `fiscal_quarter` alone to the baseline's feature set, as plain numeric
+columns, lowers overall MAE on the matched window — the investigation's
+hypothesis restricted to these six features.
+
+### Change
+
+- **Features** — `CALENDAR_COUNT_FEATURE_COLS` (`tasks/demand/features.py`)
+  = `half` (1 before July 1, else 2), `quarter`, `day_of_month`,
+  `day_of_quarter`, `day_of_year`, `fiscal_quarter` (April = Q1), the
+  `dim_date` columns of PR #48 plus the fiscal quarter, joined per delivery
+  day by E-001's `join_day_calendar`, restricted to these six columns. Not
+  categorical. The holiday degree, the working-day flag and the two holiday
+  distances are left out.
+- **Strategy** — `lightgbm_msm_popw_daytype_simday_calendarcounts`
+  (`LightGbmMsmPopWeightedDayTypeSimilarDayCalendarCountStrategy`): E-001's
+  strategy with `calendar_feature_cols` narrowed to the six columns;
+  everything else as in E-002, so the six features are the only difference
+  from the baseline.
+
+### Expected evidence
+
+As for E-002: lower overall MAE than 585,362 kWh supports the hypothesis; an
+unchanged or higher overall MAE, or an offset gain, makes it less plausible.
+In E-001 `day_of_year` was the largest of the ten by SHAP share (3.2 %) and
+`half` and `quarter` were never split on.
+
+### Decision rule
+
+The standing rule of R-004 E-002, as in E-001. The decision is the
+researcher's.
+
+### Execution
+
+- **MLflow experiment:** `demand`
+- **Baseline run:**
+  [`008868fe59274abfb49f128e29aa28fe`](http://localhost:5005/#/experiments/2/runs/008868fe59274abfb49f128e29aa28fe),
+  compared as run
+- **Candidate runs:**
+  [`9182d469ff70443099ff89b75c9f3a6b`](http://localhost:5005/#/experiments/2/runs/9182d469ff70443099ff89b75c9f3a6b)
+  (2026-09-06, `lightgbm_msm_popw_daytype_simday_calendarcounts --start-date
+  2024-08-18 --end-date 2026-08-17 --area tokyo`, no `--train-start`; 729
+  delivery days, 34,954 predictions, one skipped day — 2025-06-21; 105
+  refits; 11.8 min; the same selector weights as the baseline run, so the
+  six features are the only difference)
+- **Code or pull request:** branch `feature/demand-holiday-features`, stacked
+  on `feature/demand-calendar-features` (PR #51) — PR #53
+
+### Results
+
+Matched window 2024-08-18 to 2026-08-17, 729 days, `compare_demand_runs.py`
+(kWh per 30-minute period).
+
+| Metric | Baseline | Candidate | Absolute change | Relative change |
+|---|---:|---:|---:|---:|
+| Overall MAE | 585,362 | 609,737 | +24,376 | +4.2 % |
+| MAPE | 3.61 % | 3.75 % | +0.15 pt | +4.1 % |
+| Mean error / bias | −28,365 | −35,381 | −7,015 | — |
+| Weekday MAE | 561,769 | 604,984 | +43,215 | +7.7 % |
+| Weekend MAE | 587,210 | 604,955 | +17,746 | +3.0 % |
+| Holiday MAE | 765,760 | 662,767 | −102,994 | −13.4 % |
+| Overnight MAE | 385,373 | 411,782 | +26,409 | +6.9 % |
+| Morning MAE | 559,934 | 579,165 | +19,231 | +3.4 % |
+| Daytime MAE | 749,628 | 768,694 | +19,067 | +2.5 % |
+| Evening MAE | 520,278 | 553,181 | +32,903 | +6.3 % |
+| Winter MAE (Dec–Feb) | 681,699 | 638,695 | −43,004 | −6.3 % |
+| Spring MAE (Mar–May) | 537,595 | 578,366 | +40,771 | +7.6 % |
+| Summer MAE (Jun–Aug) | 661,742 | 723,273 | +61,531 | +9.3 % |
+| Autumn MAE (Sep–Nov) | 461,906 | 499,147 | +37,241 | +8.1 % |
+| Top-10 % demand days MAE | 734,621 | 767,717 | +33,096 | +4.5 % |
+
+Daily paired comparison over the 729 days: the candidate is lower on 44.9 %
+of days (327); mean daily-MAE difference +24,335 kWh, 95 % bootstrap
+interval over days [+6,010, +43,115] (10,000 resamples, seed 0); median
++12,522 kWh. By calendar month the candidate is lower in 10 of 25 months —
+December through February and May of both years, plus 2024-09 and 2025-08 —
+and higher in 15; the largest increases are 2025-04 (+45.8 %), 2026-07
+(+25.0 %), 2025-11 (+20.2 %), 2026-04 (+19.1 %) and 2024-11 (+15.3 %), the
+largest decreases 2025-05 (−15.6 %), 2025-01 (−12.0 %), 2024-12 (−10.9 %),
+2026-02 (−10.5 %) and 2026-05 (−10.2 %).
+
+![MAE by month](assets/R-005-E-004-mae-by-month.png)
+
+Share of the mean absolute SHAP contribution per feature
+(`fct_demand_forecast_contribution`, both runs):
+
+| Feature | Baseline | Candidate |
+|---|---:|---:|
+| `similar_day_demand_kwh` | 50.0 % | 50.8 % |
+| `time_code` | 13.3 % | 11.5 % |
+| `popw_forecast_temperature_c` | 12.7 % | 11.6 % |
+| `wavg_temperature_c` | 6.6 % | 4.6 % |
+| `day_type` | 6.4 % | 4.4 % |
+| `lag_7d_demand_kwh` | 4.3 % | 6.1 % |
+| `day_of_week` | 3.9 % | 3.4 % |
+| `month` | 2.8 % | 0.2 % |
+| `day_of_year` | — | 3.8 % |
+| `day_of_quarter` | — | 1.8 % |
+| `day_of_month` | — | 1.6 % |
+| `fiscal_quarter` | — | 0.2 % |
+| `half`, `quarter` | — | 0 (never split on) |
+
+### Interpretation
+
+The overall error rises 4.2 % and the interval over days excludes zero. The
+shape is E-001's: weekdays (+7.7 %) and weekends (+3.0 %), every day part,
+spring, summer and autumn, the top-10 % demand days and 15 of 25 months are
+worse, while holidays improve 13.4 % — more than E-001's 10.0 %, the holiday
+MAE now below the weekday and weekend MAE — and winter 6.3 %. The largest
+increase is 2025-04 (+45.8 %); the two Julys and the two Novembers follow.
+The lowest actual-demand band (below 10,000 MWh) improves 17.9 %.
+
+The six features take 7.4 % of the attribution mass, `day_of_year` (3.8 %)
+the largest; `half` and `quarter` are never split on and `fiscal_quarter`
+almost never, as in E-001. `month` falls from 2.8 % to 0.2 %, `day_type`
+from 6.4 % to 4.4 %, the observed temperature from 6.6 % to 4.6 % and
+`time_code` from 13.3 % to 11.5 %; the D-7 lag rises from 4.3 % to 6.1 %.
+
+Limitations: as in E-001, one area and one 729-day window.
+
+### Reading against the decision rule
+
+Overall MAE is higher and the interval over days excludes zero on the
+positive side, so the standing rule reads *Reject*. Holidays improve, which
+the rule does not weigh against the loss on weekdays and weekends.
+
+### Decision
+
 **Decision:** pending — the researcher's call. The strategy is registered.
 
 ### Follow-up ideas
@@ -516,20 +664,30 @@ E-002 and E-003 (2026-09-06): neither part on its own lowers the error.
 interval over days [−3,659, +6,970]) and makes holidays 1.8 % worse; the
 two holiday distances alone raise it 6.5 % ([+22,513, +53,333]) across
 every day part, day type and season. E-001's holiday gain (−10.0 %) appears
-with neither subset. Decisions pending with the researcher.
+with neither subset. Both rejected by the researcher on 2026-09-06.
+
+E-004 (2026-09-06): the six calendar counts alone (`half`, `quarter`,
+`day_of_month`, `day_of_quarter`, `day_of_year`, `fiscal_quarter`) raise
+overall MAE 4.2 % (interval over days [+6,010, +43,115]) with E-001's shape:
+weekdays, weekends, every day part and three seasons worse, holidays
+−13.4 % and winter −6.3 %. E-001's holiday gain comes with this subset;
+`day_of_year` carries half of the six's attribution, `half` and `quarter`
+none. Decision pending with the researcher.
 
 ## Open questions
 
-- Which of E-001's ten features carries its holiday gain: not
-  `holiday_degree` alone (E-002, holidays +1.8 %) and not the two holiday
-  distances alone (E-003, +1.5 %); the seven others, and combinations, are
-  untested (the per-day SHAP waterfall of the Explanation tab shows any run's
-  decomposition on any holiday)
+- Which of the six calendar counts carries E-004's holiday gain (−13.4 %),
+  and whether it can be had without the weekday and weekend loss: not
+  `holiday_degree` alone (E-002) and not the two holiday distances alone
+  (E-003); `day_of_year` is the largest of the six by SHAP share and `half`
+  and `quarter` are never used (the per-day SHAP waterfall of the
+  Explanation tab shows any run's decomposition on any holiday)
 
 ## Final disposition
 
-**Investigation status:** In progress — E-001 Not supported; E-002 and E-003
-run 2026-09-06, decisions pending
+**Investigation status:** In progress — E-001, E-002 and E-003 rejected by
+the researcher on 2026-09-06; E-004 (the six calendar counts alone) run the
+same day, decision pending
 **Recommended action:** keep the baseline `lightgbm_msm_popw_daytype_simday`;
-no production change. The three strategies are registered as references.
+no production change. The rejected strategies stay registered as references.
 **Superseded by:** —

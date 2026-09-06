@@ -17,6 +17,7 @@ from power_market_analytics.tasks.demand.datasets import (
     load_day_types,
 )
 from power_market_analytics.tasks.demand.strategies.lgbm import (
+    LightGbmMsmPopWeightedDayTypeSimilarDayCalendarCountStrategy,
     LightGbmMsmPopWeightedDayTypeSimilarDayCalendarStrategy,
     LightGbmMsmPopWeightedDayTypeSimilarDayHolidayDegreeStrategy,
     LightGbmMsmPopWeightedDayTypeSimilarDayHolidayDistanceStrategy,
@@ -39,6 +40,9 @@ STRATEGIES: dict[str, type[LightGbmStrategy]] = {
     ),
     LightGbmMsmPopWeightedDayTypeSimilarDayCalendarStrategy.name: (
         LightGbmMsmPopWeightedDayTypeSimilarDayCalendarStrategy
+    ),
+    LightGbmMsmPopWeightedDayTypeSimilarDayCalendarCountStrategy.name: (
+        LightGbmMsmPopWeightedDayTypeSimilarDayCalendarCountStrategy
     ),
     LightGbmMsmPopWeightedDayTypeSimilarDayHolidayDegreeStrategy.name: (
         LightGbmMsmPopWeightedDayTypeSimilarDayHolidayDegreeStrategy
