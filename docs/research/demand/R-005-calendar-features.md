@@ -1,8 +1,8 @@
 # R-005 — Calendar features from dim_date
 
-- **Status:** In progress
-- **Last updated:** 2026-09-06 (E-001, E-002 and E-003 rejected by the
-  researcher; E-004 run, decision pending)
+- **Status:** Not supported
+- **Last updated:** 2026-09-06 (E-001 to E-004 all rejected by the
+  researcher)
 - **Created:** 2026-09-06
 - **Triggering observation:** None — modeling idea
 - **Related investigations:**
@@ -641,7 +641,9 @@ the rule does not weigh against the loss on weekdays and weekends.
 
 ### Decision
 
-**Decision:** pending — the researcher's call. The strategy is registered.
+**Decision:** Reject — decided by the researcher on 2026-09-06. The baseline
+stays `lightgbm_msm_popw_daytype_simday`; the strategy remains registered as
+a reference strategy.
 
 ### Follow-up ideas
 
@@ -672,7 +674,7 @@ overall MAE 4.2 % (interval over days [+6,010, +43,115]) with E-001's shape:
 weekdays, weekends, every day part and three seasons worse, holidays
 −13.4 % and winter −6.3 %. E-001's holiday gain comes with this subset;
 `day_of_year` carries half of the six's attribution, `half` and `quarter`
-none. Decision pending with the researcher.
+none. Rejected by the researcher on 2026-09-06.
 
 ## Open questions
 
@@ -685,9 +687,8 @@ none. Decision pending with the researcher.
 
 ## Final disposition
 
-**Investigation status:** In progress — E-001, E-002 and E-003 rejected by
-the researcher on 2026-09-06; E-004 (the six calendar counts alone) run the
-same day, decision pending
+**Investigation status:** Not supported — E-001 to E-004 all rejected by the
+researcher on 2026-09-06
 **Recommended action:** keep the baseline `lightgbm_msm_popw_daytype_simday`;
 no production change. The rejected strategies stay registered as references.
 **Superseded by:** —
