@@ -2141,6 +2141,7 @@ name = "power-market-analytics"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "certifi" },
     { name = "dbt-core" },
     { name = "dbt-spark", extra = ["pyhive"] },
     { name = "eccodes" },
@@ -2157,6 +2158,7 @@ dependencies = [
     { name = "requests" },
     { name = "scipy" },
     { name = "shap" },
+    { name = "urllib3" },
 ]
 
 [package.dev-dependencies]
@@ -2171,6 +2173,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "certifi", specifier = ">=2026.6.17" },
     { name = "dbt-core", specifier = ">=1.11.10" },
     { name = "dbt-spark", extras = ["pyhive"], specifier = ">=1.10.1" },
     { name = "eccodes", specifier = ">=2.47" },
@@ -2187,6 +2190,7 @@ requires-dist = [
     { name = "requests", specifier = ">=2.32.0" },
     { name = "scipy", specifier = ">=1.18" },
     { name = "shap", specifier = ">=0.52.0" },
+    { name = "urllib3", specifier = ">=2.7.0" },
 ]
 
 [package.metadata.requires-dev]
