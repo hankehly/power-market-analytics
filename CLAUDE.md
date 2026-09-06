@@ -333,6 +333,10 @@
   1.0 on their other days, 0.5 on one working day sandwiched between off days
   (`not is_business_day` on both sides) and 0.3 on each of two, else 0; design
   `docs/superpowers/specs/2026-09-05-dim-date-holiday-degree-design.md`.
+  `dim_date` also carries the standard calendar features of Azure AutoML forecasting at daily
+  grain (since 2026-09-06: `half`, `day_of_quarter`, `day_of_year` next to the existing `year` /
+  `quarter` / `month` / `day_of_month` / `day_of_week_iso` — Monday = 1, Azure's `wday` is 0 — /
+  `day_name` / `month_name`); `year_iso`, `week` and the sub-daily ones were left out.
   A `prior_year_reference_date` (+ rule) column — the same weekday / same-named holiday one
   year earlier, for the demand task's year-ago load feature — lived on `dim_date` from
   2026-08-31 to 2026-09-05 and was removed with that feature (research `demand/R-004`, Not

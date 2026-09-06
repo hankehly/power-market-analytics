@@ -148,9 +148,12 @@ erDiagram
     dim_date {
         date date_key PK
         int year
+        int half
         int quarter
         int month
         int day_of_month
+        int day_of_quarter
+        int day_of_year
         int day_of_week_iso
         string day_name
         string month_name
