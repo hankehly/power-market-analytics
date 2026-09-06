@@ -1707,6 +1707,101 @@ def delta_heatmap_params(spec: DashboardSpec, dataset_id: int, x_axis: str) -> d
     }
 
 
+def cumulative_reduction_params(spec: DashboardSpec, dataset_id: int) -> dict:
+    """Params for the running total of the error reduction over the window.
+
+    Per day, Σ baseline |error| − Σ candidate |error|, accumulated
+    (``rolling_type: cumsum``): a steady slope is a broad gain, a few steps a
+    gain concentrated in a few days.
+
+    Parameters
+    ----------
+    spec : DashboardSpec
+    dataset_id : int
+        The comparison dataset.
+
+    Returns
+    -------
+    dict
+    """
+    return {
+        **detail_params(spec, dataset_id),
+        "x_axis": "date_key",
+        "metrics": [spec.error_reduction_metric],
+        "rolling_type": "cumsum",
+        "row_limit": 10000,
+        "show_legend": False,
+        "y_axis_format": spec.axis_format,
+        "y_axis_title": f"{spec.unit}; Σ (baseline |error| − candidate |error|)",
+    }
+
+
+def ranked_days_params(spec: DashboardSpec, dataset_id: int, *, improved: bool) -> dict:
+    """Params for the most-improved (or most-worsened) days table.
+
+    Parameters
+    ----------
+    spec : DashboardSpec
+    dataset_id : int
+        The comparison dataset.
+    improved : bool
+        True = lowest daily ΔMAE first (the candidate's biggest gains);
+        False = highest first.
+
+    Returns
+    -------
+    dict
+    """
+    return {
+        "datasource": f"{dataset_id}__table",
+        "viz_type": "table",
+        "query_mode": "aggregate",
+        "groupby": ["date_key", "day_of_week", "day_type", "holiday_name_ja"],
+        "metrics": [
+            spec.baseline_mae_metric,
+            spec.candidate_mae_metric,
+            spec.delta_mae_metric,
+            spec.delta_mae_pct_metric,
+        ],
+        "adhoc_filters": [],
+        "timeseries_limit_metric": spec.delta_mae_metric,
+        "order_desc": not improved,
+        "row_limit": 10,
+        "server_page_length": 10,
+        "table_timestamp_format": "%Y-%m-%d",
+        "column_config": {
+            spec.baseline_mae_metric["label"]: {"d3NumberFormat": spec.number_format},
+            spec.candidate_mae_metric["label"]: {"d3NumberFormat": spec.number_format},
+            "ΔMAE": {"d3NumberFormat": spec.signed_number_format},
+            "ΔMAE %": {"d3NumberFormat": "+,.1f"},
+        },
+        "extra_form_data": {},
+    }
+
+
+def comparison_detail_params(spec: DashboardSpec, dataset_id: int) -> dict:
+    """Params for the 30-minute detail with the actual, the candidate and the baseline.
+
+    Parameters
+    ----------
+    spec : DashboardSpec
+    dataset_id : int
+        The comparison dataset.
+
+    Returns
+    -------
+    dict
+    """
+    return {
+        **detail_params(spec, dataset_id),
+        "metrics": [
+            avg_metric(spec.actual_col, "Actual"),
+            avg_metric(spec.forecast_col, "Candidate"),
+            avg_metric(spec.baseline_forecast_col, "Baseline"),
+        ],
+    }
+
+
 def waterfall_params(spec: DashboardSpec, dataset_id: int) -> dict:
     """Params for the SHAP waterfall of the selected day / period.
 
