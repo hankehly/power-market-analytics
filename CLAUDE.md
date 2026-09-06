@@ -96,9 +96,12 @@
 - `just python scripts/demand_backtest.py --strategy lightgbm_msm_popw_daytype --area tokyo` —
   day-ahead area demand backtest (strategies: `lightgbm`, `lightgbm_msm`, `lightgbm_msm_popw`,
   `lightgbm_msm_popw_daytype` = `lightgbm_msm_popw` + the `dim_date` day-type categorical, the
-  default and the kept demand baseline since demand/R-003, 2026-08-26, and
+  script default and the Kansai baseline (the kept demand baseline from demand/R-003,
+  2026-08-26, until R-004 E-002), and
   `lightgbm_msm_popw_daytype_simday` = that + `similar_day_demand_kwh` (research `demand/R-004`
-  E-002, 2026-09-05; needs the でんき予報 hourly load of `fct_area_power_usage_hourly`,
+  E-002, kept 2026-09-06 → the Tokyo demand baseline, reference run `008868fe…`; not the
+  script default because it needs the でんき予報 hourly load of `fct_area_power_usage_hourly`,
+  Tokyo-only until another TSO's series is loaded;
   `dim_date.holiday_degree` and the population-weighted MSM forecast and JMA observations of
   temperature, humidity and rain; its run also logs `similar_day_selection.csv` /
   `similar_day_retrieval.csv` and four `similar_day_*` metrics through the `diagnostics`
@@ -401,7 +404,7 @@
   renormalises over the stations that have a value for the hour). The observed
   `wavg_temperature_c` stays single-station in both.
   `lightgbm_msm_popw_daytype` (`LightGbmMsmPopWeightedDayTypeStrategy`, research `demand/R-003`; the
-  demand baseline and script default since 2026-08-26) =
+  demand baseline 2026-08-26 → 2026-09-06, still the script default and the Kansai baseline) =
   `lightgbm_msm_popw` + `day_type`: 0 Weekday / 1 Weekend / 2 Holiday from `dim_date`
   (`is_holiday` wins over `is_weekend`, the compare script's day-type precedence; `load_day_types` →
   `DayTypeCalendar`, `join_day_type`), declared categorical via `categorical_feature_cols`; a delivery
@@ -411,7 +414,8 @@
   2026-08-31 and removed with the column on 2026-09-05 — Not supported, the reasons in the
   investigation.
   `lightgbm_msm_popw_daytype_simday` (`LightGbmMsmPopWeightedDayTypeSimilarDayStrategy`,
-  research `demand/R-004` E-002, 2026-09-05) = the baseline + `similar_day_demand_kwh`:
+  research `demand/R-004` E-002, kept 2026-09-06: the Tokyo demand baseline, reference run
+  `008868fe59274abfb49f128e29aa28fe`) = `lightgbm_msm_popw_daytype` + `similar_day_demand_kwh`:
   `tasks/demand/similar_day.py`'s `SimilarDaySelector` scores the 61 days D − 364 ± 30 with a
   softmax-weighted distance over seven parts (calendar days from D − 364; the 24-h RMSE of D's
   population-weighted MSM forecast against the candidate's population-weighted observation
