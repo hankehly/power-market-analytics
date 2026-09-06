@@ -711,7 +711,8 @@ select
 {value_select}
   avg(m.{abs}) over (partition by m.date_key) as daily_{abs},
   avg(m.baseline_{abs}) over (partition by m.date_key) as daily_baseline_{abs},
-  avg(m.delta_{abs}) over (partition by m.date_key) as daily_delta_{abs}
+  avg(m.delta_{abs}) over (partition by m.date_key) as daily_delta_{abs},
+  row_number() over (partition by m.date_key order by m.time_code) = 1 as is_first_matched_period
 from matched m
 join pma_curated.dim_delivery_period p on m.time_code = p.time_code
 join pma_curated.dim_date d on m.date_key = d.date_key
@@ -833,6 +834,7 @@ SPOT_COMPARISON_COLUMNS = (
         ("daily_abs_error_jpy_kwh", "DOUBLE", False),
         ("daily_baseline_abs_error_jpy_kwh", "DOUBLE", False),
         ("daily_delta_abs_error_jpy_kwh", "DOUBLE", False),
+        ("is_first_matched_period", "BOOLEAN", False),
     ]
 )
 DEMAND_COMPARISON_COLUMNS = (
@@ -845,6 +847,7 @@ DEMAND_COMPARISON_COLUMNS = (
         ("daily_abs_error_mwh", "DOUBLE", False),
         ("daily_baseline_abs_error_mwh", "DOUBLE", False),
         ("daily_delta_abs_error_mwh", "DOUBLE", False),
+        ("is_first_matched_period", "BOOLEAN", False),
     ]
 )
 
@@ -1157,7 +1160,7 @@ class TestDashboardSpecs:
             "Days candidate lower",
         )
         assert demand.median_daily_delta_metric == script.sql_metric(
-            "percentile(daily_delta_abs_error_mwh, 0.5)",
+            "percentile(case when is_first_matched_period then daily_delta_abs_error_mwh end, 0.5)",
             "Median daily ΔMAE",
             option_name="median_daily_delta_mae",
         )
