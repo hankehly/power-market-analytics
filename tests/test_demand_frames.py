@@ -109,6 +109,7 @@ class TestAreaObservedWeather:
 
 
 def calendar(**overrides) -> pd.DataFrame:
+    # 2024-04-10 (a working Wednesday) and 04-11 (a holiday in this frame).
     df = pd.DataFrame(
         {
             "trade_date": [DAY, DAY + pd.Timedelta(days=1)],
@@ -116,6 +117,13 @@ def calendar(**overrides) -> pd.DataFrame:
             "days_since_holiday": np.array([3, 0], dtype="int64"),
             "days_until_holiday": np.array([1, 0], dtype="int64"),
             "holiday_degree": [0.0, 1.0],
+            "half": np.array([1, 1], dtype="int64"),
+            "quarter": np.array([2, 2], dtype="int64"),
+            "day_of_month": np.array([10, 11], dtype="int64"),
+            "day_of_quarter": np.array([10, 11], dtype="int64"),
+            "day_of_year": np.array([101, 102], dtype="int64"),
+            "is_business_day": [True, False],
+            "fiscal_quarter": np.array([1, 1], dtype="int64"),
         }
     )
     return df.assign(**overrides)
@@ -131,6 +139,40 @@ class TestDayCalendar:
         view = frame.day_types()
         assert type(view) is DayTypeCalendar
         assert view.df["day_type"].tolist() == [0, 2]
+
+    def test_columns_in_schema_order(self):
+        frame = DayCalendar.from_df(calendar())
+        assert list(frame.df.columns) == [
+            "trade_date",
+            "day_type",
+            "days_since_holiday",
+            "days_until_holiday",
+            "holiday_degree",
+            "half",
+            "quarter",
+            "day_of_month",
+            "day_of_quarter",
+            "day_of_year",
+            "is_business_day",
+            "fiscal_quarter",
+        ]
+        assert frame.df["is_business_day"].tolist() == [True, False]
+        assert frame.df["day_of_year"].dtype == "int64"
+
+    @pytest.mark.parametrize(
+        ("column", "bad", "message"),
+        [
+            ("half", 3, "half outside 1..2"),
+            ("quarter", 0, "quarter outside 1..4"),
+            ("day_of_month", 32, "day_of_month outside 1..31"),
+            ("day_of_quarter", 93, "day_of_quarter outside 1..92"),
+            ("day_of_year", 0, "day_of_year outside 1..366"),
+            ("fiscal_quarter", 5, "fiscal_quarter outside 1..4"),
+        ],
+    )
+    def test_calendar_count_outside_its_range_is_rejected(self, column, bad, message):
+        with pytest.raises(ValueError, match=message):
+            DayCalendar.from_df(calendar(**{column: np.array([1, bad], dtype="int64")}))
 
     def test_day_type_outside_levels_is_rejected(self):
         with pytest.raises(ValueError, match="day_type outside 0..2"):

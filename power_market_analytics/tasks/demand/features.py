@@ -10,6 +10,7 @@ from power_market_analytics.tasks.demand.frames import (
     DAY_TYPE_LEVELS,
     AreaTemperature,
     AreaTemperatureForecast,
+    DayCalendar,
     DayTypeCalendar,
 )
 
@@ -30,6 +31,22 @@ POPW_FORECAST_TEMPERATURE_FEATURE = "popw_forecast_temperature_c"
 DAY_TYPE_FEATURE = "day_type"
 #: Code of each day-type level (its index in ``DAY_TYPE_LEVELS``).
 DAY_TYPE_CODES: dict[str, int] = {level: code for code, level in enumerate(DAY_TYPE_LEVELS)}
+#: The delivery day's calendar attributes, read from ``dim_date`` through
+#: ``DayCalendar`` (research demand/R-005): the calendar counts, the graded
+#: holiday degree, the working-day flag (1 / 0) and the distances in days to
+#: the nearest named holiday. All plain numeric features.
+DAY_CALENDAR_FEATURE_COLS: tuple[str, ...] = (
+    "half",
+    "quarter",
+    "day_of_month",
+    "day_of_quarter",
+    "day_of_year",
+    "holiday_degree",
+    "is_business_day",
+    "fiscal_quarter",
+    "days_since_holiday",
+    "days_until_holiday",
+)
 
 
 def hour_ending_of(time_code: pd.Series) -> pd.Series:
@@ -214,3 +231,36 @@ def join_day_type(
         calendar.df, how="left", on="trade_date", validate="many_to_one"
     )
     return points.assign(**{name: joined["day_type"].to_numpy(dtype="float64")})
+
+
+def join_day_calendar(
+    points: pd.DataFrame,
+    calendar: DayCalendar,
+    *,
+    cols: tuple[str, ...] = DAY_CALENDAR_FEATURE_COLS,
+) -> pd.DataFrame:
+    """Attach the delivery day's calendar attributes to each period.
+
+    Every attribute is float64 (``is_business_day`` as 1.0 / 0.0) and NaN
+    where the calendar has no row for the day, so a target day outside
+    ``dim_date`` is unforecastable, as with the day type.
+
+    Parameters
+    ----------
+    points : pandas.DataFrame
+        Rows keyed on (trade_date, time_code); other columns pass through.
+    calendar : DayCalendar
+        Calendar attributes of every day.
+    cols : tuple of str, optional
+        ``DayCalendar`` columns to attach, in this order.
+
+    Returns
+    -------
+    pandas.DataFrame
+        ``points`` plus ``cols`` (float64, NaN where unavailable), in the
+        original row order.
+    """
+    joined = points[["trade_date"]].merge(
+        calendar.df[["trade_date", *cols]], how="left", on="trade_date", validate="many_to_one"
+    )
+    return points.assign(**{col: joined[col].to_numpy(dtype="float64") for col in cols})

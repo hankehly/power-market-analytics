@@ -8,6 +8,7 @@ import pandas as pd
 import pytest
 
 from power_market_analytics.tasks.demand.features import (
+    DAY_CALENDAR_FEATURE_COLS,
     DAY_TYPE_FEATURE,
     DAY_TYPE_LEVELS,
     FORECAST_TEMPERATURE_FEATURE,
@@ -17,6 +18,7 @@ from power_market_analytics.tasks.demand.features import (
     TEMPERATURE_LAG_DAYS,
     day_type_code,
     hour_ending_of,
+    join_day_calendar,
     join_day_type,
     join_forecast_temperature,
     recency_weighted_temperature,
@@ -24,8 +26,10 @@ from power_market_analytics.tasks.demand.features import (
 from power_market_analytics.tasks.demand.frames import (
     AreaTemperature,
     AreaTemperatureForecast,
+    DayCalendar,
     DayTypeCalendar,
 )
+from tests.conftest import synthetic_calendar_counts
 
 D = pd.Timestamp("2024-04-10").as_unit("ns")
 
@@ -221,3 +225,92 @@ class TestJoinDayType:
         out = join_day_type(points([1]).assign(month=4), make_calendar({0: 1}), name="dt")
         assert list(out.columns) == ["trade_date", "time_code", "month", "dt"]
         assert out["dt"].iloc[0] == 1.0
+
+
+def make_day_calendar(days: dict[int, dict]) -> DayCalendar:
+    """DayCalendar from {days_after_D: column overrides}; the counts follow the date."""
+    rows = []
+    for k, overrides in days.items():
+        day = D + pd.Timedelta(days=k)
+        rows.append(
+            {
+                "trade_date": day,
+                "day_type": 0,
+                "days_since_holiday": 2,
+                "days_until_holiday": 3,
+                "holiday_degree": 0.0,
+                **synthetic_calendar_counts(day),
+                "is_business_day": True,
+                **overrides,
+            }
+        )
+    counts = ("half", "quarter", "day_of_month", "day_of_quarter", "day_of_year", "fiscal_quarter")
+    return DayCalendar.from_df(
+        pd.DataFrame(rows).astype(
+            {col: "int64" for col in ("day_type", "days_since_holiday", "days_until_holiday")}
+            | {col: "int64" for col in counts}
+        )
+    )
+
+
+class TestJoinDayCalendar:
+    def test_feature_columns(self):
+        assert DAY_CALENDAR_FEATURE_COLS == (
+            "half",
+            "quarter",
+            "day_of_month",
+            "day_of_quarter",
+            "day_of_year",
+            "holiday_degree",
+            "is_business_day",
+            "fiscal_quarter",
+            "days_since_holiday",
+            "days_until_holiday",
+        )
+
+    def test_each_period_gets_its_days_attributes_as_float64(self):
+        # D = 2024-04-10: half 1, Q2, day 10 of the month and quarter, day 101 of
+        # the year, fiscal Q1; the flag and the distances are the row's.
+        calendar = make_day_calendar(
+            {0: {"holiday_degree": 0.5, "days_since_holiday": 1, "days_until_holiday": 1}}
+        )
+        out = join_day_calendar(points([1, 2, 48]), calendar)
+        assert list(out.columns) == ["trade_date", "time_code", *DAY_CALENDAR_FEATURE_COLS]
+        assert all(out[col].dtype == "float64" for col in DAY_CALENDAR_FEATURE_COLS)
+        expected = {
+            "half": 1.0,
+            "quarter": 2.0,
+            "day_of_month": 10.0,
+            "day_of_quarter": 10.0,
+            "day_of_year": 101.0,
+            "holiday_degree": 0.5,
+            "is_business_day": 1.0,
+            "fiscal_quarter": 1.0,
+            "days_since_holiday": 1.0,
+            "days_until_holiday": 1.0,
+        }
+        for col, value in expected.items():
+            assert out[col].tolist() == [value] * 3, col
+
+    def test_a_non_business_day_is_zero(self):
+        out = join_day_calendar(points([1]), make_day_calendar({0: {"is_business_day": False}}))
+        assert out["is_business_day"].iloc[0] == 0.0
+
+    def test_day_without_a_calendar_row_gives_nan(self):
+        out = join_day_calendar(points([1]), make_day_calendar({1: {}}))  # D+1 only
+        assert out[list(DAY_CALENDAR_FEATURE_COLS)].isna().all(axis=None)
+
+    def test_row_order_is_kept_across_days(self):
+        next_day = D + pd.Timedelta(days=1)
+        mixed = pd.DataFrame(
+            {"trade_date": [next_day, D, next_day], "time_code": np.array([1, 1, 2], dtype="int64")}
+        )
+        out = join_day_calendar(mixed, make_day_calendar({0: {}, 1: {}}))
+        assert out["trade_date"].tolist() == [next_day, D, next_day]
+        assert out["time_code"].tolist() == [1, 1, 2]
+        assert out["day_of_year"].tolist() == [102.0, 101.0, 102.0]
+
+    def test_extra_point_columns_pass_through(self):
+        out = join_day_calendar(points([1]).assign(month=4), make_day_calendar({0: {}}))
+        assert list(out.columns) == ["trade_date", "time_code", "month", *DAY_CALENDAR_FEATURE_COLS]
+        assert out["month"].iloc[0] == 4
