@@ -580,6 +580,223 @@ DEMAND_EXPLANATION_COLUMNS = EXPLANATION_COLUMNS_HEAD + [
     ("actual_demand_mwh", "DOUBLE", False),
 ]
 
+COMPARISON_SQL_HEAD = """\
+{{% set candidate = filter_values('run_label') %}}
+{{% set baseline = filter_values('baseline_run_label') %}}
+with runs as (
+select
+  f.*,
+  a.area_code,
+  a.area_name_en,
+  concat(
+    date_format(f.published_at, 'yyyy-MM-dd HH:mm'),
+    ' | ', a.area_code,
+    ' | ', f.strategy,
+    ' | ', substring(f.run_id, 1, 8)
+  ) as run_label
+from {accuracy_table} f
+join pma_curated.dim_area a on f.area_key = a.area_key
+),
+candidate as (
+select *, count(*) over () as candidate_periods
+from runs
+where {{% if candidate %}}run_label = '{{{{ candidate[0] | replace("'", "''") }}}}'{{% else %}}1 = 0{{% endif %}}
+),
+baseline as (
+select *
+from runs
+where {{% if baseline %}}run_label = '{{{{ baseline[0] | replace("'", "''") }}}}'{{% else %}}1 = 0{{% endif %}}
+),
+matched as (
+select
+  c.date_key,
+  c.trade_datetime,
+  c.time_code,
+  c.area_key,
+  c.area_code,
+  c.area_name_en,
+  c.run_id,
+  c.run_label,
+  c.strategy,
+  c.published_at,
+  b.run_id as baseline_run_id,
+  b.run_label as baseline_run_label,
+  b.strategy as baseline_strategy,
+  c.candidate_periods,
+"""
+COMPARISON_SQL_TAIL = """\
+from candidate c
+join baseline b
+  on b.date_key = c.date_key
+  and b.time_code = c.time_code
+  and b.area_key = c.area_key
+)
+select
+  m.date_key,
+  m.trade_datetime,
+  year(m.date_key) as year,
+  month(m.date_key) as month,
+  m.time_code,
+  p.hour_of_day,
+  p.day_part,
+  d.day_name,
+  concat(d.day_of_week_iso, ' ', substring(d.day_name, 1, 3)) as day_of_week,
+  case
+    when d.is_holiday then 'Holiday'
+    when d.is_weekend then 'Weekend'
+    else 'Weekday'
+  end as day_type,
+  d.holiday_name_ja,
+  m.area_code,
+  m.area_name_en,
+  m.run_id,
+  m.run_label,
+  m.strategy,
+  m.published_at,
+  m.baseline_run_id,
+  m.baseline_run_label,
+  m.baseline_strategy,
+  m.candidate_periods,
+{value_select}
+  avg(m.{abs}) over (partition by m.date_key) as daily_{abs},
+  avg(m.baseline_{abs}) over (partition by m.date_key) as daily_baseline_{abs},
+  avg(m.delta_{abs}) over (partition by m.date_key) as daily_delta_{abs}
+from matched m
+join pma_curated.dim_delivery_period p on m.time_code = p.time_code
+join pma_curated.dim_date d on m.date_key = d.date_key
+"""
+SPOT_COMPARISON_VALUES = """\
+  c.forecast_price_jpy_kwh,
+  b.forecast_price_jpy_kwh as baseline_forecast_price_jpy_kwh,
+  c.actual_price_jpy_kwh,
+  case
+    when c.actual_price_jpy_kwh is null then null
+    when c.actual_price_jpy_kwh < 5 then '00-05'
+    when c.actual_price_jpy_kwh < 10 then '05-10'
+    when c.actual_price_jpy_kwh < 15 then '10-15'
+    when c.actual_price_jpy_kwh < 20 then '15-20'
+    when c.actual_price_jpy_kwh < 30 then '20-30'
+    when c.actual_price_jpy_kwh < 50 then '30-50'
+    else '50+'
+  end as actual_price_band,
+  c.error_jpy_kwh,
+  b.error_jpy_kwh as baseline_error_jpy_kwh,
+  c.abs_error_jpy_kwh,
+  b.abs_error_jpy_kwh as baseline_abs_error_jpy_kwh,
+  c.abs_error_jpy_kwh - b.abs_error_jpy_kwh as delta_abs_error_jpy_kwh
+"""
+DEMAND_COMPARISON_VALUES = """\
+  c.forecast_demand_kwh / 1000 as forecast_demand_mwh,
+  b.forecast_demand_kwh / 1000 as baseline_forecast_demand_mwh,
+  c.actual_demand_kwh / 1000 as actual_demand_mwh,
+  case
+    when c.actual_demand_kwh is null then null
+    else concat(
+      lpad(cast(cast(floor(c.actual_demand_kwh / 2000000) * 2000 as int) as string), 5, '0'),
+      '-',
+      lpad(cast(cast(floor(c.actual_demand_kwh / 2000000) * 2000 + 2000 as int) as string), 5, '0')
+    )
+  end as actual_demand_band,
+  c.error_kwh / 1000 as error_mwh,
+  b.error_kwh / 1000 as baseline_error_mwh,
+  c.abs_error_kwh / 1000 as abs_error_mwh,
+  b.abs_error_kwh / 1000 as baseline_abs_error_mwh,
+  (c.abs_error_kwh - b.abs_error_kwh) / 1000 as delta_abs_error_mwh
+"""
+SPOT_COMPARISON_VALUE_NAMES = [
+    "forecast_price_jpy_kwh",
+    "baseline_forecast_price_jpy_kwh",
+    "actual_price_jpy_kwh",
+    "actual_price_band",
+    "error_jpy_kwh",
+    "baseline_error_jpy_kwh",
+    "abs_error_jpy_kwh",
+    "baseline_abs_error_jpy_kwh",
+    "delta_abs_error_jpy_kwh",
+]
+DEMAND_COMPARISON_VALUE_NAMES = [
+    "forecast_demand_mwh",
+    "baseline_forecast_demand_mwh",
+    "actual_demand_mwh",
+    "actual_demand_band",
+    "error_mwh",
+    "baseline_error_mwh",
+    "abs_error_mwh",
+    "baseline_abs_error_mwh",
+    "delta_abs_error_mwh",
+]
+
+
+def comparison_sql(accuracy_table: str, values: str, names: list[str], abs_col: str) -> str:
+    return (
+        COMPARISON_SQL_HEAD.format(accuracy_table=accuracy_table)
+        + values
+        + COMPARISON_SQL_TAIL.format(
+            value_select="\n".join(f"  m.{name}," for name in names), abs=abs_col
+        )
+    )
+
+
+SPOT_COMPARISON_SQL = comparison_sql(
+    "pma_curated.fct_spot_price_forecast_accuracy",
+    SPOT_COMPARISON_VALUES,
+    SPOT_COMPARISON_VALUE_NAMES,
+    "abs_error_jpy_kwh",
+)
+DEMAND_COMPARISON_SQL = comparison_sql(
+    "pma_curated.fct_demand_forecast_accuracy",
+    DEMAND_COMPARISON_VALUES,
+    DEMAND_COMPARISON_VALUE_NAMES,
+    "abs_error_mwh",
+)
+COMPARISON_COLUMNS_HEAD = [
+    ("date_key", "DATE", True),
+    ("trade_datetime", "TIMESTAMP", True),
+    ("year", "BIGINT", False),
+    ("month", "BIGINT", False),
+    ("time_code", "INT", False),
+    ("hour_of_day", "INT", False),
+    ("day_part", "STRING", False),
+    ("day_name", "STRING", False),
+    ("day_of_week", "STRING", False),
+    ("day_type", "STRING", False),
+    ("holiday_name_ja", "STRING", False),
+    ("area_code", "STRING", False),
+    ("area_name_en", "STRING", False),
+    ("run_id", "STRING", False),
+    ("run_label", "STRING", False),
+    ("strategy", "STRING", False),
+    ("published_at", "TIMESTAMP", True),
+    ("baseline_run_id", "STRING", False),
+    ("baseline_run_label", "STRING", False),
+    ("baseline_strategy", "STRING", False),
+    ("candidate_periods", "BIGINT", False),
+]
+SPOT_COMPARISON_COLUMNS = (
+    COMPARISON_COLUMNS_HEAD
+    + [
+        (n, "STRING" if n == "actual_price_band" else "DOUBLE", False)
+        for n in SPOT_COMPARISON_VALUE_NAMES
+    ]
+    + [
+        ("daily_abs_error_jpy_kwh", "DOUBLE", False),
+        ("daily_baseline_abs_error_jpy_kwh", "DOUBLE", False),
+        ("daily_delta_abs_error_jpy_kwh", "DOUBLE", False),
+    ]
+)
+DEMAND_COMPARISON_COLUMNS = (
+    COMPARISON_COLUMNS_HEAD
+    + [
+        (n, "STRING" if n == "actual_demand_band" else "DOUBLE", False)
+        for n in DEMAND_COMPARISON_VALUE_NAMES
+    ]
+    + [
+        ("daily_abs_error_mwh", "DOUBLE", False),
+        ("daily_baseline_abs_error_mwh", "DOUBLE", False),
+        ("daily_delta_abs_error_mwh", "DOUBLE", False),
+    ]
+)
+
 
 class TestDashboardSpecs:
     def test_registry_lists_spot_price_then_demand_keyed_by_task(self, script):
@@ -777,6 +994,71 @@ class TestDashboardSpecs:
             demand.forecast_minus_base_metric["optionName"]
             != demand.actual_minus_base_metric["optionName"]
         )
+
+    def test_comparison_identity(self, spot, demand):
+        assert spot.comparison_dataset_name == "spot_price_forecast_comparison"
+        assert demand.comparison_dataset_name == "demand_forecast_comparison"
+        assert spot.baseline_forecast_col == "baseline_forecast_price_jpy_kwh"
+        assert spot.baseline_error_col == "baseline_error_jpy_kwh"
+        assert spot.baseline_abs_error_col == "baseline_abs_error_jpy_kwh"
+        assert spot.delta_abs_error_col == "delta_abs_error_jpy_kwh"
+        assert spot.daily_abs_error_col == "daily_abs_error_jpy_kwh"
+        assert spot.daily_baseline_abs_error_col == "daily_baseline_abs_error_jpy_kwh"
+        assert spot.daily_delta_abs_error_col == "daily_delta_abs_error_jpy_kwh"
+        assert demand.baseline_abs_error_col == "baseline_abs_error_mwh"
+        assert demand.delta_abs_error_col == "delta_abs_error_mwh"
+        assert demand.daily_delta_abs_error_col == "daily_delta_abs_error_mwh"
+
+    def test_comparison_dataset_sql(self, spot, demand):
+        assert spot.comparison_dataset_sql == SPOT_COMPARISON_SQL
+        assert demand.comparison_dataset_sql == DEMAND_COMPARISON_SQL
+
+    def test_comparison_columns_follow_the_sql(self, spot, demand):
+        assert spot.comparison_dataset_columns == SPOT_COMPARISON_COLUMNS
+        assert demand.comparison_dataset_columns == DEMAND_COMPARISON_COLUMNS
+
+    def test_comparison_columns_match_the_final_select_list_in_order(self, spec):
+        final_select = spec.comparison_dataset_sql.rsplit("\nselect\n", 1)[1]
+        select_list = final_select.split("\nfrom matched m", 1)[0].splitlines()
+        output_names = []
+        for line in select_list:
+            if m := re.fullmatch(r"\s+[mpd]\.(\w+),?", line):
+                output_names.append(m.group(1))
+            elif m := re.search(r"\bas (\w+),?$", line):
+                output_names.append(m.group(1))
+        assert [name for name, _, _ in spec.comparison_dataset_columns] == output_names
+        assert [n for n, _, is_dttm in spec.comparison_dataset_columns if is_dttm] == [
+            "date_key",
+            "trade_datetime",
+            "published_at",
+        ]
+
+    def test_comparison_value_columns_carry_the_derived_names(self, spec):
+        names = [name for name, _, _ in spec.comparison_value_columns]
+        assert names == [
+            spec.forecast_col,
+            spec.baseline_forecast_col,
+            spec.actual_col,
+            spec.band_col,
+            spec.error_col,
+            spec.baseline_error_col,
+            spec.abs_error_col,
+            spec.baseline_abs_error_col,
+            spec.delta_abs_error_col,
+        ]
+        for name in names:
+            # every column is either `<expr> as <name>` or the candidate's own `c.<name>`
+            assert re.search(
+                rf"(\bas {name}|^  c\.{name}),?$", spec.comparison_value_columns_sql, re.M
+            ), name
+
+    def test_comparison_sql_pins_both_runs_inside_the_dataset(self, spec):
+        sql = spec.comparison_dataset_sql
+        assert sql.startswith("{% set candidate = filter_values('run_label') %}\n")
+        assert "{% set baseline = filter_values('baseline_run_label') %}" in sql
+        assert sql.count("{% else %}1 = 0{% endif %}") == 2
+        assert "count(*) over () as candidate_periods" in sql
+        assert "join baseline b\n  on b.date_key = c.date_key" in sql
 
 
 # --------------------------------------------------------------------------- dataset
