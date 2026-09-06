@@ -3,7 +3,8 @@
 ## Commands
 
 - `just refresh-all` — every source in one go: download + reload `raw` for JEPX (+ the holidays
-  seed), JMA hourly (+ the station seed), OCCTO, TEPCO (both datasets), Kansai, e-Stat and MSM,
+  seed), JMA hourly (+ the station seed), OCCTO, TEPCO (both datasets), Kansai (both datasets),
+  e-Stat and MSM,
   in that order (JMA before MSM: the MSM downloader reads the station seed), each script with
   its defaults, then a single `dbt build` (models + tests). Warm caches make it ~1.5 h,
   dominated by JMA re-fetching every station's current-year file; a failing step aborts before
@@ -28,9 +29,12 @@
     電力使用実績 (`download_tepco_power_usage.py` fetches the yearly `juyo-YYYY.csv` files 2016 …
     2022, cached — `--force-yearly` refetches them — and redownloads every monthly
     `YYYYMM_power_usage.zip`, 2022-04 → now, ~4 MB; `load_tepco_power_usage.py`).
-  - Kansai: the same as TEPCO's actuals for 関西電力送配電 (`YYYYMM_jisseki.zip`, 2022-04 → now,
-    ~2 MB total): `download_kansai_area_demand_generation.py`,
-    `load_kansai_area_demand_generation.py`.
+  - Kansai, two datasets — the same as TEPCO's actuals for 関西電力送配電 (`YYYYMM_jisseki.zip`,
+    2022-04 → now, ~2 MB total): `download_kansai_area_demand_generation.py`,
+    `load_kansai_area_demand_generation.py`; and でんき予報 hourly 電力使用実績
+    (`download_kansai_power_usage.py` redownloads every monthly `YYYYMM_jisseki.zip` under
+    `…/yamasou/`, 2016-04 → now, ~8.5 MB, 126 zips; `load_kansai_power_usage.py`, ~3,800 daily
+    files in seconds).
   - e-Stat: `download_estat_census_population_mesh.py` downloads every configured census vintage
     (2015 `T000847`, 2020 `T001101` JGD2000; 151 primary-mesh zips each, cached — `--years 2020`,
     `--force`; a cold run is ~50 min because e-Stat generates each archive in ~10 s),
@@ -232,7 +236,9 @@
   「系統の需給に関する情報」 items A-1/B-1/B-4, one feed per TSO): shared
   `AreaActualsDownloader` / `AreaActualsCsvLoader` in `power_market_analytics/area_actuals.py`,
   driven by a per-TSO `AreaActualsSource` spec (URL template, earliest month, member regex,
-  accepted header lines, `archive_includes_current_day`) — always re-downloads every monthly zip
+  accepted header lines, `archive_includes_current_day`, `known_missing_days` — days the TSO never
+  published, which a settled month may lack; a listed day that is published is logged) — always
+  re-downloads every monthly zip
   and extracts only the daily 実績 members; the loader reads every daily file positionally in one
   scan, sniffs each file's metadata line for `file_updated_at` (joined back on the file name),
   normalises `yyyy/mm/dd` dates and skips not-yet-final files.
@@ -244,7 +250,9 @@
     `conf/schemas/tepco_area_demand_generation_actual.yaml`) → `pma_raw.tepco_area_demand_generation_actual`
     → `stg/std_tepco__area_demand_generation_actual`. Format + quirks:
     [docs/TEPCO-Area-Demand-Generation-Retrieval.md](docs/TEPCO-Area-Demand-Generation-Retrieval.md).
-  - 関西電力送配電 / Kansai: `power_market_analytics/kansai.py` (`KANSAI`, `KansaiAreaDownloader`) →
+  - 関西電力送配電 / Kansai: `power_market_analytics/kansai/area_demand_generation.py` (`KANSAI`,
+    `KansaiAreaDownloader`; the `kansai/` package holds one module per Kansai dataset and
+    re-exports these names) →
     `scripts/download_kansai_area_demand_generation.py` → `data/kansai/area_demand_generation/{zip,csv}/`
     → `scripts/load_kansai_area_demand_generation.py` (`KansaiAreaCsvLoader`, contract
     `conf/schemas/kansai_area_demand_generation_actual.yaml`, nullable bigint measures) →
@@ -254,31 +262,55 @@
   - Curated: `fct_area_demand_generation_actual` = `union all` of the `std_<tso>__…` models joined
     to `dim_area` (grain date × time_code × area; joins `fct_jepx_spot_area_price` 1:1). Adding a
     TSO = new spec + contract + stg/std models + one union branch.
-- TEPCO でんき予報 過去の電力使用実績 (hourly Tokyo-area 電力使用状況, 1時間平均 in 万kW — the
-  only public area demand before 2022-04; a different, unrevised display series from A-1):
-  `power_market_analytics/tepco/power_usage.py` (`TEPCO_POWER_USAGE` spec,
-  `TepcoPowerUsageDownloader` = yearly `juyo-YYYY.csv` 2016 … 2022 cached + monthly
-  `YYYYMM_power_usage.zip` 2022-04 → now via the shared downloader, `parse_hourly`,
-  `TepcoPowerUsageCsvLoader` — Python pre-parse of the multi-section daily files, hourly table
-  only, yearly rows ≥ 2022-04-01 dropped so the daily files win) →
-  `scripts/download_tepco_power_usage.py` → `data/tepco/power_usage/{zip,csv}/` →
-  `scripts/load_tepco_power_usage.py` (contract `conf/schemas/tepco_power_usage_hourly.yaml`,
-  grain date × hour_start 0–23) → `pma_raw.tepco_power_usage_hourly` →
-  `stg_tepco__power_usage_hourly` → `std_tepco__power_usage_hourly` (typed hour axis:
-  `hour_start` 0–23 as published + `hour_ending` 1–24, `delivery_datetime` = hour start, integer
-  万kW; all four published measures kept, the daily-file 予測値 / 使用率 / 供給力 null before
-  2022-04-01; `demand_mankw` tested ≥ 1 — no sentinel, TEPCO never re-issues a day; singular
-  test `assert_std_tepco__power_usage_hourly_calendar_complete` = gapless from 2016-04-01) →
-  `fct_area_power_usage_hourly` (grain `date_key × hour_of_day × area_key`, `demand_kwh` =
-  万kW × 10,000 only — energy over the hour, the A-1 fact's unit; this series alone, not
-  stitched with A-1). `hour_of_day` references `dim_delivery_hour`, the 24-row shrunken rollup
-  of `dim_delivery_period` (built from it — `group by hour_of_day, is_daytime, day_part` —
-  so `day_part` cannot diverge; `dim_delivery_period.hour_of_day` is the rollup FK), which is
-  how the hourly fact and the 30-minute fact drill across: sum the 30-minute `demand_kwh`
-  per `hour_of_day`. The daily files also carry a
-  5-minute table (当日実績 + 太陽光, 2022-04 →) that is parsed past, not loaded. Format, quirks
-  and the 4.4-year comparison with A-1 (incl. A-1's 18:00–19:00 defect since mid-2025):
-  [docs/TEPCO-Power-Usage-Retrieval.md](docs/TEPCO-Power-Usage-Retrieval.md).
+- TSO でんき予報 過去の電力使用実績 (hourly area 電力使用状況, 1時間平均 in 万kW — the only
+  public area demand before 2022-04; a different display series from A-1, one feed per TSO):
+  the parser and loader are the shared `power_market_analytics/power_usage.py` —
+  `PowerUsageSource` (= `AreaActualsSource` + `multi_day_headers`, the headers whose files may
+  hold many dates; every other file must hold one), `parse_hourly(file, source)` (the hourly
+  table under the first accepted header, ending at the first blank line; every line is read
+  with trailing commas removed — Excel-padded files — and a `修正後` row corrects the row
+  above it: its non-blank measures replace the original's) and `PowerUsageCsvLoader` (one
+  `createDataFrame` over the parsed rows, a per-file `_file_rows` hook, the `__`-prefixed
+  contract sources). The daily files also carry a 5-minute table that is parsed past, not
+  loaded.
+  - TEPCO / Tokyo: `power_market_analytics/tepco/power_usage.py` (`TEPCO_POWER_USAGE` spec,
+    `TepcoPowerUsageDownloader` = yearly `juyo-YYYY.csv` 2016 … 2022 cached + monthly
+    `YYYYMM_power_usage.zip` 2022-04 → now via the shared downloader, `parse_hourly(file)` bound
+    to the spec, `TepcoPowerUsageCsvLoader` — `_file_rows` drops yearly rows ≥ 2022-04-01 so
+    the daily files win) → `scripts/download_tepco_power_usage.py` →
+    `data/tepco/power_usage/{zip,csv}/` → `scripts/load_tepco_power_usage.py` (contract
+    `conf/schemas/tepco_power_usage_hourly.yaml`, grain date × hour_start 0–23) →
+    `pma_raw.tepco_power_usage_hourly` → `stg_tepco__power_usage_hourly` →
+    `std_tepco__power_usage_hourly` (typed hour axis: `hour_start` 0–23 as published +
+    `hour_ending` 1–24, `delivery_datetime` = hour start, integer 万kW; all four published
+    measures kept, the daily-file 予測値 / 使用率 / 供給力 null before 2022-04-01;
+    `demand_mankw` tested ≥ 1 — no sentinel, TEPCO never re-issues a day; singular test
+    `assert_std_tepco__power_usage_hourly_calendar_complete` = gapless from 2016-04-01). Format,
+    quirks and the 4.4-year comparison with A-1 (incl. A-1's 18:00–19:00 defect since
+    mid-2025): [docs/TEPCO-Power-Usage-Retrieval.md](docs/TEPCO-Power-Usage-Retrieval.md).
+  - 関西電力送配電 / Kansai: `power_market_analytics/kansai/power_usage.py` (`KANSAI_POWER_USAGE`
+    spec: monthly `…/yamasou/YYYYMM_jisseki.zip` 2016-04 → now — same archive name as the A-1
+    feed's, different data dir —, members `YYYYMMDD_juyo1_kansai.csv` → `juyo_06_YYYYMMDD.csv`
+    from 2025-12, three hourly headers — `供給力想定値` added 2019-09-12, renamed `供給力`
+    2025-12-25 —, `known_missing_days = {2024-03-31}`; `KansaiPowerUsageDownloader`,
+    `KansaiPowerUsageCsvLoader`) → `scripts/download_kansai_power_usage.py` →
+    `data/kansai/power_usage/{zip,csv}/` → `scripts/load_kansai_power_usage.py` (contract
+    `conf/schemas/kansai_power_usage_hourly.yaml`, TEPCO's columns) →
+    `pma_raw.kansai_power_usage_hourly` → `stg_kansai__power_usage_hourly` →
+    `std_kansai__power_usage_hourly` (same shape as TEPCO's; `forecast_mankw` / `usage_rate_pct`
+    tested not null, `supply_capacity_mankw` null exactly before 2019-09-12 and ≥ demand;
+    singular test `assert_std_kansai__power_usage_hourly_calendar_complete` = gapless from
+    2016-04-01 except 2024-03-31). Format, quirks (60 Excel-padded files, the 2016-04-24
+    `修正後` row, the 2020-11-16 使用率 redefinition) and the comparison with the Kansai A-1
+    series: [docs/Kansai-Power-Usage-Retrieval.md](docs/Kansai-Power-Usage-Retrieval.md).
+  - Curated: `fct_area_power_usage_hourly` = `union all` of the `std_<tso>__power_usage_hourly`
+    models joined to `dim_area` (grain `date_key × hour_of_day × area_key`, `demand_kwh` =
+    万kW × 10,000 only — energy over the hour, the A-1 fact's unit; this series alone, not
+    stitched with A-1). `hour_of_day` references `dim_delivery_hour`, the 24-row shrunken rollup
+    of `dim_delivery_period` (built from it — `group by hour_of_day, is_daytime, day_part` —
+    so `day_part` cannot diverge; `dim_delivery_period.hour_of_day` is the rollup FK), which is
+    how the hourly fact and the 30-minute fact drill across: sum the 30-minute `demand_kwh`
+    per `hour_of_day`. Adding a TSO = new spec + contract + stg/std models + one union branch.
 - e-Stat census 500 m population mesh (国勢調査 4次メッシュ, one CP932 text file per 第１次地域区画):
   `scripts/download_estat_census_population_mesh.py` (`EstatCensusMeshDownloader` in
   `power_market_analytics/estat.py`; per-vintage `CensusVintage` config in `VINTAGES` — stats id,
