@@ -169,18 +169,34 @@ in **both** the `ok` and `download` requests.
 
 All with HTTP 200:
 
-- **不正なリクエストです (HTML page)** — missing/blank/reused `requestToken` or
-  `downloadKey` on the `download` step, or a malformed transition. Re-run `ok` to get a
-  fresh pair.
+- **The framework's error screen (HTML page)** — one page (`<HTML tyle=…>`, UTF-8) whose
+  message sits in the first `<p>` of the body (repeated in a hidden table). Two messages:
+  - **不正なリクエストです** — missing/blank/reused `requestToken` or `downloadKey` on the
+    `download` step, or a malformed transition. A key/token pair is one-shot: any second
+    use in the session renders this page (a bogus `downloadKey` instead gives a 404 for
+    `SDSMPL0200.jsp`). Re-run `ok` to get a fresh pair.
+  - **一定時間操作が行われなかったため、タイムアウトが発生しました。再度、ログインしなおして下さい。**
+    — missing or expired cookies on the `download` step. Redo the `LOGIN_login` GET.
+
+  The two pages share their first 120 bytes; only the `<p>` tells them apart.
 - **利用権限がないため、利用出来ません (HTML page)** — the body's
   `fwExtention.pathInfo` names a different screen than the URL ([§2](#2-the-portal-framework)).
 - **Session-timeout JSON** (`interceptorErr`: 一定時間操作が行われなかったため…) —
-  missing or expired cookies; redo the `LOGIN_login` GET.
+  missing or expired cookies on the `ok` step; redo the `LOGIN_login` GET.
 - **Validation errors as JSON `errMessage`** — e.g. no areas selected, or `tabSntk`
   pointing at the wrong tab.
 - **Detection**: a successful download has a `Content-Disposition: attachment` header
   and the body decodes as CP932 with the expected header row; anything else is an error
   page (error HTML is UTF-8).
+
+**Seen once, 2026-09-06 11:41 JST.** A fresh session's first `download` of the reserve-rate
+series came back as the error screen right after `ok` had issued the pair. Nothing
+reproduced it: the same window minutes later, three demand → reserve-rate runs back to
+back, a `download` sent to another of the portal's four backends (`HSERVERID`; sessions
+are replicated, so it succeeds) and two sessions holding the same same-second
+`downloadKey` (`YYYYMMDDHHMMSS_CF01S010C` is session-scoped; both succeed) all passed.
+`OcctoBulkDownloader` therefore retries such a window
+([§8](#8-downloading-and-loading-with-power_market_analyticsoccto)).
 
 ## 4. The 翌々日 CSV format
 
@@ -359,6 +375,16 @@ writes atomically via a `.part` rename. Datasets are declared in the `DATASETS` 
 150,000-row cap — `history_start` + `max_days_per_download`, in which case the downloader
 issues one key/token pair per date window in the same session and concatenates the
 windows into one file; see [§9.2](#92-bulk-download-and-the-150000-row-cap)).
+
+A window the portal fails to serve — its error screen ([§3.4](#34-failure-modes)), the
+session-timeout JSON or an HTTP 5xx — is retried: `max_attempts=3` per window,
+`retry_wait=5.0` s before each retry, and every retry clears the cookie jar, logs in again
+and asks for a new key/token pair (a used pair is one-shot). A rejection of the request
+itself — a validation `errMessage`, an HTTP 4xx, a CSV with the wrong header — is raised at
+once. Transient failures are `OcctoTransientError` (a subclass of `OcctoDownloadError`),
+raised after the last attempt with the page's message, e.g.
+`reference/download answered with the portal's error screen (Content-Type='text/html;charset=UTF-8'): 不正なリクエストです。`;
+each retry is logged as a warning with that message.
 
 ```python
 from power_market_analytics.occto import OcctoBulkDownloader

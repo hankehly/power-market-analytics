@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime
 import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import cast
 
@@ -18,6 +19,7 @@ from power_market_analytics.occto import (
     OcctoBulkDownloader,
     OcctoDataset,
     OcctoDownloadError,
+    OcctoTransientError,
 )
 
 SCREEN_URL = f"{BASE_URL}/CF01S010C"
@@ -98,7 +100,9 @@ class FakeResponse:
 
     def raise_for_status(self) -> None:
         if self.status_code >= 400:
-            raise requests.HTTPError(f"{self.status_code} error")
+            raise requests.HTTPError(
+                f"{self.status_code} error", response=cast(requests.Response, self)
+            )
 
 
 def json_response(payload) -> FakeResponse:
@@ -131,17 +135,68 @@ def csv_response(content: bytes) -> FakeResponse:
     )
 
 
+#: The portal's framework error screen as served on 2026-09-06 (HTTP 200, UTF-8): the
+#: message sits in the first <p>, repeated in a hidden table; the script's comment is
+#: closed with the malformed ``--!>``.
+ERROR_SCREEN = """\r
+\r
+\r
+<!DOCTYPE html>\r
+\r
+<HTML tyle="height:100%;width:100%;">\r
+\t<HEAD>\r
+\t<SCRIPT Language="JavaScript1.3">\r
+\t<!--\r
+\t\tvar sdHMenu = new Object();\r
+\t// --!>\r
+\t</SCRIPT>\r
+\t\t<meta charset="UTF-8">\r
+\t</HEAD>\r
+\t<BODY style="height:100%;width:100%;">\r
+\t\t<FORM id="mainForm" style="height:100%;">\r
+\t\t\t<ul  style="height:100%; width:90%;list-style:none;" >\r
+\t\t\t\t<li style="width:100%;height:40%;text-align:center;">\r
+\t\t\t\t\t<p style="float:bottom;">{message}</p>\r
+\t\t\t\t</li>\r
+\t\t\t\t<li style="width:100%;height:40%;align:right;valign:middle;">\r
+\t\t\t\t\t<INPUT type="button" value="   OK   " onClick="window.close();">\r
+\t\t\t\t</li>\r
+\t\t\t</ul>\r
+\t\t\t<TABLE height="100%" width="100%" style="display:none;">\r
+\t\t\t\t<TR><TD><FONT size = "4"><p>{message}</p></FONT></TD></TR>\r
+\t\t\t</TABLE>\r
+\t\t</FORM>\r
+\t</BODY>\r
+</HTML>"""
+
+BAD_REQUEST = "不正なリクエストです。"
+SESSION_TIMEOUT = (
+    "一定時間操作が行われなかったため、タイムアウトが発生しました。再度、ログインしなおして下さい。"
+)
+
+
+def error_screen(message: str) -> FakeResponse:
+    """The portal's HTTP-200 error screen carrying ``message``."""
+    return FakeResponse(
+        ERROR_SCREEN.format(message=message).encode("utf-8"),
+        headers={"Content-Type": "text/html;charset=UTF-8"},
+    )
+
+
 class FakeSession:
     """Stand-in for requests.Session: replays canned responses, records every call.
 
-    ``cookies`` supports the ``"JSESSIONID" in session.cookies`` membership test
-    the downloader performs after LOGIN_login.
+    Every LOGIN_login GET issues the ``cookies`` (``"JSESSIONID" in session.cookies``
+    is the membership test the downloader performs afterwards) and records the jar
+    as it was before, so a test can see that a retry logged in with a cleared jar.
     """
 
     def __init__(self, responses: list[FakeResponse], cookies: tuple[str, ...] = ("JSESSIONID",)):
         self.responses = list(responses)
-        self.cookies = dict.fromkeys(cookies, "x")
+        self.issued_cookies = cookies
+        self.cookies: dict[str, str] = {}
         self.calls: list[tuple] = []
+        self.jars_at_login: list[dict[str, str]] = []
         self.closed = False
 
     def __enter__(self) -> FakeSession:
@@ -152,6 +207,9 @@ class FakeSession:
 
     def get(self, url: str, timeout: float) -> FakeResponse:
         self.calls.append(("get", url, {"timeout": timeout}))
+        if url == LOGIN_URL:
+            self.jars_at_login.append(dict(self.cookies))
+            self.cookies.update(dict.fromkeys(self.issued_cookies, "x"))
         return self._next()
 
     def post(
@@ -442,21 +500,33 @@ class TestIssueDownloadKey:
             )
         ]
 
-    def test_non_json_body_is_an_error(self):
-        with pytest.raises(OcctoDownloadError, match=r"Unexpected reference/ok response: '<html>"):
-            self.issue(FakeResponse(b"<html>session expired</html>"))
+    def test_error_screen_instead_of_json_is_transient_and_names_its_message(self):
+        with pytest.raises(
+            OcctoTransientError,
+            match=r"reference/ok answered with the portal's error screen "
+            rf"\(Content-Type='text/html;charset=UTF-8'\): {SESSION_TIMEOUT}$",
+        ):
+            self.issue(error_screen(SESSION_TIMEOUT))
+
+    def test_non_json_body_without_visible_text_is_shown_raw(self):
+        with pytest.raises(OcctoTransientError, match=r"\(Content-Type=None\): b'<html>'$"):
+            self.issue(FakeResponse(b"<html>"))
 
     def test_json_without_root_is_an_error(self):
-        with pytest.raises(OcctoDownloadError, match="Unexpected reference/ok response"):
+        with pytest.raises(OcctoDownloadError, match="Unexpected reference/ok response") as info:
             self.issue(json_response({"status": "ok"}))
+        assert not isinstance(info.value, OcctoTransientError)
 
-    def test_interceptor_error(self):
-        with pytest.raises(OcctoDownloadError, match="OCCTO session error: timeout CF000001"):
+    def test_session_timeout_json_is_transient(self):
+        with pytest.raises(OcctoTransientError, match="OCCTO session error: timeout CF000001"):
             self.issue(json_response({"root": {"interceptorErr": "timeout CF000001"}}))
 
-    def test_validation_error_message(self):
-        with pytest.raises(OcctoDownloadError, match="OCCTO rejected the selection: too many rows"):
+    def test_validation_error_is_not_transient(self):
+        with pytest.raises(
+            OcctoDownloadError, match="OCCTO rejected the selection: too many rows"
+        ) as info:
             self.issue(json_response({"root": {"errMessage": "too many rows"}}))
+        assert not isinstance(info.value, OcctoTransientError)
 
     @pytest.mark.parametrize(
         "root",
@@ -509,9 +579,22 @@ class TestFetchCsv:
             )
         ]
 
-    def test_non_attachment_response_is_an_error(self):
-        html = FakeResponse(b"<html>expired</html>", headers={"Content-Type": "text/html"})
-        with pytest.raises(OcctoDownloadError, match=r"Content-Type='text/html'.*<html>expired"):
+    def test_error_screen_is_transient_and_names_its_message(self):
+        with pytest.raises(
+            OcctoTransientError,
+            match=r"reference/download answered with the portal's error screen "
+            r"\(Content-Type='text/html;charset=UTF-8'\): 不正なリクエストです。$",
+        ):
+            self.fetch(error_screen(BAD_REQUEST))
+
+    def test_non_attachment_response_without_a_paragraph_reports_its_visible_text(self):
+        html = FakeResponse(
+            b"<html><script>x()</script><b>expired</b> &amp; gone</html>",
+            headers={"Content-Type": "text/html"},
+        )
+        with pytest.raises(
+            OcctoTransientError, match=r"\(Content-Type='text/html'\): expired & gone$"
+        ):
             self.fetch(html)
 
     def test_http_error_propagates(self):
@@ -704,3 +787,151 @@ class TestDownload:
         assert first.closed and second.closed
         assert [c[0] for c in first.calls] == ["get", "post", "post"]
         assert [c[0] for c in second.calls] == ["get", "post", "post"]
+
+
+# --------------------------------------------------------------------------- retries
+
+
+LOGIN = FakeResponse(b"<html>")
+
+
+class TestDownloadRetries:
+    payload = cp932(DEMAND_HEADER + "\nrow\n")
+
+    def downloader(self, tmp_path: Path, session: FakeSession, **kwargs) -> OcctoBulkDownloader:
+        factory = cast(Callable[[], requests.Session], FakeSessionFactory(session))
+        return OcctoBulkDownloader(
+            data_dir=tmp_path, retry_wait=0.0, session_factory=factory, **kwargs
+        )
+
+    def test_rejected_window_is_retried_with_a_fresh_login_and_key_pair(self, tmp_path):
+        session = FakeSession(
+            [
+                LOGIN,
+                ok_response("KEY-1", "TOKEN-1"),
+                error_screen(BAD_REQUEST),
+                LOGIN,
+                ok_response("KEY-2", "TOKEN-2"),
+                csv_response(self.payload),
+            ]
+        )
+
+        path = self.downloader(tmp_path, session).download("demand_forecast_dad")
+
+        assert path.read_bytes() == self.payload
+        assert [(kind, url) for kind, url, _ in session.calls] == [
+            ("get", LOGIN_URL),
+            ("post", SCREEN_URL),
+            ("post", SCREEN_URL),
+            ("get", LOGIN_URL),
+            ("post", SCREEN_URL),
+            ("post", SCREEN_URL),
+        ]
+        posts = [kw["data"] for kind, _, kw in session.calls if kind == "post"]
+        assert [
+            (d["fwExtention.actionSubType"], d["downloadKey"], d["requestToken"]) for d in posts
+        ] == [
+            ("ok", "", ""),
+            ("download", "KEY-1", "TOKEN-1"),
+            ("ok", "", ""),
+            ("download", "KEY-2", "TOKEN-2"),
+        ]
+        # The retry starts from an anonymous session: the jar is cleared before the login.
+        assert session.jars_at_login == [{}, {}]
+        assert session.closed
+
+    def test_session_timeout_on_the_key_request_is_retried(self, tmp_path):
+        session = FakeSession(
+            [
+                LOGIN,
+                json_response({"root": {"interceptorErr": "timeout CF000001"}}),
+                LOGIN,
+                ok_response("KEY-2", "TOKEN-2"),
+                csv_response(self.payload),
+            ]
+        )
+
+        path = self.downloader(tmp_path, session).download("demand_forecast_dad")
+
+        assert path.read_bytes() == self.payload
+        assert [c[0] for c in session.calls] == ["get", "post", "get", "post", "post"]
+
+    def test_gives_up_after_max_attempts_with_the_last_error(self, tmp_path):
+        session = FakeSession(
+            [
+                LOGIN,
+                ok_response("KEY-1", "TOKEN-1"),
+                error_screen(BAD_REQUEST),
+                LOGIN,
+                ok_response("KEY-2", "TOKEN-2"),
+                error_screen(SESSION_TIMEOUT),
+            ]
+        )
+        dl = self.downloader(tmp_path, session, max_attempts=2)
+
+        with pytest.raises(OcctoTransientError, match=SESSION_TIMEOUT):
+            dl.download("demand_forecast_dad")
+
+        assert [c[0] for c in session.calls] == ["get", "post", "post", "get", "post", "post"]
+        assert not (tmp_path / "demand_forecast_dad").exists()
+        assert session.closed
+
+    def test_validation_error_is_not_retried(self, tmp_path):
+        session = FakeSession([LOGIN, json_response({"root": {"errMessage": "too many rows"}})])
+
+        with pytest.raises(OcctoDownloadError, match="rejected the selection: too many rows"):
+            self.downloader(tmp_path, session).download("demand_forecast_dad")
+
+        assert [c[0] for c in session.calls] == ["get", "post"]
+
+    def test_http_5xx_is_retried(self, tmp_path):
+        session = FakeSession(
+            [
+                LOGIN,
+                ok_response("KEY-1", "TOKEN-1"),
+                FakeResponse(b"", status=503),
+                LOGIN,
+                ok_response("KEY-2", "TOKEN-2"),
+                csv_response(self.payload),
+            ]
+        )
+
+        path = self.downloader(tmp_path, session).download("demand_forecast_dad")
+
+        assert path.read_bytes() == self.payload
+        assert [c[0] for c in session.calls] == ["get", "post", "post", "get", "post", "post"]
+
+    def test_http_4xx_is_not_retried(self, tmp_path):
+        session = FakeSession(
+            [LOGIN, ok_response("KEY-1", "TOKEN-1"), FakeResponse(b"", status=404)]
+        )
+
+        with pytest.raises(requests.HTTPError, match="404 error"):
+            self.downloader(tmp_path, session).download("demand_forecast_dad")
+
+        assert [c[0] for c in session.calls] == ["get", "post", "post"]
+
+    def test_waits_retry_wait_seconds_before_each_retry(self, tmp_path, monkeypatch):
+        sleeps: list[float] = []
+        monkeypatch.setattr("power_market_analytics.occto.time.sleep", sleeps.append)
+        session = FakeSession(
+            [
+                LOGIN,
+                ok_response("KEY-1", "TOKEN-1"),
+                error_screen(BAD_REQUEST),
+                LOGIN,
+                ok_response("KEY-2", "TOKEN-2"),
+                csv_response(self.payload),
+            ]
+        )
+        dl = OcctoBulkDownloader(
+            data_dir=tmp_path, retry_wait=7.5, session_factory=FakeSessionFactory(session)
+        )
+
+        dl.download("demand_forecast_dad")
+
+        assert sleeps == [7.5]
+
+    def test_max_attempts_must_be_at_least_one(self, tmp_path):
+        with pytest.raises(ValueError, match="max_attempts must be >= 1"):
+            OcctoBulkDownloader(data_dir=tmp_path, max_attempts=0)
