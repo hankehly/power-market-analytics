@@ -585,9 +585,11 @@
 
 ## Code review (pull requests)
 
-- Every PR — docs-only ones included — is reviewed by **Codex, then Copilot**, before it is
-  merged; Claude drives the loop and never merges on its own initiative — the researcher
-  merges, or explicitly asks Claude to (then through `merge-async`, below). Open it with `gh pr create`
+- Every PR — docs-only ones included — is reviewed by **Codex** before it is merged. Codex is
+  the only reviewer since 2026-09-06, when the researcher dropped the Copilot step that used
+  to follow it: never request a Copilot review. Claude drives the loop and never merges on its
+  own initiative — the researcher merges, or explicitly asks Claude to (then through
+  `merge-async`, below). Open it with `gh pr create`
   (title `type(scope): description`; body sections *Why* / *What* / *Proof* with the measured
   numbers), then `gh pr edit <n> --add-assignee hankehly --add-label <labels>`. Labels are
   GitHub's defaults, mapped from the branch type: `fix/` and `hotfix/` → `bug`, `feature/` →
@@ -631,8 +633,8 @@
   loop before the other posts findings. Never conclude "no findings" from silence. A bot
   *issue comment* reading "You have reached your Codex usage limits for code reviews" is the
   third, terminal outcome of a run: no review is coming for that SHA. Stop the poll and tell the
-  researcher — waiting for the reset, adding credits (the Codex usage dashboard) or accepting
-  the PR on Copilot alone is their call, not Claude's. Once credits are back, that SHA's
+  researcher — waiting for the reset, adding credits (the Codex usage dashboard) or merging
+  the PR unreviewed is their call, not Claude's. Once credits are back, that SHA's
   automatic run is spent, so post the manual trigger and wait as above (#24, 2026-08-30).
 - **Address every finding**: fix it in a commit, or reply with the reason it is not being
   changed — check a finding's premise against the *installed* versions before coding for it
@@ -652,20 +654,11 @@
   findings were all rebutted has nothing to push and is terminal once every thread is resolved
   (the reviewed SHA is unchanged). Repeat until a round ends with 👍 or with only rebutted,
   resolved findings.
-- **Copilot** only after Codex is clean: GitHub MCP `request_copilot_review` (CLI: `gh api -X
-  POST repos/hankehly/power-market-analytics/pulls/<n>/requested_reviewers -f
-  'reviewers[]=copilot-pull-request-reviewer[bot]'`). It posts a review as
-  `copilot-pull-request-reviewer[bot]` within minutes — `APPROVED` (as on #19 and #21) or
-  `COMMENTED`; either is clean once every inline thread it opened is resolved. Otherwise
-  handle its comments like Codex's — fix or rebut, reply, resolve the thread with the same
-  mutation. A pushed fix starts a new Codex run, so go back through the Codex wait for the
-  new SHA first and only then re-request Copilot; a round in which every finding was rebutted
-  has nothing to push and is terminal once its threads are resolved — do not re-request.
-- Then report the PR as ready — CI green, both reviewers clean, Proof filled in — and stop; the
+- Then report the PR as ready — CI green, Codex clean, Proof filled in — and stop; the
   researcher merges unless they have explicitly asked Claude to. The repository's required
   checks must pass on the PR's *current* head, so a branch that has fallen behind `main` is
   brought up to date first — merge `main` into it (never rebase a reviewed branch), push, and
-  take that new head through the whole loop again (Codex, then Copilot, CI green) before
+  take that new head through the whole loop again (Codex, CI green) before
   declaring it ready: every push is a new SHA to review. Stacked PRs are
   merged bottom-up through `PUT …/pulls/<n>/merge-async` (GitHub refuses the plain merge for a
   stack); deleting each merged branch retargets the next PR to `main`.
