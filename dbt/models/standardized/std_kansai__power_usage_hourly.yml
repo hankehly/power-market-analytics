@@ -1,0 +1,117 @@
+models:
+  - name: std_kansai__power_usage_hourly
+    config:
+      contract:
+        enforced: true
+    description: >
+      Standardized Kansai でんき予報 hourly 電力使用状況
+      (stg_kansai__power_usage_hourly) with a typed time axis: delivery_date;
+      hour_start (0-23, the hour starting then — Kansai's own label, equal to
+      dim_delivery_period.hour_of_day; verified against the A-1 series summed
+      per hour, MAE 0.5 万kW, vs 50-100 shifted by one hour); hour_ending
+      (1-24, the JMA / MSM / OCCTO convention); delivery_datetime = hour start;
+      Japanese fiscal_year. One row per delivery_date and hour_start, gapless
+      from 2016-04-01 except 2024-03-31, which Kansai never published (singular
+      test assert_std_kansai__power_usage_hourly_calendar_complete). Measures
+      stay in the published unit, integer 万kW: demand_mankw is the hour's
+      1時間平均 demand (min 922, never 0 or blank; tested >= 1 — Kansai revises
+      without notice but a zero would still be wrong); forecast_mankw (予想値,
+      the day's last intraday revision) and usage_rate_pct are in every layout
+      (tested not null); supply_capacity_mankw (供給力想定値, 供給力 from
+      2025-12-25) exists from 2019-09-12 and is null exactly before it
+      (tested) and always >= demand (tested). 使用率 changed definition on
+      2020-11-16, from 当日実績 / ピーク時供給力 to 当日実績 / the hour's
+      供給力想定値. file_updated_at is the file's UPDATE stamp, 01:10 the next
+      day. source_file marks the member-name generation.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - delivery_date
+              - hour_start
+      - dbt_utils.expression_is_true:
+          name: std_kansai_power_usage_supply_gte_demand
+          arguments:
+            expression: "supply_capacity_mankw >= demand_mankw"
+      - dbt_utils.expression_is_true:
+          name: std_kansai_power_usage_supply_capacity_from_2019_09_12
+          arguments:
+            expression: "(supply_capacity_mankw is null) = (delivery_date < date '2019-09-12')"
+    columns:
+      - name: delivery_date
+        data_type: date
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: "date '2016-04-01'"
+      - name: hour_start
+        data_type: int
+        description: Hour of delivery_date the value covers, 0-23 = the hour starting then.
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 23
+      - name: hour_ending
+        data_type: int
+        description: hour_start + 1, the JMA / MSM / OCCTO hour-ending label (1-24).
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 1
+                max_value: 24
+      - name: delivery_datetime
+        data_type: timestamp
+        description: Start of the hour (delivery_date + hour_start hours).
+        data_tests:
+          - not_null
+      - name: fiscal_year
+        data_type: int
+        description: Japanese fiscal year (April-March) of delivery_date.
+        data_tests:
+          - not_null
+      - name: demand_mankw
+        data_type: int
+        description: Hourly-average area demand in 万kW (1 万kW = 10 MW), as published.
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 1
+      - name: forecast_mankw
+        data_type: int
+        description: >
+          Kansai's hourly demand forecast (予想値) in 万kW as of the file's
+          stamp — the day's last intraday revision, not a day-ahead forecast.
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+      - name: usage_rate_pct
+        data_type: int
+        description: 使用率 in percent; the denominator changed on 2020-11-16 (see the model description).
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 100
+      - name: supply_capacity_mankw
+        data_type: int
+        description: 供給力想定値 / 供給力 in 万kW for the hour. Null before 2019-09-12.
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+      - name: file_updated_at
+        data_type: timestamp
+        data_tests:
+          - not_null
+      - name: source_file
+        data_type: string
+        data_tests:
+          - not_null
