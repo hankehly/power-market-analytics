@@ -508,6 +508,8 @@ triggering observations were made on the worst-performing days): nine of the
 baseline's ten worst days improve, the proximity days among them. Overall MAE
 is lower too; the bootstrap interval says that overall gain could be chance,
 but the feature is kept for how it handles those difficult proximity days.
+The same day the researcher made E-002 the new demand baseline (see
+*Recommended action* under Final disposition).
 
 ### Follow-up ideas
 
@@ -556,6 +558,12 @@ out to fix, are where the feature helps.
 
 **Superseded by:** —
 
-**Next:** decide whether `lightgbm_msm_popw_daytype_simday` becomes the demand
-baseline and the script default. It is Tokyo-only until another TSO's でんき予報
-is loaded, so as the default it would fail for `--area kansai`.
+**Recommended action (E-002):** `lightgbm_msm_popw_daytype_simday` is the Tokyo
+demand baseline from 2026-09-06 (the researcher's decision); its E-002 run
+`008868fe59274abfb49f128e29aa28fe` is the reference run for the next Tokyo
+experiment. It stays out of `scripts/demand_backtest.py`'s default because it
+runs for Tokyo only until another TSO's でんき予報 is loaded; `lightgbm_msm_popw_daytype`
+remains the default and the Kansai baseline.
+
+**Next:** the weight-stability and refit follow-ups (E-002's follow-up ideas);
+the script default once Kansai's でんき予報 lands.
