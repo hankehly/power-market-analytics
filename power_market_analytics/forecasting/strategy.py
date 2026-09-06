@@ -143,3 +143,25 @@ class ForecastStrategy[HistoryT: HalfHourlySeries, EvalSetT: DomainFrame](ABC):
         ForecastContributions or None
         """
         return None
+
+    def diagnostics(self, history: HistoryT, run: BacktestRun) -> dict[str, pd.DataFrame]:
+        """Per-run artifacts computed after the backtest, keyed by artifact stem.
+
+        Optional, like :meth:`contributions`. Called by the backtest scripts
+        inside the MLflow run, after the forecasts and contributions are
+        published, so an implementation may also log metrics. The scripts log
+        each frame as ``<stem>.csv``.
+
+        Parameters
+        ----------
+        history : HalfHourlySeries
+            The full history the backtest ran on.
+        run : BacktestRun
+            The backtest's forecasts and skipped days.
+
+        Returns
+        -------
+        dict of str to pandas.DataFrame
+            Empty by default.
+        """
+        return {}

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 
 from power_market_analytics.common.frames import DomainFrame
@@ -159,3 +160,150 @@ class DayTypeCalendar(DomainFrame):
         if not bad.empty:
             codes = sorted(int(code) for code in bad.unique())
             raise ValueError(f"{cls.__name__}: day_type outside 0..{last}: {codes}")
+
+
+class AreaHourlyLoad(DomainFrame):
+    """Hourly area load history: energy over each hour in kWh, as
+    ``fct_area_power_usage_hourly`` publishes it (the でんき予報 1時間平均 over
+    one hour). ``hour_ending`` is the hour label 1..24 shared with
+    :class:`AreaTemperature` (the fact's ``hour_of_day`` + 1), so a delivery
+    period maps to its hour through ``hour_ending = (time_code + 1) // 2``.
+    Loads are positive: the fact never carries TEPCO's not-yet-final zero, so
+    a zero here would be a load error, not a reading.
+
+    Grain: (load_date, hour_ending).
+    """
+
+    schema = {
+        "load_date": "datetime64[ns]",
+        "hour_ending": "int64",
+        "demand_kwh": "float64",
+    }
+    keys = ["load_date", "hour_ending"]
+    non_null_cols = ["demand_kwh"]
+
+    @classmethod
+    def _validate_extra(cls, df: pd.DataFrame) -> None:
+        _check_hour_ending(cls.__name__, df)
+        bad = df[df["demand_kwh"] <= 0]
+        if not bad.empty:
+            first = bad.iloc[0]
+            raise ValueError(
+                f"{cls.__name__}: demand_kwh must be positive; {len(bad)} row(s) are not "
+                f"(e.g. {first['load_date'].date()} hour {int(first['hour_ending'])})"
+            )
+
+
+class AreaWeatherForecast(DomainFrame):
+    """Hourly population-weighted MSM forecast of temperature, relative humidity
+    and rain for an area, keyed by the delivery day it is valid for.
+
+    Same grain and hour convention as :class:`AreaTemperatureForecast`; the
+    three measures are nullable (an hour no weighted station forecast). The
+    temperature column alone is what the parent strategies consume, exposed
+    through :meth:`temperature_forecast`.
+
+    Grain: (trade_date, hour_ending).
+    """
+
+    schema = {
+        "trade_date": "datetime64[ns]",
+        "hour_ending": "int64",
+        "forecast_temperature_c": "float64",
+        "forecast_relative_humidity_pct": "float64",
+        "forecast_precipitation_mm": "float64",
+    }
+    keys = ["trade_date", "hour_ending"]
+
+    @classmethod
+    def _validate_extra(cls, df: pd.DataFrame) -> None:
+        _check_hour_ending(cls.__name__, df)
+
+    def temperature_forecast(self) -> AreaTemperatureForecast:
+        """The temperature column as the frame the parent strategies take.
+
+        Returns
+        -------
+        AreaTemperatureForecast
+        """
+        return AreaTemperatureForecast.from_df(
+            self.df[["trade_date", "hour_ending", "forecast_temperature_c"]]
+        )
+
+
+class AreaObservedWeather(DomainFrame):
+    """Hourly population-weighted observed temperature, relative humidity and
+    rain for an area (``fct_jma_weather_hourly`` over the weighted stations).
+
+    Same grain and hour convention as :class:`AreaTemperature`; the measures
+    are nullable (an hour at which no weighted station reported).
+
+    Grain: (obs_date, hour_ending).
+    """
+
+    schema = {
+        "obs_date": "datetime64[ns]",
+        "hour_ending": "int64",
+        "temperature_c": "float64",
+        "humidity_pct": "float64",
+        "precipitation_mm": "float64",
+    }
+    keys = ["obs_date", "hour_ending"]
+
+    @classmethod
+    def _validate_extra(cls, df: pd.DataFrame) -> None:
+        _check_hour_ending(cls.__name__, df)
+
+
+#: The values ``dim_date.holiday_degree`` takes (the graded 休日度合い).
+HOLIDAY_DEGREE_LEVELS: tuple[float, ...] = (0.0, 0.3, 0.5, 0.8, 1.0)
+
+
+class DayCalendar(DomainFrame):
+    """Calendar attributes of every ``dim_date`` day the similar-day selector reads.
+
+    ``day_type`` is :class:`DayTypeCalendar`'s code (for the parent strategy);
+    ``days_since_holiday`` / ``days_until_holiday`` count calendar days to the
+    nearest named holiday (``dim_date.is_holiday``; 0 on a holiday itself);
+    ``holiday_degree`` is ``dim_date.holiday_degree``.
+
+    Grain: (trade_date).
+    """
+
+    schema = {
+        "trade_date": "datetime64[ns]",
+        "day_type": "int64",
+        "days_since_holiday": "int64",
+        "days_until_holiday": "int64",
+        "holiday_degree": "float64",
+    }
+    keys = ["trade_date"]
+    non_null_cols = ["day_type", "days_since_holiday", "days_until_holiday", "holiday_degree"]
+
+    @classmethod
+    def _validate_extra(cls, df: pd.DataFrame) -> None:
+        last = len(DAY_TYPE_LEVELS) - 1
+        bad = df.loc[~df["day_type"].between(0, last), "day_type"]
+        if not bad.empty:
+            codes = sorted(int(code) for code in bad.unique())
+            raise ValueError(f"{cls.__name__}: day_type outside 0..{last}: {codes}")
+        for col in ("days_since_holiday", "days_until_holiday"):
+            if (df[col] < 0).any():
+                raise ValueError(f"{cls.__name__}: {col} must be >= 0")
+        levels = np.asarray(HOLIDAY_DEGREE_LEVELS)
+        degrees = df["holiday_degree"].to_numpy(dtype="float64")
+        off = ~np.isclose(degrees[:, None], levels[None, :]).any(axis=1)
+        if off.any():
+            values = sorted(set(float(v) for v in degrees[off]))
+            raise ValueError(
+                f"{cls.__name__}: holiday_degree outside {HOLIDAY_DEGREE_LEVELS}: {values}"
+            )
+
+    def day_types(self) -> DayTypeCalendar:
+        """The day-type column as the frame the parent strategy takes.
+
+        Returns
+        -------
+        DayTypeCalendar
+        """
+        return DayTypeCalendar.from_df(self.df[["trade_date", "day_type"]])

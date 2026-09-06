@@ -2155,6 +2155,7 @@ dependencies = [
     { name = "pyspark", extra = ["ml", "pandas-on-spark"] },
     { name = "pyyaml" },
     { name = "requests" },
+    { name = "scipy" },
     { name = "shap" },
 ]
 
@@ -2172,7 +2173,7 @@ dev = [
 requires-dist = [
     { name = "dbt-core", specifier = ">=1.11.10" },
     { name = "dbt-spark", extras = ["pyhive"], specifier = ">=1.10.1" },
-    { name = "eccodes", specifier = ">=2.47.0" },
+    { name = "eccodes", specifier = ">=2.47" },
     { name = "eccodeslib", marker = "sys_platform != 'win32'", specifier = ">=2.48" },
     { name = "lightgbm", specifier = ">=4.6" },
     { name = "loguru", specifier = ">=0.7.3" },
@@ -2184,6 +2185,7 @@ requires-dist = [
     { name = "pyspark", extras = ["ml", "pandas-on-spark"], specifier = "==4.1.1" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "requests", specifier = ">=2.32.0" },
+    { name = "scipy", specifier = ">=1.18" },
     { name = "shap", specifier = ">=0.52.0" },
 ]
 

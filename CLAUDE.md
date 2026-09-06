@@ -92,7 +92,13 @@
 - `just python scripts/demand_backtest.py --strategy lightgbm_msm_popw_daytype --area tokyo` —
   day-ahead area demand backtest (strategies: `lightgbm`, `lightgbm_msm`, `lightgbm_msm_popw`,
   `lightgbm_msm_popw_daytype` = `lightgbm_msm_popw` + the `dim_date` day-type categorical, the
-  default and the kept demand baseline since demand/R-003, 2026-08-26; areas: `tokyo`,
+  default and the kept demand baseline since demand/R-003, 2026-08-26, and
+  `lightgbm_msm_popw_daytype_simday` = that + `similar_day_demand_kwh` (research `demand/R-004`
+  E-002, 2026-09-05; needs the でんき予報 hourly load of `fct_area_power_usage_hourly`,
+  `dim_date.holiday_degree` and the population-weighted MSM forecast and JMA observations of
+  temperature, humidity and rain; its run also logs `similar_day_selection.csv` /
+  `similar_day_retrieval.csv` and four `similar_day_*` metrics through the `diagnostics`
+  hook); areas: `tokyo`,
   `kansai` = the TSO feeds loaded into `fct_area_demand_generation_actual`); each area also needs its
   representative JMA station's hourly weather loaded and current
   (`dim_area.representative_jma_station_id`: 東京 s47662, 大阪 s47772 — both loaded and current
@@ -318,6 +324,10 @@
   `is_base`) → `fct_<task>_forecast_contribution` (grain run × period × area × component;
   singular tests: one base row per period, Σ contributions = the forecast within 1e-6) → Superset
   dataset `<task>_forecast_explanation`.
+- Diagnostics: `ForecastStrategy.diagnostics(history, run)` (default `{}`) returns per-run frames
+  keyed by artifact stem; both backtest scripts call it after publishing and log each frame as
+  `<stem>.csv`, and an implementation may log metrics inside it (the demand similar-day strategy
+  does).
 - Exogenous features: `LightGbmOcctoStrategy` joins `OcctoDemandForecast`
   (`datasets.load_occto_demand_forecast`, from `fct_occto_demand_supply_forecast_daily`) to each
   delivery day's rows via the `_join_daily_features` hook; its training set therefore
@@ -367,7 +377,22 @@
   `lag_1y_demand_kwh` (the でんき予報 hourly load of `fct_area_power_usage_hourly` on the
   delivery day's `dim_date` prior-year reference date; research `demand/R-004`), was run on
   2026-08-31 and removed with the column on 2026-09-05 — Not supported, the reasons in the
-  investigation. Write-back: `pma_ml.demand_forecast` →
+  investigation.
+  `lightgbm_msm_popw_daytype_simday` (`LightGbmMsmPopWeightedDayTypeSimilarDayStrategy`,
+  research `demand/R-004` E-002, 2026-09-05) = the baseline + `similar_day_demand_kwh`:
+  `tasks/demand/similar_day.py`'s `SimilarDaySelector` scores the 61 days D − 364 ± 30 with a
+  softmax-weighted distance over seven parts (calendar days from D − 364; the 24-h RMSE of D's
+  population-weighted MSM forecast against the candidate's population-weighted observation
+  for temperature, humidity and rain; |Δ| of `dim_date`'s days since / until a named holiday
+  and of `holiday_degree`), fits the weights once per run by `scipy.optimize.least_squares` on
+  the pairs up to the first forecast day's cutoff (Park, Song and Kwon 2020 Eq. 1–3), picks
+  the nearest day and joins its hourly load ÷ 2 per period; a day whose window starts before
+  the hourly load and observations begin (2016-04-01), or that lacks a forecast profile, is
+  unscorable (first scorable day 2019-04-01). Inputs: `AreaWeatherForecast` (+ its
+  `temperature_forecast()` view for the parent), `AreaObservedWeather`, `DayCalendar` (+
+  `day_types()`), `AreaHourlyLoad`, loaded by `build_strategy`. The strategy's `diagnostics`
+  returns the selection and the retrieval check (selected vs D − 364 vs oracle load
+  difference). Write-back: `pma_ml.demand_forecast` →
   `stg/std_ml__demand_forecast` →
   `fct_demand_forecast` → `fct_demand_forecast_accuracy` → Superset **Demand Forecast Analysis**
   dashboard (dataset `demand_forecast_analysis`; the mart's kWh rescaled to MWh in the dataset
@@ -439,6 +464,8 @@
 - JMA hourly: 積雪の深さ carries 現象なし情報 at staffed stations and is blank (not 0) with
   quality 1 when snow is untracked off-season; `wind_direction_quality_flag` is the one
   nullable flag (阿蘇山 s47821 post-closure padding rows, 2017-12-12..31) — don't tighten either.
+- `scipy` is a declared dependency since 2026-09-05 (the similar-day weight fit uses
+  `scipy.optimize.least_squares`); `scipy.*` is mypy-ignored like `shap.*`.
 
 ## Claude Code settings
 

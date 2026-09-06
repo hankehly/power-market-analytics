@@ -51,3 +51,18 @@ class TestForecastStrategy:
                 raise NotImplementedError
 
         assert Done().contributions() is None
+
+    def test_diagnostics_default_is_empty(self):
+        class Done(ForecastStrategy):
+            name = "done"
+
+            def predict(self, target_date, history):
+                raise NotImplementedError
+
+            def build_eval_set(self, history, start_date, end_date, run=None):
+                raise NotImplementedError
+
+            def evaluate(self, eval_set, **kwargs):
+                raise NotImplementedError
+
+        assert Done().diagnostics(history=None, run=None) == {}
