@@ -17,6 +17,7 @@ from power_market_analytics.area_actuals import (
     AreaActualsSource,
 )
 from power_market_analytics.csv_loader import SOURCE_FILE_COL, CsvTableSchema
+from power_market_analytics.power_usage import PowerUsageSource
 from power_market_analytics.tepco.power_usage import (
     DAILY_FILES_FROM,
     DAILY_HOURLY_HEADER,
@@ -134,6 +135,14 @@ class TestTepcoPowerUsageSource:
             "https://www.tepco.co.jp/forecast/html/images/juyo-2016.csv"
         )
         assert tuple(YEARLY_YEARS) == (2016, 2017, 2018, 2019, 2020, 2021, 2022)
+
+    def test_is_a_power_usage_source_whose_yearly_files_span_many_days(self):
+        assert isinstance(TEPCO_POWER_USAGE, PowerUsageSource)
+        assert TEPCO_POWER_USAGE.multi_day_headers == frozenset({YEARLY_HEADER})
+        assert TEPCO_POWER_USAGE.known_missing_days == frozenset()
+
+    def test_loader_is_bound_to_the_source(self):
+        assert TepcoPowerUsageCsvLoader.source is TEPCO_POWER_USAGE
 
 
 # --- hourly-block parser ----------------------------------------------------
