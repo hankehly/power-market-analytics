@@ -18,6 +18,9 @@ from __future__ import annotations
 
 import dataclasses
 import datetime
+import html
+import re
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import cast
@@ -126,6 +129,39 @@ class OcctoDownloadError(RuntimeError):
     """Raised when the OCCTO portal returns something other than the CSV."""
 
 
+class OcctoTransientError(OcctoDownloadError):
+    """The portal failed to serve the request rather than rejecting it.
+
+    Raised for the portal's HTTP-200 error screen (不正なリクエストです, the
+    session-timeout page) and the session-timeout JSON — answers that a fresh
+    session and key/token pair are expected to get past, unlike a validation
+    ``errMessage`` or a header mismatch.
+    """
+
+
+def _strip_tags(markup: str) -> str:
+    """Return the visible text of an HTML fragment, whitespace collapsed."""
+    markup = re.sub(r"<!--.*?-->", " ", markup, flags=re.S)
+    markup = re.sub(r"<(script|style)\b.*?</\1\s*>", " ", markup, flags=re.S | re.I)
+    text = html.unescape(re.sub(r"<[^>]+>", " ", markup))
+    return " ".join(text.split())
+
+
+def _error_page_message(content: bytes) -> str:
+    """Return the message a portal error page shows the user.
+
+    The framework's error screen puts its message in the first ``<p>`` of the
+    body (repeated in a hidden table); a page without one is reduced to its
+    visible text, and a body without any to its first bytes. Error pages are
+    UTF-8 (the CSV is CP932). At most 200 characters, for exception messages
+    and logs.
+    """
+    text = content.decode("utf-8", errors="replace")
+    paragraphs = re.findall(r"<p\b[^>]*>(.*?)</p\s*>", text, flags=re.S | re.I)
+    message = next((p for p in map(_strip_tags, paragraphs) if p), None) or _strip_tags(text)
+    return message[:200] or repr(content[:120])
+
+
 class OcctoBulkDownloader:
     """Download a whole dataset from OCCTO's 情報ダウンロード screen as one CSV.
 
@@ -136,6 +172,15 @@ class OcctoBulkDownloader:
     local CSV. Files are small (~700 KB for the demand forecast, ~20 MB/year
     for the half-hourly reserve-rate series), so callers are expected to
     simply re-download on every refresh rather than manage incremental pulls.
+
+    A window whose handshake the portal fails to serve — its HTTP-200 error
+    screen (不正なリクエストです, the session-timeout page), the session-timeout
+    JSON, or an HTTP 5xx — is retried up to ``max_attempts`` times, each
+    attempt after ``retry_wait`` seconds and from a fresh anonymous session
+    with a fresh key/token pair (a used pair is one-shot). Answers that reject
+    the request itself — a validation ``errMessage``, an HTTP 4xx, a CSV with
+    the wrong header — are raised at once. The 2026-09-06 refresh failed on one
+    error screen that no rerun could reproduce.
 
     Parameters
     ----------
@@ -149,6 +194,10 @@ class OcctoBulkDownloader:
     session_factory : callable, default :class:`requests.Session`
         Zero-argument callable returning a fresh session (used as a context
         manager) for each :meth:`download` call. Injected mainly for tests.
+    max_attempts : int, default 3
+        Attempts per window before a transient failure is raised.
+    retry_wait : float, default 5.0
+        Seconds to wait before each retry.
 
     Examples
     --------
@@ -166,10 +215,16 @@ class OcctoBulkDownloader:
         data_dir: Path | str = Path("data/occto"),
         timeout: float = 120.0,
         session_factory: Callable[[], requests.Session] = requests.Session,
+        max_attempts: int = 3,
+        retry_wait: float = 5.0,
     ) -> None:
+        if max_attempts < 1:
+            raise ValueError("max_attempts must be >= 1")
         self.data_dir = Path(data_dir)
         self.timeout = timeout
         self.session_factory = session_factory
+        self.max_attempts = max_attempts
+        self.retry_wait = retry_wait
 
     def path_for(self, dataset: str) -> Path:
         """Return the local path where the dataset's CSV is stored.
@@ -217,10 +272,12 @@ class OcctoBulkDownloader:
             If ``dataset`` is unknown, only one bound of the date range is
             given, or the range is inverted.
         OcctoDownloadError
-            If the portal returns an error page or a validation error
-            instead of the CSV, or a window's header does not match.
+            If the portal rejects the selection or a window's header does not
+            match; :class:`OcctoTransientError` if it still fails to serve a
+            window after ``max_attempts`` attempts.
         requests.HTTPError
-            If the portal responds with an unexpected HTTP error status.
+            If the portal responds with an HTTP 4xx, or with a 5xx on every
+            attempt.
         """
         try:
             spec = DATASETS[dataset]
@@ -245,10 +302,7 @@ class OcctoBulkDownloader:
         with self.session_factory() as session:
             self._open_session(session)
             for window_from, window_to in windows:
-                selection = self._selection(spec, window_from, window_to)
-                download_key, request_token = self._issue_download_key(session, selection)
-                content = self._fetch_csv(session, selection, download_key, request_token)
-                self._verify_csv(spec, content)
+                content = self._fetch_window(session, spec, window_from, window_to)
                 logger.info(
                     "Fetched {} window {}..{} ({} bytes)",
                     dataset,
@@ -316,6 +370,54 @@ class OcctoBulkDownloader:
 
     # -- protocol steps -----------------------------------------------------
 
+    def _fetch_window(
+        self,
+        session: requests.Session,
+        spec: OcctoDataset,
+        window_from: datetime.date | None,
+        window_to: datetime.date | None,
+    ) -> bytes:
+        """Run one window's ``ok`` → ``download`` handshake, retrying transient failures.
+
+        Every retry waits ``retry_wait`` seconds, then logs in again on a
+        cleared cookie jar so the portal issues a fresh anonymous session and
+        a fresh key/token pair.
+        """
+        selection = self._selection(spec, window_from, window_to)
+        attempt = 1
+        while True:
+            try:
+                download_key, request_token = self._issue_download_key(session, selection)
+                content = self._fetch_csv(session, selection, download_key, request_token)
+            except (OcctoTransientError, requests.HTTPError) as exc:
+                if attempt >= self.max_attempts or not self._is_transient(exc):
+                    raise
+                logger.warning(
+                    "OCCTO {} window {}..{} attempt {}/{} failed: {}; "
+                    "retrying in {} s with a fresh session",
+                    spec.key,
+                    window_from or "all",
+                    window_to or "all",
+                    attempt,
+                    self.max_attempts,
+                    exc,
+                    self.retry_wait,
+                )
+                time.sleep(self.retry_wait)
+                session.cookies.clear()
+                self._open_session(session)
+                attempt += 1
+                continue
+            self._verify_csv(spec, content)
+            return content
+
+    @staticmethod
+    def _is_transient(exc: OcctoTransientError | requests.HTTPError) -> bool:
+        """Whether a fresh session and key pair are expected to get past ``exc``."""
+        if isinstance(exc, OcctoTransientError):
+            return True
+        return exc.response is not None and exc.response.status_code >= 500
+
     def _open_session(self, session: requests.Session) -> None:
         response = session.get(f"{BASE_URL}/LOGIN_login", timeout=self.timeout)
         response.raise_for_status()
@@ -339,13 +441,21 @@ class OcctoBulkDownloader:
         )
         response.raise_for_status()
         try:
-            root = response.json()["root"]
-        except (ValueError, KeyError) as exc:
+            payload = response.json()
+        except ValueError:
+            raise OcctoTransientError(
+                "reference/ok answered with the portal's error screen "
+                f"(Content-Type={response.headers.get('Content-Type')!r}): "
+                f"{_error_page_message(response.content)}"
+            ) from None
+        try:
+            root = payload["root"]
+        except KeyError as exc:
             raise OcctoDownloadError(
                 f"Unexpected reference/ok response: {response.text[:200]!r}"
             ) from exc
         if root.get("interceptorErr"):
-            raise OcctoDownloadError(f"OCCTO session error: {root['interceptorErr']}")
+            raise OcctoTransientError(f"OCCTO session error: {root['interceptorErr']}")
         if root.get("errMessage"):
             raise OcctoDownloadError(f"OCCTO rejected the selection: {root['errMessage']}")
         header = (root.get("bizRoot") or {}).get("header") or {}
@@ -372,10 +482,10 @@ class OcctoBulkDownloader:
         response = session.post(f"{BASE_URL}/{DOWNLOAD_SCREEN}", data=data, timeout=self.timeout)
         response.raise_for_status()
         if "attachment" not in response.headers.get("Content-Disposition", ""):
-            raise OcctoDownloadError(
-                "reference/download did not return an attachment "
-                f"(Content-Type={response.headers.get('Content-Type')!r}); "
-                f"body starts {response.content[:120]!r}"
+            raise OcctoTransientError(
+                "reference/download answered with the portal's error screen "
+                f"(Content-Type={response.headers.get('Content-Type')!r}): "
+                f"{_error_page_message(response.content)}"
             )
         return response.content
 

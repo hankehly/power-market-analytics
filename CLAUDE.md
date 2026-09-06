@@ -457,6 +457,13 @@
 - OCCTO 翌々日: the two 時刻 columns are hour-ending labels `01:00`..`24:00` (24:00 is not a
   valid Spark time → kept as strings in raw, ints 1–24 in `std`); `min_demand_mw` changed
   meaning on 2025-04-01 (was demand at the min-reserve-rate hour). Details in the doc's §4/§7.
+- OCCTO portal failures come back as HTTP 200 HTML — its error screen reads
+  不正なリクエストです (the one-shot key/token pair was rejected) or the session-timeout
+  message, in the first `<p>`. `OcctoBulkDownloader` retries such a window (also the
+  session-timeout JSON and HTTP 5xx) up to 3 times, 5 s apart, each from a fresh session and
+  key pair, then raises `OcctoTransientError` with the page's message; validation errors,
+  4xx and header mismatches are raised at once. Seen once, 2026-09-06, never reproduced
+  (doc §3.4).
 - TEPCO actuals: 13 April-2022 files hold scientific-notation values (`1.66919e+07`) that Spark's
   ANSI `cast(... as bigint)` rejects, so the raw measures are `double` and `std` rounds to
   `bigint`; TEPCO writes 0 for not-yet-observed periods and the archived 2025-06-14 file froze
