@@ -8,6 +8,7 @@ import pandas as pd
 import pytest
 
 from power_market_analytics.tasks.demand.features import (
+    CALENDAR_COUNT_FEATURE_COLS,
     DAY_CALENDAR_FEATURE_COLS,
     DAY_TYPE_FEATURE,
     DAY_TYPE_LEVELS,
@@ -329,12 +330,40 @@ class TestJoinDayCalendar:
         assert out["month"].iloc[0] == 4
 
 
-class TestHolidayFeatureColumnSubsets:
-    def test_the_two_subsets_of_the_calendar_features(self):
+class TestCalendarFeatureColumnSubsets:
+    def test_the_three_subsets_of_the_calendar_features(self):
         assert HOLIDAY_DEGREE_FEATURE_COLS == ("holiday_degree",)
         assert HOLIDAY_DISTANCE_FEATURE_COLS == ("days_since_holiday", "days_until_holiday")
-        assert set(HOLIDAY_DEGREE_FEATURE_COLS) < set(DAY_CALENDAR_FEATURE_COLS)
-        assert set(HOLIDAY_DISTANCE_FEATURE_COLS) < set(DAY_CALENDAR_FEATURE_COLS)
+        assert CALENDAR_COUNT_FEATURE_COLS == (
+            "half",
+            "quarter",
+            "day_of_month",
+            "day_of_quarter",
+            "day_of_year",
+            "fiscal_quarter",
+        )
+        subsets = (HOLIDAY_DEGREE_FEATURE_COLS, HOLIDAY_DISTANCE_FEATURE_COLS)
+        subsets += (CALENDAR_COUNT_FEATURE_COLS,)
+        assert all(set(subset) < set(DAY_CALENDAR_FEATURE_COLS) for subset in subsets)
+        # The three subsets are disjoint and leave out only the working-day flag.
+        assert sum(len(subset) for subset in subsets) == len(DAY_CALENDAR_FEATURE_COLS) - 1
+        assert set().union(*subsets) == set(DAY_CALENDAR_FEATURE_COLS) - {"is_business_day"}
+
+    def test_join_day_calendar_with_the_counts_subset(self):
+        # D = 2024-04-10: half 1, Q2, day 10 of the month and quarter, day 101 of
+        # the year, fiscal Q1.
+        out = join_day_calendar(
+            points([1]), make_day_calendar({0: {}}), cols=CALENDAR_COUNT_FEATURE_COLS
+        )
+        assert list(out.columns) == ["trade_date", "time_code", *CALENDAR_COUNT_FEATURE_COLS]
+        assert out.iloc[0][list(CALENDAR_COUNT_FEATURE_COLS)].tolist() == [
+            1.0,
+            2.0,
+            10.0,
+            10.0,
+            101.0,
+            1.0,
+        ]
 
     def test_join_day_calendar_attaches_only_the_requested_columns(self):
         calendar = make_day_calendar(

@@ -4,7 +4,7 @@ station, the same again with that forecast population-weighted over the area's
 stations, that one plus the delivery day's type as a categorical, that one
 plus the load of a learned similar day one year earlier, and that one plus the
 delivery day's ``dim_date`` calendar attributes — all ten, the holiday degree
-alone, or the two distances to the nearest holiday."""
+alone, the two distances to the nearest holiday, or the six calendar counts."""
 
 from __future__ import annotations
 
@@ -25,6 +25,7 @@ from power_market_analytics.forecasting.lgbm import (
 from power_market_analytics.forecasting.strategy import ForecastUnavailableError
 from power_market_analytics.tasks.demand import TASK
 from power_market_analytics.tasks.demand.features import (
+    CALENDAR_COUNT_FEATURE_COLS,
     DAY_CALENDAR_FEATURE_COLS,
     DAY_TYPE_FEATURE,
     FORECAST_TEMPERATURE_FEATURE,
@@ -72,6 +73,7 @@ SIMILAR_DAY_HOLIDAY_DISTANCE_FEATURE_COLS = (
     *SIMILAR_DAY_FEATURE_COLS,
     *HOLIDAY_DISTANCE_FEATURE_COLS,
 )
+SIMILAR_DAY_CALENDAR_COUNT_FEATURE_COLS = (*SIMILAR_DAY_FEATURE_COLS, *CALENDAR_COUNT_FEATURE_COLS)
 TARGET_COL = TASK.actual_col
 FORECAST_COL = TASK.forecast_col
 
@@ -819,3 +821,38 @@ class LightGbmMsmPopWeightedDayTypeSimilarDayHolidayDistanceStrategy(
     feature_cols = SIMILAR_DAY_HOLIDAY_DISTANCE_FEATURE_COLS
     eval_set_cls = DemandLightGbmMsmPopWeightedDayTypeSimilarDayHolidayDistanceEvalSet
     calendar_feature_cols = HOLIDAY_DISTANCE_FEATURE_COLS
+
+
+class DemandLightGbmMsmPopWeightedDayTypeSimilarDayCalendarCountEvalSet(
+    DemandLightGbmMsmPopWeightedDayTypeSimilarDayCalendarEvalSet
+):
+    """Design matrix for
+    :class:`LightGbmMsmPopWeightedDayTypeSimilarDayCalendarCountStrategy`: the
+    similar-day design matrix plus the delivery day's six calendar counts.
+
+    Grain: (trade_date, time_code).
+    """
+
+    feature_cols = SIMILAR_DAY_CALENDAR_COUNT_FEATURE_COLS
+    schema = _calendar_subset_schema(CALENDAR_COUNT_FEATURE_COLS)
+    non_null_cols = [*SIMILAR_DAY_CALENDAR_COUNT_FEATURE_COLS, TARGET_COL, FORECAST_COL]
+
+
+class LightGbmMsmPopWeightedDayTypeSimilarDayCalendarCountStrategy(
+    LightGbmMsmPopWeightedDayTypeSimilarDayCalendarStrategy
+):
+    """:class:`LightGbmMsmPopWeightedDayTypeSimilarDayStrategy` plus the delivery
+    day's six calendar counts.
+
+    Experiment E-004 of docs/research/demand/R-005-calendar-features.md: the
+    baseline's inputs and features plus ``half``, ``quarter``, ``day_of_month``,
+    ``day_of_quarter``, ``day_of_year`` and ``fiscal_quarter`` from ``dim_date``,
+    joined as the parent joins all ten; the holiday degree, the working-day
+    flag and the two holiday distances are left out. Same constructor as the
+    parent.
+    """
+
+    name = "lightgbm_msm_popw_daytype_simday_calendarcounts"
+    feature_cols = SIMILAR_DAY_CALENDAR_COUNT_FEATURE_COLS
+    eval_set_cls = DemandLightGbmMsmPopWeightedDayTypeSimilarDayCalendarCountEvalSet
+    calendar_feature_cols = CALENDAR_COUNT_FEATURE_COLS

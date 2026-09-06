@@ -24,6 +24,7 @@ from power_market_analytics.forecasting.backtest import BacktestRun, run_backtes
 from power_market_analytics.forecasting.frames import BASE_COMPONENT, ForecastContributions
 from power_market_analytics.forecasting.strategy import ForecastUnavailableError
 from power_market_analytics.tasks.demand.features import (
+    CALENDAR_COUNT_FEATURE_COLS,
     DAY_CALENDAR_FEATURE_COLS,
     DAY_TYPE_FEATURE,
     FORECAST_TEMPERATURE_FEATURE,
@@ -55,6 +56,7 @@ from power_market_analytics.tasks.demand.strategies.lgbm import (
     MSM_FEATURE_COLS,
     MSM_POPW_DAY_TYPE_FEATURE_COLS,
     MSM_POPW_FEATURE_COLS,
+    SIMILAR_DAY_CALENDAR_COUNT_FEATURE_COLS,
     SIMILAR_DAY_CALENDAR_FEATURE_COLS,
     SIMILAR_DAY_FEATURE_COLS,
     SIMILAR_DAY_HOLIDAY_DEGREE_FEATURE_COLS,
@@ -62,11 +64,13 @@ from power_market_analytics.tasks.demand.strategies.lgbm import (
     DemandLightGbmEvalSet,
     DemandLightGbmMsmEvalSet,
     DemandLightGbmMsmPopWeightedDayTypeEvalSet,
+    DemandLightGbmMsmPopWeightedDayTypeSimilarDayCalendarCountEvalSet,
     DemandLightGbmMsmPopWeightedDayTypeSimilarDayCalendarEvalSet,
     DemandLightGbmMsmPopWeightedDayTypeSimilarDayEvalSet,
     DemandLightGbmMsmPopWeightedDayTypeSimilarDayHolidayDegreeEvalSet,
     DemandLightGbmMsmPopWeightedDayTypeSimilarDayHolidayDistanceEvalSet,
     DemandLightGbmMsmPopWeightedEvalSet,
+    LightGbmMsmPopWeightedDayTypeSimilarDayCalendarCountStrategy,
     LightGbmMsmPopWeightedDayTypeSimilarDayCalendarStrategy,
     LightGbmMsmPopWeightedDayTypeSimilarDayHolidayDegreeStrategy,
     LightGbmMsmPopWeightedDayTypeSimilarDayHolidayDistanceStrategy,
@@ -1173,14 +1177,15 @@ class TestCalendarBacktestEvalAndEvaluate:
         assert params["similar_day_center_lag_days"] == "364"
 
 
-HOLIDAY_STRATEGIES = [
+CALENDAR_SUBSET_STRATEGIES = [
     LightGbmMsmPopWeightedDayTypeSimilarDayHolidayDegreeStrategy,
     LightGbmMsmPopWeightedDayTypeSimilarDayHolidayDistanceStrategy,
+    LightGbmMsmPopWeightedDayTypeSimilarDayCalendarCountStrategy,
 ]
 SIM_SATURDAY = pd.Timestamp("2024-04-13")
 
 
-def make_holiday_strategy(cls, inputs, **kwargs):
+def make_subset_strategy(cls, inputs, **kwargs):
     return cls(
         inputs["temperature"],
         inputs["weather_forecast"],
@@ -1193,7 +1198,7 @@ def make_holiday_strategy(cls, inputs, **kwargs):
     )
 
 
-class TestHolidayFeatureClassAttributes:
+class TestCalendarSubsetClassAttributes:
     def test_the_calendar_strategy_declares_all_ten(self):
         cls = LightGbmMsmPopWeightedDayTypeSimilarDayCalendarStrategy
         assert cls.calendar_feature_cols == DAY_CALENDAR_FEATURE_COLS
@@ -1249,8 +1254,36 @@ class TestHolidayFeatureClassAttributes:
         assert schema["days_until_holiday"] == "int64"
         assert set(HOLIDAY_DISTANCE_FEATURE_COLS) <= set(cls.eval_set_cls.non_null_cols)
 
+    def test_calendar_count_strategy(self):
+        cls = LightGbmMsmPopWeightedDayTypeSimilarDayCalendarCountStrategy
+        assert cls.name == "lightgbm_msm_popw_daytype_simday_calendarcounts"
+        assert issubclass(cls, LightGbmMsmPopWeightedDayTypeSimilarDayCalendarStrategy)
+        assert cls.calendar_feature_cols == CALENDAR_COUNT_FEATURE_COLS
+        assert SIMILAR_DAY_CALENDAR_COUNT_FEATURE_COLS == (
+            *SIMILAR_DAY_FEATURE_COLS,
+            "half",
+            "quarter",
+            "day_of_month",
+            "day_of_quarter",
+            "day_of_year",
+            "fiscal_quarter",
+        )
+        assert cls.feature_cols == SIMILAR_DAY_CALENDAR_COUNT_FEATURE_COLS
+        assert cls.categorical_feature_cols == (DAY_TYPE_FEATURE,)
+        assert cls.eval_set_cls is DemandLightGbmMsmPopWeightedDayTypeSimilarDayCalendarCountEvalSet
+        assert cls.eval_set_cls.feature_cols == cls.feature_cols
+        schema = cls.eval_set_cls.schema
+        assert list(schema) == [
+            "trade_date",
+            *SIMILAR_DAY_CALENDAR_COUNT_FEATURE_COLS,
+            "actual_demand_kwh",
+            "forecast_demand_kwh",
+        ]
+        assert all(schema[col] == "int64" for col in CALENDAR_COUNT_FEATURE_COLS)
+        assert set(CALENDAR_COUNT_FEATURE_COLS) <= set(cls.eval_set_cls.non_null_cols)
 
-class TestHolidayFeaturePredict:
+
+class TestCalendarSubsetPredict:
     @staticmethod
     def record_columns(cls):
         return [
@@ -1263,7 +1296,7 @@ class TestHolidayFeaturePredict:
 
     def test_holiday_degree_is_the_only_calendar_feature_added(self, sim_inputs):
         cls = LightGbmMsmPopWeightedDayTypeSimilarDayHolidayDegreeStrategy
-        strategy = make_holiday_strategy(cls, sim_inputs)
+        strategy = make_subset_strategy(cls, sim_inputs)
         forecast = strategy.predict(SIM_SATURDAY, visible(sim_inputs["demand"], SIM_SATURDAY))
         record = strategy._shap_records[SIM_SATURDAY]
         assert list(record.columns) == self.record_columns(cls)
@@ -1277,7 +1310,7 @@ class TestHolidayFeaturePredict:
 
     def test_holiday_distances_are_the_only_calendar_features_added(self, sim_inputs):
         cls = LightGbmMsmPopWeightedDayTypeSimilarDayHolidayDistanceStrategy
-        strategy = make_holiday_strategy(cls, sim_inputs)
+        strategy = make_subset_strategy(cls, sim_inputs)
         forecast = strategy.predict(SIM_D, visible(sim_inputs["demand"], SIM_D))
         record = strategy._shap_records[SIM_D]
         assert list(record.columns) == self.record_columns(cls)
@@ -1290,9 +1323,34 @@ class TestHolidayFeaturePredict:
             reconstructed.to_numpy(), forecast.df["forecast_demand_kwh"].to_numpy(), atol=1e-3
         )
 
-    @pytest.mark.parametrize("cls", HOLIDAY_STRATEGIES, ids=lambda c: c.name)
+    def test_calendar_counts_are_the_only_calendar_features_added(self, sim_inputs):
+        cls = LightGbmMsmPopWeightedDayTypeSimilarDayCalendarCountStrategy
+        strategy = make_subset_strategy(cls, sim_inputs)
+        forecast = strategy.predict(SIM_D, visible(sim_inputs["demand"], SIM_D))
+        record = strategy._shap_records[SIM_D]
+        assert list(record.columns) == self.record_columns(cls)
+        assert "holiday_degree" not in record.columns
+        assert "days_since_holiday" not in record.columns
+        # SIM_D = 2024-04-10: half 1, Q2, day 10 of the month and quarter, day 101
+        # of a leap year, fiscal Q1 — on every period.
+        expected = {
+            "half": 1.0,
+            "quarter": 2.0,
+            "day_of_month": 10.0,
+            "day_of_quarter": 10.0,
+            "day_of_year": 101.0,
+            "fiscal_quarter": 1.0,
+        }
+        for col, value in expected.items():
+            assert record[col].tolist() == [value] * 48, col
+        reconstructed = record[list(strategy.shap_cols)].sum(axis=1) + record["shap_expected_value"]
+        np.testing.assert_allclose(
+            reconstructed.to_numpy(), forecast.df["forecast_demand_kwh"].to_numpy(), atol=1e-3
+        )
+
+    @pytest.mark.parametrize("cls", CALENDAR_SUBSET_STRATEGIES, ids=lambda c: c.name)
     def test_a_day_outside_the_calendar_is_unforecastable(self, sim_inputs, cls):
-        strategy = make_holiday_strategy(cls, sim_inputs)
+        strategy = make_subset_strategy(cls, sim_inputs)
         strategy.predict(SIM_D, visible(sim_inputs["demand"], SIM_D))
         beyond = pd.Timestamp("2024-04-30")  # after the calendar's last holiday
         missing = [DAY_TYPE_FEATURE, SIMILAR_DAY_FEATURE, *cls.calendar_feature_cols]
@@ -1302,10 +1360,10 @@ class TestHolidayFeaturePredict:
             strategy.predict(beyond, visible(sim_inputs["demand"], beyond))
 
 
-class TestHolidayFeatureBacktestEvalAndEvaluate:
-    @pytest.fixture(scope="class", params=HOLIDAY_STRATEGIES, ids=lambda c: c.name)
+class TestCalendarSubsetBacktestEvalAndEvaluate:
+    @pytest.fixture(scope="class", params=CALENDAR_SUBSET_STRATEGIES, ids=lambda c: c.name)
     def backtested(self, request, sim_inputs):
-        strategy = make_holiday_strategy(request.param, sim_inputs, refit_every_days=7)
+        strategy = make_subset_strategy(request.param, sim_inputs, refit_every_days=7)
         return strategy, run_backtest(
             strategy, sim_inputs["demand"], SIM_WINDOW_START, SIM_WINDOW_END
         )
@@ -1330,6 +1388,16 @@ class TestHolidayFeatureBacktestEvalAndEvaluate:
         if "holiday_degree" in df.columns:
             assert df["holiday_degree"].dtype == "float64"
             assert set(df["holiday_degree"]) == {0.0, 0.8, 1.0}
+        elif "day_of_year" in df.columns:
+            # Days 99..105 of a leap year, 8..14 of April and of Q2, all in
+            # half 1 / Q2 / fiscal Q1.
+            assert all(df[col].dtype == "int64" for col in CALENDAR_COUNT_FEATURE_COLS)
+            assert sorted(df["day_of_year"].unique()) == list(range(99, 106))
+            assert sorted(df["day_of_month"].unique()) == list(range(8, 15))
+            assert sorted(df["day_of_quarter"].unique()) == list(range(8, 15))
+            assert set(df["half"]) == {1}
+            assert set(df["quarter"]) == {2}
+            assert set(df["fiscal_quarter"]) == {1}
         else:
             assert df["days_since_holiday"].dtype == "int64"
             assert df["days_until_holiday"].dtype == "int64"
