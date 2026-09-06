@@ -17,7 +17,9 @@ Only the hourly table is ingested; the 5-minute table is a separate 速報
 measurement and is skipped. The yearly 2022 file also carries April–December
 2022, which the daily files cover too, so yearly rows on or after
 :data:`DAILY_FILES_FROM` are dropped at load time and the daily files win.
-Format, quirks and the comparison against the A-1 series
+The parser and loader are the shared :mod:`power_market_analytics.power_usage`;
+this module holds what is TEPCO's — the source spec, the yearly files and the
+yearly-row drop. Format, quirks and the comparison against the A-1 series
 (``tepco_area_demand_generation_actual``) are documented in
 docs/TEPCO-Power-Usage-Retrieval.md.
 """
@@ -27,20 +29,18 @@ from __future__ import annotations
 import datetime
 import re
 from pathlib import Path
-from typing import NamedTuple
 
 import requests
 from loguru import logger
-from pyspark.sql import DataFrame
-from pyspark.sql import functions as F
-from pyspark.sql.types import StringType, StructField, StructType
 
-from power_market_analytics.area_actuals import (
-    AreaActualsDownloader,
-    AreaActualsDownloadError,
-    AreaActualsSource,
+from power_market_analytics.area_actuals import AreaActualsDownloader, AreaActualsDownloadError
+from power_market_analytics.power_usage import (
+    HourlyFile,
+    HourlyRow,
+    PowerUsageCsvLoader,
+    PowerUsageSource,
 )
-from power_market_analytics.csv_loader import SOURCE_FILE_COL, CsvLoader
+from power_market_analytics.power_usage import parse_hourly as _parse_hourly
 
 __all__ = [
     "DAILY_FILES_FROM",
@@ -71,6 +71,8 @@ YEARLY_YEARS = range(2016, 2023)
 #: First day of the published history (the 2016 file starts here, not on Jan 1).
 HISTORY_START = datetime.date(2016, 4, 1)
 
+_ENCODING = "cp932"
+
 
 def expected_yearly_dates(year: int) -> list[str]:
     """Every delivery date a yearly file must cover, as ``yyyyMMdd``.
@@ -94,7 +96,7 @@ def expected_yearly_dates(year: int) -> list[str]:
     ]
 
 
-TEPCO_POWER_USAGE = AreaActualsSource(
+TEPCO_POWER_USAGE = PowerUsageSource(
     code="tepco_power_usage",
     url_template="https://www.tepco.co.jp/forecast/html/images/{year:04d}{month:02d}_power_usage.zip",
     #: First monthly archive; the daily files start with it.
@@ -104,95 +106,16 @@ TEPCO_POWER_USAGE = AreaActualsSource(
     member_re=re.compile(r"\d{8}_power_usage\.csv$"),
     accepted_headers=frozenset({DAILY_HOURLY_HEADER, YEARLY_HEADER}),
     default_data_dir="data/tepco/power_usage",
+    #: A yearly file holds a whole calendar year; a daily member one date.
+    multi_day_headers=frozenset({YEARLY_HEADER}),
 )
-
-_ENCODING = "cp932"
-_UPDATE_RE = re.compile(r"^(\d{4})/(\d{1,2})/(\d{1,2}) (\d{1,2}):(\d{2}) UPDATE$")
-_DATE_RE = re.compile(r"^(\d{4})/(\d{1,2})/(\d{1,2})$")
-_TIME_RE = re.compile(r"^(\d{1,2}):(\d{2})$")
-
-
-class HourlyRow(NamedTuple):
-    """One hour of the hourly table, values still as published (strings).
-
-    Attributes
-    ----------
-    target_date : str
-        Delivery date as ``yyyyMMdd``.
-    hour_start : int
-        Hour the value covers, 0–23 (``TIME`` ``h:00`` = hour ``h``–``h+1``).
-    demand : str
-        ``実績`` / ``当日実績`` in 万kW (1時間平均).
-    forecast, usage_rate, supply_capacity : str or None
-        ``予測値(万kW)``, ``使用率(%)``, ``供給力(万kW)`` — daily files only;
-        None for the yearly layout.
-    """
-
-    target_date: str
-    hour_start: int
-    demand: str
-    forecast: str | None
-    usage_rate: str | None
-    supply_capacity: str | None
-
-
-class HourlyFile(NamedTuple):
-    """The hourly table of one source file plus its metadata.
-
-    Attributes
-    ----------
-    file_updated_at : str
-        The ``UPDATE`` stamp as ``yyyyMMdd HH:mm:ss``.
-    header : str
-        The accepted column-header line the rows were read under.
-    rows : list of HourlyRow
-    """
-
-    file_updated_at: str
-    header: str
-    rows: list[HourlyRow]
-
-
-def _parse_update_stamp(file: Path | str, line: str) -> str:
-    match = _UPDATE_RE.match(line)
-    if match is None:
-        raise ValueError(f"{file}: first line {line!r} is not a '<yyyy/M/d H:mm> UPDATE' stamp")
-    year, month, day, hour, minute = match.groups()
-    return f"{year}{int(month):02d}{int(day):02d} {int(hour):02d}:{minute}:00"
-
-
-def _parse_row(file: Path | str, line: str, header: str) -> HourlyRow:
-    fields = line.split(",")
-    expected = header.count(",") + 1
-    if len(fields) != expected:
-        raise ValueError(f"{file}: row {line!r} has {len(fields)} fields, expected {expected}")
-    date_match = _DATE_RE.match(fields[0])
-    if date_match is None:
-        raise ValueError(f"{file}: row {line!r} does not start with a yyyy/M/d date")
-    year, month, day = date_match.groups()
-    time_match = _TIME_RE.match(fields[1])
-    if time_match is None or time_match.group(2) != "00" or not 0 <= int(time_match.group(1)) <= 23:
-        raise ValueError(f"{file}: row {line!r} is not on the hour (TIME {fields[1]!r})")
-    # The yearly layout has the actual only; the daily layout adds three more.
-    extras: list[str | None] = [field.strip() for field in fields[3:]]
-    extras += [None] * (3 - len(extras))
-    return HourlyRow(
-        target_date=f"{year}{int(month):02d}{int(day):02d}",
-        hour_start=int(time_match.group(1)),
-        demand=fields[2].strip(),
-        forecast=extras[0],
-        usage_rate=extras[1],
-        supply_capacity=extras[2],
-    )
 
 
 def parse_hourly(file: Path | str) -> HourlyFile:
-    """Read the hourly table out of a yearly or daily でんき予報 file.
+    """Read the hourly table out of a yearly or daily TEPCO file.
 
-    The file's first line must be the ``UPDATE`` stamp. The hourly table is
-    the block under the first line that equals one of the source's accepted
-    headers; it ends at the first blank line, so the 5-minute table that
-    follows it in the daily files is never read.
+    :func:`power_market_analytics.power_usage.parse_hourly` bound to
+    :data:`TEPCO_POWER_USAGE`.
 
     Parameters
     ----------
@@ -206,56 +129,11 @@ def parse_hourly(file: Path | str) -> HourlyFile:
     Raises
     ------
     ValueError
-        If the stamp is missing, no accepted header is found, the block is
-        empty, a row is malformed (field count, date, or a TIME that is not
-        on the hour), a day does not cover hours 0–23 exactly once, or a
-        daily file holds more than one target date.
+        As the shared parser: a missing stamp, no accepted header, a
+        malformed row, an incomplete day, or a daily file holding more than
+        one target date.
     """
-    with open(file, encoding=_ENCODING) as f:
-        lines = [line.rstrip("\r\n") for line in f]
-    if not lines:
-        raise ValueError(f"{file}: empty file, expected an UPDATE stamp on the first line")
-    file_updated_at = _parse_update_stamp(file, lines[0])
-    accepted = TEPCO_POWER_USAGE.accepted_headers
-    header_index = next((i for i, line in enumerate(lines) if line in accepted), None)
-    if header_index is None:
-        raise ValueError(
-            f"{file}: no accepted hourly header line found — expected one of "
-            f"{sorted(accepted)!r} (did TEPCO change the layout?)"
-        )
-    header = lines[header_index]
-    rows: list[HourlyRow] = []
-    for line in lines[header_index + 1 :]:
-        if not line.strip():
-            break
-        rows.append(_parse_row(file, line, header))
-    if not rows:
-        raise ValueError(f"{file}: no hourly rows under the header {header!r}")
-    _check_complete(file, header, rows)
-    return HourlyFile(file_updated_at=file_updated_at, header=header, rows=rows)
-
-
-def _check_complete(file: Path | str, header: str, rows: list[HourlyRow]) -> None:
-    """Require every day in the block to carry hours 0–23 exactly once.
-
-    A truncated file that still ends in a well-formed row and a blank line
-    would otherwise load as a day with absent hours — a gap the grain
-    uniqueness check downstream cannot see. A daily file must also hold a
-    single target date.
-    """
-    hours_by_date: dict[str, list[int]] = {}
-    for row in rows:
-        hours_by_date.setdefault(row.target_date, []).append(row.hour_start)
-    if header == DAILY_HOURLY_HEADER and len(hours_by_date) != 1:
-        raise ValueError(
-            f"{file}: a daily file must hold exactly one target date, found {sorted(hours_by_date)}"
-        )
-    for target_date, hours in hours_by_date.items():
-        if sorted(hours) != list(range(24)):
-            raise ValueError(
-                f"{file}: {target_date} does not cover hours 0-23 exactly once "
-                f"(got {sorted(hours)}) — truncated or duplicated block?"
-            )
+    return _parse_hourly(file, TEPCO_POWER_USAGE)
 
 
 class TepcoPowerUsageDownloader(AreaActualsDownloader):
@@ -387,91 +265,34 @@ class TepcoPowerUsageDownloader(AreaActualsDownloader):
         return [*yearly, *daily]
 
 
-#: Contract ``source`` names of the columns the loader hands to the contract
-#: (``__``-prefixed: they are emitted by the parser, not read from a header).
-TARGET_DATE_SOURCE = "__target_date"
-HOUR_START_SOURCE = "__hour_start"
-DEMAND_SOURCE = "__demand_mankw"
-FORECAST_SOURCE = "__forecast_mankw"
-USAGE_RATE_SOURCE = "__usage_rate_pct"
-SUPPLY_CAPACITY_SOURCE = "__supply_capacity_mankw"
-FILE_UPDATED_AT_SOURCE = "__file_updated_at"
-SOURCE_FILE_SOURCE = "__source_file"
-_SOURCE_COLUMNS = (
-    TARGET_DATE_SOURCE,
-    HOUR_START_SOURCE,
-    DEMAND_SOURCE,
-    FORECAST_SOURCE,
-    USAGE_RATE_SOURCE,
-    SUPPLY_CAPACITY_SOURCE,
-    FILE_UPDATED_AT_SOURCE,
-    SOURCE_FILE_SOURCE,
-)
+class TepcoPowerUsageCsvLoader(PowerUsageCsvLoader):
+    """Full reload of the TEPCO でんき予報 hourly tables into a warehouse table.
 
-
-class TepcoPowerUsageCsvLoader(CsvLoader):
-    """Full reload of the でんき予報 hourly tables into a warehouse table.
-
-    Works like :class:`~power_market_analytics.csv_loader.CsvLoader` (same
-    validation and write behaviour) except for how each file is read: the
-    files are multi-section, so :func:`parse_hourly` extracts the hourly
-    table in Python and the contract addresses the parsed values by the
-    ``__``-prefixed source names above. Yearly rows on or after
-    :data:`DAILY_FILES_FROM` are dropped — those days come from the daily
-    files — so the two packagings never collide on the grain.
+    The shared :class:`~power_market_analytics.power_usage.PowerUsageCsvLoader`
+    bound to :data:`TEPCO_POWER_USAGE`, dropping yearly rows on or after
+    :data:`DAILY_FILES_FROM` — those days come from the daily files — so the
+    two packagings never collide on the grain.
 
     Parameters
     ----------
     schema, filepath, table, spark
-        As for :class:`CsvLoader`; ``filepath`` is the ``csv/`` folder holding
-        both ``juyo-YYYY.csv`` and ``YYYYMMDD_power_usage.csv``.
+        As for :class:`~power_market_analytics.csv_loader.CsvLoader`;
+        ``filepath`` is the ``csv/`` folder holding both ``juyo-YYYY.csv``
+        and ``YYYYMMDD_power_usage.csv``.
     """
 
-    def _read_all(self, files: list[str]) -> DataFrame:
-        # One frame for the whole history: ~1,600 daily files as separate
-        # local frames unioned together gave Spark 16k tasks per action.
-        return self._frame(self._rows(files))
+    source = TEPCO_POWER_USAGE
 
-    def _rows(self, files: list[str]) -> list[tuple[str | None, ...]]:
-        """Parse the hourly tables of ``files`` into contract-source string tuples."""
-        data: list[tuple[str | None, ...]] = []
-        for file in files:
-            parsed = parse_hourly(file)
-            rows = parsed.rows
-            if parsed.header == YEARLY_HEADER:
-                cutoff = DAILY_FILES_FROM.strftime("%Y%m%d")
-                kept = [row for row in rows if row.target_date < cutoff]
-                if len(kept) != len(rows):
-                    logger.info(
-                        "{}: dropped {} hourly row(s) on/after {} (covered by the daily files)",
-                        file,
-                        len(rows) - len(kept),
-                        DAILY_FILES_FROM,
-                    )
-                rows = kept
-            source_file = Path(file).name
-            data.extend(
-                (
-                    row.target_date,
-                    str(row.hour_start),
-                    row.demand,
-                    row.forecast,
-                    row.usage_rate,
-                    row.supply_capacity,
-                    parsed.file_updated_at,
-                    source_file,
-                )
-                for row in rows
+    def _file_rows(self, file: str, parsed: HourlyFile) -> list[HourlyRow]:
+        if parsed.header != YEARLY_HEADER:
+            return parsed.rows
+        cutoff = DAILY_FILES_FROM.strftime("%Y%m%d")
+        kept = [row for row in parsed.rows if row.target_date < cutoff]
+        if len(kept) != len(parsed.rows):
+            logger.info(
+                "{}: dropped {} hourly row(s) on/after {} (covered by the daily files)",
+                file,
+                len(parsed.rows) - len(kept),
+                DAILY_FILES_FROM,
             )
-        return data
-
-    def _frame(self, data: list[tuple[str | None, ...]]) -> DataFrame:
-        """Build the contract-typed DataFrame from parsed string tuples.
-
-        The parsed file name doubles as the hidden ``SOURCE_FILE_COL`` so
-        that validation failures name the offending files, as for the
-        Spark-scanned loaders.
-        """
-        spark_schema = StructType([StructField(name, StringType()) for name in _SOURCE_COLUMNS])
-        raw = self.spark.createDataFrame(data, spark_schema)
-        return self._project(raw.withColumn(SOURCE_FILE_COL, F.col("__source_file")))
+        return kept
