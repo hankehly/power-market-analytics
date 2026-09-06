@@ -6,6 +6,9 @@ import re
 from pathlib import Path
 
 import pytest
+
+from power_market_analytics.area_actuals import AreaActualsSource
+from power_market_analytics.csv_loader import SOURCE_FILE_COL, CsvTableSchema
 from power_market_analytics.power_usage import (
     CORRECTION_MARKER,
     HourlyFile,
@@ -14,9 +17,6 @@ from power_market_analytics.power_usage import (
     PowerUsageSource,
     parse_hourly,
 )
-
-from power_market_analytics.area_actuals import AreaActualsSource
-from power_market_analytics.csv_loader import SOURCE_FILE_COL, CsvTableSchema
 
 # --- a demo source and fixture builders -------------------------------------
 
