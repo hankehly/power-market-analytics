@@ -1309,7 +1309,7 @@ class TestRunDefaults:
         assert "count(*) as periods" in payload["sql"]
         assert "group by f.run_id, f.strategy, f.published_at, a.area_code" in payload["sql"]
         assert "order by f.published_at desc" in payload["sql"]
-        assert "limit 100" in payload["sql"]
+        assert "limit" not in payload["sql"]
 
     def test_baseline_run_override_matches_a_run_id_prefix(self, script, fake, spot):
         client = make_client(script, fake)

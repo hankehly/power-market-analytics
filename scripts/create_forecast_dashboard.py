@@ -1113,7 +1113,8 @@ def upsert_dataset(
 
 
 # One row per run of the task's mart, newest first, with the window that makes
-# a pair comparable (area, first / last delivery day, period count).
+# a pair comparable (area, first / last delivery day, period count). Unbounded:
+# both the --baseline-run override and the matched-window rule must see every run.
 RUNS_SQL_TEMPLATE = """\
 select
   f.run_id,
@@ -1126,7 +1127,6 @@ from {accuracy_table} f
 join pma_curated.dim_area a on f.area_key = a.area_key
 group by f.run_id, f.strategy, f.published_at, a.area_code
 order by f.published_at desc
-limit 100
 """
 
 
