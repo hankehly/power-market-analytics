@@ -17,6 +17,7 @@ from power_market_analytics.tasks.demand.datasets import (
     load_day_types,
 )
 from power_market_analytics.tasks.demand.strategies.lgbm import (
+    LightGbmMsmPopWeightedDayTypeSimilarDayCalendarStrategy,
     LightGbmMsmPopWeightedDayTypeSimilarDayStrategy,
     LightGbmMsmPopWeightedDayTypeStrategy,
     LightGbmMsmPopWeightedStrategy,
@@ -33,6 +34,9 @@ STRATEGIES: dict[str, type[LightGbmStrategy]] = {
     LightGbmMsmPopWeightedDayTypeStrategy.name: LightGbmMsmPopWeightedDayTypeStrategy,
     LightGbmMsmPopWeightedDayTypeSimilarDayStrategy.name: (
         LightGbmMsmPopWeightedDayTypeSimilarDayStrategy
+    ),
+    LightGbmMsmPopWeightedDayTypeSimilarDayCalendarStrategy.name: (
+        LightGbmMsmPopWeightedDayTypeSimilarDayCalendarStrategy
     ),
 }
 
@@ -52,9 +56,9 @@ def build_strategy(
     forecast temperature get it loaded too — at the representative station,
     or population-weighted over the area's stations with the latest census
     vintage — the day-type strategy the ``dim_date`` calendar as well, and the
-    similar-day strategy the population-weighted weather forecast and
-    observations, the holiday calendar and the hourly load. Callers only deal
-    in registry names.
+    similar-day strategy (and its calendar-feature subclass) the
+    population-weighted weather forecast and observations, the day calendar
+    and the hourly load. Callers only deal in registry names.
 
     Parameters
     ----------

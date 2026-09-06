@@ -13,6 +13,7 @@ on predicted numbers.
 from __future__ import annotations
 
 import math
+import re
 
 import mlflow
 import numpy as np
@@ -23,6 +24,7 @@ from power_market_analytics.forecasting.backtest import BacktestRun, run_backtes
 from power_market_analytics.forecasting.frames import BASE_COMPONENT, ForecastContributions
 from power_market_analytics.forecasting.strategy import ForecastUnavailableError
 from power_market_analytics.tasks.demand.features import (
+    DAY_CALENDAR_FEATURE_COLS,
     DAY_TYPE_FEATURE,
     FORECAST_TEMPERATURE_FEATURE,
     POPW_FORECAST_TEMPERATURE_FEATURE,
@@ -51,12 +53,15 @@ from power_market_analytics.tasks.demand.strategies.lgbm import (
     MSM_FEATURE_COLS,
     MSM_POPW_DAY_TYPE_FEATURE_COLS,
     MSM_POPW_FEATURE_COLS,
+    SIMILAR_DAY_CALENDAR_FEATURE_COLS,
     SIMILAR_DAY_FEATURE_COLS,
     DemandLightGbmEvalSet,
     DemandLightGbmMsmEvalSet,
     DemandLightGbmMsmPopWeightedDayTypeEvalSet,
+    DemandLightGbmMsmPopWeightedDayTypeSimilarDayCalendarEvalSet,
     DemandLightGbmMsmPopWeightedDayTypeSimilarDayEvalSet,
     DemandLightGbmMsmPopWeightedEvalSet,
+    LightGbmMsmPopWeightedDayTypeSimilarDayCalendarStrategy,
     LightGbmMsmPopWeightedDayTypeSimilarDayStrategy,
     LightGbmMsmPopWeightedDayTypeStrategy,
     LightGbmMsmPopWeightedStrategy,
@@ -1025,3 +1030,136 @@ class TestSimilarDayBacktestEvalAndEvaluate:
         )
         with mlflow.start_run():
             assert strategy.diagnostics(sim_inputs["demand"], BacktestRun(empty, ())) == {}
+
+
+def make_calendar_strategy(
+    inputs, **kwargs
+) -> LightGbmMsmPopWeightedDayTypeSimilarDayCalendarStrategy:
+    return LightGbmMsmPopWeightedDayTypeSimilarDayCalendarStrategy(
+        inputs["temperature"],
+        inputs["weather_forecast"],
+        inputs["day_calendar"],
+        inputs["weather_observed"],
+        inputs["hourly_load"],
+        census_year=2020,
+        train_window_days=30,
+        **kwargs,
+    )
+
+
+class TestCalendarClassAttributes:
+    def test_features_and_frames(self):
+        cls = LightGbmMsmPopWeightedDayTypeSimilarDayCalendarStrategy
+        assert cls.name == "lightgbm_msm_popw_daytype_simday_calendar"
+        assert issubclass(cls, LightGbmMsmPopWeightedDayTypeSimilarDayStrategy)
+        assert SIMILAR_DAY_CALENDAR_FEATURE_COLS == (
+            *SIMILAR_DAY_FEATURE_COLS,
+            *DAY_CALENDAR_FEATURE_COLS,
+        )
+        assert cls.feature_cols == SIMILAR_DAY_CALENDAR_FEATURE_COLS
+        assert cls.categorical_feature_cols == (DAY_TYPE_FEATURE,)
+        assert cls.eval_set_cls is DemandLightGbmMsmPopWeightedDayTypeSimilarDayCalendarEvalSet
+        schema = DemandLightGbmMsmPopWeightedDayTypeSimilarDayCalendarEvalSet.schema
+        assert list(schema) == [
+            "trade_date",
+            *SIMILAR_DAY_CALENDAR_FEATURE_COLS,
+            "actual_demand_kwh",
+            "forecast_demand_kwh",
+        ]
+        assert schema["holiday_degree"] == "float64"
+        assert all(
+            schema[col] == "int64" for col in DAY_CALENDAR_FEATURE_COLS if col != "holiday_degree"
+        )
+        assert set(DAY_CALENDAR_FEATURE_COLS) <= set(
+            DemandLightGbmMsmPopWeightedDayTypeSimilarDayCalendarEvalSet.non_null_cols
+        )
+
+
+class TestCalendarPredict:
+    def test_features_are_the_similar_day_ones_plus_the_days_calendar(self, sim_inputs):
+        strategy = make_calendar_strategy(sim_inputs)
+        history = visible(sim_inputs["demand"], SIM_D)
+        forecast = strategy.predict(SIM_D, history)
+        record = strategy._shap_records[SIM_D]
+        assert list(record.columns) == [
+            "trade_date",
+            "time_code",
+            *[c for c in SIMILAR_DAY_CALENDAR_FEATURE_COLS if c != "time_code"],
+            *[f"shap_{c}" for c in SIMILAR_DAY_CALENDAR_FEATURE_COLS],
+            "shap_expected_value",
+        ]
+        # Every period of the day carries the day's calendar row, as floats.
+        row = sim_inputs["day_calendar"].df.set_index("trade_date").loc[SIM_D]
+        for col in DAY_CALENDAR_FEATURE_COLS:
+            assert record[col].tolist() == [float(row[col])] * 48, col
+        # SIM_D = 2024-04-10: a working Wednesday, day 101 of a leap year, day 10 of
+        # Q2, fiscal Q1, 21 days after the 03-20 holiday and 19 before 04-29.
+        first = record.iloc[0]
+        assert first["day_of_year"] == 101.0
+        assert first["day_of_quarter"] == 10.0
+        assert first["is_business_day"] == 1.0
+        assert first["fiscal_quarter"] == 1.0
+        assert first["days_since_holiday"] == 21.0
+        assert first["days_until_holiday"] == 19.0
+        reconstructed = record[list(strategy.shap_cols)].sum(axis=1) + record["shap_expected_value"]
+        np.testing.assert_allclose(
+            reconstructed.to_numpy(), forecast.df["forecast_demand_kwh"].to_numpy(), atol=1e-3
+        )
+
+    def test_a_day_outside_the_calendar_is_unforecastable(self, sim_inputs):
+        strategy = make_calendar_strategy(sim_inputs)
+        strategy.predict(SIM_D, visible(sim_inputs["demand"], SIM_D))
+        beyond = pd.Timestamp("2024-04-30")  # after the calendar's last holiday
+        missing = [DAY_TYPE_FEATURE, SIMILAR_DAY_FEATURE, *DAY_CALENDAR_FEATURE_COLS]
+        with pytest.raises(
+            ForecastUnavailableError, match=re.escape(f"features {missing} unavailable")
+        ):
+            strategy.predict(beyond, visible(sim_inputs["demand"], beyond))
+
+
+class TestCalendarBacktestEvalAndEvaluate:
+    @pytest.fixture(scope="class")
+    def backtested(self, sim_inputs):
+        strategy = make_calendar_strategy(sim_inputs, refit_every_days=7)
+        return strategy, run_backtest(
+            strategy, sim_inputs["demand"], SIM_WINDOW_START, SIM_WINDOW_END
+        )
+
+    def test_backtest_covers_the_window(self, backtested):
+        _, run = backtested
+        assert run.skipped_days == ()
+        assert len(run.result) == 7 * 48
+
+    def test_eval_set_carries_the_calendar_features_with_contract_dtypes(
+        self, backtested, sim_inputs
+    ):
+        strategy, run = backtested
+        eval_set = strategy.build_eval_set(
+            sim_inputs["demand"], SIM_WINDOW_START, SIM_WINDOW_END, run=run
+        )
+        assert type(eval_set) is DemandLightGbmMsmPopWeightedDayTypeSimilarDayCalendarEvalSet
+        assert len(eval_set) == 7 * 48
+        df = eval_set.df
+        assert df["day_of_year"].dtype == "int64"
+        assert df["holiday_degree"].dtype == "float64"
+        # 2024-04-08..14, Monday to Sunday: days 99..105 of a leap year, all in
+        # half 1 / Q2 / fiscal Q1, five working days and a weekend.
+        assert sorted(df["day_of_year"].unique()) == list(range(99, 106))
+        assert set(df["half"]) == {1}
+        assert set(df["quarter"]) == {2}
+        assert set(df["fiscal_quarter"]) == {1}
+        assert set(df["is_business_day"]) == {0, 1}
+        contributions = strategy.contributions()
+        assert set(DAY_CALENDAR_FEATURE_COLS) <= set(contributions.df["component"])
+
+    def test_evaluate_logs_the_feature_list(self, backtested, sim_inputs):
+        strategy, run = backtested
+        eval_set = strategy.build_eval_set(
+            sim_inputs["demand"], SIM_WINDOW_START, SIM_WINDOW_END, run=run
+        )
+        with mlflow.start_run() as active:
+            strategy.evaluate(eval_set, explainability_nsamples=20)
+        params = mlflow.get_run(active.info.run_id).data.params
+        assert params["lgbm_feature_cols"] == ",".join(SIMILAR_DAY_CALENDAR_FEATURE_COLS)
+        assert params["lgbm_categorical_feature_cols"] == DAY_TYPE_FEATURE
+        assert params["similar_day_center_lag_days"] == "364"

@@ -1,8 +1,9 @@
 """LightGBM strategies for area demand: the calendar + temperature + D-7 lag
 baseline, the same model plus the MSM forecast temperature at the representative
 station, the same again with that forecast population-weighted over the area's
-stations, that one plus the delivery day's type as a categorical, and that one
-plus the load of a learned similar day one year earlier."""
+stations, that one plus the delivery day's type as a categorical, that one
+plus the load of a learned similar day one year earlier, and that one plus the
+delivery day's ``dim_date`` calendar attributes."""
 
 from __future__ import annotations
 
@@ -23,12 +24,14 @@ from power_market_analytics.forecasting.lgbm import (
 from power_market_analytics.forecasting.strategy import ForecastUnavailableError
 from power_market_analytics.tasks.demand import TASK
 from power_market_analytics.tasks.demand.features import (
+    DAY_CALENDAR_FEATURE_COLS,
     DAY_TYPE_FEATURE,
     FORECAST_TEMPERATURE_FEATURE,
     POPW_FORECAST_TEMPERATURE_FEATURE,
     TEMPERATURE_FEATURE,
     TEMPERATURE_HALF_LIFE_DAYS,
     TEMPERATURE_LAG_DAYS,
+    join_day_calendar,
     join_day_type,
     join_forecast_temperature,
     recency_weighted_temperature,
@@ -60,6 +63,7 @@ MSM_FEATURE_COLS = (*FEATURE_COLS, FORECAST_TEMPERATURE_FEATURE)
 MSM_POPW_FEATURE_COLS = (*FEATURE_COLS, POPW_FORECAST_TEMPERATURE_FEATURE)
 MSM_POPW_DAY_TYPE_FEATURE_COLS = (*MSM_POPW_FEATURE_COLS, DAY_TYPE_FEATURE)
 SIMILAR_DAY_FEATURE_COLS = (*MSM_POPW_DAY_TYPE_FEATURE_COLS, SIMILAR_DAY_FEATURE)
+SIMILAR_DAY_CALENDAR_FEATURE_COLS = (*SIMILAR_DAY_FEATURE_COLS, *DAY_CALENDAR_FEATURE_COLS)
 TARGET_COL = TASK.actual_col
 FORECAST_COL = TASK.forecast_col
 
@@ -602,3 +606,118 @@ class LightGbmMsmPopWeightedDayTypeSimilarDayStrategy(LightGbmMsmPopWeightedDayT
             }
         )
         return {"similar_day_selection": selection.df, "similar_day_retrieval": retrieval.df}
+
+
+#: Contract dtypes of the calendar features in the eval set: the counts, the
+#: working-day flag and the holiday distances as integers once only complete
+#: rows remain, the holiday degree as a float.
+DAY_CALENDAR_FEATURE_DTYPES: dict[str, str] = {
+    col: "float64" if col == "holiday_degree" else "int64" for col in DAY_CALENDAR_FEATURE_COLS
+}
+
+
+class DemandLightGbmMsmPopWeightedDayTypeSimilarDayCalendarEvalSet(
+    DemandLightGbmMsmPopWeightedDayTypeSimilarDayEvalSet
+):
+    """Design matrix for :class:`LightGbmMsmPopWeightedDayTypeSimilarDayCalendarStrategy`:
+    the similar-day design matrix plus the delivery day's calendar attributes.
+
+    Grain: (trade_date, time_code).
+    """
+
+    feature_cols = SIMILAR_DAY_CALENDAR_FEATURE_COLS
+    schema = {
+        "trade_date": "datetime64[ns]",
+        "time_code": "int64",
+        "month": "int64",
+        "day_of_week": "int64",
+        TEMPERATURE_FEATURE: "float64",
+        DEMAND_LAG_FEATURE: "float64",
+        POPW_FORECAST_TEMPERATURE_FEATURE: "float64",
+        DAY_TYPE_FEATURE: "int64",
+        SIMILAR_DAY_FEATURE: "float64",
+        **DAY_CALENDAR_FEATURE_DTYPES,
+        TARGET_COL: "float64",
+        FORECAST_COL: "float64",
+    }
+    non_null_cols = [*SIMILAR_DAY_CALENDAR_FEATURE_COLS, TARGET_COL, FORECAST_COL]
+
+
+class LightGbmMsmPopWeightedDayTypeSimilarDayCalendarStrategy(
+    LightGbmMsmPopWeightedDayTypeSimilarDayStrategy
+):
+    """:class:`LightGbmMsmPopWeightedDayTypeSimilarDayStrategy` plus the delivery
+    day's calendar attributes from ``dim_date``.
+
+    Experiment E-001 of docs/research/demand/R-005-calendar-features.md. The
+    ten features of ``DAY_CALENDAR_FEATURE_COLS`` — ``half``, ``quarter``,
+    ``day_of_month``, ``day_of_quarter``, ``day_of_year``, ``holiday_degree``,
+    ``is_business_day``, ``fiscal_quarter``, ``days_since_holiday`` and
+    ``days_until_holiday`` — are joined to every training and prediction row
+    from the :class:`DayCalendar` the parent already receives, as plain
+    numeric columns; ``day_type`` stays the only categorical. A day outside
+    the calendar is unforecastable, as for the parent.
+
+    Parameters
+    ----------
+    temperature : AreaTemperature
+        Hourly observed temperature at the representative station.
+    weather_forecast : AreaWeatherForecast
+        Population-weighted MSM forecast by delivery day.
+    day_calendar : DayCalendar
+        Calendar attributes of every day: the selector's inputs, the parent's
+        day types and this strategy's features.
+    weather_observed : AreaObservedWeather
+        Population-weighted observed temperature, humidity and rain.
+    hourly_load : AreaHourlyLoad
+        The でんき予報 hourly load.
+    census_year : int
+        Census vintage of the population weights, logged to the run.
+    **kwargs
+        Forwarded to the parent.
+    """
+
+    name = "lightgbm_msm_popw_daytype_simday_calendar"
+    feature_cols = SIMILAR_DAY_CALENDAR_FEATURE_COLS
+    eval_set_cls = DemandLightGbmMsmPopWeightedDayTypeSimilarDayCalendarEvalSet
+
+    def __init__(
+        self,
+        temperature: AreaTemperature,
+        weather_forecast: AreaWeatherForecast,
+        day_calendar: DayCalendar,
+        weather_observed: AreaObservedWeather,
+        hourly_load: AreaHourlyLoad,
+        *,
+        census_year: int,
+        **kwargs,
+    ) -> None:
+        super().__init__(
+            temperature,
+            weather_forecast,
+            day_calendar,
+            weather_observed,
+            hourly_load,
+            census_year=census_year,
+            **kwargs,
+        )
+        self.day_calendar = day_calendar
+
+    def _add_features(self, featured: pd.DataFrame, history: pd.DataFrame) -> pd.DataFrame:
+        """The parent's features, then the delivery day's calendar attributes.
+
+        Parameters
+        ----------
+        featured : pandas.DataFrame
+            Rows keyed on (trade_date, time_code) with the calendar features.
+        history : pandas.DataFrame
+            Demand history in the ``AreaDemand`` layout.
+
+        Returns
+        -------
+        pandas.DataFrame
+            ``featured`` plus this strategy's ``feature_cols`` (the calendar
+            attributes NaN on days outside the calendar).
+        """
+        featured = super()._add_features(featured, history)
+        return join_day_calendar(featured, self.day_calendar)

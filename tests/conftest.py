@@ -199,6 +199,25 @@ def synthetic_holiday_degree(day: pd.Timestamp) -> float:
     return 0.0
 
 
+def synthetic_calendar_counts(day: pd.Timestamp) -> dict[str, int]:
+    """dim_date's calendar counts for a day: half (1 before July), quarter,
+    day_of_month, day_of_quarter, day_of_year and fiscal_quarter (April = Q1)."""
+    quarter_start = pd.Timestamp(year=day.year, month=3 * ((day.month - 1) // 3) + 1, day=1)
+    return {
+        "half": 1 if day.month <= 6 else 2,
+        "quarter": (day.month - 1) // 3 + 1,
+        "day_of_month": day.day,
+        "day_of_quarter": (day - quarter_start).days + 1,
+        "day_of_year": day.dayofyear,
+        "fiscal_quarter": (day.month + 8) % 12 // 3 + 1,
+    }
+
+
+def synthetic_is_business_day(day: pd.Timestamp) -> bool:
+    """dim_date.is_business_day in the fixture: a Monday-Friday that is not a holiday."""
+    return day.dayofweek < 5 and day not in HOLIDAYS_2024_SPRING
+
+
 def synthetic_humidity(day: pd.Timestamp, hour_ending: int) -> float:
     """Deterministic hourly relative humidity in %: drier by day, wetter overnight."""
     day_index = (day - PRICE_DAYS[0]).days
@@ -412,6 +431,18 @@ def curated_warehouse(spark: SparkSession) -> CuratedWarehouse:
             "is_weekend": [day.dayofweek >= 5 for day in CALENDAR_DAYS],
             "is_holiday": [day in HOLIDAYS_2024_SPRING for day in CALENDAR_DAYS],
             "holiday_degree": [synthetic_holiday_degree(day) for day in CALENDAR_DAYS],
+            "is_business_day": [synthetic_is_business_day(day) for day in CALENDAR_DAYS],
+            **{
+                col: [synthetic_calendar_counts(day)[col] for day in CALENDAR_DAYS]
+                for col in (
+                    "half",
+                    "quarter",
+                    "day_of_month",
+                    "day_of_quarter",
+                    "day_of_year",
+                    "fiscal_quarter",
+                )
+            },
         }
     )
 
@@ -635,7 +666,10 @@ def curated_warehouse(spark: SparkSession) -> CuratedWarehouse:
         "actual_demand_kwh double, forecast_demand_kwh double",
     ).write.mode("overwrite").saveAsTable("pma_curated.fct_demand_forecast_accuracy")
     spark.createDataFrame(
-        dates, "date_key date, is_weekend boolean, is_holiday boolean, holiday_degree double"
+        dates,
+        "date_key date, is_weekend boolean, is_holiday boolean, holiday_degree double, "
+        "is_business_day boolean, half int, quarter int, day_of_month int, "
+        "day_of_quarter int, day_of_year int, fiscal_quarter int",
     ).write.mode("overwrite").saveAsTable("pma_curated.dim_date")
     spark.createDataFrame(
         hourly_load_rows,

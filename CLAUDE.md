@@ -105,7 +105,13 @@
   `dim_date.holiday_degree` and the population-weighted MSM forecast and JMA observations of
   temperature, humidity and rain; its run also logs `similar_day_selection.csv` /
   `similar_day_retrieval.csv` and four `similar_day_*` metrics through the `diagnostics`
-  hook); areas: `tokyo`,
+  hook), and `lightgbm_msm_popw_daytype_simday_calendar` = that + the ten `dim_date` calendar
+  attributes of `DAY_CALENDAR_FEATURE_COLS` (`half`, `quarter`, `day_of_month`, `day_of_quarter`,
+  `day_of_year`, `holiday_degree`, `is_business_day`, `fiscal_quarter`, `days_since_holiday`,
+  `days_until_holiday`) as plain numeric features (research `demand/R-005` E-001, run
+  2026-09-06: Tokyo MAE +7.3 % vs the baseline, holidays −10 % — rejected by the researcher
+  the same day, kept registered as a reference strategy; the same inputs as the similar-day
+  strategy); areas: `tokyo`,
   `kansai` = the TSO feeds loaded into `fct_area_demand_generation_actual`); each area also needs its
   representative JMA station's hourly weather loaded and current
   (`dim_area.representative_jma_station_id`: 東京 s47662, 大阪 s47772 — both loaded and current
@@ -432,7 +438,17 @@
   `temperature_forecast()` view for the parent), `AreaObservedWeather`, `DayCalendar` (+
   `day_types()`), `AreaHourlyLoad`, loaded by `build_strategy`. The strategy's `diagnostics`
   returns the selection and the retrieval check (selected vs D − 364 vs oracle load
-  difference). Write-back: `pma_ml.demand_forecast` →
+  difference).
+  `lightgbm_msm_popw_daytype_simday_calendar` (`LightGbmMsmPopWeightedDayTypeSimilarDayCalendarStrategy`,
+  research `demand/R-005` E-001, run 2026-09-06 `e3e3bd61…`: MAE +7.3 % on the matched window,
+  rejected by the researcher, Not supported; kept as a reference strategy) = that +
+  `DAY_CALENDAR_FEATURE_COLS`
+  (`tasks/demand/features.py`: `half`, `quarter`, `day_of_month`, `day_of_quarter`, `day_of_year`,
+  `holiday_degree`, `is_business_day` as 1/0, `fiscal_quarter`, `days_since_holiday`,
+  `days_until_holiday`), joined per delivery day by `join_day_calendar` from the same
+  `DayCalendar`, which since then carries the seven `dim_date` count/flag columns next to the
+  selector's three; no new categorical, no new inputs — `build_strategy` wires the subclass
+  through the similar-day branch. Write-back: `pma_ml.demand_forecast` →
   `stg/std_ml__demand_forecast` →
   `fct_demand_forecast` → `fct_demand_forecast_accuracy` → Superset **Demand Forecast Analysis**
   dashboard (dataset `demand_forecast_analysis`; the mart's kWh rescaled to MWh in the dataset
