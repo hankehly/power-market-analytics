@@ -200,8 +200,19 @@ def synthetic_holiday_degree(day: pd.Timestamp) -> float:
 
 
 def synthetic_calendar_counts(day: pd.Timestamp) -> dict[str, int]:
-    """dim_date's calendar counts for a day: half (1 before July), quarter,
-    day_of_month, day_of_quarter, day_of_year and fiscal_quarter (April = Q1)."""
+    """dim_date's calendar counts for a day.
+
+    Parameters
+    ----------
+    day : pandas.Timestamp
+        The calendar day.
+
+    Returns
+    -------
+    dict of str to int
+        ``half`` (1 before July), ``quarter``, ``day_of_month``,
+        ``day_of_quarter``, ``day_of_year`` and ``fiscal_quarter`` (April = Q1).
+    """
     quarter_start = pd.Timestamp(year=day.year, month=3 * ((day.month - 1) // 3) + 1, day=1)
     return {
         "half": 1 if day.month <= 6 else 2,
@@ -214,7 +225,18 @@ def synthetic_calendar_counts(day: pd.Timestamp) -> dict[str, int]:
 
 
 def synthetic_is_business_day(day: pd.Timestamp) -> bool:
-    """dim_date.is_business_day in the fixture: a Monday-Friday that is not a holiday."""
+    """dim_date.is_business_day in the fixture.
+
+    Parameters
+    ----------
+    day : pandas.Timestamp
+        The calendar day.
+
+    Returns
+    -------
+    bool
+        True on a Monday-Friday that is not in ``HOLIDAYS_2024_SPRING``.
+    """
     return day.dayofweek < 5 and day not in HOLIDAYS_2024_SPRING
 
 

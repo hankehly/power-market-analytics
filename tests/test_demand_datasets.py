@@ -381,6 +381,35 @@ class TestLoadDayCalendar:
         with pytest.raises(ValueError, match="dim_date has no named holiday"):
             load_day_calendar(spark=spark)
 
+    def test_null_business_day_flag_raises(self, spark, monkeypatch):
+        # A null flag must not be coerced to False (or True) by the bool cast.
+        days = pd.date_range("2024-04-01", "2024-04-03")
+        monkeypatch.setattr(
+            "power_market_analytics.tasks.demand.datasets.query_pandas",
+            lambda *a, **k: pd.DataFrame(
+                {
+                    "trade_date": [d.date() for d in days],
+                    "is_weekend": [False] * 3,
+                    "is_holiday": [True, False, True],
+                    "holiday_degree": [1.0, 0.0, 1.0],
+                    "is_business_day": pd.Series([False, None, False], dtype=object),
+                    **{
+                        col: [synthetic_calendar_counts(d)[col] for d in days]
+                        for col in (
+                            "half",
+                            "quarter",
+                            "day_of_month",
+                            "day_of_quarter",
+                            "day_of_year",
+                            "fiscal_quarter",
+                        )
+                    },
+                }
+            ),
+        )
+        with pytest.raises(ValueError, match=r"is_business_day.* 1 null"):
+            load_day_calendar(spark=spark)
+
 
 def weighted(first: float, second: float | None, w1: float, w2: float) -> float:
     if second is None:
