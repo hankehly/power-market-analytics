@@ -24,6 +24,39 @@ from tests.support import import_script
 BASE = "http://superset.test:8088"
 DEFAULT_LABEL = "2026-08-18 09:00 | tokyo | lightgbm | abcdef12"
 DEFAULT_LAST_DAY = "2026-08-17"
+DEFAULT_RUN_ID = "abcdef1234567890abcdef1234567890"
+BASELINE_RUN_ID = "0123456789abcdef0123456789abcdef"
+SHORT_RUN_ID = "ffffffff00000000ffffffff00000000"
+BASELINE_LABEL = "2026-08-17 09:00 | tokyo | lightgbm | 01234567"
+SHORT_LABEL = "2026-08-17 18:00 | tokyo | lightgbm | ffffffff"
+# What the fake SQL Lab returns for the runs query: newest first; the second
+# row is a short test window, the third the newest run with the same window.
+RUN_ROWS = [
+    {
+        "run_id": DEFAULT_RUN_ID,
+        "run_label": DEFAULT_LABEL,
+        "area_code": "tokyo",
+        "first_day": "2024-08-18",
+        "last_day": DEFAULT_LAST_DAY,
+        "periods": 34954,
+    },
+    {
+        "run_id": SHORT_RUN_ID,
+        "run_label": SHORT_LABEL,
+        "area_code": "tokyo",
+        "first_day": "2026-07-19",
+        "last_day": DEFAULT_LAST_DAY,
+        "periods": 1440,
+    },
+    {
+        "run_id": BASELINE_RUN_ID,
+        "run_label": BASELINE_LABEL,
+        "area_code": "tokyo",
+        "first_day": "2024-08-18",
+        "last_day": DEFAULT_LAST_DAY,
+        "periods": 34954,
+    },
+]
 
 # The exact rison the client must send for an equality lookup: one or more
 # ``(col:NAME,opr:eq,value:VALUE)`` filters, strings quoted, ints bare.
@@ -137,9 +170,7 @@ class FakeSupersetSession:
         if path == "/api/v1/security/login":
             return FakeResponse({"access_token": "tok"})
         if path == "/api/v1/sqllab/execute/":
-            return FakeResponse(
-                {"data": [{"run_label": DEFAULT_LABEL, "last_day": DEFAULT_LAST_DAY}]}
-            )
+            return FakeResponse({"data": RUN_ROWS})
         m = re.fullmatch(r"/api/v1/(dataset|chart|dashboard)/", path)
         if m:
             assert payload is not None
@@ -855,39 +886,67 @@ class TestUpsertDataset:
 
 
 # --------------------------------------------------------------------------- run label
-class TestLatestRun:
-    def test_returns_newest_label_and_last_day_via_sqllab(self, script, fake, spec):
+class TestRunDefaults:
+    def test_newest_run_its_last_day_and_the_matched_window_baseline(self, script, fake, spec):
         client = make_client(script, fake)
 
-        assert script.latest_run(client, 3, spec) == (DEFAULT_LABEL, DEFAULT_LAST_DAY)
+        defaults = script.run_defaults(client, 3, spec)
 
+        assert defaults == script.RunDefaults(DEFAULT_LABEL, DEFAULT_LAST_DAY, BASELINE_LABEL)
         (call,) = fake.calls_after_login()
         method, url, payload, params = call
         assert (method, url, params) == ("POST", f"{BASE}/api/v1/sqllab/execute/", None)
         assert payload["database_id"] == 3
         assert payload["runAsync"] is False
         assert f"from {spec.accuracy_table} f" in payload["sql"]
+        assert f"  {script.RUN_LABEL_SQL.format(f='f', a='a')} as run_label," in payload["sql"]
+        assert "date_format(min(f.date_key), 'yyyy-MM-dd') as first_day" in payload["sql"]
         assert "date_format(max(f.date_key), 'yyyy-MM-dd') as last_day" in payload["sql"]
+        assert "count(*) as periods" in payload["sql"]
         assert "group by f.run_id, f.strategy, f.published_at, a.area_code" in payload["sql"]
         assert "order by f.published_at desc" in payload["sql"]
-        assert "limit 1" in payload["sql"]
-        assert "as run_label" in payload["sql"]
+        assert "limit 100" in payload["sql"]
+
+    def test_baseline_run_override_matches_a_run_id_prefix(self, script, fake, spot):
+        client = make_client(script, fake)
+        assert script.run_defaults(client, 3, spot, baseline_run="ffff").baseline_run_label == (
+            SHORT_LABEL
+        )
+        assert script.run_defaults(client, 3, spot, baseline_run=BASELINE_RUN_ID) == (
+            script.RunDefaults(DEFAULT_LABEL, DEFAULT_LAST_DAY, BASELINE_LABEL)
+        )
+
+    def test_unknown_baseline_run_warns_and_keeps_the_rule(self, script, fake, spot, monkeypatch):
+        warnings: list[tuple] = []
+        monkeypatch.setattr(script.logger, "warning", lambda *args, **kwargs: warnings.append(args))
+        client = make_client(script, fake)
+
+        defaults = script.run_defaults(client, 3, spot, baseline_run="nope")
+
+        assert defaults.baseline_run_label == BASELINE_LABEL
+        assert len(warnings) == 1
+        assert warnings[0][1] == "nope"
+
+    def test_no_run_shares_the_newest_window(self, script, spot):
+        fake = FakeSupersetSession(sqllab=FakeResponse({"data": RUN_ROWS[:2]}))
+        defaults = script.run_defaults(make_client(script, fake), 3, spot)
+        assert defaults == script.RunDefaults(DEFAULT_LABEL, DEFAULT_LAST_DAY, None)
 
     def test_none_on_http_error(self, script, spot):
         fake = FakeSupersetSession(sqllab=FakeResponse({"message": "boom"}, 500))
-        assert script.latest_run(make_client(script, fake), 3, spot) is None
+        assert script.run_defaults(make_client(script, fake), 3, spot) is None
 
     def test_none_when_mart_is_empty(self, script, spot):
         fake = FakeSupersetSession(sqllab=FakeResponse({"data": []}))
-        assert script.latest_run(make_client(script, fake), 3, spot) is None
+        assert script.run_defaults(make_client(script, fake), 3, spot) is None
 
     def test_none_when_response_has_no_data_key(self, script, spot):
         fake = FakeSupersetSession(sqllab=FakeResponse({"result": "no data here"}))
-        assert script.latest_run(make_client(script, fake), 3, spot) is None
+        assert script.run_defaults(make_client(script, fake), 3, spot) is None
 
-    def test_none_when_the_row_lacks_the_last_day(self, script, spot):
+    def test_none_when_a_row_lacks_a_column(self, script, spot):
         fake = FakeSupersetSession(sqllab=FakeResponse({"data": [{"run_label": DEFAULT_LABEL}]}))
-        assert script.latest_run(make_client(script, fake), 3, spot) is None
+        assert script.run_defaults(make_client(script, fake), 3, spot) is None
 
 
 # --------------------------------------------------------------------------- metrics

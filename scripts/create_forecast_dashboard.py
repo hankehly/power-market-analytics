@@ -700,47 +700,119 @@ def upsert_dataset(
     return dataset_id
 
 
-def latest_run(
-    client: SupersetClient, database_id: int, spec: DashboardSpec
-) -> tuple[str, str] | None:
-    """Newest run's label and its last delivery day, for the filters' on-load defaults.
+# One row per run of the task's mart, newest first, with the window that makes
+# a pair comparable (area, first / last delivery day, period count).
+RUNS_SQL_TEMPLATE = """\
+select
+  f.run_id,
+  {run_label_sql} as run_label,
+  a.area_code,
+  date_format(min(f.date_key), 'yyyy-MM-dd') as first_day,
+  date_format(max(f.date_key), 'yyyy-MM-dd') as last_day,
+  count(*) as periods
+from {accuracy_table} f
+join pma_curated.dim_area a on f.area_key = a.area_key
+group by f.run_id, f.strategy, f.published_at, a.area_code
+order by f.published_at desc
+limit 100
+"""
 
-    ``defaultToFirstItem`` only stages a value (charts render unfiltered until
-    Apply is clicked); an explicit default applies on page load. The label
-    must be built exactly like the datasets' ``run_label``; the day like the
-    explanation dataset's ``trade_date_label``.
+
+@dataclass(frozen=True)
+class RunDefaults:
+    """The native filters' on-load values.
+
+    Parameters
+    ----------
+    run_label : str
+        The newest run's label — the Run filter's default.
+    last_day : str
+        That run's last delivery day, ``yyyy-MM-dd`` — the Day filter's default.
+    baseline_run_label : str or None
+        The Baseline filter's default; None when no run qualifies.
+    """
+
+    run_label: str
+    last_day: str
+    baseline_run_label: str | None
+
+
+def run_defaults(
+    client: SupersetClient,
+    database_id: int,
+    spec: DashboardSpec,
+    baseline_run: str | None = None,
+) -> RunDefaults | None:
+    """The filters' on-load defaults from the mart's runs.
+
+    ``defaultToFirstItem`` only stages a value (charts render unfiltered
+    until Apply is clicked); an explicit default applies on page load. The
+    labels are built by ``RUN_LABEL_SQL`` exactly like the datasets'
+    ``run_label``; the day like the explanation dataset's ``trade_date_label``.
 
     Parameters
     ----------
     client : SupersetClient
     database_id : int
     spec : DashboardSpec
+    baseline_run : str, optional
+        ``run_id`` (or a prefix of it) of the run the Baseline filter opens
+        on. Without it, or when no run matches (logged as a warning), the
+        default is the newest *other* run with the same area, first day, last
+        day and period count as the newest run.
 
     Returns
     -------
-    tuple of (str, str) or None
-        ``(run_label, last_day)``; None when the query fails or the mart is
-        empty (both filters then fall back to ``defaultToFirstItem``).
+    RunDefaults or None
+        None when the query fails or the mart is empty (every filter then
+        falls back to its ``defaultToFirstItem`` setting).
     """
-    sql = f"""\
-select
-  {RUN_LABEL_SQL.format(f="f", a="a")} as run_label,
-  date_format(max(f.date_key), 'yyyy-MM-dd') as last_day
-from {spec.accuracy_table} f
-join pma_curated.dim_area a on f.area_key = a.area_key
-group by f.run_id, f.strategy, f.published_at, a.area_code
-order by f.published_at desc
-limit 1
-"""
+    sql = RUNS_SQL_TEMPLATE.format(
+        run_label_sql=RUN_LABEL_SQL.format(f="f", a="a"), accuracy_table=spec.accuracy_table
+    )
     try:
-        result = client._post_json(
+        rows = client._post_json(
             "/api/v1/sqllab/execute/",
             {"database_id": database_id, "sql": sql, "runAsync": False},
+        )["data"]
+        newest = rows[0]
+        return RunDefaults(
+            newest["run_label"], newest["last_day"], _default_baseline(rows, baseline_run)
         )
-        row = result["data"][0]
-        return row["run_label"], row["last_day"]
     except (requests.HTTPError, KeyError, IndexError):
         return None
+
+
+def _default_baseline(rows: list[dict], baseline_run: str | None) -> str | None:
+    """The Baseline filter's default label from the runs query's rows.
+
+    Parameters
+    ----------
+    rows : list of dict
+        The runs, newest first (``RUNS_SQL_TEMPLATE`` columns).
+    baseline_run : str or None
+        Requested ``run_id`` or prefix; None for the matched-window rule.
+
+    Returns
+    -------
+    str or None
+        The requested run's label; else the newest other run with the newest
+        run's area and window; None when there is none.
+    """
+    if baseline_run is not None:
+        for row in rows:
+            if row["run_id"].startswith(baseline_run):
+                return row["run_label"]
+        logger.warning(
+            "--baseline-run {}: no such run in the mart; using the matched-window rule",
+            baseline_run,
+        )
+    newest = rows[0]
+    window = (newest["area_code"], newest["first_day"], newest["last_day"], newest["periods"])
+    for row in rows[1:]:
+        if (row["area_code"], row["first_day"], row["last_day"], row["periods"]) == window:
+            return row["run_label"]
+    return None
 
 
 def big_number_params(dataset_id: int, metric: dict, subheader: str, number_format: str) -> dict:
@@ -1824,8 +1896,9 @@ def build_dashboard(client: SupersetClient, database_id: int, spec: DashboardSpe
         excluded=[c for c in analysis_charts if c != detail],
     )
 
-    latest = latest_run(client, database_id, spec)
-    default_run, default_day = (None, None) if latest is None else latest
+    defaults = run_defaults(client, database_id, spec)
+    default_run = None if defaults is None else defaults.run_label
+    default_day = None if defaults is None else defaults.last_day
     logger.info("default run: {} (last day: {})", default_run, default_day)
     dashboard_id = upsert_dashboard(
         client,
