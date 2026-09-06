@@ -17,7 +17,10 @@ from power_market_analytics.tasks.demand.datasets import (
     load_day_types,
 )
 from power_market_analytics.tasks.demand.strategies.lgbm import (
+    LightGbmMsmPopWeightedDayTypeSimilarDayCalendarCountStrategy,
     LightGbmMsmPopWeightedDayTypeSimilarDayCalendarStrategy,
+    LightGbmMsmPopWeightedDayTypeSimilarDayHolidayDegreeStrategy,
+    LightGbmMsmPopWeightedDayTypeSimilarDayHolidayDistanceStrategy,
     LightGbmMsmPopWeightedDayTypeSimilarDayStrategy,
     LightGbmMsmPopWeightedDayTypeStrategy,
     LightGbmMsmPopWeightedStrategy,
@@ -38,6 +41,15 @@ STRATEGIES: dict[str, type[LightGbmStrategy]] = {
     LightGbmMsmPopWeightedDayTypeSimilarDayCalendarStrategy.name: (
         LightGbmMsmPopWeightedDayTypeSimilarDayCalendarStrategy
     ),
+    LightGbmMsmPopWeightedDayTypeSimilarDayCalendarCountStrategy.name: (
+        LightGbmMsmPopWeightedDayTypeSimilarDayCalendarCountStrategy
+    ),
+    LightGbmMsmPopWeightedDayTypeSimilarDayHolidayDegreeStrategy.name: (
+        LightGbmMsmPopWeightedDayTypeSimilarDayHolidayDegreeStrategy
+    ),
+    LightGbmMsmPopWeightedDayTypeSimilarDayHolidayDistanceStrategy.name: (
+        LightGbmMsmPopWeightedDayTypeSimilarDayHolidayDistanceStrategy
+    ),
 }
 
 
@@ -56,7 +68,7 @@ def build_strategy(
     forecast temperature get it loaded too — at the representative station,
     or population-weighted over the area's stations with the latest census
     vintage — the day-type strategy the ``dim_date`` calendar as well, and the
-    similar-day strategy (and its calendar-feature subclass) the
+    similar-day strategy (and its calendar-feature subclasses) the
     population-weighted weather forecast and observations, the day calendar
     and the hourly load. Callers only deal in registry names.
 
