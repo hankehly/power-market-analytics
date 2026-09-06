@@ -353,7 +353,7 @@ def avg_metric(column: str, label: str) -> dict:
     }
 
 
-def sql_metric(expression: str, label: str) -> dict:
+def sql_metric(expression: str, label: str, option_name: str | None = None) -> dict:
     """Ad-hoc SQL-expression metric definition for chart params.
 
     Parameters
@@ -362,6 +362,10 @@ def sql_metric(expression: str, label: str) -> dict:
         Aggregate Spark SQL expression, e.g. ``sqrt(avg(power(x, 2)))``.
     label : str
         Display label.
+    option_name : str, optional
+        Identifier suffix (``metric_<option_name>``); defaults to the label's
+        slug, which a label without ASCII letters — ``ΔMAE %`` — cannot supply
+        uniquely.
 
     Returns
     -------
@@ -371,7 +375,7 @@ def sql_metric(expression: str, label: str) -> dict:
         "expressionType": "SQL",
         "sqlExpression": expression,
         "label": label,
-        "optionName": f"metric_{_slug(label)}",
+        "optionName": f"metric_{option_name or _slug(label)}",
     }
 
 
@@ -648,6 +652,112 @@ class DashboardSpec:
         """actual − base: the actual in the contributions' base-relative frame, so its
         distance from ``forecast_minus_base_metric`` is the period's error."""
         return self._minus_base_metric(self.actual_col, "Actual − base")
+
+    # -- comparison dataset (candidate = the Run filter's run, baseline = the Baseline filter's)
+
+    @property
+    def delta_band_chart_title(self) -> str:
+        """The band chart's title on the Compare tab (ΔMAE % instead of MAE)."""
+        return self.band_chart_title.replace("MAE by", "ΔMAE % by", 1)
+
+    @property
+    def delta_mae_sql(self) -> str:
+        """Candidate MAE − baseline MAE over the selection (aggregate expression)."""
+        return f"avg({self.abs_error_col}) - avg({self.baseline_abs_error_col})"
+
+    @property
+    def delta_mae_pct_sql(self) -> str:
+        """The MAE change relative to the baseline, in percent (aggregate expression)."""
+        return f"100 * ({self.delta_mae_sql}) / avg({self.baseline_abs_error_col})"
+
+    @property
+    def baseline_mae_metric(self) -> dict:
+        return avg_metric(self.baseline_abs_error_col, f"Baseline MAE ({self.unit})")
+
+    @property
+    def candidate_mae_metric(self) -> dict:
+        return avg_metric(self.abs_error_col, f"Candidate MAE ({self.unit})")
+
+    @property
+    def delta_mae_metric(self) -> dict:
+        return sql_metric(self.delta_mae_sql, "ΔMAE", option_name="delta_mae")
+
+    @property
+    def delta_mae_pct_metric(self) -> dict:
+        return sql_metric(self.delta_mae_pct_sql, "ΔMAE %", option_name="delta_mae_pct")
+
+    @property
+    def delta_abs_bias_metric(self) -> dict:
+        """|candidate bias| − |baseline bias|: negative = the candidate is less biased."""
+        return sql_metric(
+            f"abs(avg({self.error_col})) - abs(avg({self.baseline_error_col}))",
+            "Δ|bias|",
+            option_name="delta_abs_bias",
+        )
+
+    @property
+    def delta_wape_metric(self) -> dict:
+        return sql_metric(
+            f"sum({self.abs_error_col}) / sum({self.actual_col})"
+            f" - sum({self.baseline_abs_error_col}) / sum({self.actual_col})",
+            "ΔWAPE",
+            option_name="delta_wape",
+        )
+
+    @property
+    def matched_coverage_metric(self) -> dict:
+        """Share of the candidate's periods the baseline also scored (1 = same window)."""
+        return sql_metric("count(*) / max(candidate_periods)", "Matched coverage")
+
+    @property
+    def matched_days_metric(self) -> dict:
+        return sql_metric("count(distinct date_key)", "Matched days")
+
+    @property
+    def days_candidate_lower_metric(self) -> dict:
+        """Share of matched days on which the candidate's daily MAE is lower."""
+        return sql_metric(
+            f"count(distinct case when {self.daily_delta_abs_error_col} < 0 then date_key end)"
+            " / count(distinct date_key)",
+            "Days candidate lower",
+        )
+
+    @property
+    def median_daily_delta_metric(self) -> dict:
+        return sql_metric(
+            f"percentile({self.daily_delta_abs_error_col}, 0.5)",
+            "Median daily ΔMAE",
+            option_name="median_daily_delta_mae",
+        )
+
+    @property
+    def error_reduction_metric(self) -> dict:
+        """Σ baseline |error| − Σ candidate |error| over the selection (positive = gain)."""
+        return sql_metric(
+            f"sum({self.baseline_abs_error_col}) - sum({self.abs_error_col})", "Error reduction"
+        )
+
+    def better_worse_metrics(self, expression: str) -> list[dict]:
+        """The two series of a diverging bar: ``expression`` split by sign.
+
+        Stacked, the negative part ("Better") and the positive part ("Worse")
+        draw one bar per x value below or above zero, each in its own colour
+        (``LABEL_COLORS``).
+
+        Parameters
+        ----------
+        expression : str
+            Signed aggregate expression, e.g. ``delta_mae_pct_sql``.
+
+        Returns
+        -------
+        list of dict
+            ``[Better, Worse]`` metric definitions.
+        """
+        return [
+            sql_metric(f"least({expression}, 0)", "Better"),
+            sql_metric(f"greatest({expression}, 0)", "Worse"),
+        ]
 
 
 SPOT_PRICE = DashboardSpec(
