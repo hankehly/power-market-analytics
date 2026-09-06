@@ -48,7 +48,7 @@ open target:
 # load scripts through `just python` (the pairs are listed in CLAUDE.md) and then `just dbt build`.
 # JMA runs before MSM because the MSM downloader reads the station seed.
 
-[doc("Refresh every data source (JEPX + holidays seed, JMA hourly + station seed, OCCTO, TEPCO, Kansai, e-Stat, MSM) with each script's defaults, then one dbt build: ~1.5 h with warm caches, dominated by JMA's current-year files; a failing step aborts before the build")]
+[doc("Refresh every data source (JEPX + holidays seed, JMA hourly + station seed, OCCTO, TEPCO (both datasets), Kansai (both datasets), e-Stat, MSM) with each script's defaults, then one dbt build: ~1.5 h with warm caches, dominated by JMA's current-year files; a failing step aborts before the build")]
 refresh-all:
     just python scripts/download_jepx_spot.py
     just python scripts/update_holidays_seed.py
@@ -70,6 +70,8 @@ refresh-all:
 
     just python scripts/download_kansai_area_demand_generation.py
     just python scripts/load_kansai_area_demand_generation.py
+    just python scripts/download_kansai_power_usage.py
+    just python scripts/load_kansai_power_usage.py
 
     just python scripts/download_estat_census_population_mesh.py
     just python scripts/load_estat_census_population_mesh.py

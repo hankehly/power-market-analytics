@@ -88,6 +88,11 @@ class AreaActualsSource:
         (refreshed intraday, future periods blank). The loader then skips
         files that are not yet final — those whose ファイル更新日 is not after
         their 対象年月日 — so the warehouse holds finalized days only.
+    known_missing_days : frozenset of datetime.date, default empty
+        Days the TSO never published (Kansai でんき予報 2024-03-31, a
+        site-maintenance day). A settled month may lack their members
+        without failing the download; a listed day that turns up after all
+        is logged at INFO so the entry can be retired.
     """
 
     code: str
@@ -97,6 +102,7 @@ class AreaActualsSource:
     accepted_headers: frozenset[str]
     default_data_dir: str
     archive_includes_current_day: bool = False
+    known_missing_days: frozenset[datetime.date] = frozenset()
 
     def zip_url(self, year: int, month: int) -> str:
         """Return the download URL of one month's archive."""
@@ -195,8 +201,9 @@ class AreaActualsDownloader:
         AreaActualsDownloadError
             If the response is not a zip archive, contains no actuals files,
             holds a member dated outside the month (or without a date in its
-            name), or is a settled month missing a day — a valid archive with
-            one day absent would otherwise load as a silent history gap.
+            name), or is a settled month missing a day not in the source's
+            ``known_missing_days`` — a valid archive with one day absent
+            would otherwise load as a silent history gap.
         requests.HTTPError
             If the TSO responds with an error status (e.g. 404 for a month
             that is not published).
@@ -231,9 +238,8 @@ class AreaActualsDownloader:
         )
         return extracted
 
-    @staticmethod
     def _check_month_coverage(
-        zip_path: Path, year: int, month: int, extracted: list[Path], today: datetime.date
+        self, zip_path: Path, year: int, month: int, extracted: list[Path], today: datetime.date
     ) -> None:
         first = datetime.date(year, month, 1)
         month_end = (first.replace(day=28) + datetime.timedelta(days=4)).replace(
@@ -252,11 +258,21 @@ class AreaActualsDownloader:
                     f"{zip_path}: member {path.name} is dated {day:%Y%m%d}, outside {year}-{month:02d}"
                 )
             found.add(day)
+        known = self.source.known_missing_days
+        published = sorted(found & known)
+        if published:
+            logger.info(
+                "{}: known-missing day(s) {} are published after all; retire them from the "
+                "{} spec's known_missing_days",
+                zip_path,
+                [d.strftime("%Y%m%d") for d in published],
+                self.source.code,
+            )
         if month_end < today - datetime.timedelta(days=1):
             expected = {
                 first + datetime.timedelta(days=i) for i in range((month_end - first).days + 1)
             }
-            missing = sorted(expected - found)
+            missing = sorted(expected - known - found)
             if missing:
                 raise AreaActualsDownloadError(
                     f"{zip_path}: settled month {year}-{month:02d} is missing {len(missing)} day(s): "

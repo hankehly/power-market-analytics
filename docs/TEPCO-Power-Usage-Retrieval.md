@@ -128,12 +128,16 @@ hours each, since a cached gap would survive every refresh without
 files then the monthly archives, whose daily members are extracted into the
 same `csv/` folder (on the 1st of a month the running month is skipped: it
 has no finished day yet; a settled month — last day before yesterday — must
-hold a member for every day, the running month may be partial). `TepcoPowerUsageCsvLoader` (a `CsvLoader`) reads
+hold a member for every day, the running month may be partial). `TepcoPowerUsageCsvLoader`
+(the shared `PowerUsageCsvLoader` of `power_market_analytics/power_usage.py`, which Kansai's
+loader also extends) reads
 each file with `parse_hourly` — the hourly table under the first accepted
 header line, ending at the first blank line, so the 5-minute table is never
 read; every day in the block must cover hours 0–23 exactly once and a daily
 file exactly one date, so a truncated member fails the load instead of
-publishing a day with missing hours — drops yearly rows on/after 2022-04-01,
+publishing a day with missing hours; every line is read with trailing commas
+removed and a `修正後` row corrects the row above it, rules Kansai's archive
+needs and no TEPCO hourly table exercises — drops yearly rows on/after 2022-04-01,
 and hands the contract
 `conf/schemas/tepco_power_usage_hourly.yaml` string columns named
 `__target_date`, `__hour_start`, `__demand_mankw`, `__forecast_mankw`,

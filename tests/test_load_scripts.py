@@ -82,6 +82,13 @@ GENERIC_SCRIPTS = [
         "data/tepco/power_usage/csv",
         "pma_raw.tepco_power_usage_hourly",
     ),
+    (
+        "load_kansai_power_usage",
+        "KansaiPowerUsageCsvLoader",
+        "conf/schemas/kansai_power_usage_hourly.yaml",
+        "data/kansai/power_usage/csv",
+        "pma_raw.kansai_power_usage_hourly",
+    ),
 ]
 
 #: The grain of each default contract, proving the script read the right file.
@@ -96,6 +103,7 @@ CONTRACT_GRAINS = {
     "conf/schemas/tepco_area_demand_generation_actual.yaml": ["target_date", "time_code"],
     "conf/schemas/estat_census_population_mesh.yaml": ["census_year", "mesh_code"],
     "conf/schemas/tepco_power_usage_hourly.yaml": ["target_date", "hour_start"],
+    "conf/schemas/kansai_power_usage_hourly.yaml": ["target_date", "hour_start"],
 }
 
 
