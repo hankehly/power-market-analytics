@@ -697,7 +697,7 @@ select
     when d.is_weekend then 'Weekend'
     else 'Weekday'
   end as day_type,
-  d.holiday_name_ja,
+  case when d.is_holiday then d.holiday_name_ja else '' end as holiday_name_ja,
   m.area_code,
   m.area_name_en,
   m.run_id,
@@ -850,6 +850,198 @@ DEMAND_COMPARISON_COLUMNS = (
         ("is_first_matched_period", "BOOLEAN", False),
     ]
 )
+# The explanation-comparison dataset: the contribution fact self-joined on the
+# periods both runs explained, one row per period x component of either run.
+# A str.format template like COMPARISON_SQL_HEAD (doubled braces = Jinja).
+EXPLANATION_COMPARISON_SQL_HEAD = """\
+{{% set candidate = filter_values('run_label') %}}
+{{% set baseline = filter_values('baseline_run_label') %}}
+with runs as (
+select
+  c.*,
+  concat(
+    date_format(c.published_at, 'yyyy-MM-dd HH:mm'),
+    ' | ', a.area_code,
+    ' | ', c.strategy,
+    ' | ', substring(c.run_id, 1, 8)
+  ) as run_label
+from {contribution_table} c
+join pma_curated.dim_area a on c.area_key = a.area_key
+),
+candidate as (
+select *
+from runs
+where {{% if candidate %}}run_label = '{{{{ candidate[0] | replace("'", "''") }}}}'{{% else %}}1 = 0{{% endif %}}
+),
+baseline as (
+select *
+from runs
+where {{% if baseline %}}run_label = '{{{{ baseline[0] | replace("'", "''") }}}}'{{% else %}}1 = 0{{% endif %}}
+),
+periods as (
+select c.date_key, c.trade_datetime, c.time_code, c.area_key, c.run_id, b.run_id as baseline_run_id
+from candidate c
+join baseline b
+  on b.date_key = c.date_key
+  and b.time_code = c.time_code
+  and b.area_key = c.area_key
+where c.is_base and b.is_base
+),
+components as (
+select distinct component from candidate
+union
+select distinct component from baseline
+),
+matched as (
+select
+  p.date_key,
+  p.trade_datetime,
+  p.time_code,
+  p.area_key,
+  k.component,
+  coalesce(c.component_order, 100 + b.component_order) as component_order,
+  coalesce(c.is_base, b.is_base) as is_base,
+  c.feature_value,
+  b.feature_value as baseline_feature_value,
+"""
+EXPLANATION_COMPARISON_SQL_TAIL = """\
+from periods p
+cross join components k
+left join candidate c
+  on c.date_key = p.date_key
+  and c.time_code = p.time_code
+  and c.area_key = p.area_key
+  and c.component = k.component
+left join baseline b
+  on b.date_key = p.date_key
+  and b.time_code = p.time_code
+  and b.area_key = p.area_key
+  and b.component = k.component
+left join {accuracy_table} fc
+  on fc.run_id = p.run_id
+  and fc.date_key = p.date_key
+  and fc.time_code = p.time_code
+  and fc.area_key = p.area_key
+left join {accuracy_table} fb
+  on fb.run_id = p.baseline_run_id
+  and fb.date_key = p.date_key
+  and fb.time_code = p.time_code
+  and fb.area_key = p.area_key
+)
+select
+  m.date_key,
+  date_format(m.date_key, 'yyyy-MM-dd') as trade_date_label,
+  m.trade_datetime,
+  m.time_code,
+  p.hour_of_day,
+  p.day_part,
+  d.day_name,
+  case
+    when d.is_holiday then 'Holiday'
+    when d.is_weekend then 'Weekend'
+    else 'Weekday'
+  end as day_type,
+  a.area_code,
+  a.area_name_en,
+  {{% if candidate %}}'{{{{ candidate[0] | replace("'", "''") }}}}'{{% else %}}cast(null as string){{% endif %}} as run_label,
+  {{% if baseline %}}'{{{{ baseline[0] | replace("'", "''") }}}}'{{% else %}}cast(null as string){{% endif %}} as baseline_run_label,
+  m.component,
+  m.component_order,
+  concat(lpad(cast(m.component_order as string), 3, '0'), ' ', m.component) as component_label,
+  m.is_base,
+  m.feature_value,
+  m.baseline_feature_value,
+{value_select}
+from matched m
+join pma_curated.dim_area a on m.area_key = a.area_key
+join pma_curated.dim_delivery_period p on m.time_code = p.time_code
+join pma_curated.dim_date d on m.date_key = d.date_key
+"""
+SPOT_EXPLANATION_COMPARISON_VALUES = """\
+  coalesce(c.contribution_price_jpy_kwh, 0) as contribution_price_jpy_kwh,
+  coalesce(b.contribution_price_jpy_kwh, 0) as baseline_contribution_price_jpy_kwh,
+  coalesce(c.contribution_price_jpy_kwh, 0) - coalesce(b.contribution_price_jpy_kwh, 0) as delta_contribution_price_jpy_kwh,
+  fc.forecast_price_jpy_kwh,
+  fb.forecast_price_jpy_kwh as baseline_forecast_price_jpy_kwh,
+  fc.actual_price_jpy_kwh
+"""
+DEMAND_EXPLANATION_COMPARISON_VALUES = """\
+  coalesce(c.contribution_demand_kwh, 0) / 1000 as contribution_mwh,
+  coalesce(b.contribution_demand_kwh, 0) / 1000 as baseline_contribution_mwh,
+  (coalesce(c.contribution_demand_kwh, 0) - coalesce(b.contribution_demand_kwh, 0)) / 1000 as delta_contribution_mwh,
+  fc.forecast_demand_kwh / 1000 as forecast_demand_mwh,
+  fb.forecast_demand_kwh / 1000 as baseline_forecast_demand_mwh,
+  fc.actual_demand_kwh / 1000 as actual_demand_mwh
+"""
+SPOT_EXPLANATION_COMPARISON_VALUE_NAMES = [
+    "contribution_price_jpy_kwh",
+    "baseline_contribution_price_jpy_kwh",
+    "delta_contribution_price_jpy_kwh",
+    "forecast_price_jpy_kwh",
+    "baseline_forecast_price_jpy_kwh",
+    "actual_price_jpy_kwh",
+]
+DEMAND_EXPLANATION_COMPARISON_VALUE_NAMES = [
+    "contribution_mwh",
+    "baseline_contribution_mwh",
+    "delta_contribution_mwh",
+    "forecast_demand_mwh",
+    "baseline_forecast_demand_mwh",
+    "actual_demand_mwh",
+]
+
+
+def explanation_comparison_sql(
+    contribution_table: str, accuracy_table: str, values: str, names: list[str]
+) -> str:
+    return (
+        EXPLANATION_COMPARISON_SQL_HEAD.format(contribution_table=contribution_table)
+        + values
+        + EXPLANATION_COMPARISON_SQL_TAIL.format(
+            accuracy_table=accuracy_table,
+            value_select=",\n".join(f"  m.{name}" for name in names),
+        )
+    )
+
+
+SPOT_EXPLANATION_COMPARISON_SQL = explanation_comparison_sql(
+    "pma_curated.fct_spot_price_forecast_contribution",
+    "pma_curated.fct_spot_price_forecast_accuracy",
+    SPOT_EXPLANATION_COMPARISON_VALUES,
+    SPOT_EXPLANATION_COMPARISON_VALUE_NAMES,
+)
+DEMAND_EXPLANATION_COMPARISON_SQL = explanation_comparison_sql(
+    "pma_curated.fct_demand_forecast_contribution",
+    "pma_curated.fct_demand_forecast_accuracy",
+    DEMAND_EXPLANATION_COMPARISON_VALUES,
+    DEMAND_EXPLANATION_COMPARISON_VALUE_NAMES,
+)
+EXPLANATION_COMPARISON_COLUMNS_HEAD = [
+    ("date_key", "DATE", True),
+    ("trade_date_label", "STRING", False),
+    ("trade_datetime", "TIMESTAMP", True),
+    ("time_code", "INT", False),
+    ("hour_of_day", "INT", False),
+    ("day_part", "STRING", False),
+    ("day_name", "STRING", False),
+    ("day_type", "STRING", False),
+    ("area_code", "STRING", False),
+    ("area_name_en", "STRING", False),
+    ("run_label", "STRING", False),
+    ("baseline_run_label", "STRING", False),
+    ("component", "STRING", False),
+    ("component_order", "INT", False),
+    ("component_label", "STRING", False),
+    ("is_base", "BOOLEAN", False),
+    ("feature_value", "DOUBLE", False),
+    ("baseline_feature_value", "DOUBLE", False),
+]
+SPOT_EXPLANATION_COMPARISON_COLUMNS = EXPLANATION_COMPARISON_COLUMNS_HEAD + [
+    (n, "DOUBLE", False) for n in SPOT_EXPLANATION_COMPARISON_VALUE_NAMES
+]
+DEMAND_EXPLANATION_COMPARISON_COLUMNS = EXPLANATION_COMPARISON_COLUMNS_HEAD + [
+    (n, "DOUBLE", False) for n in DEMAND_EXPLANATION_COMPARISON_VALUE_NAMES
+]
 
 
 class TestDashboardSpecs:
@@ -1184,6 +1376,96 @@ class TestDashboardSpecs:
     def test_delta_band_chart_title(self, spot, demand):
         assert spot.delta_band_chart_title == "ΔMAE % by actual price band"
         assert demand.delta_band_chart_title == "ΔMAE % by actual demand band"
+
+    def test_explanation_comparison_identity(self, spot, demand):
+        assert spot.explanation_comparison_dataset_name == (
+            "spot_price_forecast_explanation_comparison"
+        )
+        assert demand.explanation_comparison_dataset_name == (
+            "demand_forecast_explanation_comparison"
+        )
+        assert spot.baseline_contribution_col == "baseline_contribution_price_jpy_kwh"
+        assert spot.delta_contribution_col == "delta_contribution_price_jpy_kwh"
+        assert demand.baseline_contribution_col == "baseline_contribution_mwh"
+        assert demand.delta_contribution_col == "delta_contribution_mwh"
+
+    def test_explanation_comparison_dataset_sql(self, spot, demand):
+        assert spot.explanation_comparison_dataset_sql == SPOT_EXPLANATION_COMPARISON_SQL
+        assert demand.explanation_comparison_dataset_sql == DEMAND_EXPLANATION_COMPARISON_SQL
+
+    def test_explanation_comparison_columns_follow_the_sql(self, spot, demand):
+        assert spot.explanation_comparison_dataset_columns == SPOT_EXPLANATION_COMPARISON_COLUMNS
+        assert demand.explanation_comparison_dataset_columns == (
+            DEMAND_EXPLANATION_COMPARISON_COLUMNS
+        )
+
+    def test_explanation_comparison_columns_match_the_final_select_list_in_order(self, spec):
+        final_select = spec.explanation_comparison_dataset_sql.rsplit("\nselect\n", 1)[1]
+        select_list = final_select.split("\nfrom matched m", 1)[0].splitlines()
+        output_names = []
+        for line in select_list:
+            if m := re.fullmatch(r"\s+[mpda]\.(\w+),?", line):
+                output_names.append(m.group(1))
+            elif m := re.search(r"\bas (\w+),?$", line):
+                output_names.append(m.group(1))
+        assert [name for name, _, _ in spec.explanation_comparison_dataset_columns] == (
+            output_names
+        )
+        assert [n for n, _, is_dttm in spec.explanation_comparison_dataset_columns if is_dttm] == [
+            "date_key",
+            "trade_datetime",
+        ]
+
+    def test_explanation_comparison_value_columns_carry_the_derived_names(self, spec):
+        assert [name for name, _, _ in spec.explanation_comparison_value_columns] == [
+            spec.contribution_col,
+            spec.baseline_contribution_col,
+            spec.delta_contribution_col,
+            spec.forecast_col,
+            spec.baseline_forecast_col,
+            spec.actual_col,
+        ]
+
+    def test_explanation_comparison_sql_pins_both_runs_and_matches_periods(self, spec):
+        sql = spec.explanation_comparison_dataset_sql
+        assert sql.startswith("{% set candidate = filter_values('run_label') %}\n")
+        assert sql.count("{% else %}1 = 0{% endif %}") == 2
+        assert "where c.is_base and b.is_base" in sql  # one base row per explained period
+        assert "cross join components k" in sql  # the union of both runs' components
+        assert "coalesce(c.component_order, 100 + b.component_order)" in sql
+        # the filters' values are echoed as constant columns so Superset's outer
+        # WHERE on run_label / baseline_run_label keeps every row
+        assert sql.count("{% else %}cast(null as string){% endif %} as") == 2
+
+    def test_explanation_comparison_metrics(self, script, spot, demand):
+        d = "delta_contribution_mwh"
+        assert demand.delta_contribution_metric == script.avg_metric(d, "Δ contribution (MWh)")
+        assert demand.baseline_contribution_metric == script.avg_metric(
+            "baseline_contribution_mwh", "Baseline contribution (MWh)"
+        )
+        assert demand.candidate_contribution_metric == script.avg_metric(
+            "contribution_mwh", "Candidate contribution (MWh)"
+        )
+        assert demand.delta_base_value_metric == script.sql_metric(
+            f"avg(case when is_base then {d} end)", "Δ base value", option_name="delta_base_value"
+        )
+        assert demand.delta_net_effect_metric == script.sql_metric(
+            f"sum(case when not is_base then {d} end) / count(distinct date_key, time_code)",
+            "Δ net feature effect",
+            option_name="delta_net_feature_effect",
+        )
+        assert demand.delta_forecast_metric == script.sql_metric(
+            "avg(forecast_demand_mwh) - avg(baseline_forecast_demand_mwh)",
+            "Δ forecast",
+            option_name="delta_forecast",
+        )
+        assert spot.delta_contribution_metric["column"]["column_name"] == (
+            "delta_contribution_price_jpy_kwh"
+        )
+        assert spot.delta_contribution_metric["label"] == "Δ contribution (JPY/kWh)"
+        assert spot.delta_forecast_metric["sqlExpression"] == (
+            "avg(forecast_price_jpy_kwh) - avg(baseline_forecast_price_jpy_kwh)"
+        )
 
 
 # --------------------------------------------------------------------------- dataset
@@ -1773,8 +2055,47 @@ class TestChartParams:
             k: v for k, v in plain.items() if k != "metrics"
         }
 
+    def test_delta_waterfall_overrides_the_explanation_waterfall(self, script, spec):
+        p = script.delta_waterfall_params(spec, 7)
+        plain = script.waterfall_params(spec, 7)
+        assert p["metric"] == spec.delta_contribution_metric
+        assert p["adhoc_filters"] == [script.NOT_BASE_FILTER]
+        assert p["increase_label"] == "Higher than baseline"
+        assert p["decrease_label"] == "Lower than baseline"
+        assert p["total_label"] == "Δ net effect"
+        assert p["x_axis_label"] == (
+            "Component (candidate feature order; baseline-only features last)"
+        )
+        overridden = {"metric", "increase_label", "decrease_label", "total_label", "x_axis_label"}
+        assert {k: v for k, v in p.items() if k not in overridden} == {
+            k: v for k, v in plain.items() if k not in overridden
+        }
+
+    def test_delta_feature_table(self, script, spec):
+        p = script.delta_feature_table_params(spec, 7)
+        assert p["datasource"] == "7__table"
+        assert p["viz_type"] == "table"
+        assert p["query_mode"] == "aggregate"
+        assert p["groupby"] == ["component_label"]
+        order, baseline, candidate, delta = p["metrics"]
+        assert order == script.sql_metric("min(component_order)", "Order")
+        assert baseline == spec.baseline_contribution_metric
+        assert candidate == spec.candidate_contribution_metric
+        assert delta == spec.delta_contribution_metric
+        assert p["timeseries_limit_metric"] == order
+        assert p["order_desc"] is False
+        assert p["adhoc_filters"] == []  # the base row stays: Δ base is a line of the table
+        assert p["row_limit"] == 100
+        assert p["column_config"] == {
+            "Order": {"d3NumberFormat": ",d"},
+            baseline["label"]: {"d3NumberFormat": spec.contribution_format},
+            candidate["label"]: {"d3NumberFormat": spec.contribution_format},
+            delta["label"]: {"d3NumberFormat": spec.contribution_format},
+        }
+
     def test_every_builder_targets_the_dataset_and_starts_unfiltered(self, script, spec):
         builders = [
+            lambda: script.delta_feature_table_params(spec, 12),
             lambda: script.big_number_params(12, spec.mae_metric, "x", ",.1f"),
             lambda: script.bar_params(spec, 12, "year"),
             lambda: script.heatmap_params(spec, 12, "time_code"),
@@ -2115,6 +2436,99 @@ class TestBuildNativeFilters:
         assert baseline["controlValues"]["defaultToFirstItem"] is False
 
 
+# --------------------------------------------------------------------------- tab builders
+def recording_factory():
+    """A chart factory that hands out ids 101, 102, ... and records (name, dataset id)."""
+    created: list[tuple[str, int]] = []
+
+    def chart(name: str, params: dict, on: int) -> int:
+        assert params["datasource"] == f"{on}__table"
+        created.append((name, on))
+        return 100 + len(created)
+
+    return chart, created
+
+
+def assert_sections_are_consistent(tab) -> None:
+    """Every row spans the 12-column grid and names the tab's own charts."""
+    for section in tab.sections:
+        for row in section["rows"]:
+            assert sum(width for _, _, width, _ in row) == 12
+            for chart_id, name, _, _ in row:
+                assert tab.charts[name] == chart_id
+
+
+class TestTabBuilders:
+    def test_dashboard_tab_exposes_ids_in_creation_order_and_its_layout(self, script):
+        tab = script.DashboardTab("T", {"b": 2, "a": 1}, [{"header": None, "rows": []}])
+        assert tab.chart_ids == [2, 1]
+        assert tab.layout == {"title": "T", "sections": [{"header": None, "rows": []}]}
+
+    def test_chart_adder_records_into_the_shared_dict(self, script):
+        chart, created = recording_factory()
+        charts: dict[str, int] = {}
+        add = script._chart_adder(chart, charts, 7)
+        assert add("x", {"datasource": "7__table"}) == 101
+        assert add("y", {"datasource": "7__table"}) == 102
+        assert charts == {"x": 101, "y": 102}
+        assert created == [("x", 7), ("y", 7)]
+
+    def test_accuracy_tab(self, script, demand):
+        chart, created = recording_factory()
+        tab = script.build_accuracy_tab(chart, demand, 10)
+        assert tab.title == "Accuracy"
+        assert list(tab.charts) == EXPECTED_DEMAND_CHART_NAMES
+        assert tab.chart_ids == list(range(101, 120))
+        assert {on for _, on in created} == {10}
+        assert [s["header"] for s in tab.sections] == [
+            None,
+            "Error structure",
+            "Calibration & distribution",
+            "Runs & drilldown",
+        ]
+        assert_sections_are_consistent(tab)
+
+    def test_explanation_tab(self, script, spot):
+        chart, created = recording_factory()
+        tab = script.build_explanation_tab(chart, spot, 11)
+        assert tab.title == "Explanation (SHAP)"
+        assert list(tab.charts) == EXPLANATION_CHART_NAMES
+        assert tab.chart_ids == list(range(101, 108))
+        assert {on for _, on in created} == {11}
+        assert [s["header"] for s in tab.sections] == [None]
+        assert_sections_are_consistent(tab)
+
+    def test_compare_tab_spans_both_comparison_datasets(self, script, demand):
+        chart, created = recording_factory()
+        tab = script.build_compare_tab(chart, demand, 12, 13)
+        assert tab.title == "Compare"
+        assert list(tab.charts) == (
+            DEMAND_COMPARISON_CHART_NAMES + EXPLANATION_VS_BASELINE_CHART_NAMES
+        )
+        assert tab.chart_ids == list(range(101, 129))
+        assert [on for _, on in created] == [12] * 23 + [13] * 5
+        assert list(script.EXPLANATION_VS_BASELINE_CHART_NAMES) == (
+            EXPLANATION_VS_BASELINE_CHART_NAMES
+        )
+        assert [s["header"] for s in tab.sections] == [
+            None,
+            "Where the candidate wins (ΔMAE % vs baseline)",
+            "Day by day",
+            "Explanation vs baseline (SHAP; mean per period of the Day, or of the run when Day is"
+            " empty)",
+            "Detail",
+        ]
+        assert_sections_are_consistent(tab)
+        day_by_day = tab.sections[2]["rows"]
+        assert [[name for _, name, _, _ in row] for row in day_by_day] == [
+            ["Daily ΔMAE"],
+            ["Cumulative error reduction"],
+            ["Most improved days"],
+            ["Most worsened days"],
+        ]
+        assert all(row[0][2] == 12 for row in day_by_day)  # the day tables are full width
+
+
 # --------------------------------------------------------------------------- dashboard
 EXPECTED_JSON_METADATA_KEYS = {
     "native_filter_configuration",
@@ -2307,6 +2721,13 @@ SPOT_COMPARISON_CHART_NAMES = (
 DEMAND_COMPARISON_CHART_NAMES = (
     COMPARISON_CHART_NAMES_HEAD + ["ΔMAE % by actual demand band"] + COMPARISON_CHART_NAMES_TAIL
 )
+EXPLANATION_VS_BASELINE_CHART_NAMES = [
+    "Δ base value vs baseline",
+    "Δ net feature effect vs baseline",
+    "Δ forecast vs baseline",
+    "SHAP waterfall vs baseline",
+    "Contributions vs baseline",
+]
 EXPECTED_COMPARE_TAB_CHILDREN = [
     "ROW-2-0-0",
     "ROW-2-0-1",
@@ -2320,8 +2741,13 @@ EXPECTED_COMPARE_TAB_CHILDREN = [
     "ROW-2-2-0",
     "ROW-2-2-1",
     "ROW-2-2-2",
+    "ROW-2-2-3",
     "HEADER-2-3",
     "ROW-2-3-0",
+    "ROW-2-3-1",
+    "ROW-2-3-2",
+    "HEADER-2-4",
+    "ROW-2-4-0",
 ]
 EXPECTED_ACCURACY_TAB_CHILDREN = [
     "ROW-0-0-0",
@@ -2381,8 +2807,20 @@ class TestBuildDashboard:
         dashboard_id = script.build_dashboard(client, 3, demand)
 
         # datasets: analysis, explanation, comparison
-        analysis, explanation, comparison = superset.rows["dataset"].values()
-        assert (analysis["id"], explanation["id"], comparison["id"]) == (10, 11, 12)
+        analysis, explanation, comparison, explanation_comparison = superset.rows[
+            "dataset"
+        ].values()
+        assert (
+            analysis["id"],
+            explanation["id"],
+            comparison["id"],
+            explanation_comparison["id"],
+        ) == (
+            10,
+            11,
+            12,
+            13,
+        )
         assert analysis["table_name"] == "demand_forecast_analysis"
         assert analysis["sql"] == DEMAND_DATASET_SQL
         assert analysis["main_dttm_col"] == "trade_datetime"
@@ -2400,20 +2838,29 @@ class TestBuildDashboard:
         assert [(c["column_name"], c["type"], c["is_dttm"]) for c in comparison["columns"]] == (
             DEMAND_COMPARISON_COLUMNS
         )
+        assert explanation_comparison["table_name"] == "demand_forecast_explanation_comparison"
+        assert explanation_comparison["sql"] == DEMAND_EXPLANATION_COMPARISON_SQL
+        assert explanation_comparison["main_dttm_col"] == "trade_datetime"
+        assert [
+            (c["column_name"], c["type"], c["is_dttm"]) for c in explanation_comparison["columns"]
+        ] == DEMAND_EXPLANATION_COMPARISON_COLUMNS
         dataset_puts = [
             c
             for c in superset.calls
-            if c[0] == "PUT" and c[1] in {f"{BASE}/api/v1/dataset/{i}" for i in (10, 11, 12)}
+            if c[0] == "PUT" and c[1] in {f"{BASE}/api/v1/dataset/{i}" for i in (10, 11, 12, 13)}
         ]
-        assert [c[3] for c in dataset_puts] == [{"override_columns": "true"}] * 3
+        assert [c[3] for c in dataset_puts] == [{"override_columns": "true"}] * 4
 
-        # charts, in creation order: 19 analysis, 7 explanation, 23 comparison
+        # charts, in creation order: 19 analysis, 7 explanation, 23 comparison, 5 explanation vs baseline
         charts = list(superset.rows["chart"].values())
         assert [c["slice_name"] for c in charts] == (
-            EXPECTED_DEMAND_CHART_NAMES + EXPLANATION_CHART_NAMES + DEMAND_COMPARISON_CHART_NAMES
+            EXPECTED_DEMAND_CHART_NAMES
+            + EXPLANATION_CHART_NAMES
+            + DEMAND_COMPARISON_CHART_NAMES
+            + EXPLANATION_VS_BASELINE_CHART_NAMES
         )
-        assert [c["id"] for c in charts] == list(range(13, 62))
-        for c, dataset_id in zip(charts, [10] * 19 + [11] * 7 + [12] * 23, strict=True):
+        assert [c["id"] for c in charts] == list(range(14, 68))
+        for c, dataset_id in zip(charts, [10] * 19 + [11] * 7 + [12] * 23 + [13] * 5, strict=True):
             assert c["datasource_id"] == dataset_id
             assert json.loads(c["params"])["datasource"] == f"{dataset_id}__table"
             assert c["datasource_type"] == "table"
@@ -2480,7 +2927,7 @@ class TestBuildDashboard:
 
         # dashboard
         (dashboard,) = superset.rows["dashboard"].values()
-        assert dashboard_id == dashboard["id"] == 62
+        assert dashboard_id == dashboard["id"] == 68
         assert dashboard["dashboard_title"] == "Demand Forecast Analysis"
         assert dashboard["slug"] == "demand-forecast-analysis"
         assert dashboard["published"] is True
@@ -2488,18 +2935,21 @@ class TestBuildDashboard:
         assert set(metadata) == EXPECTED_JSON_METADATA_KEYS
         assert metadata["label_colors"] == script.LABEL_COLORS
         run_filter, day_filter, baseline_filter = metadata["native_filter_configuration"]
-        analysis_ids = list(range(13, 32))
-        explanation_ids = list(range(32, 39))
-        comparison_ids = list(range(39, 62))
+        analysis_ids = list(range(14, 33))
+        explanation_ids = list(range(33, 40))
+        comparison_ids = list(range(40, 63))
+        explained_vs_baseline_ids = list(range(63, 68))
         leaderboard_id = superset.id_of("chart", "slice_name", "Run leaderboard")
-        assert leaderboard_id == 29
+        assert leaderboard_id == 30
         assert run_filter["targets"] == [{"column": {"name": "run_label"}, "datasetId": 10}]
         assert run_filter["scope"]["excluded"] == [leaderboard_id]
         assert run_filter["defaultDataMask"]["filterState"]["value"] == [DEFAULT_LABEL]
         assert run_filter["controlValues"]["defaultToFirstItem"] is False
         # Day applies to the Explanation tab only
         assert day_filter["targets"] == [{"column": {"name": "trade_date_label"}, "datasetId": 11}]
+        # ... and the Compare tab's explanation-vs-baseline section
         assert day_filter["scope"]["excluded"] == analysis_ids + comparison_ids
+        assert set(explained_vs_baseline_ids).isdisjoint(day_filter["scope"]["excluded"])
         assert day_filter["cascadeParentIds"] == ["NATIVE_FILTER-run"]
         assert day_filter["defaultDataMask"]["filterState"]["value"] == [DEFAULT_LAST_DAY]
         # Baseline applies to the Compare tab only, reading its options off the analysis dataset
@@ -2513,7 +2963,7 @@ class TestBuildDashboard:
         position = json.loads(dashboard["position_json"])
         assert position["HEADER_ID"]["meta"]["text"] == "Demand Forecast Analysis"
         chart_keys = sorted(k for k in position if k.startswith("CHART-"))
-        assert chart_keys == sorted(f"CHART-{i}" for i in range(13, 62))
+        assert chart_keys == sorted(f"CHART-{i}" for i in range(14, 68))
         assert position["ROOT_ID"]["children"] == ["TABS-0"]
         assert position["TABS-0"]["children"] == ["TAB-0", "TAB-1", "TAB-2"]
         assert [position[t]["meta"]["text"] for t in ("TAB-0", "TAB-1", "TAB-2")] == [
@@ -2528,71 +2978,102 @@ class TestBuildDashboard:
             position[h]["meta"]["text"] for h in ("HEADER-0-1", "HEADER-0-2", "HEADER-0-3")
         ] == ["Error structure", "Calibration & distribution", "Runs & drilldown"]
         assert [
-            position[h]["meta"]["text"] for h in ("HEADER-2-1", "HEADER-2-2", "HEADER-2-3")
-        ] == ["Where the candidate wins (ΔMAE % vs baseline)", "Day by day", "Detail"]
-        assert position["ROW-0-0-0"]["children"] == [f"CHART-{i}" for i in range(13, 19)]
-        assert position["CHART-13"]["meta"] == {
-            "chartId": 13,
+            position[h]["meta"]["text"]
+            for h in ("HEADER-2-1", "HEADER-2-2", "HEADER-2-3", "HEADER-2-4")
+        ] == [
+            "Where the candidate wins (ΔMAE % vs baseline)",
+            "Day by day",
+            "Explanation vs baseline (SHAP; mean per period of the Day, or of the run when Day is"
+            " empty)",
+            "Detail",
+        ]
+        assert position["ROW-0-0-0"]["children"] == [f"CHART-{i}" for i in range(14, 20)]
+        assert position["CHART-14"]["meta"] == {
+            "chartId": 14,
             "width": 2,
             "height": 24,
             "sliceName": "Overall MAE",
         }
-        assert position["ROW-0-2-0"]["children"] == ["CHART-26", "CHART-27"]
-        assert (position["CHART-26"]["meta"]["width"], position["CHART-27"]["meta"]["width"]) == (
+        assert position["ROW-0-2-0"]["children"] == ["CHART-27", "CHART-28"]
+        assert (position["CHART-27"]["meta"]["width"], position["CHART-28"]["meta"]["width"]) == (
             5,
             7,
         )
         assert position["ROW-0-3-0"]["children"] == [f"CHART-{leaderboard_id}"]
-        assert position["CHART-31"]["meta"]["height"] == 60  # 30-min detail
-        assert position["ROW-1-0-0"]["children"] == [f"CHART-{i}" for i in range(32, 36)]
-        assert position["ROW-1-0-1"]["children"] == ["CHART-36", "CHART-37"]
-        assert position["ROW-1-0-2"]["children"] == ["CHART-38"]
-        assert position["CHART-38"]["parents"] == ["ROOT_ID", "TABS-0", "TAB-1", "ROW-1-0-2"]
+        assert position["CHART-32"]["meta"]["height"] == 60  # 30-min detail
+        assert position["ROW-1-0-0"]["children"] == [f"CHART-{i}" for i in range(33, 37)]
+        assert position["ROW-1-0-1"]["children"] == ["CHART-37", "CHART-38"]
+        assert position["ROW-1-0-2"]["children"] == ["CHART-39"]
+        assert position["CHART-39"]["parents"] == ["ROOT_ID", "TABS-0", "TAB-1", "ROW-1-0-2"]
         # Compare tab rows
-        assert position["ROW-2-0-0"]["children"] == [f"CHART-{i}" for i in range(39, 45)]
-        assert position["CHART-39"]["meta"] == {
-            "chartId": 39,
+        assert position["ROW-2-0-0"]["children"] == [f"CHART-{i}" for i in range(40, 46)]
+        assert position["CHART-40"]["meta"] == {
+            "chartId": 40,
             "width": 2,
             "height": 24,
             "sliceName": "Baseline MAE",
         }
-        assert position["ROW-2-0-1"]["children"] == [f"CHART-{i}" for i in range(45, 49)]
-        assert position["CHART-45"]["meta"]["width"] == 3
-        assert position["ROW-2-1-0"]["children"] == ["CHART-49"]
-        assert (position["CHART-49"]["meta"]["width"], position["CHART-49"]["meta"]["height"]) == (
+        assert position["ROW-2-0-1"]["children"] == [f"CHART-{i}" for i in range(46, 50)]
+        assert position["CHART-46"]["meta"]["width"] == 3
+        assert position["ROW-2-1-0"]["children"] == ["CHART-50"]
+        assert (position["CHART-50"]["meta"]["width"], position["CHART-50"]["meta"]["height"]) == (
             12,
             36,
         )
-        assert position["ROW-2-1-1"]["children"] == ["CHART-50", "CHART-51", "CHART-52"]
-        assert position["CHART-50"]["meta"]["width"] == 4
-        assert position["ROW-2-1-2"]["children"] == ["CHART-53", "CHART-54"]
-        assert position["CHART-53"]["meta"] == {
-            "chartId": 53,
+        assert position["ROW-2-1-1"]["children"] == ["CHART-51", "CHART-52", "CHART-53"]
+        assert position["CHART-51"]["meta"]["width"] == 4
+        assert position["ROW-2-1-2"]["children"] == ["CHART-54", "CHART-55"]
+        assert position["CHART-54"]["meta"] == {
+            "chartId": 54,
             "width": 6,
             "height": 36,
             "sliceName": "ΔMAE % by actual demand band",
         }
-        assert position["ROW-2-1-3"]["children"] == ["CHART-55"]
-        assert position["CHART-55"]["meta"]["height"] == 46
-        assert position["ROW-2-1-4"]["children"] == ["CHART-56"]
-        assert position["CHART-56"]["meta"]["height"] == 50
-        assert position["ROW-2-2-0"]["children"] == ["CHART-57"]
-        assert position["CHART-57"]["meta"]["height"] == 44
-        assert position["ROW-2-2-1"]["children"] == ["CHART-58"]
-        assert position["CHART-58"]["meta"]["height"] == 40
-        assert position["ROW-2-2-2"]["children"] == ["CHART-59", "CHART-60"]
-        assert (position["CHART-59"]["meta"]["width"], position["CHART-59"]["meta"]["height"]) == (
-            6,
+        assert position["ROW-2-1-3"]["children"] == ["CHART-56"]
+        assert position["CHART-56"]["meta"]["height"] == 46
+        assert position["ROW-2-1-4"]["children"] == ["CHART-57"]
+        assert position["CHART-57"]["meta"]["height"] == 50
+        assert position["ROW-2-2-0"]["children"] == ["CHART-58"]
+        assert position["CHART-58"]["meta"]["height"] == 44
+        assert position["ROW-2-2-1"]["children"] == ["CHART-59"]
+        assert position["CHART-59"]["meta"]["height"] == 40
+        # the day tables are stacked full width so every column is visible
+        assert position["ROW-2-2-2"]["children"] == ["CHART-60"]
+        assert (position["CHART-60"]["meta"]["width"], position["CHART-60"]["meta"]["height"]) == (
+            12,
             40,
         )
-        assert position["ROW-2-3-0"]["children"] == ["CHART-61"]
-        assert position["CHART-61"]["meta"]["height"] == 60
-        assert position["CHART-61"]["parents"] == ["ROOT_ID", "TABS-0", "TAB-2", "ROW-2-3-0"]
+        assert position["ROW-2-2-3"]["children"] == ["CHART-61"]
+        assert position["CHART-61"]["meta"]["sliceName"] == "Most worsened days"
+        assert position["CHART-61"]["meta"]["width"] == 12
+        # explanation vs baseline: three tiles, then the waterfall and the table
+        assert position["ROW-2-3-0"]["children"] == ["CHART-63", "CHART-64", "CHART-65"]
+        assert position["CHART-63"]["meta"] == {
+            "chartId": 63,
+            "width": 4,
+            "height": 24,
+            "sliceName": "Δ base value vs baseline",
+        }
+        # the waterfall and its table each take a full-width row (a five-column
+        # table clips at half width)
+        assert position["ROW-2-3-1"]["children"] == ["CHART-66"]
+        assert (position["CHART-66"]["meta"]["width"], position["CHART-66"]["meta"]["height"]) == (
+            12,
+            46,
+        )
+        assert position["ROW-2-3-2"]["children"] == ["CHART-67"]
+        assert (position["CHART-67"]["meta"]["width"], position["CHART-67"]["meta"]["height"]) == (
+            12,
+            40,
+        )
+        assert position["ROW-2-4-0"]["children"] == ["CHART-62"]
+        assert position["CHART-62"]["meta"]["height"] == 60
+        assert position["CHART-62"]["parents"] == ["ROOT_ID", "TABS-0", "TAB-2", "ROW-2-4-0"]
 
         # every chart is linked to the dashboard
-        assert all(c["dashboards"] == [62] for c in charts)
-        assert method_counts(superset.calls, "dataset") == {"GET": 3, "POST": 3, "PUT": 3}
-        assert method_counts(superset.calls, "chart") == {"GET": 49, "POST": 49, "PUT": 49}
+        assert all(c["dashboards"] == [68] for c in charts)
+        assert method_counts(superset.calls, "dataset") == {"GET": 4, "POST": 4, "PUT": 4}
+        assert method_counts(superset.calls, "chart") == {"GET": 54, "POST": 54, "PUT": 54}
         assert method_counts(superset.calls, "dashboard") == {"GET": 1, "POST": 1, "PUT": 1}
 
     def test_spot_price_dashboard_keeps_its_names_layout_and_formats(self, script, superset, spot):
@@ -2600,16 +3081,23 @@ class TestBuildDashboard:
 
         script.build_dashboard(client, 3, spot)
 
-        analysis, explanation, comparison = superset.rows["dataset"].values()
+        analysis, explanation, comparison, explanation_comparison = superset.rows[
+            "dataset"
+        ].values()
         assert analysis["table_name"] == "spot_price_forecast_analysis"
         assert analysis["sql"] == SPOT_DATASET_SQL
         assert explanation["table_name"] == "spot_price_forecast_explanation"
         assert explanation["sql"] == SPOT_EXPLANATION_SQL
         assert comparison["table_name"] == "spot_price_forecast_comparison"
+        assert explanation_comparison["table_name"] == "spot_price_forecast_explanation_comparison"
+        assert explanation_comparison["sql"] == SPOT_EXPLANATION_COMPARISON_SQL
         assert comparison["sql"] == SPOT_COMPARISON_SQL
         charts = list(superset.rows["chart"].values())
         assert [c["slice_name"] for c in charts] == (
-            EXPECTED_SPOT_CHART_NAMES + EXPLANATION_CHART_NAMES + SPOT_COMPARISON_CHART_NAMES
+            EXPECTED_SPOT_CHART_NAMES
+            + EXPLANATION_CHART_NAMES
+            + SPOT_COMPARISON_CHART_NAMES
+            + EXPLANATION_VS_BASELINE_CHART_NAMES
         )
         by_name = {c["slice_name"]: json.loads(c["params"]) for c in charts}
         assert by_name["Overall MAE"]["subheader"] == "JPY/kWh"
@@ -2633,12 +3121,12 @@ class TestBuildDashboard:
         assert position["TAB-0"]["children"] == EXPECTED_ACCURACY_TAB_CHILDREN
         assert position["TAB-1"]["children"] == EXPECTED_EXPLANATION_TAB_CHILDREN
         assert position["TAB-2"]["children"] == EXPECTED_COMPARE_TAB_CHILDREN
-        assert position["ROW-0-3-0"]["children"] == ["CHART-29"]  # Run leaderboard
+        assert position["ROW-0-3-0"]["children"] == ["CHART-30"]  # Run leaderboard
         run_filter, _, baseline_filter = json.loads(dashboard["json_metadata"])[
             "native_filter_configuration"
         ]
-        assert run_filter["scope"]["excluded"] == [29]
-        assert baseline_filter["scope"]["excluded"] == list(range(13, 39))
+        assert run_filter["scope"]["excluded"] == [30]
+        assert baseline_filter["scope"]["excluded"] == list(range(14, 40))
 
     def test_two_dashboards_coexist_with_their_own_datasets_and_charts(
         self, script, superset, spot, demand
@@ -2648,22 +3136,30 @@ class TestBuildDashboard:
         spot_id = script.build_dashboard(client, 3, spot)
         demand_id = script.build_dashboard(client, 3, demand)
 
-        assert (spot_id, demand_id) == (62, 115)  # 3 datasets + 49 charts + dashboard, twice
+        assert (spot_id, demand_id) == (68, 127)  # 4 datasets + 54 charts + dashboard, twice
         spot_ds = superset.id_of("dataset", "table_name", "spot_price_forecast_analysis")
         spot_ex = superset.id_of("dataset", "table_name", "spot_price_forecast_explanation")
         spot_cmp = superset.id_of("dataset", "table_name", "spot_price_forecast_comparison")
+        spot_xc = superset.id_of(
+            "dataset", "table_name", "spot_price_forecast_explanation_comparison"
+        )
         demand_ds = superset.id_of("dataset", "table_name", "demand_forecast_analysis")
         demand_ex = superset.id_of("dataset", "table_name", "demand_forecast_explanation")
         demand_cmp = superset.id_of("dataset", "table_name", "demand_forecast_comparison")
-        assert (spot_ds, spot_ex, spot_cmp, demand_ds, demand_ex, demand_cmp) == (
-            10,
-            11,
-            12,
-            63,
-            64,
-            65,
+        demand_xc = superset.id_of(
+            "dataset", "table_name", "demand_forecast_explanation_comparison"
         )
-        assert len(superset.rows["chart"]) == 98
+        assert (
+            spot_ds,
+            spot_ex,
+            spot_cmp,
+            spot_xc,
+            demand_ds,
+            demand_ex,
+            demand_cmp,
+            demand_xc,
+        ) == (10, 11, 12, 13, 69, 70, 71, 72)
+        assert len(superset.rows["chart"]) == 108
         assert [c["slice_name"] for c in charts_of(superset, spot_ds)] == EXPECTED_SPOT_CHART_NAMES
         assert [c["slice_name"] for c in charts_of(superset, spot_ex)] == EXPLANATION_CHART_NAMES
         assert [
@@ -2676,9 +3172,13 @@ class TestBuildDashboard:
         assert [
             c["slice_name"] for c in charts_of(superset, demand_cmp)
         ] == DEMAND_COMPARISON_CHART_NAMES
+        for dataset_id in (spot_xc, demand_xc):
+            assert [c["slice_name"] for c in charts_of(superset, dataset_id)] == (
+                EXPLANATION_VS_BASELINE_CHART_NAMES
+            )
         for dashboard_id, dataset_ids in (
-            (spot_id, (spot_ds, spot_ex, spot_cmp)),
-            (demand_id, (demand_ds, demand_ex, demand_cmp)),
+            (spot_id, (spot_ds, spot_ex, spot_cmp, spot_xc)),
+            (demand_id, (demand_ds, demand_ex, demand_cmp, demand_xc)),
         ):
             for dataset_id in dataset_ids:
                 assert all(
@@ -2704,8 +3204,8 @@ class TestBuildDashboard:
         script.build_dashboard(client, 3, demand)
 
         assert {r: sorted(rows) for r, rows in superset.rows.items()} == first_ids
-        assert method_counts(superset.calls, "dataset") == {"GET": 3, "PUT": 3}
-        assert method_counts(superset.calls, "chart") == {"GET": 49, "PUT": 98}
+        assert method_counts(superset.calls, "dataset") == {"GET": 4, "PUT": 4}
+        assert method_counts(superset.calls, "chart") == {"GET": 54, "PUT": 108}
         assert method_counts(superset.calls, "dashboard") == {"GET": 1, "PUT": 1}
         (dashboard,) = superset.rows["dashboard"].values()
         run_filter, day_filter, baseline_filter = json.loads(dashboard["json_metadata"])[
@@ -2713,12 +3213,12 @@ class TestBuildDashboard:
         ]
         assert run_filter["defaultDataMask"] == {"extraFormData": {}, "filterState": {}}
         assert run_filter["controlValues"]["defaultToFirstItem"] is True
-        assert run_filter["scope"]["excluded"] == [29]
+        assert run_filter["scope"]["excluded"] == [30]
         assert day_filter["defaultDataMask"] == {"extraFormData": {}, "filterState": {}}
         assert day_filter["controlValues"]["defaultToFirstItem"] is True
         assert baseline_filter["defaultDataMask"] == {"extraFormData": {}, "filterState": {}}
         assert baseline_filter["controlValues"]["defaultToFirstItem"] is False
-        assert all(c["dashboards"] == [62] for c in superset.rows["chart"].values())
+        assert all(c["dashboards"] == [68] for c in superset.rows["chart"].values())
 
     def test_day_tables_cross_filter_the_detail_charts_and_the_explanation_tab(
         self, script, superset, demand
@@ -2734,24 +3234,25 @@ class TestBuildDashboard:
         compare_detail = superset.id_of(
             "chart", "slice_name", "Candidate vs baseline vs actual (30-min detail)"
         )
-        explanation = list(range(32, 39))
-        assert (worst_days, improved, worsened, detail, compare_detail) == (30, 59, 60, 31, 61)
-        assert list(configuration) == ["30", "59", "60"]
-        assert configuration["30"]["crossFilters"]["chartsInScope"] == [
+        # the Explanation tab plus the Compare tab's explanation-vs-baseline section
+        explained = [*range(33, 40), *range(63, 68)]
+        assert (worst_days, improved, worsened, detail, compare_detail) == (31, 60, 61, 32, 62)
+        assert list(configuration) == ["31", "60", "61"]
+        assert configuration["31"]["crossFilters"]["chartsInScope"] == [
             detail,
-            *explanation,
+            *explained,
             compare_detail,
         ]
-        assert configuration["30"]["crossFilters"]["scope"]["excluded"] == [
-            i for i in range(13, 62) if i not in (detail, *explanation, compare_detail)
+        assert configuration["31"]["crossFilters"]["scope"]["excluded"] == [
+            i for i in range(14, 68) if i not in (detail, *explained, compare_detail)
         ]
-        for emitter in ("59", "60"):
+        for emitter in ("60", "61"):
             assert configuration[emitter]["crossFilters"]["chartsInScope"] == [
                 compare_detail,
-                *explanation,
+                *explained,
             ]
             assert configuration[emitter]["crossFilters"]["scope"]["excluded"] == [
-                i for i in range(13, 62) if i not in (compare_detail, *explanation)
+                i for i in range(14, 68) if i not in (compare_detail, *explained)
             ]
 
     def test_baseline_run_override_reaches_the_baseline_filter(self, script, superset, demand):
@@ -2784,13 +3285,15 @@ class TestMain:
             "spot_price_forecast_analysis",
             "spot_price_forecast_explanation",
             "spot_price_forecast_comparison",
+            "spot_price_forecast_explanation_comparison",
             "demand_forecast_analysis",
             "demand_forecast_explanation",
             "demand_forecast_comparison",
+            "demand_forecast_explanation_comparison",
         ]
-        assert len(superset.rows["chart"]) == 98
+        assert len(superset.rows["chart"]) == 108
         assert method_counts(superset.calls, "database") == {"GET": 1}
-        assert method_counts(superset.calls, "chart") == {"GET": 98, "POST": 98, "PUT": 98}
+        assert method_counts(superset.calls, "chart") == {"GET": 108, "POST": 108, "PUT": 108}
 
     def test_task_flag_selects_one_dashboard(self, script, superset, monkeypatch):
         run_main(script, superset, monkeypatch, ["--url", BASE, "--task", "demand"])
@@ -2802,9 +3305,13 @@ class TestMain:
             "demand_forecast_analysis",
             "demand_forecast_explanation",
             "demand_forecast_comparison",
+            "demand_forecast_explanation_comparison",
         ]
         assert [c["slice_name"] for c in superset.rows["chart"].values()] == (
-            EXPECTED_DEMAND_CHART_NAMES + EXPLANATION_CHART_NAMES + DEMAND_COMPARISON_CHART_NAMES
+            EXPECTED_DEMAND_CHART_NAMES
+            + EXPLANATION_CHART_NAMES
+            + DEMAND_COMPARISON_CHART_NAMES
+            + EXPLANATION_VS_BASELINE_CHART_NAMES
         )
 
     def test_task_flag_is_repeatable_and_ordered(self, script, superset, monkeypatch):
@@ -2853,7 +3360,7 @@ class TestMain:
             None,
         )
         assert superset.headers["Referer"] == "http://env-superset:9999"
-        assert len(superset.rows["chart"]) == 98
+        assert len(superset.rows["chart"]) == 108
 
     def test_builtin_defaults_when_env_is_unset(self, monkeypatch):
         for var in ("SUPERSET_URL", "SUPERSET_ADMIN_USER", "SUPERSET_ADMIN_PASSWORD"):
@@ -2883,7 +3390,7 @@ class TestMain:
             None,
         )
         assert superset.headers["Referer"] == "http://cli:1"
-        assert len(superset.rows["chart"]) == 49
+        assert len(superset.rows["chart"]) == 54
 
     def test_baseline_run_flag_is_passed_to_every_dashboard(self, script, superset, monkeypatch):
         run_main(

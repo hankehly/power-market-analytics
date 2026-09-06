@@ -265,3 +265,29 @@ works in SQL Lab; the stack is local-only with admin users, so no further harden
 1. Restart Superset with the flag (done on the local stack on 2026-09-06).
 2. `just python scripts/create_forecast_dashboard.py` (both dashboards).
 3. Live check as above; screenshots for the PR's Proof section.
+
+## Follow-ups (second PR, 2026-09-06)
+
+Taken after PR #49 merged, at the researcher's request.
+
+1. **Explanation vs baseline.** A fourth dataset, `<task>_forecast_explanation_comparison`:
+   the contribution fact self-joined like §1, on the periods both runs explained (one base
+   row per period per run), one row per period × component of either run. A component only
+   one run has keeps that run's contribution and gets 0 on the other side, so its whole
+   contribution is the delta; feature values stay null where the run lacks the feature.
+   Baseline-only components sort after the candidate's (`component_order` + 100, a
+   three-digit label prefix). The filters' values are echoed as constant `run_label` /
+   `baseline_run_label` columns because Superset's outer WHERE would otherwise drop the rows
+   of a component the candidate lacks. A new Compare-tab section shows Δ base value, Δ net
+   feature effect (Σ feature deltas per period) and Δ forecast tiles, a waterfall of
+   per-component contribution deltas (candidate − baseline, mean per period, base row
+   excluded) and a table with both runs' contributions. These charts are in the Day filter's
+   scope and are targets of the day tables' cross-filters, like the Explanation tab.
+2. **Tab builders.** `build_dashboard` delegates each tab to `build_accuracy_tab`,
+   `build_explanation_tab` and `build_compare_tab`; each returns a `DashboardTab` (charts by
+   name in creation order, layout sections). Creation order is unchanged, so the chart ids the
+   tests pin only shift by the extra dataset.
+3. **Day tables** are stacked full width, so the ΔMAE % column is no longer clipped.
+4. **Holiday names** are blank on non-holidays (`case when is_holiday then holiday_name_ja
+   else '' end`): `dim_date` stores the Kimball placeholder "Not Applicable" there, which the
+   day tables showed on every ordinary day.

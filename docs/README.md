@@ -497,8 +497,9 @@ error-distribution views, a cross-run leaderboard, a worst-days drill list
 30-minute forecast-vs-actual detail. A **Compare** tab puts the run against a
 **Baseline** run chosen in a second filter: delta tiles, diverging ΔMAE %
 bars by segment, ΔMAE % heatmaps, daily ΔMAE, the cumulative error
-reduction, most-improved / most-worsened day tables and a three-line
-detail, over the periods both runs scored. The two are the same layout with the
+reduction, most-improved / most-worsened day tables, the SHAP contribution
+deltas per feature against the baseline, and a three-line detail, over the
+periods both runs scored. The two are the same layout with the
 same chart names; only the quantity shows through — JPY/kWh vs kWh (demand
 values are SI-formatted, `1.098M`), and "MAE by actual price band" /
 "Calibration: forecast vs actual price level" become "… actual demand band"

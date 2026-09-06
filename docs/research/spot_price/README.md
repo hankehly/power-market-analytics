@@ -31,8 +31,9 @@ narrow them as the question requires.
   (Superset **Spot Price Forecast Analysis**); its **Compare** tab shows a
   run against a Baseline run (matched periods only): ΔMAE by day part, day
   of week, month, price band and time code, the share of days lower, the
-  median daily ΔMAE and the most improved / worsened days — the bootstrap
-  CI stays in the compare script
+  median daily ΔMAE, the most improved / worsened days and the per-feature
+  SHAP contribution deltas (a day's or the run's mean per period) — the
+  bootstrap CI stays in the compare script
 - **Evaluation method:** rolling out-of-sample backtest over identical
   delivery dates and training rows for baseline and candidate; accuracy rows
   in `fct_spot_price_forecast_accuracy` after
