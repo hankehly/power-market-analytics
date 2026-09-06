@@ -171,9 +171,7 @@
   --select +fct_<task>_forecast_accuracy +fct_<task>_forecast_contribution`;
   `+fct_<task>_forecast_contribution` alone does not refresh the accuracy mart (which the Run
   filter reads) nor the forecast fact the additivity test joins to, and the Run filter then never
-  lists the new run. Clicking a date in **Worst days** (Accuracy tab) cross-filters the
-  Explanation tab (and the 30-min detail chart) to that day — cross-filters persist across tabs,
-  and it combines with the Day filter, so clear Day (or pick the same day) first.
+  lists the new run. Clicking a date in **Worst days** (Accuracy tab) or in **Most improved days** / **Most worsened days** (Compare tab) cross-filters the Explanation tab (and the 30-minute detail charts) to that day — cross-filters persist across tabs, and it combines with the Day filter, so clear Day (or pick the same day) first.
 - Host-side dbt also works: `cd dbt && DBT_THRIFT_HOST=localhost uv run dbt <cmd>`.
 - Anything that creates a SparkSession MUST run in the devcontainer (metastore/warehouse only
   resolve on the compose network); plain python and dbt work from the host too.
