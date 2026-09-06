@@ -457,9 +457,9 @@ class TestOpenSession:
         OcctoBulkDownloader(timeout=7.0)._open_session(session)
         assert session.calls == [("get", LOGIN_URL, {"timeout": 7.0})]
 
-    def test_missing_jsessionid_is_an_error(self):
+    def test_missing_jsessionid_is_transient(self):
         session = FakeSession([FakeResponse(b"<html>")], cookies=())
-        with pytest.raises(OcctoDownloadError, match="did not issue a session cookie"):
+        with pytest.raises(OcctoTransientError, match="did not issue a session cookie"):
             OcctoBulkDownloader()._open_session(session)
 
     def test_http_error_propagates(self):
@@ -900,6 +900,63 @@ class TestDownloadRetries:
 
         assert path.read_bytes() == self.payload
         assert [c[0] for c in session.calls] == ["get", "post", "post", "get", "post", "post"]
+
+    def test_http_5xx_on_the_first_login_is_retried(self, tmp_path):
+        session = FakeSession(
+            [
+                FakeResponse(b"", status=503),
+                LOGIN,
+                ok_response("KEY-1", "TOKEN-1"),
+                csv_response(self.payload),
+            ]
+        )
+
+        path = self.downloader(tmp_path, session).download("demand_forecast_dad")
+
+        assert path.read_bytes() == self.payload
+        assert [c[0] for c in session.calls] == ["get", "get", "post", "post"]
+
+    def test_http_5xx_on_a_retry_login_consumes_that_attempt(self, tmp_path):
+        session = FakeSession(
+            [
+                LOGIN,
+                ok_response("KEY-1", "TOKEN-1"),
+                error_screen(BAD_REQUEST),
+                FakeResponse(b"", status=502),  # the retry's login
+                LOGIN,
+                ok_response("KEY-3", "TOKEN-3"),
+                csv_response(self.payload),
+            ]
+        )
+
+        path = self.downloader(tmp_path, session).download("demand_forecast_dad")
+
+        assert path.read_bytes() == self.payload
+        assert [c[0] for c in session.calls] == [
+            "get",
+            "post",
+            "post",
+            "get",
+            "get",
+            "post",
+            "post",
+        ]
+
+    def test_login_failures_count_against_max_attempts(self, tmp_path):
+        session = FakeSession(
+            [
+                LOGIN,
+                ok_response("KEY-1", "TOKEN-1"),
+                error_screen(BAD_REQUEST),
+                FakeResponse(b"", status=502),
+            ]
+        )
+        dl = self.downloader(tmp_path, session, max_attempts=2)
+
+        with pytest.raises(requests.HTTPError, match="502 error"):
+            dl.download("demand_forecast_dad")
+
+        assert [c[0] for c in session.calls] == ["get", "post", "post", "get"]
 
     def test_http_4xx_is_not_retried(self, tmp_path):
         session = FakeSession(

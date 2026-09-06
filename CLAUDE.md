@@ -460,10 +460,11 @@
 - OCCTO portal failures come back as HTTP 200 HTML — its error screen reads
   不正なリクエストです (the one-shot key/token pair was rejected) or the session-timeout
   message, in the first `<p>`. `OcctoBulkDownloader` retries such a window (also the
-  session-timeout JSON and HTTP 5xx) up to 3 times, 5 s apart, each from a fresh session and
-  key pair, then raises `OcctoTransientError` with the page's message; validation errors,
-  4xx and header mismatches are raised at once. Seen once, 2026-09-06, never reproduced
-  (doc §3.4).
+  session-timeout JSON, a login without a cookie and HTTP 5xx at any step) up to 3 attempts,
+  5 s apart — an attempt = login (first window, every retry) + `ok` + `download`, each retry
+  from a fresh session and key pair — then raises `OcctoTransientError` with the page's
+  message; validation errors, 4xx and header mismatches are raised at once. Seen once,
+  2026-09-06, never reproduced (doc §3.4).
 - TEPCO actuals: 13 April-2022 files hold scientific-notation values (`1.66919e+07`) that Spark's
   ANSI `cast(... as bigint)` rejects, so the raw measures are `double` and `std` rounds to
   `bigint`; TEPCO writes 0 for not-yet-observed periods and the archived 2025-06-14 file froze
