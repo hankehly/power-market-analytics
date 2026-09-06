@@ -141,11 +141,12 @@
   `DashboardSpec` (dataset SQL, unit, formats, band/calibration columns) drives one shared set of
   chart/layout builders; charts are matched by name *within their dataset*, so both dashboards
   share chart names. Rerun after `docker compose down -v` or after editing a spec.
-  Each dashboard has two virtual datasets — `<task>_forecast_analysis` (the accuracy mart) and
+  Each dashboard has three virtual datasets — `<task>_forecast_analysis` (the accuracy mart),
   `<task>_forecast_explanation` (`fct_<task>_forecast_contribution` joined to the accuracy mart:
-  one row per period × component, so AVG-only metrics) — and two top-level tabs: **Accuracy**
-  (KPI tiles, error structure, calibration & distribution, runs & drilldown) and
-  **Explanation (SHAP)**, where a **Day** native filter (scoped to that tab; cascades from Run,
+  one row per period × component, so AVG-only metrics) and `<task>_forecast_comparison` (for the
+  Compare tab) — and three top-level tabs: **Accuracy** (KPI tiles, error structure, calibration &
+  distribution, runs & drilldown), **Explanation (SHAP)** and **Compare**. In **Explanation
+  (SHAP)**, a **Day** native filter (scoped to that tab; cascades from Run,
   defaults to the default run's last day; empty = the run's mean decomposition; every value is
   a mean per period) drives base / forecast / actual / net-effect tiles, a `waterfall` of the
   mean per-period feature contributions (the base is a tile, not a bar: Superset's value axis
@@ -155,15 +156,28 @@
   the contributions' scale around zero) with two lines on the same axis — `Forecast − base`, the
   signed sum of the bars (a stack of mixed signs has no visible edge for it), and
   `Actual − base`; the gap between the lines is the period's error. Both line metrics read the
-  base off the period's base row, so the chart's query B is unfiltered. Runs
+  base off the period's base row, so the chart's query B is unfiltered.
+  **Compare** — a third virtual dataset `<task>_forecast_comparison` (the accuracy mart self-joined
+  on day × time code × area: the Run filter's run as the candidate against a **Baseline** native
+  filter's run, both pinned inside the dataset SQL with Superset Jinja `filter_values()`, so
+  `conf/superset/superset_config.py` sets `ENABLE_TEMPLATE_PROCESSING`; inner join, so only
+  periods both runs scored count) drives delta tiles coloured by sign (ΔMAE, ΔMAE %, Δ|bias|,
+  ΔWAPE; blue = candidate better, orange = worse), matched coverage / days / share of days lower /
+  median daily ΔMAE, diverging Better / Worse bars of ΔMAE % by time code, day part, day type, day
+  of week, actual band and year, ΔMAE % heatmaps (blue-white-yellow, ±30 %), daily ΔMAE bars, the
+  cumulative error reduction, Most improved / Most worsened days tables (cross-filtering the
+  detail and the Explanation tab) and a three-line 30-minute detail. The Baseline filter is scoped
+  to that tab, reads its options from the analysis dataset's `baseline_run_label` alias, and opens
+  on the newest other run with the same area and window as the newest run (`--baseline-run
+  <run_id or prefix>` overrides); the bootstrap CI over days stays in `compare_<task>_runs.py`.
+  Run labels are `published_at | area | strategy | run_id prefix` (`RUN_LABEL_SQL`, one
+  definition); the leaderboard shows each run's first / last day and day count. Runs
   published before 2026-08-26 have no contributions and show an empty tab until re-run. After a
   backtest run, both marts must be rebuilt before the dashboards make sense — `just dbt build
   --select +fct_<task>_forecast_accuracy +fct_<task>_forecast_contribution`;
   `+fct_<task>_forecast_contribution` alone does not refresh the accuracy mart (which the Run
   filter reads) nor the forecast fact the additivity test joins to, and the Run filter then never
-  lists the new run. Clicking a date in **Worst days** (Accuracy tab) cross-filters the
-  Explanation tab (and the 30-min detail chart) to that day — cross-filters persist across tabs,
-  and it combines with the Day filter, so clear Day (or pick the same day) first.
+  lists the new run. Clicking a date in **Worst days** (Accuracy tab) or in **Most improved days** / **Most worsened days** (Compare tab) cross-filters the Explanation tab (and the 30-minute detail charts) to that day — cross-filters persist across tabs, and it combines with the Day filter, so clear Day (or pick the same day) first.
 - Host-side dbt also works: `cd dbt && DBT_THRIFT_HOST=localhost uv run dbt <cmd>`.
 - Anything that creates a SparkSession MUST run in the devcontainer (metastore/warehouse only
   resolve on the compose network); plain python and dbt work from the host too.
@@ -473,6 +487,14 @@
 - OCCTO 翌々日: the two 時刻 columns are hour-ending labels `01:00`..`24:00` (24:00 is not a
   valid Spark time → kept as strings in raw, ints 1–24 in `std`); `min_demand_mw` changed
   meaning on 2025-04-01 (was demand at the min-reserve-rate hour). Details in the doc's §4/§7.
+- OCCTO portal failures come back as HTTP 200 HTML — its error screen reads
+  不正なリクエストです (the one-shot key/token pair was rejected) or the session-timeout
+  message, in the first `<p>`. `OcctoBulkDownloader` retries such a window (also the
+  session-timeout JSON, a login without a cookie and HTTP 5xx at any step) up to 3 attempts,
+  5 s apart — an attempt = login (first window, every retry) + `ok` + `download`, each retry
+  from a fresh session and key pair — then raises `OcctoTransientError` with the page's
+  message; validation errors, 4xx and header mismatches are raised at once. Seen once,
+  2026-09-06, never reproduced (doc §3.4).
 - TEPCO actuals: 13 April-2022 files hold scientific-notation values (`1.66919e+07`) that Spark's
   ANSI `cast(... as bigint)` rejects, so the raw measures are `double` and `std` rounds to
   `bigint`; TEPCO writes 0 for not-yet-observed periods and the archived 2025-06-14 file froze
