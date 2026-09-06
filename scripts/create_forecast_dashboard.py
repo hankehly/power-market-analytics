@@ -2153,20 +2153,24 @@ def _select_filter(
 
 
 def build_native_filters(
+    *,
     dataset_id: int,
     run_excluded: list[int],
     default_run_label: str | None,
     explanation_dataset_id: int,
     day_excluded: list[int],
     default_day_label: str | None,
+    baseline_excluded: list[int],
+    default_baseline_label: str | None,
 ) -> list[dict]:
-    """Native filter configuration: Run (whole dashboard), then Day (the
-    Explanation tab only).
+    """Native filter configuration: Run (whole dashboard), Day (the
+    Explanation tab only), Baseline (the Compare tab only).
 
     Parameters
     ----------
     dataset_id : int
-        Analysis dataset the Run filter reads ``run_label`` from.
+        Analysis dataset the Run and Baseline filters read their options
+        from (``run_label`` / its alias ``baseline_run_label``).
     run_excluded : list of int
         Charts the Run filter must NOT apply to (the cross-run leaderboard).
     default_run_label : str or None
@@ -2174,14 +2178,22 @@ def build_native_filters(
     explanation_dataset_id : int
         Explanation dataset the Day filter reads its values from.
     day_excluded : list of int
-        Charts outside the Day filter's scope (everything on the Accuracy
-        tab).
+        Charts outside the Day filter's scope (everything but the
+        Explanation tab).
     default_day_label : str or None
         Explicit on-load day (the default run's last delivery day).
+    baseline_excluded : list of int
+        Charts outside the Baseline filter's scope (everything but the
+        Compare tab — on the analysis dataset the alias column would
+        otherwise empty every chart).
+    default_baseline_label : str or None
+        Explicit on-load baseline; None leaves the filter empty (no first-item
+        fallback: the Compare tab shows "No data" until a baseline is picked).
 
     Returns
     -------
     list of dict
+        ``[run, day, baseline]``.
     """
     return [
         _select_filter(
@@ -2195,7 +2207,7 @@ def build_native_filters(
             required=True,
             sort_ascending=False,
             cascade_parent_ids=[],
-            description="published_at | area | run_id prefix (newest first)",
+            description="published_at | area | strategy | run_id prefix (newest first)",
         ),
         _select_filter(
             "NATIVE_FILTER-day",
@@ -2214,21 +2226,36 @@ def build_native_filters(
                 "combine"
             ),
         ),
+        _select_filter(
+            "NATIVE_FILTER-baseline",
+            "Baseline",
+            "baseline_run_label",
+            dataset_id,
+            excluded=baseline_excluded,
+            default=default_baseline_label,
+            default_to_first=False,
+            required=True,
+            sort_ascending=False,
+            cascade_parent_ids=[],
+            description=(
+                "Reference run; the Compare tab shows the Run (candidate) against it over "
+                "the periods both runs scored"
+            ),
+        ),
     ]
 
 
-def build_chart_configuration(worst_days: int, in_scope: list[int], excluded: list[int]) -> dict:
-    """Per-chart cross-filter scopes: clicking a Worst-days row selects that day
-    on the Explanation tab (and in the 30-minute detail chart) only.
+def build_chart_configuration(emitters: dict[int, list[int]], all_charts: list[int]) -> dict:
+    """Per-chart cross-filter scopes: clicking a row of an emitter table
+    selects that day on its target charts only.
 
     Parameters
     ----------
-    worst_days : int
-        The Worst-days table's chart id (the emitter).
-    in_scope : list of int
-        Charts that receive its cross-filter.
-    excluded : list of int
-        Every other chart on the dashboard.
+    emitters : dict of int to list of int
+        Emitter chart id → the charts that receive its cross-filter.
+    all_charts : list of int
+        Every chart on the dashboard; those not targeted (the emitter
+        included) are excluded from its scope.
 
     Returns
     -------
@@ -2236,13 +2263,17 @@ def build_chart_configuration(worst_days: int, in_scope: list[int], excluded: li
         ``json_metadata["chart_configuration"]``.
     """
     return {
-        str(worst_days): {
-            "id": worst_days,
+        str(emitter): {
+            "id": emitter,
             "crossFilters": {
-                "scope": {"rootPath": ["ROOT_ID"], "excluded": excluded},
-                "chartsInScope": in_scope,
+                "scope": {
+                    "rootPath": ["ROOT_ID"],
+                    "excluded": [c for c in all_charts if c not in targets],
+                },
+                "chartsInScope": targets,
             },
         }
+        for emitter, targets in emitters.items()
     }
 
 
@@ -2266,6 +2297,7 @@ def upsert_dashboard(
         ``native_filter_configuration`` from :func:`build_native_filters`.
     chart_configuration : dict
         Per-chart cross-filter scopes from :func:`build_chart_configuration`.
+        ``label_colors`` pins the comparison roles' colours (``LABEL_COLORS``).
 
     Returns
     -------
@@ -2283,7 +2315,7 @@ def upsert_dashboard(
         "chart_configuration": chart_configuration,
         "color_scheme": "",
         "expanded_slices": {},
-        "label_colors": {},
+        "label_colors": LABEL_COLORS,
         "refresh_frequency": 0,
         "timed_refresh_immune_slices": [],
     }
@@ -2528,11 +2560,7 @@ def build_dashboard(client: SupersetClient, database_id: int, spec: DashboardSpe
     ]
     all_charts = [*analysis_charts, *explanation_charts]
     cross_filter_targets = [detail, *explanation_charts]
-    chart_configuration = build_chart_configuration(
-        worst_days,
-        in_scope=cross_filter_targets,
-        excluded=[c for c in analysis_charts if c != detail],
-    )
+    chart_configuration = build_chart_configuration({worst_days: cross_filter_targets}, all_charts)
 
     defaults = run_defaults(client, database_id, spec)
     default_run = None if defaults is None else defaults.run_label
@@ -2543,12 +2571,14 @@ def build_dashboard(client: SupersetClient, database_id: int, spec: DashboardSpe
         spec,
         build_position_json(spec, tabs),
         build_native_filters(
-            dataset_id,
+            dataset_id=dataset_id,
             run_excluded=[leaderboard],
             default_run_label=default_run,
             explanation_dataset_id=explanation_id,
             day_excluded=analysis_charts,
             default_day_label=default_day,
+            baseline_excluded=all_charts,
+            default_baseline_label=None,
         ),
         chart_configuration,
     )

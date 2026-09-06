@@ -1957,11 +1957,18 @@ class TestBuildPositionJson:
 # --------------------------------------------------------------------------- native filters
 class TestBuildNativeFilters:
     def test_explicit_defaults_apply_on_load(self, script):
-        run, day = script.build_native_filters(
-            10, [27], DEFAULT_LABEL, 11, [12, 13], DEFAULT_LAST_DAY
+        run, day, baseline = script.build_native_filters(
+            dataset_id=10,
+            run_excluded=[27],
+            default_run_label=DEFAULT_LABEL,
+            explanation_dataset_id=11,
+            day_excluded=[12, 13],
+            default_day_label=DEFAULT_LAST_DAY,
+            baseline_excluded=[12, 13, 14],
+            default_baseline_label=BASELINE_LABEL,
         )
-        assert [f["type"] for f in (run, day)] == ["NATIVE_FILTER"] * 2
-        assert [f["filterType"] for f in (run, day)] == ["filter_select"] * 2
+        assert [f["type"] for f in (run, day, baseline)] == ["NATIVE_FILTER"] * 3
+        assert [f["filterType"] for f in (run, day, baseline)] == ["filter_select"] * 3
 
         assert run["id"] == "NATIVE_FILTER-run"
         assert run["name"] == "Run"
@@ -2004,13 +2011,46 @@ class TestBuildNativeFilters:
         assert day["scope"] == {"rootPath": ["ROOT_ID"], "excluded": [12, 13]}
         assert "Worst days" in day["description"]
 
-    def test_no_defaults_fall_back_to_first_item(self, script):
-        run, day = script.build_native_filters(10, [], None, 11, [], None)
+        assert baseline["id"] == "NATIVE_FILTER-baseline"
+        assert baseline["name"] == "Baseline"
+        assert baseline["targets"] == [{"column": {"name": "baseline_run_label"}, "datasetId": 10}]
+        assert baseline["defaultDataMask"] == {
+            "extraFormData": {
+                "filters": [{"col": "baseline_run_label", "op": "IN", "val": [BASELINE_LABEL]}]
+            },
+            "filterState": {"value": [BASELINE_LABEL], "label": BASELINE_LABEL},
+        }
+        assert baseline["controlValues"] == {
+            "multiSelect": False,
+            "enableEmptyFilter": True,
+            "defaultToFirstItem": False,
+            "inverseSelection": False,
+            "searchAllOptions": False,
+            "sortAscending": False,
+        }
+        assert baseline["cascadeParentIds"] == []
+        assert baseline["scope"] == {"rootPath": ["ROOT_ID"], "excluded": [12, 13, 14]}
+        assert "Compare tab" in baseline["description"]
+
+    def test_no_defaults_fall_back_to_first_item_except_baseline(self, script):
+        run, day, baseline = script.build_native_filters(
+            dataset_id=10,
+            run_excluded=[],
+            default_run_label=None,
+            explanation_dataset_id=11,
+            day_excluded=[],
+            default_day_label=None,
+            baseline_excluded=[],
+            default_baseline_label=None,
+        )
         assert run["defaultDataMask"] == {"extraFormData": {}, "filterState": {}}
         assert run["controlValues"]["defaultToFirstItem"] is True
         assert run["scope"] == {"rootPath": ["ROOT_ID"], "excluded": []}
         assert day["defaultDataMask"] == {"extraFormData": {}, "filterState": {}}
         assert day["controlValues"]["defaultToFirstItem"] is True
+        # No baseline: the Compare tab stays on "No data" until one is picked
+        assert baseline["defaultDataMask"] == {"extraFormData": {}, "filterState": {}}
+        assert baseline["controlValues"]["defaultToFirstItem"] is False
 
 
 # --------------------------------------------------------------------------- dashboard
@@ -2026,11 +2066,40 @@ EXPECTED_JSON_METADATA_KEYS = {
 }
 
 
+class TestBuildChartConfiguration:
+    def test_each_emitter_scopes_its_targets_and_excludes_the_rest(self, script):
+        configuration = script.build_chart_configuration(
+            {30: [31, 32, 61], 59: [61, 32]}, [29, 30, 31, 32, 59, 60, 61]
+        )
+        assert list(configuration) == ["30", "59"]
+        assert configuration["30"] == {
+            "id": 30,
+            "crossFilters": {
+                "scope": {"rootPath": ["ROOT_ID"], "excluded": [29, 30, 59, 60]},
+                "chartsInScope": [31, 32, 61],
+            },
+        }
+        assert configuration["59"]["crossFilters"]["chartsInScope"] == [61, 32]
+        assert configuration["59"]["crossFilters"]["scope"]["excluded"] == [29, 30, 31, 59, 60]
+
+    def test_no_emitters_no_configuration(self, script):
+        assert script.build_chart_configuration({}, [1, 2]) == {}
+
+
 class TestUpsertDashboard:
     def test_creates_then_writes_layout_and_metadata(self, script, fake, spec):
         client = make_client(script, fake)
         position = {"DASHBOARD_VERSION_KEY": "v2", "ROOT_ID": {"children": ["GRID_ID"]}}
-        filters = script.build_native_filters(10, [27], None, 11, [], None)
+        filters = script.build_native_filters(
+            dataset_id=10,
+            run_excluded=[27],
+            default_run_label=None,
+            explanation_dataset_id=11,
+            day_excluded=[],
+            default_day_label=None,
+            baseline_excluded=[],
+            default_baseline_label=None,
+        )
 
         dashboard_id = script.upsert_dashboard(client, spec, position, filters, {})
 
@@ -2061,6 +2130,7 @@ class TestUpsertDashboard:
         assert metadata["cross_filters_enabled"] is True
         assert metadata["refresh_frequency"] == 0
         assert metadata["color_scheme"] == ""
+        assert metadata["label_colors"] == script.LABEL_COLORS
         assert metadata["chart_configuration"] == {}
 
     def test_updates_existing_dashboard_without_creating(self, script, fake, spot):
@@ -2294,7 +2364,7 @@ class TestBuildDashboard:
         assert dashboard["published"] is True
         metadata = json.loads(dashboard["json_metadata"])
         assert set(metadata) == EXPECTED_JSON_METADATA_KEYS
-        run_filter, day_filter = metadata["native_filter_configuration"]
+        run_filter, day_filter, _ = metadata["native_filter_configuration"]
         assert run_filter["targets"] == [{"column": {"name": "run_label"}, "datasetId": 10}]
         leaderboard_id = superset.id_of("chart", "slice_name", "Run leaderboard")
         assert leaderboard_id == 28
@@ -2401,7 +2471,7 @@ class TestBuildDashboard:
         assert position["TAB-0"]["children"] == EXPECTED_ACCURACY_TAB_CHILDREN
         assert position["TAB-1"]["children"] == EXPECTED_EXPLANATION_TAB_CHILDREN
         assert position["ROW-0-3-0"]["children"] == ["CHART-28"]  # Run leaderboard
-        run_filter, _ = json.loads(dashboard["json_metadata"])["native_filter_configuration"]
+        run_filter, _, _ = json.loads(dashboard["json_metadata"])["native_filter_configuration"]
         assert run_filter["scope"]["excluded"] == [28]
 
     def test_two_dashboards_coexist_with_their_own_datasets_and_charts(
@@ -2434,7 +2504,7 @@ class TestBuildDashboard:
                     c["dashboards"] == [dashboard_id] for c in charts_of(superset, dataset_id)
                 )
             metadata = json.loads(superset.rows["dashboard"][dashboard_id]["json_metadata"])
-            run_filter, day_filter = metadata["native_filter_configuration"]
+            run_filter, day_filter, _ = metadata["native_filter_configuration"]
             assert run_filter["targets"][0]["datasetId"] == dataset_ids[0]
             assert day_filter["targets"][0]["datasetId"] == dataset_ids[1]
             position = json.loads(superset.rows["dashboard"][dashboard_id]["position_json"])
@@ -2456,7 +2526,7 @@ class TestBuildDashboard:
         assert method_counts(superset.calls, "chart") == {"GET": 26, "PUT": 52}
         assert method_counts(superset.calls, "dashboard") == {"GET": 1, "PUT": 1}
         (dashboard,) = superset.rows["dashboard"].values()
-        run_filter, day_filter = json.loads(dashboard["json_metadata"])[
+        run_filter, day_filter, _ = json.loads(dashboard["json_metadata"])[
             "native_filter_configuration"
         ]
         assert run_filter["defaultDataMask"] == {"extraFormData": {}, "filterState": {}}
