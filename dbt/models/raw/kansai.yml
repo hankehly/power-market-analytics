@@ -2,15 +2,18 @@ sources:
   - name: kansai
     schema: pma_raw
     description: >
-      関西電力送配電 (Kansai Transmission and Distribution) public エリア需給・発電
-      （実績） for the Kansai service area — the インバランス料金関連 「系統の需給に
-      関する情報」 disclosure (items A-1 / B-1 / B-4), downloaded from the
-      monthly archives linked on
-      https://www.kansai-td.co.jp/denkiyoho/imbalance/past.html by
+      関西電力送配電 (Kansai Transmission and Distribution) public datasets for the
+      Kansai service area, one table per dataset: the エリア需給・発電（実績）
+      30-minute actuals — the インバランス料金関連 「系統の需給に関する情報」
+      disclosure (items A-1 / B-1 / B-4) — downloaded from the monthly archives
+      linked on https://www.kansai-td.co.jp/denkiyoho/imbalance/past.html by
       scripts/download_kansai_area_demand_generation.py and loaded by
-      scripts/load_kansai_area_demand_generation.py (full reload). Archive
-      layout, both CSV layouts and quirks are documented in
-      docs/Kansai-Area-Demand-Generation-Retrieval.md.
+      scripts/load_kansai_area_demand_generation.py (full reload; archive
+      layout, both CSV layouts and quirks in
+      docs/Kansai-Area-Demand-Generation-Retrieval.md), and the でんき予報
+      hourly 電力使用実績 from https://www.kansai-td.co.jp/denkiyoho/download/
+      (scripts/download_kansai_power_usage.py / load_kansai_power_usage.py;
+      docs/Kansai-Power-Usage-Retrieval.md).
     tables:
       - name: kansai_area_demand_generation_actual
         description: >
@@ -58,5 +61,59 @@ sources:
               (ファイル更新日 + ファイル更新時間); ~00:13 on target_date + 1 for
               nearly every day, later for re-issued days (all of April 2022
               was re-issued on 2023-09-11).
+            data_tests:
+              - not_null
+      - name: kansai_power_usage_hourly
+        description: >
+          でんき予報 過去の電力使用実績: Kansai-area hourly 電力使用状況 — the
+          1時間平均 demand of each hour in 万kW (1 万kW = 10 MW) — from the
+          hourly table of the daily members of the monthly YYYYMM_jisseki.zip
+          archives under https://www.kansai-td.co.jp/yamasou/ (downloaded by
+          scripts/download_kansai_power_usage.py, loaded by
+          scripts/load_kansai_power_usage.py, full reload). Three hourly
+          layouts: 当日実績 / 予想値 / 使用率 from 2016-04-01, + 供給力想定値 from
+          2019-09-12, renamed 供給力 on 2025-12-25; the column names are
+          TEPCO's. The daily files also hold a 5-minute table; it is not
+          loaded. One row per target date and hour (0-23); grain enforced at
+          load time. History starts 2016-04-01 and runs through yesterday,
+          except 2024-03-31 (never published). The one 修正後 correction row
+          (2016-04-24 00:00, 1267 → 1212 万kW) is applied at load. Load
+          contract: conf/schemas/kansai_power_usage_hourly.yaml; format,
+          quirks and the A-1 comparison in docs/Kansai-Power-Usage-Retrieval.md.
+        columns:
+          - name: target_date
+            description: Delivery date (DATE).
+            data_tests:
+              - not_null
+          - name: hour_start
+            description: >
+              Hour the value covers, 0-23: TIME "h:00" is the hour from h:00
+              to h+1:00 (JEPX time codes 2h+1 and 2h+2).
+            data_tests:
+              - not_null
+          - name: demand_mankw
+            description: Area demand averaged over the hour (当日実績), in 万kW; never 0 or blank.
+            data_tests:
+              - not_null
+          - name: forecast_mankw
+            description: >
+              Kansai's hourly demand forecast (予想値) as of the file's UPDATE
+              stamp — the day's last intraday revision, not a day-ahead
+              forecast; present in every layout.
+          - name: usage_rate_pct
+            description: >
+              使用率(%) for the hour; present in every layout. Defined as
+              当日実績 / ピーク時供給力 until 2020-11-15 and as 当日実績 / the
+              hour's 供給力想定値 from 2020-11-16.
+          - name: supply_capacity_mankw
+            description: >
+              供給力想定値(万kW) (2019-09-12 → 2025-12-24) / 供給力(万kW)
+              (2025-12-25 →) for the hour; null before 2019-09-12.
+          - name: file_updated_at
+            description: The file's UPDATE stamp (first line), 01:10 on target_date + 1.
+            data_tests:
+              - not_null
+          - name: source_file
+            description: File the row was read from (YYYYMMDD_juyo1_kansai.csv or juyo_06_YYYYMMDD.csv).
             data_tests:
               - not_null
