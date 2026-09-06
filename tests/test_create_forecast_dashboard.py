@@ -76,9 +76,10 @@ def parse_filters(q: str) -> dict[str, str | int] | None:
 
 
 class FakeResponse:
-    def __init__(self, payload: dict, status: int = 200):
+    def __init__(self, payload: dict, status: int = 200, headers: dict[str, str] | None = None):
         self._payload = payload
         self.status_code = status
+        self.headers = headers or {}
 
     def json(self) -> dict:
         return self._payload
@@ -94,6 +95,9 @@ class FakeSupersetSession:
     ``calls`` records every request as ``(method, url, json, params)``.
     ``overrides`` maps ``(method, path)`` to a canned ``FakeResponse`` so a
     test can make any endpoint fail or return a specific body.
+    ``rate_limited`` maps ``(method, path)`` to a queue of canned 429
+    ``FakeResponse``s consumed one per request, so the request after the
+    queue drains proceeds normally.
     """
 
     RESOURCES = ("database", "dataset", "chart", "dashboard")
@@ -103,6 +107,7 @@ class FakeSupersetSession:
         self.calls: list[tuple] = []
         self.rows: dict[str, dict[int, dict]] = {r: {} for r in self.RESOURCES}
         self.overrides: dict[tuple[str, str], FakeResponse] = {}
+        self.rate_limited: dict[tuple[str, str], list[FakeResponse]] = {}
         self._next_id = 10
         if sqllab is not None:
             self.overrides[("POST", "/api/v1/sqllab/execute/")] = sqllab
@@ -140,6 +145,9 @@ class FakeSupersetSession:
     def _dispatch(self, method: str, url: str, payload: dict | None, params: dict | None):
         self.calls.append((method, url, payload, params))
         path = urlsplit(url).path
+        queue = self.rate_limited.get((method, path))
+        if queue:
+            return queue.pop(0)
         if (method, path) in self.overrides:
             return self.overrides[(method, path)]
         if path != "/api/v1/security/login" and "Authorization" not in self.headers:
@@ -268,6 +276,49 @@ class TestSupersetClient:
         client = make_client(script, fake)
         with pytest.raises(requests.HTTPError, match="404"):
             client._put_json("/api/v1/chart/999", {"slice_name": "x"})
+
+    def test_retries_a_rate_limited_request_after_retry_after(self, script, fake, monkeypatch):
+        sleeps: list[float] = []
+        monkeypatch.setattr(script.time, "sleep", sleeps.append)
+        fake.seed("chart", id=41, slice_name="a")
+        fake.rate_limited[("PUT", "/api/v1/chart/41")] = [
+            FakeResponse({"message": "429"}, 429, headers={"Retry-After": "2"}),
+            FakeResponse({"message": "429"}, 429),
+        ]
+        client = make_client(script, fake)
+
+        result = client._put_json("/api/v1/chart/41", {"dashboards": [3]})
+
+        assert result["id"] == 41
+        assert fake.rows["chart"][41]["dashboards"] == [3]
+        assert sleeps == [2.0, 1.0]  # Retry-After honoured, then the 1 s default
+        puts = [c for c in fake.calls_after_login() if c[0] == "PUT"]
+        assert len(puts) == 3  # two 429s, then the write
+
+    def test_gives_up_after_the_retry_budget(self, script, fake, monkeypatch):
+        sleeps: list[float] = []
+        monkeypatch.setattr(script.time, "sleep", sleeps.append)
+        fake.seed("chart", id=41, slice_name="a")
+        fake.rate_limited[("GET", "/api/v1/chart/")] = [
+            FakeResponse({"message": "429"}, 429) for _ in range(script.RATE_LIMIT_RETRIES + 1)
+        ]
+        client = make_client(script, fake)
+
+        with pytest.raises(requests.HTTPError, match="429"):
+            client.find_one("chart", slice_name="a")
+
+        assert sleeps == [1.0] * script.RATE_LIMIT_RETRIES
+        gets = [c for c in fake.calls_after_login() if c[0] == "GET"]
+        assert len(gets) == script.RATE_LIMIT_RETRIES + 1
+
+    def test_post_and_get_also_retry(self, script, fake, monkeypatch):
+        monkeypatch.setattr(script.time, "sleep", lambda s: None)
+        fake.rate_limited[("POST", "/api/v1/chart/")] = [FakeResponse({}, 429)]
+        client = make_client(script, fake)
+        created = client._post_json("/api/v1/chart/", {"slice_name": "b"})
+        assert fake.rows["chart"][created["id"]]["slice_name"] == "b"
+        fake.rate_limited[("GET", "/api/v1/chart/")] = [FakeResponse({}, 429)]
+        assert client.find_one("chart", slice_name="b") == created["id"]
 
     def test_find_one_returns_first_matching_id_and_sends_rison_filter(self, script, fake):
         fake.seed("chart", id=41, slice_name="Other")
