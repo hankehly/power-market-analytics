@@ -111,7 +111,18 @@
   `days_until_holiday`) as plain numeric features (research `demand/R-005` E-001, run
   2026-09-06: Tokyo MAE +7.3 % vs the baseline, holidays −10 % — rejected by the researcher
   the same day, kept registered as a reference strategy; the same inputs as the similar-day
-  strategy); areas: `tokyo`,
+  strategy), and its two one-part subsets, same inputs (research `demand/R-005` E-002 / E-003,
+  run 2026-09-06, both rejected by the researcher the same day, kept registered as references):
+  `lightgbm_msm_popw_daytype_simday_holidaydegree` = the
+  similar-day strategy + `holiday_degree` alone (Tokyo MAE +0.3 %, CI over days includes zero,
+  holidays +1.8 %) and `lightgbm_msm_popw_daytype_simday_holidaydistance` = the similar-day
+  strategy + `days_since_holiday` and `days_until_holiday` alone (MAE +6.5 %, CI excludes zero,
+  every day part / day type / season worse), and a third subset
+  `lightgbm_msm_popw_daytype_simday_calendarcounts` = the similar-day strategy + `half`,
+  `quarter`, `day_of_month`, `day_of_quarter`, `day_of_year`, `fiscal_quarter` alone (E-004, run
+  2026-09-06, rejected by the researcher the same day: MAE +4.2 %, CI excludes zero, holidays
+  −13.4 %, winter −6.3 %);
+  areas: `tokyo`,
   `kansai` = the TSO feeds loaded into `fct_area_demand_generation_actual`); each area also needs its
   representative JMA station's hourly weather loaded and current
   (`dim_area.representative_jma_station_id`: 東京 s47662, 大阪 s47772 — both loaded and current
@@ -476,7 +487,27 @@
   `days_until_holiday`), joined per delivery day by `join_day_calendar` from the same
   `DayCalendar`, which since then carries the seven `dim_date` count/flag columns next to the
   selector's three; no new categorical, no new inputs — `build_strategy` wires the subclass
-  through the similar-day branch. Write-back: `pma_ml.demand_forecast` →
+  through the similar-day branch. Its class attribute `calendar_feature_cols` (passed as
+  `join_day_calendar`'s `cols`) is what two subclasses narrow (research `demand/R-005` E-002 /
+  E-003, run 2026-09-06, both rejected by the researcher the same day, kept registered as
+  references): `lightgbm_msm_popw_daytype_simday_holidaydegree`
+  (`LightGbmMsmPopWeightedDayTypeSimilarDayHolidayDegreeStrategy`, `HOLIDAY_DEGREE_FEATURE_COLS`
+  = `holiday_degree`; run `a8da46c5…`: MAE +0.3 %, CI over days includes zero, holidays +1.8 %,
+  4.8 % of the SHAP mass mostly from `day_type`) and
+  `lightgbm_msm_popw_daytype_simday_holidaydistance`
+  (`LightGbmMsmPopWeightedDayTypeSimilarDayHolidayDistanceStrategy`,
+  `HOLIDAY_DISTANCE_FEATURE_COLS` = `days_since_holiday`, `days_until_holiday`; run
+  `f7153839…`: MAE +6.5 %, CI excludes zero, every day part / day type / season worse) — and a
+  third, `lightgbm_msm_popw_daytype_simday_calendarcounts`
+  (`LightGbmMsmPopWeightedDayTypeSimilarDayCalendarCountStrategy`, `CALENDAR_COUNT_FEATURE_COLS`
+  = `half`, `quarter`, `day_of_month`, `day_of_quarter`, `day_of_year`, `fiscal_quarter`; E-004,
+  run 2026-09-06 `9182d469…`, rejected by the researcher the same day: MAE +4.2 %, CI excludes
+  zero, weekdays +7.7 % but
+  holidays −13.4 % — E-001's holiday gain comes with this subset; `half` / `quarter` never split
+  on); each with its own eval-set class (`_calendar_subset_schema` drops the other calendar
+  columns from the ten-feature schema), the same constructor and inputs, wired through the same
+  branch.
+  Write-back: `pma_ml.demand_forecast` →
   `stg/std_ml__demand_forecast` →
   `fct_demand_forecast` → `fct_demand_forecast_accuracy` → Superset **Demand Forecast Analysis**
   dashboard (dataset `demand_forecast_analysis`; the mart's kWh rescaled to MWh in the dataset
