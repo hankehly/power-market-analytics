@@ -1665,6 +1665,60 @@ class TestChartParams:
             if k not in ("metric", "linear_color_scheme", "value_bounds", "y_axis_format")
         }
 
+    def test_cumulative_reduction_is_a_cumsum_line_by_day(self, script, spec):
+        p = script.cumulative_reduction_params(spec, 7)
+        plain = script.detail_params(spec, 7)
+        assert p["viz_type"] == "echarts_timeseries_line"
+        assert p["x_axis"] == "date_key"
+        assert p["time_grain_sqla"] is None
+        assert p["metrics"] == [spec.error_reduction_metric]
+        assert p["rolling_type"] == "cumsum"
+        assert p["zoomable"] is True
+        assert p["show_legend"] is False
+        assert p["row_limit"] == 10000
+        assert p["y_axis_format"] == spec.axis_format
+        assert p["y_axis_title"] == f"{spec.unit}; Σ (baseline |error| − candidate |error|)"
+        for key in ("seriesType", "opacity", "markerEnabled", "time_range", "comparison_type"):
+            assert p[key] == plain[key]
+
+    @pytest.mark.parametrize("improved, order_desc", [(True, False), (False, True)])
+    def test_ranked_days_tables(self, script, spec, improved, order_desc):
+        p = script.ranked_days_params(spec, 7, improved=improved)
+        assert p["datasource"] == "7__table"
+        assert p["viz_type"] == "table"
+        assert p["query_mode"] == "aggregate"
+        assert p["groupby"] == ["date_key", "day_of_week", "day_type", "holiday_name_ja"]
+        assert p["metrics"] == [
+            spec.baseline_mae_metric,
+            spec.candidate_mae_metric,
+            spec.delta_mae_metric,
+            spec.delta_mae_pct_metric,
+        ]
+        assert p["timeseries_limit_metric"] == spec.delta_mae_metric
+        assert p["order_desc"] is order_desc
+        assert p["row_limit"] == 10
+        assert p["server_page_length"] == 10
+        assert p["table_timestamp_format"] == "%Y-%m-%d"
+        assert p["column_config"] == {
+            f"Baseline MAE ({spec.unit})": {"d3NumberFormat": spec.number_format},
+            f"Candidate MAE ({spec.unit})": {"d3NumberFormat": spec.number_format},
+            "ΔMAE": {"d3NumberFormat": spec.signed_number_format},
+            "ΔMAE %": {"d3NumberFormat": "+,.1f"},
+        }
+
+    def test_comparison_detail_has_three_lines(self, script, spec):
+        p = script.comparison_detail_params(spec, 7)
+        plain = script.detail_params(spec, 7)
+        assert [m["label"] for m in p["metrics"]] == ["Actual", "Candidate", "Baseline"]
+        assert [m["column"]["column_name"] for m in p["metrics"]] == [
+            spec.actual_col,
+            spec.forecast_col,
+            spec.baseline_forecast_col,
+        ]
+        assert {k: v for k, v in p.items() if k != "metrics"} == {
+            k: v for k, v in plain.items() if k != "metrics"
+        }
+
     def test_every_builder_targets_the_dataset_and_starts_unfiltered(self, script, spec):
         builders = [
             lambda: script.big_number_params(12, spec.mae_metric, "x", ",.1f"),
