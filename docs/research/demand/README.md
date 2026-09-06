@@ -41,7 +41,11 @@ narrow them as the question requires.
   by-month figure) and Superset **Demand Forecast Analysis** (day part, day
   type, actual-demand bands, calibration curve, error histogram, and the
   per-day SHAP waterfall (mean per period) of the **Explanation (SHAP)** tab
-  (Day filter))
+  (Day filter)); its **Compare** tab shows a run against a Baseline run
+  (matched periods only): ΔMAE by day part, day type, day of week, month,
+  band and time code, the share of days lower, the median daily ΔMAE and the
+  most improved / worsened days — the bootstrap CI stays in the compare
+  script
 - **Evaluation method:** rolling out-of-sample backtest over identical
   delivery dates and training rows for baseline and candidate; accuracy rows
   in `fct_demand_forecast_accuracy` after
