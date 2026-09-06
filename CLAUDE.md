@@ -135,11 +135,12 @@
   `DashboardSpec` (dataset SQL, unit, formats, band/calibration columns) drives one shared set of
   chart/layout builders; charts are matched by name *within their dataset*, so both dashboards
   share chart names. Rerun after `docker compose down -v` or after editing a spec.
-  Each dashboard has three virtual datasets — `<task>_forecast_analysis` (the accuracy mart) and
+  Each dashboard has three virtual datasets — `<task>_forecast_analysis` (the accuracy mart),
   `<task>_forecast_explanation` (`fct_<task>_forecast_contribution` joined to the accuracy mart:
-  one row per period × component, so AVG-only metrics) — and three top-level tabs: **Accuracy**
-  (KPI tiles, error structure, calibration & distribution, runs & drilldown) and
-  **Explanation (SHAP)**, where a **Day** native filter (scoped to that tab; cascades from Run,
+  one row per period × component, so AVG-only metrics) and `<task>_forecast_comparison` (for the
+  Compare tab) — and three top-level tabs: **Accuracy** (KPI tiles, error structure, calibration &
+  distribution, runs & drilldown), **Explanation (SHAP)** and **Compare**. In **Explanation
+  (SHAP)**, a **Day** native filter (scoped to that tab; cascades from Run,
   defaults to the default run's last day; empty = the run's mean decomposition; every value is
   a mean per period) drives base / forecast / actual / net-effect tiles, a `waterfall` of the
   mean per-period feature contributions (the base is a tile, not a bar: Superset's value axis

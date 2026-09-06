@@ -1781,6 +1781,13 @@ class TestChartParams:
             lambda: script.worst_days_params(spec, 12),
             lambda: script.detail_params(spec, 12),
             lambda: script.feature_table_params(spec, 12),
+            lambda: script.delta_big_number_params(12, spec.delta_mae_metric, "x", "+,.1f"),
+            lambda: script.delta_bar_params(spec, 12, "day_part"),
+            lambda: script.daily_delta_bar_params(spec, 12),
+            lambda: script.delta_heatmap_params(spec, 12, "month"),
+            lambda: script.cumulative_reduction_params(spec, 12),
+            lambda: script.ranked_days_params(spec, 12, improved=True),
+            lambda: script.comparison_detail_params(spec, 12),
         ]
         for build in builders:
             p = build()
