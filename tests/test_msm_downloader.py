@@ -22,6 +22,7 @@ from pathlib import Path
 
 import pytest
 import requests
+from requests.adapters import HTTPAdapter
 
 from power_market_analytics import msm
 from power_market_analytics.msm import (
@@ -180,6 +181,61 @@ class TestDownloaderDefaults:
         assert dl.csv_path_for(DELIVERY_DATE) == tmp_path / "csv" / "msm_surface_20260819.csv.gz"
         assert dl.manifest_path_for(DELIVERY_DATE) == tmp_path / "csv" / "msm_surface_20260819.json"
         assert dl.grib_path_for(SOURCE_FILES[0]) == tmp_path / "grib" / SOURCE_FILES[0].file_name
+
+
+# --------------------------------------------------------------------------- default session trust
+
+
+def _trusted_common_names(ssl_context) -> set[str]:
+    """Common names of the CA certificates an SSL context will accept as trust anchors."""
+    names = set()
+    for cert in ssl_context.get_ca_certs():
+        subject = dict(rdn[0] for rdn in cert["subject"])
+        if "commonName" in subject:
+            names.add(subject["commonName"])
+    return names
+
+
+def _tls_pool_kwargs(session: requests.Session, verify) -> dict:
+    """The TLS pool kwargs the session's adapter hands urllib3 for a RISH request."""
+    request = requests.Request("GET", SOURCE_FILES[0].url).prepare()
+    adapter = session.get_adapter(SOURCE_FILES[0].url)
+    assert isinstance(adapter, HTTPAdapter)
+    _, pool_kwargs = adapter.build_connection_pool_key_attributes(request, verify)
+    return pool_kwargs
+
+
+class TestDefaultSessionTrust:
+    """RISH sends an incomplete chain (a stale intermediate for its G8-issued leaf, since
+    2026-05-28); the default session must trust the vendored G8 intermediate directly, on
+    top of certifi, so verification succeeds without ``REQUESTS_CA_BUNDLE``."""
+
+    def test_default_session_trusts_the_rish_intermediate_ca(self):
+        pool_kwargs = _tls_pool_kwargs(MsmDownloader().session, verify=True)
+
+        assert pool_kwargs["cert_reqs"] == "CERT_REQUIRED"
+        trusted = _trusted_common_names(pool_kwargs["ssl_context"])
+        assert "NII Open Domain CA - G8 RSA" in trusted
+
+    def test_default_session_still_trusts_certifi_roots(self):
+        pool_kwargs = _tls_pool_kwargs(MsmDownloader().session, verify=True)
+
+        trusted = _trusted_common_names(pool_kwargs["ssl_context"])
+        assert "ISRG Root X1" in trusted
+
+    def test_user_ca_bundle_is_kept_alongside(self, tmp_path):
+        # REQUESTS_CA_BUNDLE semantics: requests passes the path as `verify`.
+        bundle = tmp_path / "bundle.pem"
+        pool_kwargs = _tls_pool_kwargs(MsmDownloader().session, verify=str(bundle))
+
+        assert pool_kwargs["ca_certs"] == str(bundle)
+        assert "NII Open Domain CA - G8 RSA" in _trusted_common_names(pool_kwargs["ssl_context"])
+
+    def test_verify_false_disables_verification(self):
+        pool_kwargs = _tls_pool_kwargs(MsmDownloader().session, verify=False)
+
+        assert pool_kwargs["cert_reqs"] == "CERT_NONE"
+        assert "ssl_context" not in pool_kwargs
 
 
 # --------------------------------------------------------------------------- download_file
