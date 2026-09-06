@@ -89,11 +89,13 @@ class TestContract:
 
 
 class TestLoad:
-    @pytest.fixture
-    def loaded(self, spark, tmp_path):
-        write_vintage(tmp_path, V2015, "5339", LINES_2015)
-        write_vintage(tmp_path, V2020, "5339", LINES_2020)
-        loader = EstatCensusMeshCsvLoader(CONTRACT, tmp_path, "test_estat_loader.both", spark=spark)
+    @pytest.fixture(scope="class")
+    def loaded(self, spark, tmp_path_factory):
+        # One load for the whole class: every test below reads the same table.
+        root = tmp_path_factory.mktemp("estat_loaded")
+        write_vintage(root, V2015, "5339", LINES_2015)
+        write_vintage(root, V2020, "5339", LINES_2020)
+        loader = EstatCensusMeshCsvLoader(CONTRACT, root, "test_estat_loader.both", spark=spark)
         n_rows = loader.load()
         return n_rows, rows_of(spark, "test_estat_loader.both")
 
