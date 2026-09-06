@@ -43,6 +43,7 @@ import argparse
 import json
 import os
 import re
+import string
 from dataclasses import dataclass
 from typing import Any
 
@@ -206,6 +207,124 @@ COMMON_EXPLANATION_COLUMNS = (
     ("feature_value", "DOUBLE", False),
 )
 
+# Shared skeleton of every task's comparison dataset: the accuracy mart
+# self-joined — the Run filter's run (candidate) against the Baseline filter's
+# run — on delivery day x time code x area, one row per matched period.
+#
+# Superset renders this as Jinja (ENABLE_TEMPLATE_PROCESSING) per chart query:
+# both runs are pinned inside the SQL from the native filters' values
+# (filter_values), so the join touches two runs; Superset also applies the
+# same two filters as an outer WHERE on run_label / baseline_run_label, which
+# the rows satisfy. Without a value on either side the SQL yields no rows
+# ("No data" on every chart rather than a misleading zero delta).
+# candidate_periods = the candidate's count before the join (for the coverage
+# tile); the daily_* columns are window averages over the day's matched
+# periods, one constant per day, so tiles and tables can aggregate per day.
+# A string.Template ($name) because the SQL carries Jinja braces.
+COMPARISON_DATASET_SQL_TEMPLATE = string.Template("""\
+{% set candidate = filter_values('run_label') %}
+{% set baseline = filter_values('baseline_run_label') %}
+with runs as (
+select
+  f.*,
+  a.area_code,
+  a.area_name_en,
+  $run_label_sql as run_label
+from $accuracy_table f
+join pma_curated.dim_area a on f.area_key = a.area_key
+),
+candidate as (
+select *, count(*) over () as candidate_periods
+from runs
+where {% if candidate %}run_label = '{{ candidate[0] | replace("'", "''") }}'{% else %}1 = 0{% endif %}
+),
+baseline as (
+select *
+from runs
+where {% if baseline %}run_label = '{{ baseline[0] | replace("'", "''") }}'{% else %}1 = 0{% endif %}
+),
+matched as (
+select
+  c.date_key,
+  c.trade_datetime,
+  c.time_code,
+  c.area_key,
+  c.area_code,
+  c.area_name_en,
+  c.run_id,
+  c.run_label,
+  c.strategy,
+  c.published_at,
+  b.run_id as baseline_run_id,
+  b.run_label as baseline_run_label,
+  b.strategy as baseline_strategy,
+  c.candidate_periods,
+$comparison_value_columns_sql
+from candidate c
+join baseline b
+  on b.date_key = c.date_key
+  and b.time_code = c.time_code
+  and b.area_key = c.area_key
+)
+select
+  m.date_key,
+  m.trade_datetime,
+  year(m.date_key) as year,
+  month(m.date_key) as month,
+  m.time_code,
+  p.hour_of_day,
+  p.day_part,
+  d.day_name,
+  concat(d.day_of_week_iso, ' ', substring(d.day_name, 1, 3)) as day_of_week,
+  case
+    when d.is_holiday then 'Holiday'
+    when d.is_weekend then 'Weekend'
+    else 'Weekday'
+  end as day_type,
+  d.holiday_name_ja,
+  m.area_code,
+  m.area_name_en,
+  m.run_id,
+  m.run_label,
+  m.strategy,
+  m.published_at,
+  m.baseline_run_id,
+  m.baseline_run_label,
+  m.baseline_strategy,
+  m.candidate_periods,
+$value_select_sql
+  avg(m.$abs_error_col) over (partition by m.date_key) as $daily_abs_error_col,
+  avg(m.$baseline_abs_error_col) over (partition by m.date_key) as $daily_baseline_abs_error_col,
+  avg(m.$delta_abs_error_col) over (partition by m.date_key) as $daily_delta_abs_error_col
+from matched m
+join pma_curated.dim_delivery_period p on m.time_code = p.time_code
+join pma_curated.dim_date d on m.date_key = d.date_key
+""")
+
+COMMON_COMPARISON_COLUMNS = (
+    ("date_key", "DATE", True),
+    ("trade_datetime", "TIMESTAMP", True),
+    ("year", "BIGINT", False),
+    ("month", "BIGINT", False),
+    ("time_code", "INT", False),
+    ("hour_of_day", "INT", False),
+    ("day_part", "STRING", False),
+    ("day_name", "STRING", False),
+    ("day_of_week", "STRING", False),
+    ("day_type", "STRING", False),
+    ("holiday_name_ja", "STRING", False),
+    ("area_code", "STRING", False),
+    ("area_name_en", "STRING", False),
+    ("run_id", "STRING", False),
+    ("run_label", "STRING", False),
+    ("strategy", "STRING", False),
+    ("published_at", "TIMESTAMP", True),
+    ("baseline_run_id", "STRING", False),
+    ("baseline_run_label", "STRING", False),
+    ("baseline_strategy", "STRING", False),
+    ("candidate_periods", "BIGINT", False),
+)
+
 
 def _slug(label: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", label.lower()).strip("_")
@@ -306,6 +425,17 @@ class DashboardSpec:
     explanation_value_columns_sql, explanation_value_columns : str, tuple of (str, str, bool)
         The value block — contribution, forecast, actual — two-space
         indented, the last line without a trailing comma.
+    comparison_dataset_name : str
+        The comparison dataset (the accuracy mart self-joined, candidate vs baseline).
+    comparison_value_columns_sql : str
+        The ``matched`` CTE's value block — the candidate's (``c.``) and the
+        baseline's (``b.``) forecast, the actual, the actual band, both signed
+        errors, both absolute errors and their difference, in the display
+        unit, named ``forecast_col`` / ``baseline_forecast_col`` / … /
+        ``delta_abs_error_col``; two-space indented, last line without a
+        trailing comma.
+    comparison_value_columns : tuple of (str, str, bool)
+        Column metadata for that block, in select order.
     """
 
     task: str
@@ -336,6 +466,9 @@ class DashboardSpec:
     contribution_format: str
     explanation_value_columns_sql: str
     explanation_value_columns: tuple[tuple[str, str, bool], ...]
+    comparison_dataset_name: str
+    comparison_value_columns_sql: str
+    comparison_value_columns: tuple[tuple[str, str, bool], ...]
 
     @property
     def dataset_sql(self) -> str:
@@ -401,6 +534,70 @@ class DashboardSpec:
     def explanation_dataset_columns(self) -> list[tuple[str, str, bool]]:
         """(column_name, generic type, is temporal) for every explanation column, in select order."""
         return [*COMMON_EXPLANATION_COLUMNS, *self.explanation_value_columns]
+
+    @property
+    def baseline_forecast_col(self) -> str:
+        """The baseline run's forecast column of the comparison dataset."""
+        return f"baseline_{self.forecast_col}"
+
+    @property
+    def baseline_error_col(self) -> str:
+        """The baseline run's signed error column of the comparison dataset."""
+        return f"baseline_{self.error_col}"
+
+    @property
+    def baseline_abs_error_col(self) -> str:
+        """The baseline run's absolute error column of the comparison dataset."""
+        return f"baseline_{self.abs_error_col}"
+
+    @property
+    def delta_abs_error_col(self) -> str:
+        """Candidate absolute error − baseline absolute error, per period."""
+        return f"delta_{self.abs_error_col}"
+
+    @property
+    def daily_abs_error_col(self) -> str:
+        """The candidate's daily MAE, repeated on each of the day's rows."""
+        return f"daily_{self.abs_error_col}"
+
+    @property
+    def daily_baseline_abs_error_col(self) -> str:
+        """The baseline's daily MAE, repeated on each of the day's rows."""
+        return f"daily_baseline_{self.abs_error_col}"
+
+    @property
+    def daily_delta_abs_error_col(self) -> str:
+        """Candidate daily MAE − baseline daily MAE, repeated on each of the day's rows."""
+        return f"daily_delta_{self.abs_error_col}"
+
+    @property
+    def comparison_dataset_sql(self) -> str:
+        """The comparison dataset's SQL: the shared Jinja template around this task's block."""
+        return COMPARISON_DATASET_SQL_TEMPLATE.substitute(
+            run_label_sql=RUN_LABEL_SQL.format(f="f", a="a"),
+            accuracy_table=self.accuracy_table,
+            comparison_value_columns_sql=self.comparison_value_columns_sql,
+            value_select_sql="\n".join(
+                f"  m.{name}," for name, _, _ in self.comparison_value_columns
+            ),
+            abs_error_col=self.abs_error_col,
+            baseline_abs_error_col=self.baseline_abs_error_col,
+            delta_abs_error_col=self.delta_abs_error_col,
+            daily_abs_error_col=self.daily_abs_error_col,
+            daily_baseline_abs_error_col=self.daily_baseline_abs_error_col,
+            daily_delta_abs_error_col=self.daily_delta_abs_error_col,
+        )
+
+    @property
+    def comparison_dataset_columns(self) -> list[tuple[str, str, bool]]:
+        """(column_name, generic type, is temporal) for every comparison column, in select order."""
+        return [
+            *COMMON_COMPARISON_COLUMNS,
+            *self.comparison_value_columns,
+            (self.daily_abs_error_col, "DOUBLE", False),
+            (self.daily_baseline_abs_error_col, "DOUBLE", False),
+            (self.daily_delta_abs_error_col, "DOUBLE", False),
+        ]
 
     @property
     def contribution_metric(self) -> dict:
@@ -511,6 +708,37 @@ SPOT_PRICE = DashboardSpec(
         ("forecast_price_jpy_kwh", "DOUBLE", False),
         ("actual_price_jpy_kwh", "DOUBLE", False),
     ),
+    comparison_dataset_name="spot_price_forecast_comparison",
+    comparison_value_columns_sql="""\
+  c.forecast_price_jpy_kwh,
+  b.forecast_price_jpy_kwh as baseline_forecast_price_jpy_kwh,
+  c.actual_price_jpy_kwh,
+  case
+    when c.actual_price_jpy_kwh is null then null
+    when c.actual_price_jpy_kwh < 5 then '00-05'
+    when c.actual_price_jpy_kwh < 10 then '05-10'
+    when c.actual_price_jpy_kwh < 15 then '10-15'
+    when c.actual_price_jpy_kwh < 20 then '15-20'
+    when c.actual_price_jpy_kwh < 30 then '20-30'
+    when c.actual_price_jpy_kwh < 50 then '30-50'
+    else '50+'
+  end as actual_price_band,
+  c.error_jpy_kwh,
+  b.error_jpy_kwh as baseline_error_jpy_kwh,
+  c.abs_error_jpy_kwh,
+  b.abs_error_jpy_kwh as baseline_abs_error_jpy_kwh,
+  c.abs_error_jpy_kwh - b.abs_error_jpy_kwh as delta_abs_error_jpy_kwh""",
+    comparison_value_columns=(
+        ("forecast_price_jpy_kwh", "DOUBLE", False),
+        ("baseline_forecast_price_jpy_kwh", "DOUBLE", False),
+        ("actual_price_jpy_kwh", "DOUBLE", False),
+        ("actual_price_band", "STRING", False),
+        ("error_jpy_kwh", "DOUBLE", False),
+        ("baseline_error_jpy_kwh", "DOUBLE", False),
+        ("abs_error_jpy_kwh", "DOUBLE", False),
+        ("baseline_abs_error_jpy_kwh", "DOUBLE", False),
+        ("delta_abs_error_jpy_kwh", "DOUBLE", False),
+    ),
 )
 
 # Demand is 30分kWh as the TSOs publish it and as the mart stores it (Tokyo
@@ -575,6 +803,35 @@ DEMAND = DashboardSpec(
         ("contribution_mwh", "DOUBLE", False),
         ("forecast_demand_mwh", "DOUBLE", False),
         ("actual_demand_mwh", "DOUBLE", False),
+    ),
+    comparison_dataset_name="demand_forecast_comparison",
+    comparison_value_columns_sql="""\
+  c.forecast_demand_kwh / 1000 as forecast_demand_mwh,
+  b.forecast_demand_kwh / 1000 as baseline_forecast_demand_mwh,
+  c.actual_demand_kwh / 1000 as actual_demand_mwh,
+  case
+    when c.actual_demand_kwh is null then null
+    else concat(
+      lpad(cast(cast(floor(c.actual_demand_kwh / 2000000) * 2000 as int) as string), 5, '0'),
+      '-',
+      lpad(cast(cast(floor(c.actual_demand_kwh / 2000000) * 2000 + 2000 as int) as string), 5, '0')
+    )
+  end as actual_demand_band,
+  c.error_kwh / 1000 as error_mwh,
+  b.error_kwh / 1000 as baseline_error_mwh,
+  c.abs_error_kwh / 1000 as abs_error_mwh,
+  b.abs_error_kwh / 1000 as baseline_abs_error_mwh,
+  (c.abs_error_kwh - b.abs_error_kwh) / 1000 as delta_abs_error_mwh""",
+    comparison_value_columns=(
+        ("forecast_demand_mwh", "DOUBLE", False),
+        ("baseline_forecast_demand_mwh", "DOUBLE", False),
+        ("actual_demand_mwh", "DOUBLE", False),
+        ("actual_demand_band", "STRING", False),
+        ("error_mwh", "DOUBLE", False),
+        ("baseline_error_mwh", "DOUBLE", False),
+        ("abs_error_mwh", "DOUBLE", False),
+        ("baseline_abs_error_mwh", "DOUBLE", False),
+        ("delta_abs_error_mwh", "DOUBLE", False),
     ),
 )
 
