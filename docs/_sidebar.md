@@ -19,5 +19,6 @@
 - [TEPCO Area Demand & Generation Retrieval](TEPCO-Area-Demand-Generation-Retrieval.md)
 - [TEPCO でんき予報 Power Usage Retrieval](TEPCO-Power-Usage-Retrieval.md)
 - [Kansai Area Demand & Generation Retrieval](Kansai-Area-Demand-Generation-Retrieval.md)
+- [Kansai でんき予報 Power Usage Retrieval](Kansai-Power-Usage-Retrieval.md)
 - [e-Stat Census Population Mesh Retrieval](eStat-Census-Population-Mesh-Retrieval.md)
 - [Kimball Dimensional Modeling Techniques](Kimball-Dimensional-Modeling-Techniques.md)
