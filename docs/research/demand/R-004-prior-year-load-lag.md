@@ -447,6 +447,9 @@ the same days — nine of the ten improve; the exception, a Sunday, is flat:
 | 2025-04-01 Tue, first working day of the fiscal year | 2,031,790 | 710,133 | −65.0 % |
 | 2025-01-04 Sat, end of 年末年始 | 1,836,299 | 1,415,392 | −22.9 % |
 
+Daily MAE from `fct_demand_forecast_accuracy` for runs `0a6b8a55…` (baseline)
+and `008868fe…` (candidate); the runs are immutable, so the rows cannot drift.
+
 The proximity day E-001 could not handle, 2026-08-10 (the Monday between a
 Sunday and 山の日), is the clearest case: the selector picked 2025-08-12, the
 working day before お盆 one year earlier (lag 363; the plain D − 364 day was
