@@ -47,6 +47,19 @@ DAY_CALENDAR_FEATURE_COLS: tuple[str, ...] = (
     "days_since_holiday",
     "days_until_holiday",
 )
+#: Subsets of ``DAY_CALENDAR_FEATURE_COLS`` tried on their own after R-005
+#: E-001: the graded holiday degree alone (E-002), the two distances in days
+#: to the nearest named holiday (E-003) and the six calendar counts (E-004).
+HOLIDAY_DEGREE_FEATURE_COLS: tuple[str, ...] = ("holiday_degree",)
+HOLIDAY_DISTANCE_FEATURE_COLS: tuple[str, ...] = ("days_since_holiday", "days_until_holiday")
+CALENDAR_COUNT_FEATURE_COLS: tuple[str, ...] = (
+    "half",
+    "quarter",
+    "day_of_month",
+    "day_of_quarter",
+    "day_of_year",
+    "fiscal_quarter",
+)
 
 
 def hour_ending_of(time_code: pd.Series) -> pd.Series:
