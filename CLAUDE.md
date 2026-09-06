@@ -170,8 +170,9 @@
   median daily ΔMAE, diverging Better / Worse bars of ΔMAE % by time code, day part, day type, day
   of week, actual band and year, ΔMAE % heatmaps (blue-white-yellow, ±30 %), daily ΔMAE bars, the
   cumulative error reduction, Most improved / Most worsened days tables (full width; cross-filtering
-  the detail charts, the Explanation tab and the explanation-vs-baseline section; a null holiday
-  name renders blank), an **Explanation vs baseline** section and a three-line 30-minute detail.
+  the detail charts, the Explanation tab and the explanation-vs-baseline section; the holiday name
+  is blank on non-holidays rather than `dim_date`'s "Not Applicable"), an **Explanation vs
+  baseline** section and a three-line 30-minute detail.
   That section reads the fourth dataset, `<task>_forecast_explanation_comparison`: the
   contribution fact self-joined the same way on the periods both runs explained (one base row per
   period per run), one row per period × component of either run — a component one run lacks

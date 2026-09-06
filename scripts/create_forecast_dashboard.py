@@ -306,7 +306,7 @@ select
     when d.is_weekend then 'Weekend'
     else 'Weekday'
   end as day_type,
-  coalesce(d.holiday_name_ja, '') as holiday_name_ja,
+  case when d.is_holiday then d.holiday_name_ja else '' end as holiday_name_ja,
   m.area_code,
   m.area_name_en,
   m.run_id,
@@ -3200,7 +3200,8 @@ def build_compare_tab(
                     (xp_net, d_net, 4, 24),
                     (xp_forecast, d_forecast, 4, 24),
                 ],
-                [(xp_waterfall, d_waterfall, 8, 46), (xp_table, d_table, 4, 46)],
+                [(xp_waterfall, d_waterfall, 12, 46)],
+                [(xp_table, d_table, 12, 40)],
             ],
         },
         {
