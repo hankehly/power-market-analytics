@@ -141,12 +141,16 @@
   `DashboardSpec` (dataset SQL, unit, formats, band/calibration columns) drives one shared set of
   chart/layout builders; charts are matched by name *within their dataset*, so both dashboards
   share chart names. Rerun after `docker compose down -v` or after editing a spec.
-  Each dashboard has three virtual datasets — `<task>_forecast_analysis` (the accuracy mart),
+  Each dashboard has four virtual datasets — `<task>_forecast_analysis` (the accuracy mart),
   `<task>_forecast_explanation` (`fct_<task>_forecast_contribution` joined to the accuracy mart:
-  one row per period × component, so AVG-only metrics) and `<task>_forecast_comparison` (for the
-  Compare tab) — and three top-level tabs: **Accuracy** (KPI tiles, error structure, calibration &
-  distribution, runs & drilldown), **Explanation (SHAP)** and **Compare**. In **Explanation
-  (SHAP)**, a **Day** native filter (scoped to that tab; cascades from Run,
+  one row per period × component, so AVG-only metrics), `<task>_forecast_comparison` and
+  `<task>_forecast_explanation_comparison` (both for the Compare tab) — and three top-level tabs:
+  **Accuracy** (KPI tiles, error structure, calibration & distribution, runs & drilldown),
+  **Explanation (SHAP)** and **Compare**, each built by its own `build_<tab>_tab` function
+  returning a `DashboardTab` (charts by name in creation order + layout sections) that
+  `build_dashboard` wires into filters and cross-filters. In **Explanation
+  (SHAP)**, a **Day** native filter (scoped to that tab and to the Compare tab's
+  explanation-vs-baseline section; cascades from Run,
   defaults to the default run's last day; empty = the run's mean decomposition; every value is
   a mean per period) drives base / forecast / actual / net-effect tiles, a `waterfall` of the
   mean per-period feature contributions (the base is a tile, not a bar: Superset's value axis
@@ -165,8 +169,17 @@
   ΔWAPE; blue = candidate better, orange = worse), matched coverage / days / share of days lower /
   median daily ΔMAE, diverging Better / Worse bars of ΔMAE % by time code, day part, day type, day
   of week, actual band and year, ΔMAE % heatmaps (blue-white-yellow, ±30 %), daily ΔMAE bars, the
-  cumulative error reduction, Most improved / Most worsened days tables (cross-filtering the
-  detail and the Explanation tab) and a three-line 30-minute detail. The Baseline filter is scoped
+  cumulative error reduction, Most improved / Most worsened days tables (full width; cross-filtering
+  the detail charts, the Explanation tab and the explanation-vs-baseline section; a null holiday
+  name renders blank), an **Explanation vs baseline** section and a three-line 30-minute detail.
+  That section reads the fourth dataset, `<task>_forecast_explanation_comparison`: the
+  contribution fact self-joined the same way on the periods both runs explained (one base row per
+  period per run), one row per period × component of either run — a component one run lacks
+  contributes 0 on that side, so its whole contribution is the delta, and baseline-only components
+  sort after the candidate's (`component_order` + 100, three-digit label prefix) — and shows Δ base
+  value / Δ net feature effect / Δ forecast tiles, a `waterfall` of per-component contribution
+  deltas (candidate − baseline, mean per period) and its table; the Day filter applies to it
+  (a day's mean per period; empty = the run's). The Baseline filter is scoped
   to that tab, reads its options from the analysis dataset's `baseline_run_label` alias, and opens
   on the newest other run with the same area and window as the newest run (`--baseline-run
   <run_id or prefix>` overrides); the bootstrap CI over days stays in `compare_<task>_runs.py`.
