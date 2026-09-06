@@ -228,7 +228,18 @@ class TestJoinDayType:
 
 
 def make_day_calendar(days: dict[int, dict]) -> DayCalendar:
-    """DayCalendar from {days_after_D: column overrides}; the counts follow the date."""
+    """Build a DayCalendar around ``D``.
+
+    Parameters
+    ----------
+    days : dict of int to dict
+        Day offset from ``D`` mapped to column overrides; the calendar counts
+        follow the date, the other columns default to a plain working day.
+
+    Returns
+    -------
+    DayCalendar
+    """
     rows = []
     for k, overrides in days.items():
         day = D + pd.Timedelta(days=k)

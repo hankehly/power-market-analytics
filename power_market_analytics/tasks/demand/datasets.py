@@ -573,6 +573,11 @@ def load_day_calendar(spark: SparkSession | None = None) -> DayCalendar:
     )
     if pdf.empty:
         raise ValueError("No calendar days found in dim_date")
+    # A null flag would be coerced by the bool cast below (None -> False,
+    # NaN -> True) and slip past the frame's non-null check, so refuse it here.
+    n_null_flags = int(pdf["is_business_day"].isna().sum())
+    if n_null_flags:
+        raise ValueError(f"dim_date.is_business_day has {n_null_flags} null value(s)")
     pdf = pdf.assign(trade_date=lambda d: pd.to_datetime(d["trade_date"])).sort_values(
         "trade_date", ignore_index=True
     )
