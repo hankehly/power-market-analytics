@@ -558,9 +558,15 @@
   archive file (216 fields in a single FH16-33 file) — ecCodes needs
   `codes_grib_multi_support_on()` (process-global, re-asserted per call) or it yields only the
   first field. RISH's TLS chain has served a stale intermediate since its leaf cert's
-  2026-05-28 renewal (still so on 2026-09-05); `requests`/certifi rejects it (browsers/curl
-  tolerate it via AIA chasing) — fetch the correct intermediate and pass a combined bundle via
-  `REQUESTS_CA_BUNDLE` until RISH fixes it. Details: `docs/JMA-MSM-GPV-Retrieval.md` §5.1/§8.4.
+  2026-05-28 renewal (still so on 2026-09-06; the leaf runs to 2026-12-12); `requests`/certifi
+  rejects it (browsers/curl tolerate it via AIA chasing). Since 2026-09-06 the missing G8
+  intermediate is vendored at `power_market_analytics/certs/nii-open-domain-ca-g8-rsa.pem` and
+  `msm.default_session()` — `MsmDownloader`'s default session — trusts it on top of certifi
+  (partial-chain trust; `certifi` and `urllib3` are declared direct dependencies for it), so the
+  download verifies with nothing to configure: in the devcontainer, host-side and under
+  `just refresh-all`, which until then could not pass the MSM step because the manual
+  `REQUESTS_CA_BUNDLE` workaround never reached the container. Drop both once RISH fixes the
+  chain — the check is in `docs/JMA-MSM-GPV-Retrieval.md` §8.4 (§5.1 has the GRIB2 gotcha).
 - Many-file raw reloads: every `CsvLoader` reads its files in a handful of Spark scans since
   2026-08-30 — positional layouts through `_scan_positional` (JMA hourly, TSO area actuals),
   header-based ones one scan per layout (JEPX, OCCTO, MSM: files grouped by the raw bytes of

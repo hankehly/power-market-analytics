@@ -57,14 +57,19 @@ import gzip
 import hashlib
 import json
 import math
+import ssl
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
+import certifi
 import eccodes
 import requests
 from loguru import logger
+from requests.adapters import HTTPAdapter
+from urllib3.util.ssl_ import create_urllib3_context
 
 from power_market_analytics.csv_loader import CsvLoader
 
@@ -1065,6 +1070,68 @@ class MsmDownloadError(MsmError):
     or missing the GRIB2 magic bytes)."""
 
 
+#: The intermediate CA that issues RISH's TLS certificate ("NII Open Domain CA - G8 RSA",
+#: SECOM Trust Systems; valid to 2040-08-21; the leaf's AIA URL is
+#: http://repo1.secomtrust.net/sppca/nii/odca4/nii-odca4g8rsa.cer, sha256 fingerprint
+#: 7A:4A:D9:E1:BA:2D:FB:08:F7:52:A1:24:03:2F:70:58:86:80:62:E9:84:17:85:62:3E:B4:13:67:83:A5:3F:FC).
+#: Since a 2026-05-28 renewal the server sends the *previous* intermediate (G7) with its
+#: G8-issued leaf — an incomplete chain that certifi's roots cannot complete, so a plain
+#: ``requests`` call fails with ``unable to get local issuer certificate``. Trusting G8
+#: directly (a trust anchor, which Python's partial-chain verification accepts) closes the
+#: gap; see docs/JMA-MSM-GPV-Retrieval.md §8.4.
+RISH_INTERMEDIATE_CA_PEM = Path(__file__).with_name("certs") / "nii-open-domain-ca-g8-rsa.pem"
+
+
+class _TrustStoreAdapter(HTTPAdapter):
+    """An :class:`~requests.adapters.HTTPAdapter` that verifies servers against one
+    fixed :class:`ssl.SSLContext`.
+
+    :meth:`build_connection_pool_key_attributes` is the seam requests documents for a
+    custom context. The context is set whenever verification is on; the other keys
+    requests derives from ``verify`` are kept, so a user CA bundle (``verify=<path>``,
+    which is what ``REQUESTS_CA_BUNDLE`` becomes) is still loaded into the context by
+    urllib3, and ``verify=False`` still turns verification off.
+    """
+
+    def __init__(self, ssl_context: ssl.SSLContext, **kwargs: Any) -> None:
+        self.ssl_context = ssl_context
+        super().__init__(**kwargs)
+
+    def build_connection_pool_key_attributes(
+        self,
+        request: requests.PreparedRequest,
+        verify: bool | str,
+        cert: str | tuple[str, str] | None = None,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        host_params, pool_kwargs = super().build_connection_pool_key_attributes(
+            request, verify, cert
+        )
+        if verify is not False:
+            pool_kwargs["ssl_context"] = self.ssl_context
+        return host_params, pool_kwargs
+
+
+def default_session() -> requests.Session:
+    """Return a :class:`requests.Session` that trusts RISH's intermediate CA as well.
+
+    The HTTPS adapter verifies against requests' own default trust store — a
+    urllib3 context loaded with certifi's roots — plus :data:`RISH_INTERMEDIATE_CA_PEM`,
+    so downloads verify although the server's chain is incomplete, with no
+    ``REQUESTS_CA_BUNDLE`` to set. Everything else is a stock session.
+
+    Returns
+    -------
+    requests.Session
+        A new session; :class:`MsmDownloader` uses one when no ``session`` is injected.
+    """
+    context = create_urllib3_context()
+    context.load_verify_locations(cafile=certifi.where())
+    context.load_verify_locations(cafile=str(RISH_INTERMEDIATE_CA_PEM))
+    session = requests.Session()
+    session.mount("https://", _TrustStoreAdapter(context))
+    return session
+
+
 class MsmDownloader:
     """Download RISH MSM GRIB2 archives and extract one csv.gz per delivery day.
 
@@ -1094,8 +1161,9 @@ class MsmDownloader:
     timeout : float, default 60.0
         HTTP request timeout in seconds.
     session : requests.Session, optional
-        HTTP session to issue ``get`` calls with; defaults to a fresh
-        :class:`requests.Session`. Injected mainly for tests.
+        HTTP session to issue ``get`` calls with; defaults to
+        :func:`default_session` (a fresh session that also trusts RISH's
+        intermediate CA). Injected mainly for tests.
     request_interval : float, default 1.0
         Minimum seconds between consecutive HTTP requests, and the base unit
         of the retry backoff (the n-th retry waits ``request_interval * n``
@@ -1118,7 +1186,7 @@ class MsmDownloader:
         self.grib_dir = self.data_dir / "grib"
         self.csv_dir = self.data_dir / "csv"
         self.timeout = timeout
-        self.session = session if session is not None else requests.Session()
+        self.session = session if session is not None else default_session()
         self.request_interval = request_interval
         self.max_attempts = max_attempts
         self._last_request_at = -float("inf")
