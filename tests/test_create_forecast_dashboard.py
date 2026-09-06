@@ -1016,17 +1016,30 @@ class TestChartParams:
         assert p["viz_type"] == "table"
         assert p["query_mode"] == "aggregate"
         assert p["groupby"] == ["run_label", "strategy"]
-        assert [m["label"] for m in p["metrics"]] == ["Periods", mae_label, "Bias", "RMSE", "WAPE"]
+        assert [m["label"] for m in p["metrics"]] == [
+            "Periods",
+            "First day",
+            "Last day",
+            "Days",
+            mae_label,
+            "Bias",
+            "RMSE",
+            "WAPE",
+        ]
         assert p["metrics"][0]["sqlExpression"] == "count(*)"
         assert p["metrics"][0]["optionName"] == "metric_periods"
-        assert p["metrics"][1] == spec.mae_metric
-        assert p["metrics"][3] == spec.rmse_metric
-        assert p["metrics"][4] == spec.wape_metric
+        assert p["metrics"][1]["sqlExpression"] == "date_format(min(date_key), 'yyyy-MM-dd')"
+        assert p["metrics"][2]["sqlExpression"] == "date_format(max(date_key), 'yyyy-MM-dd')"
+        assert p["metrics"][3]["sqlExpression"] == "count(distinct date_key)"
+        assert p["metrics"][4] == spec.mae_metric
+        assert p["metrics"][6] == spec.rmse_metric
+        assert p["metrics"][7] == spec.wape_metric
         assert p["timeseries_limit_metric"] == spec.mae_metric
         assert p["order_desc"] is False  # best MAE first
         assert p["row_limit"] == 100
         assert p["column_config"] == {
             "Periods": {"d3NumberFormat": ",d"},
+            "Days": {"d3NumberFormat": ",d"},
             mae_label: {"d3NumberFormat": spec.number_format},
             "Bias": {"d3NumberFormat": spec.signed_number_format},
             "RMSE": {"d3NumberFormat": spec.number_format},

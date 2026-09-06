@@ -939,7 +939,7 @@ def histogram_params(spec: DashboardSpec, dataset_id: int) -> dict:
 
 
 def leaderboard_params(spec: DashboardSpec, dataset_id: int) -> dict:
-    """Params for the cross-run leaderboard table (best MAE first).
+    """Params for the cross-run leaderboard table (best MAE first) with each run's window, so a matched baseline is recognisable.
 
     Excluded from the Run filter so all runs stay visible side by side.
 
@@ -960,6 +960,9 @@ def leaderboard_params(spec: DashboardSpec, dataset_id: int) -> dict:
         "groupby": ["run_label", "strategy"],
         "metrics": [
             sql_metric("count(*)", "Periods"),
+            sql_metric("date_format(min(date_key), 'yyyy-MM-dd')", "First day"),
+            sql_metric("date_format(max(date_key), 'yyyy-MM-dd')", "Last day"),
+            sql_metric("count(distinct date_key)", "Days"),
             mae,
             spec.bias_metric,
             spec.rmse_metric,
@@ -973,6 +976,7 @@ def leaderboard_params(spec: DashboardSpec, dataset_id: int) -> dict:
         "table_timestamp_format": "smart_date",
         "column_config": {
             "Periods": {"d3NumberFormat": ",d"},
+            "Days": {"d3NumberFormat": ",d"},
             mae["label"]: {"d3NumberFormat": spec.number_format},
             "Bias": {"d3NumberFormat": spec.signed_number_format},
             "RMSE": {"d3NumberFormat": spec.number_format},
