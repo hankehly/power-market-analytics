@@ -443,6 +443,72 @@ class TestCsvLoaderLoad:
         assert loader.load() == 3
         assert [r.id for r in spark.table("test_csv_loader.nograin").collect()].count(1) == 2
 
+    def test_validate_is_one_query_and_returns_the_row_count(self, spark, tmp_path):
+        # Row count, null counts and distinct grain keys come from one
+        # aggregation: a single Spark SQL execution over the cached scan.
+        write_utf8(tmp_path / "a.csv", FILE_A)
+        write_utf8(tmp_path / "b.csv", FILE_B)
+        loader = CsvLoader(SCHEMA, tmp_path, "t", spark=spark)
+        df = loader._read_all(loader._resolve_files())
+        executions = spark._jsparkSession.sharedState().statusStore()
+
+        before = executions.executionsCount()
+        n_rows = loader._validate(df)
+
+        assert n_rows == 3
+        assert executions.executionsCount() - before == 1
+
+    def test_grain_columns_named_like_the_validation_aliases_still_load(self, spark, tmp_path):
+        # The per-key counts carry aliases; a contract may use those names (in
+        # any case: Spark resolves case-insensitively), so they are generated
+        # around the frame's columns rather than assumed free.
+        schema = CsvTableSchema.model_validate(
+            {
+                "grain": ["__validate_rows", "__VALIDATE_NULLS_0"],
+                "columns": [
+                    {"name": "__validate_rows", "type": "int", "nullable": False},
+                    {"name": "__VALIDATE_NULLS_0", "type": "int", "nullable": False},
+                ],
+            }
+        )
+        header = "__validate_rows,__VALIDATE_NULLS_0"
+        write_utf8(tmp_path / "a.csv", [header, "1,1", "1,2"])
+        loader = CsvLoader(schema, tmp_path, "test_csv_loader.aliases", spark=spark)
+        assert loader.load() == 2
+
+        write_utf8(tmp_path / "b.csv", [header, "1,2"])
+        with pytest.raises(
+            ValueError, match=re.escape("is not unique: 3 rows but 2 distinct keys")
+        ):
+            loader.load()
+
+    def test_header_only_files_load_zero_rows(self, spark, tmp_path):
+        # No keys at all: the summed counts are 0, not null, and 0 keys = 0 rows.
+        write_utf8(tmp_path / "a.csv", FILE_A[:1])
+        loader = CsvLoader(SCHEMA, tmp_path, "test_csv_loader.empty", spark=spark)
+        assert loader.load() == 0
+        assert spark.table("test_csv_loader.empty").count() == 0
+
+    def test_a_null_grain_key_is_a_key(self, spark, tmp_path):
+        # Distinct keys are counted like ``select(grain).distinct()``: a null
+        # key is a value, so one such row is unique and a second one is a duplicate.
+        schema = CsvTableSchema.model_validate(
+            {
+                "grain": ["id"],
+                "columns": [{"name": "id", "type": "int"}, {"name": "label", "type": "string"}],
+            }
+        )
+        write_utf8(tmp_path / "a.csv", ["id,label", ",alpha", "2,beta"])
+        loader = CsvLoader(schema, tmp_path, "test_csv_loader.nullkey", spark=spark)
+        assert loader.load() == 2
+
+        write_utf8(tmp_path / "b.csv", ["id,label", ",gamma"])
+        with pytest.raises(
+            ValueError,
+            match=re.escape("Grain ['id'] is not unique: 3 rows but 2 distinct keys"),
+        ):
+            loader.load()
+
     def test_read_options_encoding_decodes_cp932_headers_and_values(self, spark, tmp_path):
         schema = CsvTableSchema.model_validate(
             {
