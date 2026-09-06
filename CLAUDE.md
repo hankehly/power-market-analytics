@@ -120,7 +120,8 @@
   every day part / day type / season worse), and a third subset
   `lightgbm_msm_popw_daytype_simday_calendarcounts` = the similar-day strategy + `half`,
   `quarter`, `day_of_month`, `day_of_quarter`, `day_of_year`, `fiscal_quarter` alone (E-004, run
-  2026-09-06, decision pending: MAE +4.2 %, CI excludes zero, holidays −13.4 %, winter −6.3 %);
+  2026-09-06, rejected by the researcher the same day: MAE +4.2 %, CI excludes zero, holidays
+  −13.4 %, winter −6.3 %);
   areas: `tokyo`,
   `kansai` = the TSO feeds loaded into `fct_area_demand_generation_actual`); each area also needs its
   representative JMA station's hourly weather loaded and current
@@ -486,7 +487,8 @@
   third, `lightgbm_msm_popw_daytype_simday_calendarcounts`
   (`LightGbmMsmPopWeightedDayTypeSimilarDayCalendarCountStrategy`, `CALENDAR_COUNT_FEATURE_COLS`
   = `half`, `quarter`, `day_of_month`, `day_of_quarter`, `day_of_year`, `fiscal_quarter`; E-004,
-  run 2026-09-06 `9182d469…`, decision pending: MAE +4.2 %, CI excludes zero, weekdays +7.7 % but
+  run 2026-09-06 `9182d469…`, rejected by the researcher the same day: MAE +4.2 %, CI excludes
+  zero, weekdays +7.7 % but
   holidays −13.4 % — E-001's holiday gain comes with this subset; `half` / `quarter` never split
   on); each with its own eval-set class (`_calendar_subset_schema` drops the other calendar
   columns from the ten-feature schema), the same constructor and inputs, wired through the same
