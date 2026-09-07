@@ -2,12 +2,7 @@
 
 <!-- Copy this file into the task folder (docs/research/<task>/) as
      R-XXX-<slug>.md, using the next R number *within that task*.
-
-     Writing style (docs/research/README.md, CLAUDE.md): short sentences, one
-     idea each; a decision is one to three lines; a justification appears once,
-     where it belongs. Cite the task README's scope defaults instead of
-     restating them. Put a run of numbers in a table rather than a sentence.
-     Shortening never drops a decision, number, name or formula. -->
+     Conventions and writing style: docs/research/README.md. -->
 
 **Status:** Backlog  
 **Created:** YYYY-MM-DD  

@@ -10,9 +10,6 @@ statuses: [research README](research/README.md).
 
 ## Scope defaults
 
-An investigation's *Scope and constraints* block should reference these and
-record only what it changes.
-
 **Forecast target.** The 48 half-hourly `demand_kwh` values of
 `fct_area_demand_generation_actual` for day D in one area. `--area` takes
 `tokyo` or `kansai`, the TSO feeds loaded so far.

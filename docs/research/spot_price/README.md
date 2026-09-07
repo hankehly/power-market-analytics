@@ -10,9 +10,6 @@ statuses: [research README](research/README.md).
 
 ## Scope defaults
 
-An investigation's *Scope and constraints* block should reference these and
-record only what it changes.
-
 **Forecast target.** The JEPX spot area price (JPY/kWh) for each of the 48
 delivery periods of day D in one area (`dim_area.area_code`; `--area`).
 
