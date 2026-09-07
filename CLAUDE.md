@@ -444,7 +444,10 @@
   models guard their source with `load_relation` (pre-hook macro `refresh_ml_source_if_exists`,
   `dbt/macros/`): until the first backtest creates `pma_ml.<task>_forecast_importance` they build
   as an empty frame of the contract's types, so an unqualified `dbt build` (`refresh-all`) does
-  not abort on a warehouse that has never published importance.
+  not abort on a warehouse that has never published importance. The rule that keeps that true:
+  the guarded staging model is the only dbt node that reads an importance source — the source
+  entries in `models/raw/ml.yml` carry no data tests (a source test queries the table directly);
+  the staging contract and tests check every column instead.
 - Exogenous features: `LightGbmOcctoStrategy` joins `OcctoDemandForecast`
   (`datasets.load_occto_demand_forecast`, from `fct_occto_demand_supply_forecast_daily`) to each
   delivery day's rows via the `_join_daily_features` hook; its training set therefore
