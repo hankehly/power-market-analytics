@@ -217,9 +217,8 @@ just python scripts/load_estat_census_population_mesh.py
 just dbt build
 ```
 
-A full reload of the 302 files (0.94 M rows) takes ~19 s (27 s wall for the script); before
-2026-08-30 the loader unioned one frame per file and ran one Spark action per file for the
-row checks.
+A full reload of the 302 files (0.94 M rows) takes ~19 s, 27 s wall for the
+script.
 
 Warehouse path: `pma_raw.estat_census_population_mesh` →
 `stg_estat__census_population_mesh` → `std_estat__census_population_mesh`
