@@ -475,8 +475,9 @@ Share of the mean absolute SHAP contribution per feature
 
 The overall error rises 6.5 % and the rise is broad. Every day part (+4.4 % to
 +9.6 %), every day type (weekdays +8.5 %, weekends +3.7 %, holidays +1.5 %),
-every season, the top-10 % demand days (+11.8 %) and 17 of 25 months. The largest increases are the two Julys (2025-07 +29.7 %, 2026-07
-+25.9 %), 2025-01 and 2026-03; the largest decreases the two Decembers
+every season, the top-10 % demand days (+11.8 %) and 17 of 25 months. The
+largest increases are the two Julys (2025-07 +29.7 %, 2026-07 +25.9 %),
+2025-01 and 2026-03; the largest decreases the two Decembers
 (2024-12 −11.6 %, 2025-12 −9.3 %). The bias grows from −28,365 to −41,675
 kWh.
 
@@ -617,7 +618,8 @@ Share of the mean absolute SHAP contribution per feature
 
 ### Interpretation
 
-The overall error rises 4.2 % and the interval over days excludes zero. The shape is E-001's. Weekdays (+7.7 %) and weekends (+3.0 %), every day part,
+The overall error rises 4.2 % and the interval over days excludes zero. The
+shape is E-001's. Weekdays (+7.7 %) and weekends (+3.0 %), every day part,
 spring, summer and autumn, the top-10 % demand days and 15 of 25 months are
 worse. Holidays improve 13.4 %, more than E-001's 10.0 %, putting the holiday
 MAE below the weekday and weekend MAE. Winter improves 6.3 %. The largest
@@ -626,8 +628,9 @@ The lowest actual-demand band (below 10,000 MWh) improves 17.9 %.
 
 The six features take 7.4 % of the attribution mass, `day_of_year` (3.8 %)
 the largest; `half` and `quarter` are never split on and `fiscal_quarter`
-almost never, as in E-001. `month` falls from 2.8 % to 0.2 %, `day_type` from 6.4 % to 4.4 %, the observed
-temperature from 6.6 % to 4.6 % and `time_code` from 13.3 % to 11.5 %. The D-7
+almost never, as in E-001. `month` falls from 2.8 % to 0.2 %, `day_type` from
+6.4 % to 4.4 %, the observed temperature from 6.6 % to 4.6 % and `time_code`
+from 13.3 % to 11.5 %. The D-7
 lag rises from 4.3 % to 6.1 %.
 
 Limitations: as in E-001, one area and one 729-day window.
