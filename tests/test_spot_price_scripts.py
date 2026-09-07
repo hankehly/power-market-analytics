@@ -19,6 +19,7 @@ from tests.support import import_script
 
 FORECAST_TABLE = "pma_ml.spot_price_forecast"
 CONTRIBUTION_TABLE = "pma_ml.spot_price_forecast_contribution"
+IMPORTANCE_TABLE = "pma_ml.spot_price_forecast_importance"
 
 
 def last_run() -> mlflow.entities.Run:
@@ -47,6 +48,15 @@ def published_contribution_rows(spark, run_id: str) -> pd.DataFrame:
         .filter(F.col("run_id") == run_id)
         .toPandas()
         .sort_values(["trade_date", "time_code", "component_order"], ignore_index=True)
+    )
+
+
+def published_importance_rows(spark, run_id: str) -> pd.DataFrame:
+    return (
+        spark.table(IMPORTANCE_TABLE)
+        .filter(F.col("run_id") == run_id)
+        .toPandas()
+        .sort_values(["feature_order", "repeat_index"], ignore_index=True)
     )
 
 
@@ -192,6 +202,11 @@ class TestBacktestScript:
         assert "contribution_table" not in run.data.tags
         if spark.catalog.tableExists(CONTRIBUTION_TABLE):
             assert published_contribution_rows(spark, run.info.run_id).empty
+        # ... and nothing to shuffle: no importance, no tag.
+        assert "importance_table" not in run.data.tags
+        assert "permutation_repeats" not in run.data.params
+        if spark.catalog.tableExists(IMPORTANCE_TABLE):
+            assert published_importance_rows(spark, run.info.run_id).empty
 
         artifacts = artifact_names(run.info.run_id)
         assert {
@@ -233,6 +248,57 @@ class TestBacktestScript:
         assert first["time_code"] == 1
         assert first["forecast_price_jpy_kwh"] == 12.4
         assert first["forecast_issued_ts"] == pd.Timestamp("2024-04-30 09:55")
+
+    def test_lightgbm_publishes_its_permutation_importance(self, spark, curated_warehouse):
+        script = import_script("spot_price_backtest")
+        script.main(
+            [
+                "--strategy",
+                "lightgbm",
+                "--start-date",
+                "2024-05-01",
+                "--end-date",
+                "2024-05-02",
+                "--shap-nsamples",
+                "20",
+                "--importance-repeats",
+                "3",
+            ]
+        )
+        run = last_run()
+        assert run.info.status == "FINISHED"
+        assert run.data.tags["importance_table"] == IMPORTANCE_TABLE
+        assert run.data.params["permutation_repeats"] == "3"
+        assert run.data.params["permutation_seed"] == "0"
+        assert {
+            "permutation_importance.csv",
+            "permutation_importance_repeats.csv",
+            "permutation_importance_plot.png",
+        } <= artifact_names(run.info.run_id)
+        importance = published_importance_rows(spark, run.info.run_id)
+        assert list(importance.columns) == [
+            "strategy",
+            "area_code",
+            "feature",
+            "feature_order",
+            "repeat_index",
+            "n_periods",
+            "mae_price_jpy_kwh",
+            "permuted_mae_price_jpy_kwh",
+            "published_at",
+            "run_id",
+        ]
+        assert len(importance) == 4 * 3  # the four lightgbm features x 3 repeats
+        assert importance["feature"].unique().tolist() == [
+            "time_code",
+            "month",
+            "day_of_week",
+            "lag_1d_price",
+        ]
+        assert importance["n_periods"].unique().tolist() == [96]
+        assert importance["mae_price_jpy_kwh"].iloc[0] == pytest.approx(
+            run.data.metrics["mean_absolute_error"], rel=1e-9
+        )
 
     def test_days_window_ends_at_the_last_day_in_the_data(self, spark, curated_warehouse):
         script = import_script("spot_price_backtest")
