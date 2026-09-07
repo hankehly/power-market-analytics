@@ -54,9 +54,9 @@ CP932, CRLF, 345 lines; unpadded dates (`2022/4/1`) and hours (`9:00`).
 | 55 | `DATE,TIME,当日実績(５分間隔値)(万kW),太陽光発電実績(５分間隔値)(万kW),太陽光発電量(電力使用量に対する割合)(%)` — the **5-minute table** header |
 | 56–343 | 288 rows, `0:00` … `23:55` |
 
-`当日実績(万kW)` is the hourly actual; `予測値(万kW)` is TEPCO's hourly demand
-forecast *as of the stamp* — the day's last intraday revision, not a day-ahead
-forecast (the same caveat as the archived A-2 files); `使用率(%)` and
+`当日実績(万kW)` is the hourly actual. `予測値(万kW)` is TEPCO's hourly demand
+forecast *as of the stamp*: the day's last intraday revision, not a day-ahead
+forecast. That is the same caveat as the archived A-2 files. `使用率(%)` and
 `供給力(万kW)` are the day's usage rate and supply capacity per hour. TEPCO writes
 `0` for hours not yet 確定; the archived files contain none.
 
@@ -99,11 +99,11 @@ hours within ±1 万kW. Behind the headline:
 - **2022-04-01 → 04-14**: A-1 runs 27–47 万kW *above* でんき予報 in every hour
   (174 on 04-14 h10) — the same days as A-1's scientific-notation files; A-1's
   opening fortnight is a different vintage.
-- **From mid-2025, A-1 has an 18:00–19:00 defect**: time codes 37 and 38 carry
-  the same offset (±60–190 万kW, 2–4 %, both signs, not a period shift) on 166
-  of the 514 days from 2025-04 to 2026-08, rising from 1 day/month to 18–19.
-  でんき予報's hourly and 5-minute values agree with each other there (median
-  4 万kW apart) while A-1 is 37 万kW off — A-1 is the odd one.
+- **From mid-2025, A-1 has an 18:00–19:00 defect.** Time codes 37 and 38 carry
+the same offset — ±60–190 万kW, 2–4 %, both signs, not a period shift — on 166
+of the 514 days from 2025-04 to 2026-08, rising from 1 day/month to 18–19.
+でんき予報's hourly and 5-minute values agree with each other there, a median
+4 万kW apart, while A-1 is 37 万kW off. A-1 is the odd one.
 - Excluding those, the two drift apart slowly: bias +0.04 (FY2023) → +1.26 万kW
   (FY2026), daytime hours +0.9–1.0, MAE 0.4 → 1.75 — ≤ 0.06 % of level.
 - A flat ½/½ split of an hourly mean misses A-1's true half-hours by MAE
@@ -120,47 +120,52 @@ paths = downloader.download_all()                   # yearly files (cached) + ev
 ```
 
 `TepcoPowerUsageDownloader` extends the shared `AreaActualsDownloader` with
-the yearly files: `download_yearly(year, force=False)` fetches
-`csv/juyo-YYYY.csv` once — a response is cached only if it carries the hourly
-header, parses, and covers every day of the year (2016 from 04-01) with 24
-hours each, since a cached gap would survive every refresh without
-`--force-yearly` — and `download_all(force_yearly=False)` runs the yearly
-files then the monthly archives, whose daily members are extracted into the
-same `csv/` folder (on the 1st of a month the running month is skipped: it
-has no finished day yet; a settled month — last day before yesterday — must
-hold a member for every day, the running month may be partial). `TepcoPowerUsageCsvLoader`
-(the shared `PowerUsageCsvLoader` of `power_market_analytics/power_usage.py`, which Kansai's
-loader also extends) reads
-each file with `parse_hourly` — the hourly table under the first accepted
-header line, ending at the first blank line, so the 5-minute table is never
-read; every day in the block must cover hours 0–23 exactly once and a daily
-file exactly one date, so a truncated member fails the load instead of
-publishing a day with missing hours; every line is read with trailing commas
-removed and a `修正後` row corrects the row above it, rules Kansai's archive
-needs and no TEPCO hourly table exercises — drops yearly rows on/after 2022-04-01,
-and hands the contract
+the yearly files: `download_yearly(year, force=False)` fetches `csv/juyo-YYYY.csv` once. A
+response is cached only if it carries the hourly header, parses, and covers
+every day of the year (2016 from 04-01) with 24 hours each. Without that check a
+cached gap would survive every refresh short of `--force-yearly`.
+
+`download_all(force_yearly=False)` runs the yearly files, then the monthly
+archives, whose daily members are extracted into the same `csv/` folder. On the
+1st of a month the running month is skipped, having no finished day yet. A
+settled month — last day before yesterday — must hold a member for every day;
+the running month may be partial. `TepcoPowerUsageCsvLoader` is the shared `PowerUsageCsvLoader` of
+`power_market_analytics/power_usage.py`, which Kansai's loader also extends.
+
+It reads each file with `parse_hourly`: the hourly table under the first
+accepted header line, ending at the first blank line, so the 5-minute table is
+never read. Every day in the block must cover hours 0–23 exactly once, and a
+daily file exactly one date, so a truncated member fails the load instead of
+publishing a day with missing hours. Every line is read with trailing commas
+removed, and a `修正後` row corrects the row above it — rules Kansai's archive
+needs and no TEPCO hourly table exercises.
+
+The loader then drops yearly rows on or after 2022-04-01. It hands the contract
 `conf/schemas/tepco_power_usage_hourly.yaml` string columns named
 `__target_date`, `__hour_start`, `__demand_mankw`, `__forecast_mankw`,
-`__usage_rate_pct`, `__supply_capacity_mankw`, `__file_updated_at`,
+`__usage_rate_pct`, `__supply_capacity_mankw`, `__file_updated_at` and
 `__source_file`. Grain `(target_date, hour_start)` is enforced at load time;
 an unknown header line fails the load. Entry points:
 `scripts/download_tepco_power_usage.py` (`--force-yearly`) and
 `scripts/load_tepco_power_usage.py`, then `just dbt build` (`just refresh-all` runs
 them alongside every other source).
 
-Warehouse path: `pma_raw.tepco_power_usage_hourly` →
-`stg_tepco__power_usage_hourly` (as-is) → `std_tepco__power_usage_hourly`
-(typed time axis — `delivery_date`, `hour_start` 0–23 as published,
-`hour_ending` 1–24 for the JMA / MSM / OCCTO convention, `delivery_datetime`
-= hour start, `fiscal_year` — and the four published measures as integer
-万kW; the daily-file 予測値 / 使用率 / 供給力 are null before 2022-04-01, which
-a test pins; `demand_mankw` is tested ≥ 1 rather than nulled like A-1's
-sentinel, because TEPCO never re-issues a day and a zero would never
-self-heal; the singular test
-`assert_std_tepco__power_usage_hourly_calendar_complete` requires the
-history to be gapless) → `fct_area_power_usage_hourly` (grain `date_key ×
-hour_of_day × area_key`; `demand_kwh` = 万kW × 10,000, energy over the hour
-in the A-1 fact's unit, additive; the other three measures stay in `std`).
+Warehouse path: `pma_raw.tepco_power_usage_hourly` → `stg_tepco__power_usage_hourly` (as-is) →
+`std_tepco__power_usage_hourly` → `fct_area_power_usage_hourly`.
+
+`std` types the time axis: `delivery_date`, `hour_start` 0–23 as published,
+`hour_ending` 1–24 for the JMA / MSM / OCCTO convention, `delivery_datetime` =
+hour start, and `fiscal_year`. The four published measures stay integer 万kW.
+
+Three tests pin its behaviour. The daily-file 予測値 / 使用率 / 供給力 are null
+before 2022-04-01. `demand_mankw` is tested ≥ 1 rather than nulled like A-1's
+sentinel, because TEPCO never re-issues a day and a zero would never self-heal.
+And the singular test `assert_std_tepco__power_usage_hourly_calendar_complete`
+requires the history to have no gaps.
+
+`fct_area_power_usage_hourly` has grain `date_key × hour_of_day × area_key`.
+`demand_kwh` = 万kW × 10,000, energy over the hour in the A-1 fact's unit and
+additive. The other three measures stay in `std`.
 The fact is this series alone — it is *not* stitched with the A-1 series
 after 2022-04. Its `hour_of_day` references `dim_delivery_hour`, the 24-row
 shrunken rollup of `dim_delivery_period`, so the two facts drill across:
