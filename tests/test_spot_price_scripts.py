@@ -349,6 +349,14 @@ class TestBacktestScript:
         assert {"base", "time_code", "month", "day_of_week"} <= set(contributions["component"])
         assert set(contributions["strategy"]) == {"lightgbm"}
 
+    def test_importance_repeats_below_one_is_rejected_before_the_run(self, capsys):
+        # Checked at parse time: no backtest runs and nothing is published for a bad count.
+        script = import_script("spot_price_backtest")
+        with pytest.raises(SystemExit) as exc:
+            script.main(["--strategy", "lightgbm", "--days", "1", "--importance-repeats", "-1"])
+        assert exc.value.code == 2
+        assert "--importance-repeats must be >= 1, got -1" in capsys.readouterr().err
+
     def test_end_date_after_the_data_is_rejected(self, spark, curated_warehouse):
         script = import_script("spot_price_backtest")
         with pytest.raises(SystemExit) as exc:

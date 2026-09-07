@@ -87,6 +87,8 @@ def main(argv: list[str] | None = None) -> None:
         help="Shuffles per feature for the permutation feature importance.",
     )
     args = parser.parse_args(argv)
+    if args.importance_repeats < 1:
+        parser.error(f"--importance-repeats must be >= 1, got {args.importance_repeats}")
 
     with task_run(
         MLFLOW_EXPERIMENT,

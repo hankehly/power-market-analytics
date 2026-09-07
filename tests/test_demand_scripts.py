@@ -539,6 +539,14 @@ class TestBacktestScript:
         script.main(["--days", "2", "--train-start", "2024-04-01", "--shap-nsamples", "20"])
         assert last_run().data.params["lgbm_train_start_date"] == "2024-04-01"
 
+    def test_importance_repeats_below_one_is_rejected_before_the_run(self, capsys):
+        # Checked at parse time: no backtest runs and nothing is published for a bad count.
+        script = import_script("demand_backtest")
+        with pytest.raises(SystemExit) as exc:
+            script.main(["--days", "1", "--importance-repeats", "0"])
+        assert exc.value.code == 2
+        assert "--importance-repeats must be >= 1, got 0" in capsys.readouterr().err
+
     def test_end_date_after_the_data_is_rejected(self, spark, curated_warehouse):
         script = import_script("demand_backtest")
         with pytest.raises(SystemExit) as exc:
