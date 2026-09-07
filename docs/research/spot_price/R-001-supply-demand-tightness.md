@@ -200,7 +200,7 @@ Applying the rule as written: overall and daytime MAE are both lower on the
 matched window. Overnight and Evening deteriorate by +0.08 / +0.05 JPY/kWh. The
 improvement is not consistent across calendar months (8 of 17) and is smaller
 than the variation across months and day parts. The result does not depend on a few extreme days (those days get
-worse). The rule's "inconclusive" branch therefore applies rather than "keep".
+worse). So the rule's "inconclusive" branch applies rather than "keep".
 
 ### Follow-up ideas
 
