@@ -5,8 +5,8 @@ Date: 2026-08-16. Status: approved (brainstorming session, actuals-only scope).
 ## 1. Goal
 
 Add TEPCO's published Tokyo-area 30-minute demand and generation actuals to the
-warehouse as a new source pipeline (download → raw → staging → standardized →
-curated fact), following the JEPX / JMA / OCCTO conventions, so the data is
+warehouse as a new source pipeline: download → raw → staging → standardized →
+curated fact. It follows the JEPX / JMA / OCCTO conventions, so the data is
 joinable with `fct_jepx_spot_area_price` at the (date, time code, area) grain.
 
 Source page: <https://www.tepco.co.jp/forecast/html/area-download-j.html>
@@ -99,11 +99,11 @@ Mirrors `JmaHourlyCsvLoader`:
   equals `EXPECTED_HEADER` (else `ValueError` naming the file — layout drift
   fails loudly) and reads line 2 (`yyyymmdd,HH:MM:SS,yyyymmdd`) into a
   `"yyyyMMdd HH:mm:ss"` string. Then Spark reads the file headerless with a
-  7-column string schema, keeps rows where `_c0` rlike `^\d{8}$` **and**
-  `_c1` rlike `^\d{1,2}$` (line 2 also starts with a date), adds
+  7-column string schema. It keeps rows where `_c0` rlike `^\d{8}$` **and**
+  `_c1` rlike `^\d{1,2}$`, since line 2 also starts with a date. It adds
   `__file_updated_at` as that string literal, and applies the contract casts
-  via the inherited `_cast` (the contract's `format: yyyyMMdd HH:mm:ss`
-  parses it to a timestamp).
+  via the inherited `_cast`; the contract's `format: yyyyMMdd HH:mm:ss` parses
+  it to a timestamp.
 - Everything else (validation, grain check, overwrite write) is inherited.
 
 ### 4.3 `conf/schemas/tepco_area_demand_generation_actual.yaml`
@@ -209,8 +209,8 @@ Mirrors `JmaHourlyCsvLoader`:
   (1,598 × 48).
 - `just dbt build` — all models build, all tests pass.
 - `uv run ruff check .` clean.
-- Spot checks via `just dbt show --inline`: row count per day = 48;
-  2025-06-14 codes 11–48 null in std/fct; 2022-04-01 code 29 generation_kwh =
-  16691900; an inner join to `fct_jepx_spot_area_price` on (date_key,
+- Spot checks via `just dbt show --inline`: row count per day = 48; 2025-06-14
+  codes 11–48 null in std and fct; 2022-04-01 code 29 generation_kwh =
+  16691900. An inner join to `fct_jepx_spot_area_price` on (date_key,
   time_code, area_key) returns exactly the fact's row count for delivery dates
   the JEPX data already covers.

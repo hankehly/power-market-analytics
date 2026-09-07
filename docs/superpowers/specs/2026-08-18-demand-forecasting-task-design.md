@@ -6,9 +6,9 @@ Date: 2026-08-18. Status: approved (brainstorming session).
 
 Add a second modeling task, `power_market_analytics/tasks/demand/`, with a
 LightGBM baseline that forecasts an area's 48 half-hourly demand values for
-delivery day D at 09:30 JST on D-1, backtested and logged to MLflow the same
-way as `spot_price` (same rolling engine, same metrics, same publish → dbt
-accuracy-fact path). To avoid a second copy of the spot-price machinery, the
+delivery day D at 09:30 JST on D-1. It is backtested and logged to MLflow the
+same way as `spot_price`: same rolling engine, same metrics, same publish → dbt
+accuracy-fact path. To avoid a second copy of the spot-price machinery, the
 task-agnostic parts move into a new package `power_market_analytics/forecasting/`
 and both tasks become thin configurations of it.
 
@@ -254,11 +254,12 @@ under `demand` tagged `strategy`/`area`; logs params (incl. `n_days_skipped`),
 
 ### 6.1 `dim_area.representative_jma_station_id`
 
-New column in seed `dbt/seeds/jepx_areas.csv` and `dim_area` (type-1 attribute,
-`string`, nullable — `system` has none; `relationships` test to
-`dim_jma_station.station_id`): hokkaido s47412 札幌, tohoku s47590 仙台, tokyo
-s47662 東京, chubu s47636 名古屋, hokuriku s47607 富山, kansai s47772 大阪,
-chugoku s47765 広島, shikoku s47891 高松, kyushu s47807 福岡.
+New column in seed `dbt/seeds/jepx_areas.csv` and `dim_area`: a type-1
+attribute, `string`, nullable because `system` has none, with a `relationships`
+test to `dim_jma_station.station_id`. The values are hokkaido s47412 札幌,
+tohoku s47590 仙台, tokyo s47662 東京, chubu s47636 名古屋, hokuriku s47607
+富山, kansai s47772 大阪, chugoku s47765 広島, shikoku s47891 高松 and kyushu
+s47807 福岡.
 
 ### 6.2 Forecast write-back models (contracts enforced, composite uniqueness)
 

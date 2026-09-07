@@ -12,13 +12,15 @@ completion". Diagnosis on the real data (pyspark 4.1.1, 1,608 station-year files
   Every `unionByName` re-runs the analyzer over the whole growing `Union`
   (`Union.duplicatesResolvedBetweenBranches`), so **~8 min pass before the first Spark job
   exists** — no progress bar, driver at 90 % CPU.
-- The resulting plan ships as a **45 MiB task binary** that every one of the ~1,608 tasks in each
-  of the load's six stages (count, null check, count, distinct, write…) deserialises: task
-  deserialise median 1.1 s vs run 0.6 s, driver RSS 1.7 → 16.7 GB within a minute. A run that
-  survives takes ~1 h 45 min (2026-08-20: 12:56 → 14:38; the 2026-08-29 table's metastore
-  `Created Time 09:38:50 UTC` proves it does finish). From a `docker compose exec` client that
-  does not live that long (Claude Code's 10-min Bash cap, a sleeping terminal) it never appears
-  to complete, while the in-container process keeps going.
+- The resulting plan ships as a **45 MiB task binary**. Every one of the ~1,608
+  tasks in each of the load's six stages (count, null check, count, distinct,
+  write…) deserialises it: task deserialise median 1.1 s against run 0.6 s, and
+  driver RSS 1.7 → 16.7 GB within a minute. A run that survives takes ~1 h 45
+  min (2026-08-20: 12:56 → 14:38; the 2026-08-29 table's metastore
+  `Created Time 09:38:50 UTC` proves it does finish). From a
+  `docker compose exec` client that does not live that long (Claude Code's
+  10-min Bash cap, a sleeping terminal) it never appears to complete, while the
+  in-container process keeps going.
 - This is the root cause of the "needs `SPARK_DRIVER_MEMORY=20g`, 8g OOMs in the write, 1g
   stalls" gotcha in CLAUDE.md / `docs/JMA-Weather-Data-Retrieval.md`.
 - It is **file-count-driven, not JMA-specific**: `TepcoAreaCsvLoader` (1,610 files, 7 columns)
@@ -27,11 +29,12 @@ completion". Diagnosis on the real data (pyspark 4.1.1, 1,608 station-year files
   files) uses the base header-based path; `EstatCensusMeshCsvLoader` (302 files) also runs a
   Spark action per file in `_check_rows`. JEPX (11 files) and OCCTO (1 file) are unaffected;
   `TepcoPowerUsageCsvLoader` already builds one frame from Python-parsed rows.
-- Proven alternative (scratch experiment, same contract, same casts): **one multi-path
-  `spark.read.csv(files)` scan** with the station id taken from Spark's `_metadata.file_name`
-  column loads all 1,608 files in ~48 s (plan 5.4 s, count 19.6 s, validate 6.9 s, write 7.1 s,
-  58 partitions) with output row-for-row identical to the production table (13,658,616 rows,
-  147 stations, `EXCEPT` both ways = 0).
+- Proven alternative (scratch experiment, same contract, same casts): **one
+  multi-path `spark.read.csv(files)` scan**, with the station id taken from
+  Spark's `_metadata.file_name` column, loads all 1,608 files in ~48 s — plan
+  5.4 s, count 19.6 s, validate 6.9 s, write 7.1 s, 58 partitions. The output
+  is row-for-row identical to the production table: 13,658,616 rows, 147
+  stations, `EXCEPT` both ways = 0.
 
 ## Decisions (user-approved, 2026-08-30)
 
@@ -42,10 +45,10 @@ completion". Diagnosis on the real data (pyspark 4.1.1, 1,608 station-year files
    line and scans each group once (JEPX, OCCTO, MSM, e-Stat).
 3. **Per-file error reporting**: when validation fails after the read (nulls in a non-nullable
    column, duplicated grain keys), the message names the offending files.
-4. **Verification = scratch diff**, run by Claude as a main-session background task: the new
-   loader writes to a scratch table, `EXCEPT` both ways against the current production table
-   must be empty, then the scratch database is dropped and the real `scripts/` entry point is
-   run end-to-end.
+4. **Verification = scratch diff**, run by Claude as a main-session background
+   task. The new loader writes to a scratch table, and `EXCEPT` both ways
+   against the current production table must be empty. Then the scratch
+   database is dropped and the real `scripts/` entry point is run end-to-end.
 5. **Git**: Conventional Branch `fix/<loader>-single-scan`, Conventional Commits
    (`fix(<scope>): …` for the behaviour change, `test(…)`/`docs(…)`/`refactor(…)` for support),
    PR title in the same form; commit after every task. Per PR: wait for Codex's review, address
@@ -77,12 +80,14 @@ completion". Diagnosis on the real data (pyspark 4.1.1, 1,608 station-year files
   (`REPORT_LIMIT = 10`). Existing messages are otherwise byte-identical (tests pin them).
 - `load()` — `df = self._read_all(files)`; cache; validate on `df`; log and write
   `df.drop(SOURCE_FILE_COL)`.
-- `_read_all(files)` default — **stage 1**: still the per-file union, docstring corrected
-  (only fit for a handful of files). **Stage 4**: group files by their header line (Python
-  sniff of line 1 with the contract's encoding — Java charset names such as `windows-31j` map
-  to Python codecs — and `sep`; the per-file "missing required columns" check moves here), one
-  `spark.read.options(header="true", …).csv(group)` + `SOURCE_FILE_COL` per distinct header,
-  `_project` each, `unionByName` the handful of groups. `_read_file` is removed.
+- `_read_all(files)` default — **stage 1**: still the per-file union, docstring
+  corrected (only fit for a handful of files). **Stage 4**: group files by
+  their header line, then one `spark.read.options(header="true", …).csv(group)`
+  plus `SOURCE_FILE_COL` per distinct header, `_project` each, and
+  `unionByName` the handful of groups. The grouping is a Python sniff of line 1
+  with the contract's encoding and `sep`; Java charset names such as
+  `windows-31j` map to Python codecs. The per-file "missing required columns"
+  check moves here. `_read_file` is removed.
 
 ### Per-loader reads
 
@@ -90,18 +95,22 @@ completion". Diagnosis on the real data (pyspark 4.1.1, 1,608 station-year files
   file first (column-count sniff + file-name regex, same messages as today, so a bad file fails
   before any scan), then `_scan_positional(files, expected)`, keep rows with `_c0 rlike '^\d{4}/'`,
   `__station_id = regexp_extract(SOURCE_FILE_COL, _FILENAME_RE, 1)`, `_project`.
-- **Area actuals (`AreaActualsCsvLoader`, stage 2)** — `_read_all`: `sniff_metadata` every file in
-  Python (already done in `_resolve_files` for sources with `archive_includes_current_day`) into a
-  `{file name: file_updated_at}` map, build a one-row-per-file lookup frame, `_scan_positional`
-  (`COLUMN_COUNT = 7`), the existing data-row filter and `yyyy/mm/dd` normalisation, inner
-  broadcast join on `SOURCE_FILE_COL` (exactly one lookup row per file by construction),
-  `_project`. Covers TEPCO and Kansai in one class.
-- **e-Stat (`EstatCensusMeshCsvLoader`, stage 3)** — `_read_all`: `_identify` + `_check_headers`
-  per file in Python, group files by vintage, one header-based scan per vintage with
-  `SOURCE_FILE_COL`, vintage attributes as literals, `__primary_mesh_code` from the file name,
-  `__source_file = SOURCE_FILE_COL`, `_check_rows` once per vintage as a single aggregation
-  grouped by `SOURCE_FILE_COL` (per-file counts; the "exactly one label row" rule per file),
-  `unionByName` of ≤ 2 frames.
+- **Area actuals (`AreaActualsCsvLoader`, stage 2)** — `_read_all`:
+  `sniff_metadata` every file in Python into a `{file name: file_updated_at}`
+  map — already done in `_resolve_files` for sources with
+  `archive_includes_current_day`. Build a one-row-per-file lookup frame, then
+  `_scan_positional` (`COLUMN_COUNT = 7`), the existing data-row filter and
+  `yyyy/mm/dd` normalisation, an inner broadcast join on `SOURCE_FILE_COL`
+  (exactly one lookup row per file by construction), and `_project`. Covers
+  TEPCO and Kansai in one class.
+- **e-Stat (`EstatCensusMeshCsvLoader`, stage 3)** — `_read_all`: `_identify`
+  and `_check_headers` per file in Python, then group files by vintage. One
+  header-based scan per vintage with `SOURCE_FILE_COL`, vintage attributes as
+  literals, `__primary_mesh_code` from the file name and
+  `__source_file = SOURCE_FILE_COL`. `_check_rows` runs once per vintage as a
+  single aggregation
+  grouped by `SOURCE_FILE_COL`, giving per-file counts and the "exactly one
+  label row" rule per file. Then `unionByName` of ≤ 2 frames.
 - **MSM / JEPX / OCCTO (stage 4)** — no loader code; they take the new base default. MSM's
   1,606 gzip files are not splittable (one partition each); whether to `coalesce` before the
   write is decided from the measured output at that stage.
