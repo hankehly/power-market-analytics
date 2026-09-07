@@ -28,8 +28,9 @@ delivery periods of day D in one area (`dim_area.area_code`; `--area`).
 investigation cites what it used rather than listing the whole set:
 
 - `scripts/compare_spot_price_runs.py` — day part, periods near the OCCTO
-  forecast peak hour, calendar month, high-price days and bias. The bootstrap
-  CI is only here, not in Superset.
+  forecast peak hour, calendar month, high-price days and bias. It reports no
+  uncertainty interval; the daily paired bootstrap exists only for demand
+  (`compare_demand_runs.py`).
 - Superset **Spot Price Forecast Analysis** — actual-price bands, the
   calibration curve, the error histogram and the per-day SHAP waterfall of the
   **Explanation (SHAP)** tab. Its **Compare** tab puts a run against a
