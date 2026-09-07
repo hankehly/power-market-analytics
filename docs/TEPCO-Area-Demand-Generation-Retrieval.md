@@ -104,9 +104,10 @@ reason the loader checks the header text of every file it reads.
 The download/extract and the positional load are the shared
 `AreaActualsDownloader` / `AreaActualsCsvLoader` in
 `power_market_analytics/area_actuals.py`, driven by a per-TSO
-`AreaActualsSource` spec; `power_market_analytics/tepco/area_demand_generation.py`
-(re-exported by the `tepco` package) supplies the `TEPCO` spec (URL template, 2022-04, `AREA_JISEKI_*` member regex, the one
-accepted column-header line) plus thin `TepcoAreaDownloader` and
+`AreaActualsSource` spec. `power_market_analytics/tepco/area_demand_generation.py`,
+re-exported by the `tepco` package, supplies the `TEPCO` spec: the URL
+template, 2022-04, the `AREA_JISEKI_*` member regex and the one accepted
+column-header line. It also supplies thin `TepcoAreaDownloader` and
 `TepcoAreaCsvLoader` subclasses. The Kansai feed reuses the
 same classes ([Kansai doc](Kansai-Area-Demand-Generation-Retrieval.md)).
 
@@ -120,10 +121,10 @@ downloader.download_all()                    # 2022-04 .. current month
 # csvs  -> data/tepco/area_demand_generation/csv/AREA_JISEKI_YYYYMMDD.csv
 ```
 
-The downloader also checks each archive's member dates: every member must be
+The downloader also checks each archive's member dates. Every member must be
 dated inside its month, and a *settled* month (last day before yesterday) must
-hold every day — an archive that is valid but omits a day would otherwise load
-as a silent gap the grain tests cannot see. The running month may be partial,
+hold every day. Without that check, an archive that is valid but omits a day
+would load as a silent gap the grain tests cannot see. The running month may be partial,
 and on the 1st the running month is skipped altogether (nothing is finished
 yet).
 
@@ -139,10 +140,11 @@ just python scripts/load_tepco_area_demand_generation.py
 just dbt build
 ```
 
-The loader reads all ~1,600 daily files in a **single Spark scan** (`CsvLoader._scan_positional`),
-sniffing each file's `ファイル更新日` line in Python and joining the stamp back on the file name —
-a full reload takes about 15 s (before 2026-08-30 the per-file union spent ~3 min planning
-and ~40 s per Spark action).
+The loader reads all ~1,600 daily files in a **single Spark scan**
+(`CsvLoader._scan_positional`). It sniffs each file's `ファイル更新日` line in
+Python and joins the stamp back on the file name. A full reload takes about
+15 s. Before 2026-08-30 the per-file union spent ~3 min planning and ~40 s per
+Spark action.
 
 Warehouse path: `pma_raw.tepco_area_demand_generation_actual` →
 `stg_tepco__area_demand_generation_actual` →
