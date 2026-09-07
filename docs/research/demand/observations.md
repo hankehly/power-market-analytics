@@ -113,13 +113,12 @@ same calendar input as any working day of that weekday.
   with TreeSHAP contributions; same forecasts and MAE as the E-001 candidate
   `7ce89125…`)
 - **Status:** Unreviewed
-- **Related investigations:**
-[R-003 — Day type as a categorical feature](research/demand/R-003-day-type-feature.md).
-Its *Open questions* already record that the weekday before a holiday got
-worse, +17 %, with 2025-08-12 and 2026-08-12 the candidate's worst and
-third-worst days. Also
-[O-001](research/demand/observations.md#o-001-holidays-dominate-the-worst-days-and-are-over-forecast):
-both days were among the R-002 baseline's 20 worst, over-forecast.
+- **Related investigations:** [R-003 — Day type as a categorical
+  feature](research/demand/R-003-day-type-feature.md). Its *Open questions*
+  already record that the weekday before a holiday got worse, +17 %, with
+  2025-08-12 and 2026-08-12 the candidate's worst and third-worst days. Also
+  [O-001](research/demand/observations.md#o-001-holidays-dominate-the-worst-days-and-are-over-forecast):
+  both days were among the R-002 baseline's 20 worst, over-forecast.
 
 ### Observation
 
@@ -178,18 +177,19 @@ model saw, and `base` + Σ contributions = the mean forecast.
   negative one (−637,310; −646,383 in the daytime), and the lag outweighs it.
   `day_type` (Weekday) and `wavg_temperature_c` add another +472,117 and
   +290,316.
-- On 2025-08-12 the lag is again the largest contribution (+1,645,623; +2,825,973
-in the daytime), but the forecast temperature does not counteract it. At
-27.99 °C (29.62 °C in the daytime) it adds +1,446,555 (+2,368,341 in the
-daytime), and `day_type` +539,865. The daytime bias is +5,333,359 kWh
+- On 2025-08-12 the lag is again the largest contribution (+1,645,623;
+  +2,825,973 in the daytime), but the forecast temperature does not counteract
+  it. At 27.99 °C (29.62 °C in the daytime) it adds +1,446,555 (+2,368,341 in
+  the daytime), and `day_type` +539,865. The daytime bias is +5,333,359 kWh
   (MAPE 29.4 %).
 - The D-7 days the lag carried (Tokyo actuals from
-  `fct_area_demand_generation_actual`): 2026-08-05 (Wed) averaged 17,371,000 kWh per period with a 21,937,000 peak
-(16:00–16:30), against 14,169,792 / 16,780,000 on 2026-08-12. The target day
-ran at 0.816× its D-7 level with an almost identical profile: the correlation
-of the 48-period profiles is 0.992. 2025-08-05 (Tue) averaged 22,337,604 with a
-28,567,000 peak against 15,950,833 / 18,398,000 on 2025-08-12, so 0.714× at the
-same 0.992 correlation.
+  `fct_area_demand_generation_actual`): 2026-08-05 (Wed) averaged 17,371,000
+  kWh per period with a 21,937,000 peak (16:00–16:30), against 14,169,792 /
+  16,780,000 on 2026-08-12. The target day ran at 0.816× its D-7 level with an
+  almost identical profile: the correlation of the 48-period profiles is 0.992.
+  2025-08-05 (Tue) averaged 22,337,604 with a 28,567,000 peak against
+  15,950,833 / 18,398,000 on 2025-08-12, so 0.714× at the same 0.992
+  correlation.
 - The same calendar day of the previous year, queried as context for the
   idea below: 2025-08-12 vs 2026-08-12 — profile correlation 0.976, 2026 at
   0.888× the 2025 level.
@@ -208,10 +208,10 @@ same 0.992 correlation.
 
 - MLflow run: [`0a6b8a5560d445d5b9705bde99cf13ae`](http://localhost:5005/#/experiments/2/runs/0a6b8a5560d445d5b9705bde99cf13ae)
   (`lightgbm_msm_popw_daytype-tokyo`, the SHAP rollout run)
-- Superset dashboard: **Demand Forecast Analysis** → **Accuracy** → **Worst days**. Then
-**Explanation (SHAP)** → **SHAP waterfall**, **Feature values & contributions**
-and the contributions-by-period chart, with the Day filter set to 2026-08-12 /
-2025-08-12.
+- Superset dashboard: **Demand Forecast Analysis** → **Accuracy** → **Worst
+  days**. Then **Explanation (SHAP)** → **SHAP waterfall**, **Feature values &
+  contributions** and the contributions-by-period chart, with the Day filter
+  set to 2026-08-12 / 2025-08-12.
 
 The tables above are the same numbers, queried on 2026-08-27 from
 `pma_curated.fct_demand_forecast_accuracy`,
@@ -230,14 +230,15 @@ overnight 00–06, morning 06–08, daytime 08–18, evening 18–24.
 - **MLflow run:** [`0a6b8a5560d445d5b9705bde99cf13ae`](http://localhost:5005/#/experiments/2/runs/0a6b8a5560d445d5b9705bde99cf13ae)
   (the same run as O-002)
 - **Status:** Unreviewed
-- **Related investigations:** [R-003 — Day type as a categorical feature](research/demand/R-003-day-type-feature.md)
-  (both days are among the seven holidays the day-type feature made worse:
-  2026-02-11 went from −1,147,127 to −3,071,435 kWh and is the run's second-worst
-day; 2025-02-11 from 1,196,317 to 1,534,427 MAE. That the residual holiday
-error is two-sided is an R-003 open question.) Also
-[O-002](research/demand/observations.md#o-002-the-working-day-between-山の日-and-お盆-is-heavily-over-forecast-driven-by-the-d-7-lag),
-which reaches the same idea — the load of the same day the previous year —
-from the opposite failure.
+- **Related investigations:** [R-003 — Day type as a categorical
+  feature](research/demand/R-003-day-type-feature.md) (both days are among the
+  seven holidays the day-type feature made worse: 2026-02-11 went from
+  −1,147,127 to −3,071,435 kWh and is the run's second-worst day; 2025-02-11
+  from 1,196,317 to 1,534,427 MAE. That the residual holiday error is two-sided
+  is an R-003 open question.) Also
+  [O-002](research/demand/observations.md#o-002-the-working-day-between-山の日-and-お盆-is-heavily-over-forecast-driven-by-the-d-7-lag),
+  which reaches the same idea — the load of the same day the previous year —
+  from the opposite failure.
 
 ### Observation
 
@@ -282,11 +283,11 @@ The per-day decomposition (mean per period, as in O-002):
 
 - The reading holds on both days: `day_type` (Holiday) is the largest
   contribution in absolute terms and the only large negative one, and it
-  outweighs the D-7 lag. In the daytime periods (08–18), where the error is largest, the lag
-contributes +1,353,941 (2025) / +1,115,219 (2026) kWh per period and the day
-type −2,274,605 / −2,060,199. The daytime bias is −1,987,589 in 2025 (MAPE
-10.9 %) and −4,368,264 in 2026 (MAPE 21.0 %, forecast 16,430,086 against an
-actual of 20,798,350).
+  outweighs the D-7 lag. In the daytime periods (08–18), where the error is
+  largest, the lag contributes +1,353,941 (2025) / +1,115,219 (2026) kWh per
+  period and the day type −2,274,605 / −2,060,199. The daytime bias is
+  −1,987,589 in 2025 (MAPE 10.9 %) and −4,368,264 in 2026 (MAPE 21.0 %,
+  forecast 16,430,086 against an actual of 20,798,350).
 - The day-type contribution on these days (−1.85 M / −1.59 M kWh per period)
   is of the same size as on the お盆-adjacent 山の日 2025-08-11 (−1,758,221),
   where the day was forecast within +270,347.

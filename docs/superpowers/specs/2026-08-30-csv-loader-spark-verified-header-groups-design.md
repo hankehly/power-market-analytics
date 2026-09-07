@@ -11,12 +11,13 @@ Stage 4 gave `CsvLoader._read_all` (the default for header-based contracts — J
 MSM) one Spark scan per header layout instead of one frame per file. To group files by layout
 without a Spark job per file, it sniffs each file's header **in Python, with the contract's CSV
 dialect**, and judges it against the contract; Spark's own parse is consulted only when the
-Python parse fails or is rejected. That preflight is where the cost went: eleven review rounds
-on #24 (2026-08-30) each found one more way the Python parse could accept a header that Spark
-names differently — case-only duplicates, trimming options, `emptyValue`, disabled or unquoted
-escapes, doubled quotes, `unescapedQuoteHandling`, BOM-dependent charsets, … — because
-accepting such a header silently misaligns columns (a contract source resolves to nothing and
-`_cast` reads null). Every corner was fixed by mirroring more of Spark's dialect in Python or by
+Python parse fails or is rejected. That preflight is where the cost went. Eleven review rounds on #24
+(2026-08-30) each found one more way the Python parse could accept a header
+that Spark names differently: case-only duplicates, trimming options,
+`emptyValue`, disabled or unquoted escapes, doubled quotes,
+`unescapedQuoteHandling`, BOM-dependent charsets, and so on. Accepting such a
+header silently misaligns columns — a contract source resolves to nothing and
+`_cast` reads null. Every corner was fixed by mirroring more of Spark's dialect in Python or by
 deferring that dialect to Spark, and today **358 of the file's 810 lines** (12 methods) and
 **41 of the loader's tests** exist to judge headers. None of it affects the five production
 headers, which all take the fast path; it exists to make grouping *exact* for inputs no source
@@ -24,18 +25,22 @@ has.
 
 Two Spark facts make the exactness unnecessary (both probed on pyspark 4.1.1, 2026-08-30):
 
-- With `enforceSchema=false` and `header=true`, Spark checks **every file's** header against
-  the scan's schema and fails the read naming the file (`CSV header does not conform to the
-  schema … Expected: id but found: v … CSV file: file:///…/c.csv`). Probed through the
-  loader's own scan (which selects the contract's columns, so Spark's CSV column pruning
-  applies), the check is **positional over the contract's columns the scan's schema
-  resolves**: each file must carry them at the same positions under the same names (folded
-  per `spark.sql.caseSensitive`) as the scan's schema — which Spark infers from whichever
-  file its listing puts first, the largest — and a file with fewer or more columns passes as
-  long as those positions line up; unselected columns (an empty or `nullValue`-named header
-  cell, an extra provider column) are never compared, and an *optional* contract source the
-  scan's schema lacks is not checked either — `_project` reads it as null for every file of
-  the group. Positional agreement is the condition under which a shared scan reads a file
+- With `enforceSchema=false` and `header=true`, Spark checks **every file's**
+  header against the scan's schema and fails the read naming the file (`CSV
+  header does not conform to the schema … Expected: id but found: v … CSV file:
+  file:///…/c.csv`). This was probed through the loader's own scan, which
+  selects the contract's columns, so Spark's CSV column pruning applies.
+
+The check is **positional over the contract's columns the scan's schema
+resolves**. Each file must carry them at the same positions, under the same
+names folded per `spark.sql.caseSensitive`, as the scan's schema. Spark infers
+that schema from whichever file its listing puts first, the largest. A file with
+fewer or more columns passes as long as those positions line up.
+
+Two kinds of column are never compared. Unselected columns — an empty or
+`nullValue`-named header cell, an extra provider column — are not compared. Nor
+is an *optional* contract source the scan's schema lacks: `_project` reads it as
+null for every file of the group. Positional agreement is the condition under which a shared scan reads a file
   correctly, so this check rules out misalignment; what rules out a group mixing layouts at
   all (and so an optional column silently lost) is the grouping rule below, not the check.
   With the default `enforceSchema=true` the same input is read silently misaligned
@@ -67,69 +72,88 @@ for key, members in groups.items():
 return reduce(DataFrame.unionByName, frames)
 ```
 
-- **`_first_line(file) -> bytes | None`** — the first line Spark will treat as the header, as
-  raw bytes: read (plain / `gzip` / `bz2` / `zlib` for `.deflate`, Hadoop's DefaultCodec) up to
-  the line terminator — `\n`, `\r`, `\r\n` (Hadoop's line reader) or the contract's `lineSep`
-  encoded as ASCII — skipping lines that are empty after stripping spaces (probed on 4.1.1:
-  Spark skips an empty or spaces-only line before the header and keeps a tab-only line as the
-  header; a line the sniff skipped but Spark kept can only make the load fail loudly, since
-  Spark's names then carry no contract column) and, when the contract sets `comment`, lines
-  starting with that ASCII byte. No decoding, no dialect: a BOM, quotes, escapes, separators
-  are just bytes in the key — for a line-mode read the key *is* the header line. Returns
-  `b""` for a file with no such line (empty file) and `None` for a file that must be grouped
-  alone, Spark reading its header by itself: the contract sets `multiLine` (a quoted header
-  cell may span lines, so the first physical line does not determine the header), a charset
-  Python cannot confirm ASCII-compatible (`UTF-16`/`UTF-32`, EBCDIC, or a Java-only name —
-  the sniff compares spaces, the comment character and line terminators as ASCII bytes),
-  a codec Python cannot open (`.zst`, `.lz4`, `.snappy`), or a `lineSep`/`comment` that is
-  not ASCII (per-file cost, only for inputs no source has; every production contract is
-  `windows-31j`, which Python knows as `cp932`).
+- **`_first_line(file) -> bytes | None`** — the first line Spark will treat as
+  the header, as raw bytes: read (plain / `gzip` / `bz2` / `zlib` for
+  `.deflate`, Hadoop's DefaultCodec) up to the line terminator — `\n`, `\r`,
+  `\r\n` (Hadoop's line reader) or the contract's `lineSep` encoded as ASCII —
+  skipping lines that are empty after stripping spaces (probed on 4.1.1: Spark
+  skips an empty or spaces-only line before the header and keeps a tab-only
+  line as the header. A line the sniff skipped but Spark kept can only make the
+  load fail loudly, since Spark's names then carry no contract column.) It also
+  skips, when the contract sets `comment`, lines starting with that ASCII byte.
+  No decoding, no dialect: a BOM, quotes, escapes, separators are just bytes in
+  the key — for a line-mode read the key *is* the header line. Returns `b""`
+  for a file with no such line, meaning an empty file. Returns `None` for a
+  file that must be grouped alone, with Spark reading its header by itself.
+  That happens in four cases:
+
+- the contract sets `multiLine`, so a quoted header cell may span lines and the
+  first physical line does not determine the header;
+- a charset Python cannot confirm ASCII-compatible (`UTF-16`/`UTF-32`, EBCDIC,
+  or a Java-only name) — the sniff compares spaces, the comment character and
+  line terminators as ASCII bytes;
+- a codec Python cannot open (`.zst`, `.lz4`, `.snappy`);
+- a `lineSep` or `comment` that is not ASCII.
+
+That is a per-file cost, and only for inputs no source has: every production
+contract is `windows-31j`, which Python knows as `cp932`.
 - **`_group_header(file) -> tuple[list[str], list[str]]`** — Spark's names for the group's
   first file (`header="true"`, `.columns`) and its raw header cells (`header="false"`,
   `.head(1)`, nulls as `""`); both reads under `_spark_options(inferSchema="false")` (and the
   respective `header`). Two tiny jobs **per group**, not per file.
-- **`_header_problem(names, cells) -> str | None`** — unchanged rules, on Spark's names:
-  reserved `_source_file` cell (folded), a contract source that recurs among `cells` (folded,
-  so `id,ID` by default) and is absent from `names` → `has duplicated header columns`, a
-  required source (other than `_source_file`) that `_resolve`s to nothing → `is missing
-  required columns`. `_resolve` / `_fold` stay as they are (used by `_cast` too).
+- **`_header_problem(names, cells) -> str | None`** — unchanged rules, on
+  Spark's names:
+
+- a reserved `_source_file` cell (folded);
+- a contract source that recurs among `cells` (folded, so `id,ID` by default)
+  and is absent from `names` → `has duplicated header columns`;
+- a required source other than `_source_file` that `_resolve`s to nothing →
+  `is missing required columns`. `_resolve` / `_fold` stay as they are (used by `_cast` too).
 - **`_group_label(members)`** — `members[0]` for a singleton group, else
   `"{members[0]} (+{n-1} files with the same header)"`; existing messages for single files
   are byte-identical (tests pin them).
-- **`_read_layout(files)`** — `_spark_options(header="true", inferSchema="false",
-  enforceSchema="false")`, then `SOURCE_FILE_COL` and `_project` as today. `enforceSchema=false`
-  is belt and braces: for a line-mode read the group key is the header line itself, and files
-  whose header the first line does not determine (`multiLine`) are grouped alone, so a group
-  never mixes layouts; should one ever, a file whose parsed header does not carry the
-  contract's columns at the group's positions fails the scan with Spark's message naming the
-  file, surfacing at `load()`'s first action and left to propagate.
+- **`_read_layout(files)`** — `_spark_options(header="true",
+  inferSchema="false", enforceSchema="false")`, then `SOURCE_FILE_COL` and
+  `_project` as today. `enforceSchema=false` is belt and braces. For a
+  line-mode read the group key is the header line itself, and files whose
+  header the first line does not determine (`multiLine`) are grouped alone, so
+  a group never mixes layouts. Should one ever, a file whose parsed header does
+  not carry the contract's columns at the group's positions fails the scan with
+  Spark's message naming the file. That surfaces at `load()`'s first action and
+  is left to propagate.
 
-Grouping is therefore allowed to be **over-fine** (`"id","v"` and `id,v`, a BOM'd and an
-un-BOM'd file → separate groups → one extra scan) and is never **under-fine** (a group mixing
-layouts): same bytes, same header. (A hypothetical wrong grouping would still never misalign
-data — Spark refuses a file whose contract columns are not at the group's positions — but an
-optional column present in only some of its files would read as null there, which is why
-`multiLine` files are not grouped by their first line at all.)
+Grouping is allowed to be **over-fine**: `"id","v"` and `id,v`, or a BOM'd and
+an un-BOM'd file, form separate groups and cost one extra scan. It is never
+**under-fine**, meaning a group mixing layouts, because same bytes means same
+header.
+
+A hypothetical wrong grouping would still never misalign data, since Spark
+refuses a file whose contract columns are not at the group's positions. But an
+optional column present in only some of its files would read as null there.
+That is why `multiLine` files are not grouped by their first line at all.
 
 ### Removed
 
-`_header_line`, `_parse_header`, `_read_header`, `_spark_header`, `_safe_header`,
-`python_codec`, `_JAVA_TO_PYTHON_CODEC`, `_python_knows`, `_SPARK_ONLY_SUFFIXES`,
-`_BOM_DEPENDENT_CODECS`, the `csv` import (`codecs` stays, for `_ascii_compatible`), and the
-deferral list they served
-(multi-character separator, disabled escape, escape character in the line, quote inside a
-cell, `unescapedQuoteHandling`, trimming options, `emptyValue`, `multiLine`, custom `lineSep`,
-Java-only and BOM-dependent charsets). None is used outside `csv_loader.py` and its tests.
+`_header_line`, `_parse_header`, `_read_header`, `_spark_header`,
+`_safe_header`, `python_codec`, `_JAVA_TO_PYTHON_CODEC`, `_python_knows`,
+`_SPARK_ONLY_SUFFIXES`, `_BOM_DEPENDENT_CODECS` and the `csv` import (`codecs`
+stays, for `_ascii_compatible`).
+
+With them goes the deferral list they served: multi-character separator,
+disabled escape, escape character in the line, quote inside a cell,
+`unescapedQuoteHandling`, trimming options, `emptyValue`, `multiLine`, custom
+`lineSep`, and Java-only and BOM-dependent charsets. None is used outside `csv_loader.py` and its tests.
 Kept: `_option`, `_spark_options` (now also carrying `enforceSchema`), `_fold`, `_resolve`,
 `_project`, `_cast`, `_scan_positional`, `_validate` and the per-file reports, `load()`,
 the `CsvTableSchema` validator (reserved column name).
 
 ### Unchanged behaviour (the contract of the refactor)
 
-Same tables, row for row (scratch `EXCEPT` both ways = 0 against the tables #24 loaded);
-same error messages for single-file groups; positional loaders (JMA, area actuals),
-でんき予報 and e-Stat untouched; `load()` still drops `SOURCE_FILE_COL`; `header` /
-`inferSchema` still loader-owned; sources still resolve as the session does.
+Same tables, row for row: a scratch `EXCEPT` both ways returns 0 against the
+tables #24 loaded. Same error messages for single-file groups. The positional
+loaders (JMA, area actuals), でんき予報 and e-Stat are untouched. `load()` still
+drops `SOURCE_FILE_COL`, `header` and `inferSchema` are still loader-owned, and
+sources still resolve as the session does.
 
 ### Cost model
 
@@ -149,33 +173,37 @@ The former per-file fallback (56 ms/file) exists only for files `_first_line` ca
 3. `enforceSchema=false` under `spark.sql.caseSensitive=true` and `false` with a case-only
    header difference between two files (the same first line cannot differ by case, so this only
    documents the net's behaviour).
-4. `multiLine=true` with two files sharing a first physical line but different continuation:
-   the scan fails naming the second file when the differing column is selected — but an
-   *optional* column present in only one file would read as null, so such files are grouped
-   alone instead (Copilot, #27).
+4. `multiLine=true` with two files sharing a first physical line but different
+   continuation. The scan fails naming the second file when the differing
+   column is selected. But an *optional* column present in only one file would
+   read as null, so such files are grouped alone instead (Copilot, #27).
 5. `zlib.decompressobj()` reads Hadoop `.deflate` (RFC 1950) — the round-3 test wrote zlib
    format, so this should hold.
 
 ## Tests
 
-- **Keep as outcome tests** (drop assertions on removed helpers): one-scan-per-layout / union
-  count, missing required column named per file, duplicated header (exact and case-only, both
-  session settings), reserved `_source_file` cell and column name, `nullValue` header cell,
-  blank and comment lines, empty file, gzip / bz2 / deflate, `_metadata` shadowing, `+` in file
-  names, option keys case-insensitive, `header` / `inferSchema` ownership, strings-then-cast,
-  session-resolver source matching, no `_read_file`.
-- **Fold into one parametrised test** — "the dialect is Spark's business: the loader loads
-  what Spark reads" — the sixteen former deferral cases (sep / delimiter alias, quote, quoting
-  disabled, escape, disabled escape, unquoted escape, doubled and malformed quotes,
-  `unescapedQuoteHandling`, multi-character separator, trimming, `emptyValue`, `multiLine`,
-  `lineSep`, Java-only charset, UTF-16/32 under `multiLine`): each asserts the load and the
-  values, nothing about how the header was read.
+- **Keep as outcome tests**, dropping assertions on removed helpers:
+  one-scan-per-layout and union count, missing required column named per file,
+  duplicated header (exact and case-only, both session settings), reserved
+  `_source_file` cell and column name, `nullValue` header cell, blank and
+  comment lines, empty file, gzip / bz2 / deflate, `_metadata` shadowing, `+`
+  in file names, option keys case-insensitive, `header` / `inferSchema`
+  ownership, strings-then-cast, session-resolver source matching, and no
+  `_read_file`.
+- **Fold into one parametrised test** — "the dialect is Spark's business: the
+  loader loads what Spark reads". It covers the sixteen former deferral cases:
+  sep / delimiter alias, quote, quoting disabled, escape, disabled escape,
+  unquoted escape, doubled and malformed quotes, `unescapedQuoteHandling`,
+  multi-character separator, trimming, `emptyValue`, `multiLine`, `lineSep`,
+  Java-only charset, and UTF-16/32 under `multiLine`. Each asserts the load and
+  the values, nothing about how the header was read.
 - **Delete**: the Python-misparse-verified-by-Spark test, the port-fidelity matrix,
   `TestPythonCodec`.
-- **Add**: whitespace-only leading lines skipped; a group error names the first file and the
-  count; a file whose header differs from its group fails the scan naming the file (probe 4);
-  a file `_first_line` cannot open forms its own group and still loads (monkeypatched
-  `_first_line`); the enforceSchema net is on (`_spark_options` for the layout read carries it).
+- **Add** five: whitespace-only leading lines skipped; a group error names the
+  first file and the count; a file whose header differs from its group fails
+  the scan naming the file (probe 4); a file `_first_line` cannot open forms
+  its own group and still loads (monkeypatched `_first_line`); and the
+  enforceSchema net is on, `_spark_options` for the layout read carrying it.
 
 Expected: ~120 lines of header logic instead of 358, ~20 tests instead of 43, coverage gate
 unchanged at 100 %.

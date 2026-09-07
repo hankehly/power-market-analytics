@@ -2,10 +2,11 @@
 
 ## Objective
 
-Let a user of the Superset forecast-analysis dashboards select one delivery day of a
-backtest run and see the forecast decomposed into per-feature SHAP contributions (mean per
-period over the day) as a waterfall chart, next to the feature values, the model's base value,
-the forecast and the actual.
+Let a user of the Superset forecast-analysis dashboards select one delivery day
+of a backtest run and see the forecast decomposed into per-feature SHAP
+contributions, the mean per period over the day, as a waterfall chart. Next to
+it sit the feature values, the model's base value, the forecast and the
+actual.
 
 The feature applies to both forecasting tasks (`spot_price`, `demand`): the capture,
 write-back and dashboard code is shared by the framework and parametrised per task, as
@@ -20,7 +21,7 @@ everything else in `power_market_analytics/forecasting/` and
    scale as the single-period view.
 2. **The base value is a KPI tile; the waterfall shows feature contributions only.** The
    Superset waterfall's value axis always includes zero (no bounds control), so a base bar of
-   ~15,000 MWh would squash ±500 MWh feature bars. The waterfall therefore starts at zero
+   ~15,000 MWh would squash ±500 MWh feature bars. The waterfall starts at zero
    ("deviation from the base value") and its Total bar is `forecast − base`.
 3. **Both tasks**, not demand only.
 4. **Selection via a native Day filter** scoped to the new tab; a cross-filter from the
@@ -39,18 +40,19 @@ everything else in `power_market_analytics/forecasting/` and
   equals the prediction exactly. Today they are only pooled for the two MLflow summary plots
   and then discarded.
 - Only the final refit's booster is logged to MLflow; the per-day models exist only during the
-  backtest. Explanations can therefore only be captured at predict time — nothing outside the
+  backtest. Explanations can only be captured at predict time — nothing outside the
   backtest can reproduce the forecast that was actually published.
 - Forecast write-back: `pma_ml.<task>_forecast` (parquet, partitioned by `run_id`, dynamic
   partition overwrite) → `stg_ml__` / `std_ml__` / `fct_<task>_forecast` /
   `fct_<task>_forecast_accuracy` → Superset dataset `<task>_forecast_analysis` → the
   dashboard, whose single native filter (Run, on `run_label`) applies to every chart except the
   leaderboard.
-- Superset 6.1.0 (`docker/superset/Dockerfile`), verified against its source: the `waterfall`
-  viz is bundled; it orders bars by the x-axis value ascending and has no sort or axis-bounds
-  control; native filters apply to charts by explicit scope (`rootPath` / `excluded`), so a
-  filter defined on one dataset also filters a chart on another dataset as long as that dataset
-  has a column of the same name.
+- Superset 6.1.0 (`docker/superset/Dockerfile`), verified against its source.
+  The `waterfall` viz is bundled. It orders bars by the x-axis value ascending
+  and has no sort or axis-bounds control. Native filters apply to charts by
+  explicit scope (`rootPath` / `excluded`), so a filter defined on one dataset
+  also filters a chart on another dataset, as long as that dataset has a column
+  of the same name.
 
 ## Scope
 
@@ -103,38 +105,46 @@ fields:
 `None`: "this strategy cannot explain its forecasts". The spot task's `previous_day` strategy
 keeps the default.
 
-`power_market_analytics/forecasting/lgbm.py` — `SlidingWindowLightGbmStrategy.contributions()`
-melts `_shap_records` (every day predicted so far; a re-predicted day has already overwritten
-its record) into a `ForecastContributions`: per record and feature `i`, one row with
-`component = feature_cols[i]`, `component_order = i + 1`, `feature_value` = the recorded
-feature value (`time_code` read from the key column), `contribution = shap_<feature>`; plus one
-base row per period (`component_order = 0`, `feature_value` NaN,
-`contribution = shap_expected_value`). Raises `RuntimeError` when no day has been predicted
+`power_market_analytics/forecasting/lgbm.py` —
+`SlidingWindowLightGbmStrategy.contributions()` melts `_shap_records` into a
+`ForecastContributions`. `_shap_records` holds every day predicted so far; a
+re-predicted day has already overwritten its record.
+
+Per record and feature `i` it emits one row: `component = feature_cols[i]`,
+`component_order = i + 1`, `feature_value` = the recorded feature value with
+`time_code` read from the key column, and `contribution = shap_<feature>`. It
+adds one base row per period, with `component_order = 0`, `feature_value` NaN
+and `contribution = shap_expected_value`. Raises `RuntimeError` when no day has been predicted
 yet, like `evaluate`.
 
 ### 2. Write-back
 
 `power_market_analytics/forecasting/publish.py`:
 
-- `build_contribution_records(task, contributions, result, *, run_id, strategy, area_code,
-  published_at) -> ForecastContributionRecords`. Keeps only the periods present in `result`
-  (the backtest drops forecast points without an actual, and the forecast table stores only the
-  remaining rows — the contribution table must be congruent with it so the two facts join 1:1
-  per period); raises `ValueError` if any `result` period has no contributions. Stamps
-  `run_id`, `strategy`, `area_code`, `forecast_issued_ts = trade_date + task.issue_offset` (as
-  the forecast records do) and the given `published_at`. The scripts pass the forecast
-  records' `published_at` so both tables carry the identical instant: the dashboards build
-  `run_label` from `published_at`, and the label must be the same string in both datasets for
-  the Run filter to select both.
+- `build_contribution_records(task, contributions, result, *, run_id, strategy,
+  area_code, published_at) -> ForecastContributionRecords`. Keeps only the
+  periods present in `result`. The backtest drops forecast points without an
+  actual, and the forecast table stores only the remaining rows, so the
+  contribution table must be congruent with it for the two facts to join 1:1
+  per period. Raises `ValueError` if any `result` period has no contributions.
+  Stamps `run_id`, `strategy`, `area_code`,
+  `forecast_issued_ts = trade_date + task.issue_offset`
+  (as the forecast records do) and the given `published_at`.
+  The scripts pass the forecast records' `published_at` so both tables carry
+  the identical instant: the dashboards build `run_label` from `published_at`,
+  and the label must be the same string in both datasets for the Run filter to
+  select both.
 - `publish_contribution_records(task, records, spark=None) -> int`, the same idiom as
-  `publish_forecast_records`: `CREATE DATABASE IF NOT EXISTS`, explicit `CREATE TABLE IF NOT
-  EXISTS` DDL — `strategy string, area_code string, forecast_issued_ts timestamp, trade_date
-  date, time_code int, component string, component_order int, feature_value double,
-  <task.contribution_col> double, published_at timestamp, run_id string`, `USING parquet
-  PARTITIONED BY (run_id)` — a cast/rename select (`contribution` → `task.contribution_col`),
-  and `insertInto` under dynamic partition overwrite. The DDL/write mechanics may be factored
-  into a private helper shared with the forecast publisher; the forecast publisher's behaviour
-  and table are unchanged.
+  `publish_forecast_records`: `CREATE DATABASE IF NOT EXISTS`, then explicit
+  `CREATE TABLE IF NOT EXISTS` DDL — `strategy string, area_code string,
+  forecast_issued_ts timestamp, trade_date date, time_code int, component
+  string, component_order int, feature_value double, <task.contribution_col>
+  double, published_at timestamp, run_id string`, `USING parquet PARTITIONED BY
+  (run_id)`. Then a cast and rename select (`contribution` →
+  `task.contribution_col`), and `insertInto` under dynamic partition overwrite.
+  The DDL and write mechanics may be factored into a private helper shared with
+  the forecast publisher; the forecast publisher's behaviour and table are
+  unchanged.
 
 Scripts — `scripts/demand_backtest.py` and `scripts/spot_price_backtest.py`, immediately after
 `publish_forecast_records`:
@@ -312,26 +322,35 @@ no data until one is cleared — and the value a table emits for a `DATE` cell m
 
 ### 6. Testing
 
-- pytest (100 % coverage gate, `just test`): frames (the validation rules of §1), `TaskSpec`
-  (derived names, the `forecast_` prefix check), the default `contributions()` (`None`),
-  `SlidingWindowLightGbmStrategy.contributions()` through the demand and spot LightGBM
-  strategies (one base row per predicted period; feature rows in feature order with the
-  recorded values, `time_code` included; additivity to the forecast within 1e-6; `RuntimeError`
-  before any prediction; a re-predicted day appears once), publish (alignment to the result,
-  the missing-period error, `published_at` pass-through, DDL and partition overwrite in the
-  session's temp warehouse), the scripts (rows land in `pma_ml.<task>_forecast_contribution`
-  with the `contribution_table` tag; spot `previous_day` publishes nothing and sets no tag),
-  and the dashboard builder against `FakeSupersetSession` (explanation SQL and columns, every
-  new param builder, the two filters' targets / scopes / cascade / defaults, `latest_run`,
-  `build_dashboard` creating two datasets, the two tabs and the seven new charts on the new
-  tab, idempotent rebuild).
+- pytest, under the 100 % coverage gate of `just test`, covers six areas.
+
+- **Frames** — the validation rules of §1.
+- **`TaskSpec`** — derived names and the `forecast_` prefix check.
+- **The default `contributions()`** — returns `None`.
+- **`SlidingWindowLightGbmStrategy.contributions()`**, through the demand and
+  spot LightGBM strategies: one base row per predicted period; feature rows in
+  feature order with the recorded values, `time_code` included; additivity to
+  the forecast within 1e-6; `RuntimeError` before any prediction; and a
+  re-predicted day appearing once.
+- **Publish** — alignment to the result, the missing-period error,
+  `published_at` pass-through, and DDL and partition overwrite in the session's
+  temp warehouse.
+- **The scripts** — rows land in `pma_ml.<task>_forecast_contribution` with the
+  `contribution_table` tag, and spot `previous_day` publishes nothing and sets
+  no tag.
+- **The dashboard builder**, against `FakeSupersetSession`: explanation SQL and
+  columns, every new param builder, the two filters' targets / scopes / cascade
+  / defaults, `latest_run`, `build_dashboard` creating two datasets, and the two
+  tabs with the seven new charts on the new tab, rebuilt safely.
 - `just lint`, `just mypy`, `just checkov` unchanged in scope.
 - dbt: `just dbt build` (contracts, generic and singular tests) after a real run.
-- End to end in the devcontainer: `just python scripts/demand_backtest.py --days 30`,
+- End to end in the devcontainer. Run `just python scripts/demand_backtest.py --days 30`,
+  then
   `just dbt build --select +fct_demand_forecast_accuracy +fct_demand_forecast_contribution`,
-  `just python scripts/create_forecast_dashboard.py`, open the Demand dashboard, pick a day,
-  screenshot the tab (Playwright): waterfall bars and Total, the four tiles (Base + Net effect
-  = Forecast), the table, and the Accuracy tab unchanged by the new filter.
+  then `just python scripts/create_forecast_dashboard.py`. Open the Demand
+  dashboard, pick a day, and screenshot the tab with Playwright. Check the
+  waterfall bars and Total, the four tiles (Base + Net effect = Forecast), the
+  table, and that the Accuracy tab is unchanged by the new filter.
 
 ### 7. Documentation
 
@@ -351,10 +370,10 @@ and the spot `lightgbm` baseline; `just dbt build`; rebuild both dashboards.
 
 ## Risks and notes
 
-- The waterfall orders by label, hence the zero-padded `component_label` prefix; the labels are
+- The waterfall orders by label, so the zero-padded `component_label` prefix; the labels are
   the raw feature names (`popw_forecast_temperature_c`, …) — unambiguous and free; a
   friendly-name map can be added to `DashboardSpec` later if wanted.
-- The waterfall's value axis includes zero, hence the base value as a tile (decision 2).
+- The waterfall's value axis includes zero, so the base value is a tile (decision 2).
 - Row multiplicity in the explanation dataset (one row per component) makes SUM-type metrics
   on the forecast/actual columns wrong; the builders only use AVG.
 - Volume is small (~280k rows per two-year demand run, ~10 components per period at most);

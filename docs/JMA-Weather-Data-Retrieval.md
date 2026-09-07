@@ -430,23 +430,25 @@ Each element occupies a contiguous group: value column(s), then appended info co
 **The group width varies by element and station type**:
 
 - Every group ends with 品質情報 (per value) and one 均質番号.
-- Elements that record "did the phenomenon occur" — precipitation (101), sunshine (401),
-  and **snow depth (501)** — also carry a 現象なし情報 column **at staffed
-  stations** (AMeDAS elements and non-phenomenon elements like temperature never have it).
-  Earlier passes of this doc listed only 101/401/503 as phenomenon elements. The
-2026-08-20 spike ([§6.1](#61-data-volume-cap)) downloaded the current 7-element
-staffed scrape set live and showed 501 (積雪の深さ) also carries a 現象なし情報
-column. 503 (降雪の深さ, snowfall) is not in the scrape set and was never
-verified either way. Verified side by side: the
-  identical temp+precip+sunshine+wind request returns **17 columns for 東京 (staffed)
-  but 15 for 府中 (AMeDAS)** — no request parameter changes this, so a loader cannot
-  assume one fixed layout across station types.
+- Elements that record "did the phenomenon occur" — precipitation (101),
+  sunshine (401), and **snow depth (501)** — also carry a 現象なし情報 column **at
+  staffed stations** (AMeDAS elements and non-phenomenon elements like
+  temperature never have it). Earlier passes of this doc listed only
+  101/401/503 as phenomenon elements. The 2026-08-20 spike
+  ([§6.1](#61-data-volume-cap)) downloaded the current 7-element staffed scrape
+  set live and showed 501 (積雪の深さ) also carries a 現象なし情報 column. 503 (降雪の深さ,
+  snowfall) is not in the scrape set and was never verified either way.
+  Verified side by side: the identical temp+precip+sunshine+wind request
+  returns **17 columns for 東京 (staffed) but 15 for 府中 (AMeDAS)** — no request
+  parameter changes this, so a loader cannot assume one fixed layout across
+  station types.
 - Wind expands to 風速 (value, 品質情報) + 風向 (value, 品質情報) + one shared 均質番号.
   Wind direction is a 16-point compass string (北西 etc.) or 静穏 (calm), not a number.
-- Value semantics differ too. A rainless or sunless hour at a staffed station is
-stored as `0` with 現象なし情報 = 1, while AMeDAS sunshine stores an **empty
-cell with quality 8** for nighttime hours. Empty does not always mean missing,
-so interpret value cells together with their quality flag and element.
+- Value semantics differ too. A rainless or sunless hour at a staffed station
+  is stored as `0` with 現象なし情報 = 1, while AMeDAS sunshine stores an **empty
+  cell with quality 8** for nighttime hours. Empty does not always mean
+  missing, so interpret value cells together with their quality flag and
+  element.
 
 ### 7.3 Appended information values
 
@@ -547,12 +549,11 @@ Consequences, given the pre-re-scope 5-value-column cap and both station classes
   (flag 1), 2020 and 2024 one each, 2022 one quasi-normal hour (flag 5). Loaders must
   tolerate empty value cells wherever the quality flag is not 8/5/4.
 - The "unobserved elements still emit standard-width groups (empty value,
-quality 0)" rule ([§7.5](#75-minimum-distinct-formats-for-ingestion)) holds for
-column *widths*, but the quality cell itself is not always populated. At a few
-AMeDAS stations the wind-direction 品質情報 cell is empty instead of 0 while
-the wind element is unobserved: a1674 through 2022-10-30, and a1643/a1644 in
-Dec 2016. Loaders must treat
-  that flag as nullable.
+  quality 0)" rule ([§7.5](#75-minimum-distinct-formats-for-ingestion)) holds
+  for column *widths*, but the quality cell itself is not always populated. At
+  a few AMeDAS stations the wind-direction 品質情報 cell is empty instead of 0
+  while the wind element is unobserved: a1674 through 2022-10-30, and
+  a1643/a1644 in Dec 2016. Loaders must treat that flag as nullable.
 - Discontinued stations appear in the station list with an end date; their files simply
   stop at that date.
 - 全天日射量 and 降水量 print a bare `0` at some hours and a decimal (`0.0`, `1.56`) at
@@ -699,12 +700,12 @@ df = pd.read_csv(
   version-controlled, one row per station including discontinued ones, sorted by
   prefecture then station id), surfaced in the warehouse as `dim_jma_station`.
 - Currently downloaded: all 149 staffed stations in the seed. 146 are active.
-阿蘇山 was discontinued in 2017, so it has files only through that year, and
-伊吹山 / 剣山 were discontinued before the 2016+ window, so they contribute
-none. The files are the 7-element `SCRAPE_ELEMENTS` stitched ones, 27 columns,
-2016 through current, backfilled 2026-08-20. The 10
-  stations outside every JEPX area ([§4](#4-stations)) were downloaded in that backfill
-  but removed from `data/jma/hourly/` and the warehouse on 2026-08-21.
+  阿蘇山 was discontinued in 2017, so it has files only through that year, and 伊吹山
+  / 剣山 were discontinued before the 2016+ window, so they contribute none. The
+  files are the 7-element `SCRAPE_ELEMENTS` stitched ones, 27 columns, 2016
+  through current, backfilled 2026-08-20. The 10 stations outside every JEPX
+  area ([§4](#4-stations)) were downloaded in that backfill but removed from
+  `data/jma/hourly/` and the warehouse on 2026-08-21.
 
 ## Appendix A: Prefecture (`pd`) codes
 
