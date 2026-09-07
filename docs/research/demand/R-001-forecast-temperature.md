@@ -45,11 +45,11 @@ construction (see the MSM retrieval doc's timestamp provenance).
 
 - **Forecast target:** the 48 half-hourly `demand_kwh` values of
   `fct_area_demand_generation_actual` for day D, Tokyo area (`--area tokyo`)
-- **Information cutoff:** D-1 at 09:30 JST; usable demand history = delivery
-  days ≤ D-2; observed-weather features use complete observation days ≤ D-2 at
-  東京 s47662 (`dim_area.representative_jma_station_id`); the forecast feature
-  uses the MSM vintage referenced 21:00 JST D-2 (disseminated a few hours
-  later, before the cutoff)
+- **Information cutoff:** the [task defaults](research/demand/README.md), with
+  東京 s47662 as the representative station
+  (`dim_area.representative_jma_station_id`). The forecast feature uses the MSM
+  vintage referenced 21:00 JST D-2, disseminated a few hours later and so
+  before the cutoff
 - **Baseline:** `lightgbm` (`scripts/demand_backtest.py`); the researcher's
   reference run `0c3b709fcdf64577bc1d94ef4dafc781`, plus a fresh matched
   `lightgbm` run on today's data (see E-001 Execution for why both)
@@ -85,16 +85,18 @@ matched baseline.
 ### Change
 
 Strategy `lightgbm_msm` (`LightGbmMsmStrategy` in
-`power_market_analytics/tasks/demand/strategies/lgbm.py`): the `lightgbm`
+`power_market_analytics/tasks/demand/strategies/lgbm.py`) takes the `lightgbm`
 baseline's five features (`time_code, month, day_of_week, wavg_temperature_c,
-lag_7d_demand_kwh`) plus `forecast_temperature_c`, read from
+lag_7d_demand_kwh`) plus `forecast_temperature_c`. The new feature is read from
 `fct_jma_msm_weather_forecast_hourly` for the area's representative station
 (`load_area_temperature_forecast`, `AreaTemperatureForecast` frame keyed
-`trade_date × hour_ending`) and joined to each row at
-`hour_ending = (time_code + 1) // 2` — the same alignment the observed
-temperature uses. Model parameters, refit cadence (weekly, 730-day sliding
-window) and the baseline features are unchanged; training rows without a
-forecast are dropped (none are, over this history).
+`trade_date × hour_ending`). It is joined to each row at
+`hour_ending = (time_code + 1) // 2`, the same alignment the observed
+temperature uses.
+
+Model parameters, refit cadence (weekly, 730-day sliding window) and the
+baseline features are unchanged. Training rows without a forecast are dropped,
+though none are over this history.
 
 ### Expected evidence
 
@@ -107,10 +109,10 @@ forecast are dropped (none are, over this history).
 
 ### Decision rule
 
-Keep the feature if the candidate lowers overall MAE on the matched window and
-the improvement is reasonably consistent across calendar months (the candidate
-is better in most months, and the gain does not depend on a handful of days)
-without a material deterioration in any day part. Treat the result as
+Keep the feature if the candidate lowers overall MAE on the matched window, the
+improvement is reasonably consistent across calendar months, and no day part
+deteriorates materially. Consistent means the candidate is better in most
+months and the gain does not depend on a handful of days. Treat the result as
 inconclusive if the change is small relative to the month-to-month variation or
 depends mainly on a few extreme days. Otherwise reject the change.
 
@@ -121,44 +123,47 @@ depends mainly on a few extreme days. Otherwise reject the change.
 - **Baseline run (researcher's reference):** `lightgbm-tokyo`
   [`0c3b709fcdf64577bc1d94ef4dafc781`](http://localhost:5005/#/experiments/2/runs/0c3b709fcdf64577bc1d94ef4dafc781)
   — made on 2026-08-18, **before** the 2026-08-20 JMA re-scope backfill, when
-  東京 s47662 observations ended 2026-07-19: its last 21 window days
-  (2026-07-28..2026-08-17) were skipped for lack of a temperature window, so
-  it is not a like-for-like baseline for a candidate run on today's data
+  東京 s47662 observations ended 2026-07-19. Its last 21 window days
+  (2026-07-28..2026-08-17) were skipped for lack of a temperature window. So it
+  is not a like-for-like baseline for a candidate run on today's data
 - **Baseline run (fresh, matched):** `lightgbm-tokyo`
   [`5e217c7ca286479599de63469bd87624`](http://localhost:5005/#/experiments/2/runs/5e217c7ca286479599de63469bd87624)
   — the same strategy and window on today's data. On the 708 days it shares
-  with the reference run it is the same model (99.2 % of points identical);
-  the 21 added summer days have roughly double the MAE of the rest, which is
-  why its overall MAE is above the reference run's
+  with the reference run it is the same model (99.2 % of points identical). The
+  21 added summer days have roughly double the MAE of the rest, which is why
+  its overall MAE is above the reference run's
 - **Candidate run:** `lightgbm_msm-tokyo`
   [`53dbc56292624f17b7b1167b0e8c1516`](http://localhost:5005/#/experiments/2/runs/53dbc56292624f17b7b1167b0e8c1516)
   — same flags and code version, run immediately after the fresh baseline
 - **Code or pull request:**
   [PR #12](https://github.com/hankehly/power-market-analytics/pull/12)
   (`LightGbmMsmStrategy`, `AreaTemperatureForecast`,
-  `load_area_temperature_forecast`, `join_forecast_temperature`); the segment
+  `load_area_temperature_forecast`, `join_forecast_temperature`). The segment
   tables, the daily paired comparison and the figure below are the output of
   `scripts/compare_demand_runs.py --baseline 5e217c7ca286479599de63469bd87624
   --candidate 53dbc56292624f17b7b1167b0e8c1516 --mae-by-month-png …`
-  (`tasks/demand/compare.py`, reading `fct_demand_forecast_accuracy`; first
-  computed ad hoc from the runs' `predictions.csv` and re-derived with the
-  script on 2026-08-24 — identical); accuracy rows for both runs are in
-  `fct_demand_forecast_accuracy` / the **Demand Forecast Analysis** dashboard
+  (`tasks/demand/compare.py`, reading `fct_demand_forecast_accuracy`). They were
+  first computed ad hoc from the runs' `predictions.csv` and re-derived with the
+  script on 2026-08-24, identical. Accuracy rows for both runs are in
+  `fct_demand_forecast_accuracy` and the **Demand Forecast Analysis** dashboard
 - **Matched window:** MSM rows for s47662 cover the whole Tokyo demand history,
-  so no `--train-start` was needed: both runs use the same training rows and
+  so no `--train-start` was needed. Both runs use the same training rows and
   refit schedule and forecast the identical 729 delivery days
-  2024-08-18..2026-08-17 (one day, 2025-06-21, skipped by both because its D-7
-  lag falls in the 2025-06-14 TSO hole). Model parameters, refit cadence and
-  the baseline features are unchanged; `forecast_temperature_c` is the only
+  2024-08-18..2026-08-17. One day, 2025-06-21, is skipped by both because its
+  D-7 lag falls in the 2025-06-14 TSO hole. Model parameters, refit cadence and
+  the baseline features are unchanged, so `forecast_temperature_c` is the only
   difference
-- **Segment definitions:** as implemented in `tasks/demand/compare.py` — day
-  parts follow `dim_delivery_period.day_part` (Overnight 00–06, Morning 06–08,
-  Daytime 08–18, Evening 18–24), day types come from `dim_date`, demand bands
-  are 2,000 MWh wide on the actual, "top 10 % demand days" are the days at or
-  above the 0.9 quantile of the daily mean actual; the daily paired comparison
-  treats each delivery day's MAE as one observation (`daily_paired_comparison`:
-  percentile bootstrap of the mean daily difference over days, 10,000 resamples,
-  seed 0; days treated as exchangeable)
+- **Segment definitions:** as implemented in `tasks/demand/compare.py`.
+  - Day parts follow `dim_delivery_period.day_part`: Overnight 00–06,
+    Morning 06–08, Daytime 08–18, Evening 18–24.
+  - Day types come from `dim_date`.
+  - Demand bands are 2,000 MWh wide on the actual.
+  - "Top 10 % demand days" are the days at or above the 0.9 quantile of the
+    daily mean actual.
+  - The daily paired comparison treats each delivery day's MAE as one
+    observation (`daily_paired_comparison`): a percentile bootstrap of the mean
+    daily difference over days, 10,000 resamples, seed 0. Days are treated as
+    exchangeable.
 
 ### Results
 
@@ -214,15 +219,15 @@ the 18th–31st and 2026-08 the 1st–17th):
 
 ![MAE by calendar month, baseline vs candidate](assets/R-001-E-001-mae-by-month.png)
 
-Daily paired comparison (daily MAE, candidate − baseline, 729 days): the
-candidate is lower on 75.2 % of days (548 of 729); mean difference −357,122 kWh
-with a 95 % bootstrap CI over days of [−401,292, −314,392] kWh; the ten
-most-improved days account for 10 % of the total absolute-error reduction.
+Daily paired comparison (daily MAE, candidate − baseline, 729 days). The
+candidate is lower on 75.2 % of days (548 of 729). Mean difference −357,122 kWh,
+95 % bootstrap CI over days [−401,292, −314,392] kWh. The ten most-improved days
+account for 10 % of the total absolute-error reduction.
 
-Other cuts of the same two runs (not tabulated here): the candidate is also
+Other cuts of the same two runs, not tabulated here. The candidate is also
 lower on weekdays, weekends and holidays (−32.7 / −37.0 / −18.7 %), in every
-season (−26.7 % winter to −36.5 % spring), in every 2,000-MWh actual-demand
-band, and about equally on the top-10 % demand days (−32.8 %) and the other
+season (−26.7 % winter to −36.5 % spring) and in every 2,000-MWh actual-demand
+band. It gains about equally on the top-10 % demand days (−32.8 %) and the other
 90 % (−32.4 %). In the candidate's SHAP importance plot (MLflow)
 `forecast_temperature_c` ranks third, just behind `time_code`, while the
 attribution of `wavg_temperature_c` and `month` falls relative to the
@@ -235,16 +240,16 @@ Read against the pre-registered expected evidence:
 - **Lower overall MAE than the matched baseline:** yes, −357,697 kWh (−32.4 %);
   MAPE 6.82 % → 4.62 %.
 - **Consistent across months and day parts:** yes. The candidate is lower in
-  every one of the 25 calendar months (−1.9 % in 2026-04 to −55.9 % in
-  2025-03), in all four day parts (−28.5 % to −35.9 %), and — per the other
-  cuts above — in every season, day type and demand band, about equally on
-  the top-10 % demand days and the rest. The gain is not carried by a few days: the
+  every one of the 25 calendar months (−1.9 % in 2026-04 to −55.9 % in 2025-03)
+  and in all four day parts (−28.5 % to −35.9 %). Per the other cuts above it is
+  also lower in every season, day type and demand band, about equally on the
+  top-10 % demand days and the rest. The gain is not carried by a few days: the
   candidate wins on 75 % of days, the bootstrap CI over days is well away from
   zero, and the ten most-improved days contribute only a tenth of the total
-  reduction. The smallest monthly relative gains are 2026-04 (−1.9 %), 2025-01
-  (−7.8 %), 2025-05 (−14.8 %) and 2025-08 (−16.0 %); the largest are 2025-03
-  (−55.9 %), 2026-07 (−46.4 %), 2026-03 (−46.3 %), 2026-08 (−46.2 %) and
-  2026-02 (−46.0 %).
+  reduction. The smallest monthly gains are 2026-04 (−1.9 %), 2025-01 (−7.8 %),
+  2025-05 (−14.8 %) and 2025-08 (−16.0 %). The largest are 2025-03 (−55.9 %),
+  2026-07 (−46.4 %), 2026-03 (−46.3 %), 2026-08 (−46.2 %) and 2026-02
+  (−46.0 %).
 - **No material deterioration in any day part:** none; the overall bias also
   shrinks from +70,294 to −7,858 kWh, and the daytime bias from +135,809 to
   +8,468 kWh.
@@ -253,12 +258,12 @@ Limitations. One area (Tokyo), one station (東京 s47662), one MSM vintage (the
 D-2 12 UTC run, nearest grid point rather than a station forecast), and the
 baseline's fixed hyperparameters were kept unchanged. The experiment measures
 the feature's incremental value over the *current* baseline, whose only
-temperature signal is a lagged proxy (`wavg_temperature_c`); it does not
-separate how much of the gain is "forecast information" versus "same-day
-temperature information" (no perfect-foresight observed-temperature bound was
-run), and the bootstrap CI treats days as exchangeable (no block structure).
-Improved forecasting supports incremental predictive value; it does not by
-itself establish causality.
+temperature signal is a lagged proxy (`wavg_temperature_c`). It does not
+separate how much of the gain is "forecast information" from how much is
+"same-day temperature information", because no perfect-foresight
+observed-temperature bound was run. The bootstrap CI treats days as
+exchangeable, with no block structure. Improved forecasting supports
+incremental predictive value; it does not by itself establish causality.
 
 ### Decision
 
@@ -266,9 +271,9 @@ itself establish causality.
 researcher to confirm)
 
 Applying the rule as written: overall MAE is lower on the matched window
-(−32.4 %), the candidate is better in 25 of 25 months and the gain does not
-depend on a handful of days, and no day part deteriorates — every condition
-of the "keep" branch is met and neither "inconclusive" condition applies.
+(−32.4 %), the candidate is better in 25 of 25 months, the gain does not depend
+on a handful of days, and no day part deteriorates. Every condition of the
+"keep" branch is met and neither "inconclusive" condition applies.
 
 ### Follow-up ideas
 
@@ -284,8 +289,8 @@ of the "keep" branch is met and neither "inconclusive" condition applies.
 E-001 executed on 2026-08-23. On the matched window (Tokyo, 729 delivery days
 2024-08-18..2026-08-17), adding the MSM forecast temperature for delivery day D
 at 東京 s47662 to the `lightgbm` baseline lowers overall MAE by 32.4 %
-(1,103,392 → 745,695 kWh; MAPE 6.82 % → 4.62 %), lower in every calendar month
-and day part, with the overall bias shrinking from +70 k to −8 k kWh. Provisionally
+(1,103,392 → 745,695 kWh; MAPE 6.82 % → 4.62 %). It is lower in every calendar
+month and day part, and the overall bias shrinks from +70 k to −8 k kWh. Provisionally
 **Keep** per the E-001 decision rule; the hypothesis that forecast temperature
 adds predictive value beyond the recent observed temperature is supported by
 this single-area experiment.
