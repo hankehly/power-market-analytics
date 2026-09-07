@@ -143,8 +143,7 @@ just dbt build
 The loader reads all ~1,600 daily files in a **single Spark scan**
 (`CsvLoader._scan_positional`). It sniffs each file's `ファイル更新日` line in
 Python and joins the stamp back on the file name. A full reload takes about
-15 s. Before 2026-08-30 the per-file union spent ~3 min planning and ~40 s per
-Spark action.
+15 s.
 
 Warehouse path: `pma_raw.tepco_area_demand_generation_actual` →
 `stg_tepco__area_demand_generation_actual` →

@@ -330,9 +330,7 @@ Rule of thumb: **≤ 5 value columns × 1 station × 1 full year per request** (
 succeeded; ~61k was rejected, so the cap lies between). The downloader models the cap as `MAX_VALUES_PER_REQUEST = 44_000` values
 (columns × hours) and splits over-budget station-years into time windows
 instead of rejecting them. The 2026-08-20 spike confirmed an 8-column half-year
-(~35k values) passes. An earlier version enforced a flat
-`MAX_VALUE_COLUMNS = 5` and raised on anything wider; that reject no longer
-exists.
+(~35k values) passes.
 
 ### 6.2 Rate limiting
 
@@ -359,8 +357,7 @@ discontinued stations ended before 2016 and so contribute no station-years at al
 阿蘇山 `s47821` ended 2017-12-11 and contributes only 2016–2017. Station-years
 total 146 × 11 + 1 × 2 ≈ 1,608, × 2 windows/station-year ≈ **3,220 requests**. Server response time (~10 s per file) dominates the 5-second spacing, so the
 realistic pace is ~15 s/request ≈ **13.5 hours cold** for the full staffed
-network. That is smaller than the pre-re-scope core-set AMeDAS scrape below
-despite the extra elements, because it covers ~149 stations instead of ~1,300. A current-year refresh is still 2 windows/station (the window count is planned off
+network. A current-year refresh is still 2 windows/station (the window count is planned off
 the full calendar year, not how much of it has elapsed — [§7.4](#74-time-semantics)), so
 149 stations × 2 windows ≈ 300 requests ≈ 1.25 hours.
 
@@ -433,11 +430,10 @@ Each element occupies a contiguous group: value column(s), then appended info co
 - Elements that record "did the phenomenon occur" — precipitation (101),
   sunshine (401), and **snow depth (501)** — also carry a 現象なし情報 column **at
   staffed stations** (AMeDAS elements and non-phenomenon elements like
-  temperature never have it). Earlier passes of this doc listed only
-  101/401/503 as phenomenon elements. The 2026-08-20 spike
+  temperature never have it). The 2026-08-20 spike
   ([§6.1](#61-data-volume-cap)) downloaded the current 7-element staffed scrape
-  set live and showed 501 (積雪の深さ) also carries a 現象なし情報 column. 503 (降雪の深さ,
-  snowfall) is not in the scrape set and was never verified either way.
+  set live and confirmed 501 (積雪の深さ) carries one. 503 (降雪の深さ, snowfall)
+  is not in the scrape set and was never verified either way.
   Verified side by side: the identical temp+precip+sunshine+wind request
   returns **17 columns for 東京 (staffed) but 15 for 府中 (AMeDAS)** — no request
   parameter changes this, so a loader cannot assume one fixed layout across
@@ -657,9 +653,8 @@ the name, then reads all of them in a **single Spark scan**
 (`CsvLoader._scan_positional`, the station id coming from each row's file
 name). A full reload of ~1,600 station-year files (13.7 M rows) takes about a
 minute: 50 s with the files in the OS cache, 100 s cold. It runs at any driver
-size, verified at `SPARK_DRIVER_MEMORY=4g`. Before 2026-08-30 it unioned one frame per file, which cost ~8 min of planning,
-a 45 MiB task binary and ~1 h 45 min per load on a 20g driver. That is why the
-compose default is still 20g; the MSM loader has not been converted yet.
+size, verified at `SPARK_DRIVER_MEMORY=4g`. The compose default is still 20g as
+headroom, sized per `.env.template`; no loader needs it.
 
 ```bash
 just python scripts/load_jma_hourly.py

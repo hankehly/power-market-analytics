@@ -95,10 +95,10 @@ under the data dir whatever the download window.
   time and forecast-hour banding) that this pipeline's leakage-safe vintage selection
   ([§3](#3-vintage-policy)) depends on.
 - **Academic-use etiquette**: RISH is an academic mirror with no published rate limit of
-  its own. `MsmDownloader` is deliberately polite: downloads are sequential (one HTTP
-  request in flight at a time) and throttled to at least `request_interval` seconds apart
-  (default 1.0 s), with bounded retries (`max_attempts`, default 3, backoff
-  `request_interval * attempt`) on transient failures.
+  its own. `MsmDownloader` is deliberately polite. Downloads are sequential and
+  throttled to at least `request_interval` seconds apart, default 1.0 s.
+  Transient failures get bounded retries: `max_attempts`, default 3, backoff
+  `request_interval * attempt`.
 - **Gaps are possible and must surface as errors.** RISH's archive can have publication
   gaps or files not yet published; an HTTP 404 is treated as a **completeness failure**
   (`MsmDownloadError`, naming the URL), never as an empty/partial forecast. Downloaded
@@ -239,10 +239,10 @@ can in principle carry test or research runs, and this pipeline must never load
 one. And `dataDate`/`dataTime` must equal the reference run being fetched, which
 guards against a misnamed or stale cached file.
 
-The two **statistical** elements (precipitation, shortwave radiation) use GRIB2 Product
-Definition Template 8 (a statistically-processed field over a time interval) with a 1-hour
-accumulation/mean window ending at the message's forecast hour; the ten instantaneous
-elements are valid *at* that hour. The decoder asserts that encoding per message (`_check_step_encoding`):
+The two **statistical** elements (precipitation, shortwave radiation) use GRIB2
+Product Definition Template 8, with a 1-hour accumulation or mean window ending
+at the message's forecast hour. The ten instantaneous elements are valid *at*
+that hour. The decoder asserts that encoding per message (`_check_step_encoding`):
 template 8 over exactly `(lead − 1, lead]` for a statistical element, template 0
 at `lead` for an instantaneous one, with step keys read in hours. So a
 cumulative `(0, lead]` field or a re-templated product can never be published as
@@ -431,8 +431,7 @@ other source.
 extracts in a single Spark scan. They share one header line, so `CsvLoader`'s
 header-grouped default read applies. A full reload of 9.7 M rows takes under a
 minute — 46 s for 2,716 files on 2026-09-05 — and lands in 88 parquet files
-(349 MB). Before 2026-08-30 the loader unioned one frame per file,
-which needed the 20g driver.
+(349 MB).
 
 `scripts/download_jma_msm_surface_forecast.py` flags:
 
@@ -467,10 +466,8 @@ happens, the download+extract step can still run **host-side**
 (`uv run python scripts/download_jma_msm_surface_forecast.py ...`, no Spark/metastore
 needed). The load step (`just python scripts/load_jma_msm_surface_forecast.py`) needs the
 rebuilt image as well: `MsmForecastCsvLoader` lives in the same `power_market_analytics/msm.py` as the
-decoder, which imports eccodes at module level. The pipeline originally kept the
-loader in an eccodes-free `msm.py` and the decoder and downloader in a separate
-`msm_grib.py`, so loading could run in the old image. That split was dropped on
-2026-08-29: rebuilding the image is cheap enough not to warrant it.
+decoder, which imports eccodes at module level. So the loader needs eccodes
+installed too.
 
 ### 8.3 Resume behavior
 
