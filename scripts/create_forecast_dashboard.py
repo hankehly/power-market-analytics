@@ -6,7 +6,7 @@ One dashboard per forecasting task — "Spot Price Forecast Analysis" and
 REST API, so everything is reproducible from the repo after a
 ``docker compose down -v``:
 
-- four virtual datasets per dashboard: ``<task>_forecast_analysis`` — the
+- five virtual datasets per dashboard: ``<task>_forecast_analysis`` — the
   task's forecast accuracy mart joined to dim_area / dim_delivery_period /
   dim_date, plus presentation columns (``run_label``, actual-value bands, day
   types) — ``<task>_forecast_explanation`` — the contribution fact, one
@@ -15,16 +15,21 @@ REST API, so everything is reproducible from the repo after a
   filter's run against the Baseline filter's, both pinned in the SQL with
   Jinja — and ``<task>_forecast_explanation_comparison`` — the contribution
   fact self-joined the same way on the periods both runs explained, one row
-  per period x component of either run
+  per period x component of either run — and ``<task>_forecast_importance`` —
+  the permutation feature importance fact joined to dim_area, one row per
+  feature x repeat (run grain)
 - charts on three tabs, each built by its ``build_<tab>_tab`` function:
   **Accuracy** — KPI tiles (MAE, bias, RMSE, RMSE/MAE, WAPE, P90), error
   structure (bars + heatmaps + day-type slices), calibration & distribution
   (actual-value-band MAE, calibration curve, error histogram), runs &
   drilldown (run leaderboard, worst days, 30-minute detail) —
-  **Explanation (SHAP)** — base / forecast / actual / net-effect tiles, the
+  **Explanation** — base / forecast / actual / net-effect tiles, the
   waterfall of mean per-period feature contributions, the component table,
-  and the contributions by period — stacked bars with the forecast and the
-  actual, both relative to the base, as lines on the same axis — and
+  the contributions by period — stacked bars with the forecast and the
+  actual, both relative to the base, as lines on the same axis — and, at the
+  bottom, the feature-importance section: permutation importance bars (ΔMAE
+  per feature when its column is shuffled across the run), mean |SHAP| bars
+  and the importance table (the run, not the Day) — and
   **Compare** — delta KPI tiles coloured by sign (ΔMAE, ΔMAE %, Δ|bias|,
   ΔWAPE), matched coverage / days / share of days lower / median daily ΔMAE,
   diverging Better / Worse bars of ΔMAE % by segment, ΔMAE % heatmaps, daily
@@ -34,7 +39,8 @@ REST API, so everything is reproducible from the repo after a
   and a three-line 30-minute detail
 - the dashboard, with a required single-select Run filter (all charts except
   the cross-run leaderboard) plus an optional Day filter scoped to the
-  Explanation tab and the Compare tab's explanation-vs-baseline section
+  Explanation tab's per-day charts and the Compare tab's
+  explanation-vs-baseline section
   (cascading from Run), plus a required single-select Baseline filter scoped
   to the Compare tab; the 30-minute detail charts carry their own data-zoom
   slider for navigating the backtest window
@@ -228,6 +234,42 @@ COMMON_EXPLANATION_COLUMNS = (
     ("component_label", "STRING", False),
     ("is_base", "BOOLEAN", False),
     ("feature_value", "DOUBLE", False),
+)
+
+# Shared skeleton of every task's importance dataset: the permutation feature
+# importance fact (one row per run x feature x repeat) with the run label and
+# area context. feature_label carries the model's feature order as a sortable
+# prefix like component_label. No delivery-day axis: importance describes a run.
+IMPORTANCE_DATASET_SQL_TEMPLATE = """\
+select
+  a.area_code,
+  a.area_name_en,
+  i.run_id,
+  {run_label_sql} as run_label,
+  i.strategy,
+  i.published_at,
+  i.feature,
+  i.feature_order,
+  concat(lpad(cast(i.feature_order as string), 2, '0'), ' ', i.feature) as feature_label,
+  i.repeat_index,
+  i.n_periods,
+{importance_value_columns_sql}
+from {importance_table} i
+join pma_curated.dim_area a on i.area_key = a.area_key
+"""
+
+COMMON_IMPORTANCE_COLUMNS = (
+    ("area_code", "STRING", False),
+    ("area_name_en", "STRING", False),
+    ("run_id", "STRING", False),
+    ("run_label", "STRING", False),
+    ("strategy", "STRING", False),
+    ("published_at", "TIMESTAMP", True),
+    ("feature", "STRING", False),
+    ("feature_order", "INT", False),
+    ("feature_label", "STRING", False),
+    ("repeat_index", "INT", False),
+    ("n_periods", "INT", False),
 )
 
 # Shared skeleton of every task's comparison dataset: the accuracy mart
@@ -601,6 +643,14 @@ class DashboardSpec:
         trailing comma.
     comparison_value_columns : tuple of (str, str, bool)
         Column metadata for that block, in select order.
+    importance_dataset_name, importance_table : str
+        The importance dataset and the permutation-importance fact it reads.
+    importance_mae_col, importance_permuted_mae_col : str
+        The *dataset* columns of the run's MAE and of the MAE after shuffling
+        a feature (rescaled like the value columns).
+    importance_value_columns_sql, importance_value_columns : str, tuple of (str, str, bool)
+        The two-line value block — MAE, permuted MAE — two-space indented,
+        the last line without a trailing comma, and its column metadata.
     """
 
     task: str
@@ -637,6 +687,12 @@ class DashboardSpec:
     explanation_comparison_dataset_name: str
     explanation_comparison_value_columns_sql: str
     explanation_comparison_value_columns: tuple[tuple[str, str, bool], ...]
+    importance_dataset_name: str
+    importance_table: str
+    importance_mae_col: str
+    importance_permuted_mae_col: str
+    importance_value_columns_sql: str
+    importance_value_columns: tuple[tuple[str, str, bool], ...]
 
     @property
     def dataset_sql(self) -> str:
@@ -847,6 +903,70 @@ class DashboardSpec:
         """actual − base: the actual in the contributions' base-relative frame, so its
         distance from ``forecast_minus_base_metric`` is the period's error."""
         return self._minus_base_metric(self.actual_col, "Actual − base")
+
+    # -- importance dataset (permutation feature importance, one row per feature x repeat)
+
+    @property
+    def importance_dataset_sql(self) -> str:
+        """The importance dataset's SQL: the shared template around this task's value block."""
+        return IMPORTANCE_DATASET_SQL_TEMPLATE.format(
+            importance_value_columns_sql=self.importance_value_columns_sql,
+            importance_table=self.importance_table,
+            run_label_sql=RUN_LABEL_SQL.format(f="i", a="a"),
+        )
+
+    @property
+    def importance_dataset_columns(self) -> list[tuple[str, str, bool]]:
+        """(column_name, generic type, is temporal) for every importance column, in select order."""
+        return [*COMMON_IMPORTANCE_COLUMNS, *self.importance_value_columns]
+
+    @property
+    def importance_mae_metric(self) -> dict:
+        """The run's MAE (the same on every row, so the average is the value)."""
+        return avg_metric(self.importance_mae_col, f"MAE ({self.unit})")
+
+    @property
+    def permuted_mae_metric(self) -> dict:
+        """Mean over the repeats of the MAE after shuffling the feature."""
+        return avg_metric(self.importance_permuted_mae_col, f"Permuted MAE ({self.unit})")
+
+    @property
+    def importance_delta_sql(self) -> str:
+        """Permuted MAE − MAE, mean over the selection's repeats (aggregate expression)."""
+        return f"avg({self.importance_permuted_mae_col}) - avg({self.importance_mae_col})"
+
+    @property
+    def importance_metric(self) -> dict:
+        return sql_metric(
+            self.importance_delta_sql, f"ΔMAE ({self.unit})", option_name="importance_delta_mae"
+        )
+
+    @property
+    def importance_pct_metric(self) -> dict:
+        return sql_metric(
+            f"100 * ({self.importance_delta_sql}) / avg({self.importance_mae_col})",
+            "Importance %",
+            option_name="importance_pct",
+        )
+
+    @property
+    def importance_std_metric(self) -> dict:
+        """Population std of the permuted MAE over the repeats (scikit-learn's importances_std)."""
+        return sql_metric(
+            f"stddev_pop({self.importance_permuted_mae_col})",
+            f"Std over repeats ({self.unit})",
+            option_name="importance_std",
+        )
+
+    @property
+    def mean_abs_shap_metric(self) -> dict:
+        """Mean |contribution| per component on the explanation dataset: attribution next
+        to the dependence the permutation bars show."""
+        return sql_metric(
+            f"avg(abs({self.contribution_col}))",
+            f"Mean |SHAP| ({self.unit})",
+            option_name="mean_abs_shap",
+        )
 
     # -- comparison dataset (candidate = the Run filter's run, baseline = the Baseline filter's)
 
@@ -1104,6 +1224,17 @@ SPOT_PRICE = DashboardSpec(
         ("baseline_forecast_price_jpy_kwh", "DOUBLE", False),
         ("actual_price_jpy_kwh", "DOUBLE", False),
     ),
+    importance_dataset_name="spot_price_forecast_importance",
+    importance_table="pma_curated.fct_spot_price_forecast_importance",
+    importance_mae_col="mae_price_jpy_kwh",
+    importance_permuted_mae_col="permuted_mae_price_jpy_kwh",
+    importance_value_columns_sql="""\
+  i.mae_price_jpy_kwh,
+  i.permuted_mae_price_jpy_kwh""",
+    importance_value_columns=(
+        ("mae_price_jpy_kwh", "DOUBLE", False),
+        ("permuted_mae_price_jpy_kwh", "DOUBLE", False),
+    ),
 )
 
 # Demand is 30分kWh as the TSOs publish it and as the mart stores it (Tokyo
@@ -1213,6 +1344,17 @@ DEMAND = DashboardSpec(
         ("forecast_demand_mwh", "DOUBLE", False),
         ("baseline_forecast_demand_mwh", "DOUBLE", False),
         ("actual_demand_mwh", "DOUBLE", False),
+    ),
+    importance_dataset_name="demand_forecast_importance",
+    importance_table="pma_curated.fct_demand_forecast_importance",
+    importance_mae_col="mae_mwh",
+    importance_permuted_mae_col="permuted_mae_mwh",
+    importance_value_columns_sql="""\
+  i.mae_demand_kwh / 1000 as mae_mwh,
+  i.permuted_mae_demand_kwh / 1000 as permuted_mae_mwh""",
+    importance_value_columns=(
+        ("mae_mwh", "DOUBLE", False),
+        ("permuted_mae_mwh", "DOUBLE", False),
     ),
 )
 
@@ -1329,6 +1471,8 @@ def upsert_dataset(
     name: str,
     sql: str,
     columns: list[tuple[str, str, bool]],
+    *,
+    main_dttm_col: str = "trade_datetime",
 ) -> int:
     """Create or update a virtual dataset and return its id.
 
@@ -1344,6 +1488,10 @@ def upsert_dataset(
     columns : list of (str, str, bool)
         (column_name, generic type, is temporal) for every output column, in
         select order; overrides any stale column metadata on reruns.
+    main_dttm_col : str, optional
+        The dataset's main temporal column: ``trade_datetime`` for the
+        period-grain datasets, ``published_at`` for the run-grain importance
+        dataset.
 
     Returns
     -------
@@ -1360,7 +1508,7 @@ def upsert_dataset(
         )["id"]
     client._put_json(
         f"/api/v1/dataset/{dataset_id}",
-        {"sql": sql, "main_dttm_col": "trade_datetime", "columns": column_payload},
+        {"sql": sql, "main_dttm_col": main_dttm_col, "columns": column_payload},
         params={"override_columns": "true"},
     )
     return dataset_id
@@ -2277,6 +2425,152 @@ def feature_table_params(spec: DashboardSpec, dataset_id: int) -> dict:
     }
 
 
+def _horizontal_bar_params(
+    dataset_id: int,
+    *,
+    x_axis: str,
+    metric: dict,
+    adhoc_filters: list[dict],
+    y_axis_format: str,
+    y_axis_title: str,
+) -> dict:
+    """Params for a single-metric horizontal bar chart sorted by that metric.
+
+    Ascending order on a horizontal bar draws the largest value on top.
+
+    Parameters
+    ----------
+    dataset_id : int
+    x_axis : str
+        Category column (one bar each).
+    metric : dict
+        The bar length.
+    adhoc_filters : list of dict
+    y_axis_format, y_axis_title : str
+        Format and title of the value axis.
+
+    Returns
+    -------
+    dict
+    """
+    return {
+        "datasource": f"{dataset_id}__table",
+        "viz_type": "echarts_timeseries_bar",
+        "orientation": "horizontal",
+        "x_axis": x_axis,
+        "time_grain_sqla": None,
+        "x_axis_sort": metric["label"],
+        "x_axis_sort_asc": True,
+        "metrics": [metric],
+        "groupby": [],
+        "adhoc_filters": adhoc_filters,
+        "order_desc": True,
+        "row_limit": 100,
+        "show_legend": False,
+        "rich_tooltip": True,
+        "y_axis_format": y_axis_format,
+        "y_axis_title": y_axis_title,
+        "y_axis_title_margin": 30,
+        "truncateYAxis": False,
+        "color_scheme": "supersetColors",
+        "x_axis_time_format": "smart_date",
+        "extra_form_data": {},
+    }
+
+
+def importance_bar_params(spec: DashboardSpec, dataset_id: int) -> dict:
+    """Params for the permutation-importance bars: ΔMAE per feature, largest on top.
+
+    Parameters
+    ----------
+    spec : DashboardSpec
+    dataset_id : int
+        The importance dataset.
+
+    Returns
+    -------
+    dict
+    """
+    return _horizontal_bar_params(
+        dataset_id,
+        x_axis="feature",
+        metric=spec.importance_metric,
+        adhoc_filters=[],
+        y_axis_format=spec.axis_format,
+        y_axis_title=f"ΔMAE ({spec.unit}) when the feature is shuffled",
+    )
+
+
+def mean_abs_shap_params(spec: DashboardSpec, dataset_id: int) -> dict:
+    """Params for the mean |SHAP| bars per feature on the explanation dataset (base excluded).
+
+    Parameters
+    ----------
+    spec : DashboardSpec
+    dataset_id : int
+        The explanation dataset.
+
+    Returns
+    -------
+    dict
+    """
+    return _horizontal_bar_params(
+        dataset_id,
+        x_axis="component",
+        metric=spec.mean_abs_shap_metric,
+        adhoc_filters=[NOT_BASE_FILTER],
+        y_axis_format=spec.axis_format,
+        y_axis_title=f"Mean |SHAP| ({spec.unit})",
+    )
+
+
+def importance_table_params(spec: DashboardSpec, dataset_id: int) -> dict:
+    """Params for the importance table: order, MAE, permuted MAE, ΔMAE, its std, importance %.
+
+    Sorted by ``Order`` to read in the model's feature order.
+
+    Parameters
+    ----------
+    spec : DashboardSpec
+    dataset_id : int
+        The importance dataset.
+
+    Returns
+    -------
+    dict
+    """
+    order = sql_metric("min(feature_order)", "Order")
+    mae, permuted, delta, std, pct = (
+        spec.importance_mae_metric,
+        spec.permuted_mae_metric,
+        spec.importance_metric,
+        spec.importance_std_metric,
+        spec.importance_pct_metric,
+    )
+    return {
+        "datasource": f"{dataset_id}__table",
+        "viz_type": "table",
+        "query_mode": "aggregate",
+        "groupby": ["feature_label"],
+        "metrics": [order, mae, permuted, delta, std, pct],
+        "adhoc_filters": [],
+        "timeseries_limit_metric": order,
+        "order_desc": False,
+        "row_limit": 100,
+        "server_page_length": 20,
+        "table_timestamp_format": "smart_date",
+        "column_config": {
+            "Order": {"d3NumberFormat": ",d"},
+            mae["label"]: {"d3NumberFormat": spec.number_format},
+            permuted["label"]: {"d3NumberFormat": spec.number_format},
+            delta["label"]: {"d3NumberFormat": spec.signed_number_format},
+            std["label"]: {"d3NumberFormat": spec.number_format},
+            pct["label"]: {"d3NumberFormat": "+.1f"},
+        },
+        "extra_form_data": {},
+    }
+
+
 def contribution_by_period_params(spec: DashboardSpec, dataset_id: int) -> dict:
     """Params for the by-period chart: each feature's contribution stacked over the day's
     48 periods, with the forecast and the actual — both relative to the base — as lines.
@@ -2557,7 +2851,8 @@ def build_native_filters(
     default_baseline_label: str | None,
 ) -> list[dict]:
     """Native filter configuration: Run (whole dashboard), Day (the
-    Explanation tab only), Baseline (the Compare tab only).
+    Explanation tab's per-day charts and the explanation-vs-baseline section),
+    Baseline (the Compare tab only).
 
     Parameters
     ----------
@@ -2753,6 +3048,18 @@ EXPLANATION_VS_BASELINE_CHART_NAMES = (
     "Contributions vs baseline",
 )
 
+# The Explanation tab's run-level charts: outside the Day filter and the day
+# tables' cross-filters, because importance describes the whole run.
+RUN_LEVEL_CHART_NAMES = (
+    "Permutation importance",
+    "Mean |SHAP| by feature",
+    "Feature importance table",
+)
+IMPORTANCE_SECTION_HEADER = (
+    "Feature importance — ΔMAE when a feature is shuffled across the run's periods "
+    "(the run, not the Day); correlated features share importance"
+)
+
 
 @dataclass(frozen=True)
 class DashboardTab:
@@ -2915,9 +3222,13 @@ def build_accuracy_tab(chart: ChartFactory, spec: DashboardSpec, dataset_id: int
 
 
 def build_explanation_tab(
-    chart: ChartFactory, spec: DashboardSpec, explanation_id: int
+    chart: ChartFactory, spec: DashboardSpec, explanation_id: int, importance_id: int
 ) -> DashboardTab:
-    """Create the Explanation (SHAP) tab's charts on the explanation dataset and lay them out.
+    """Create the Explanation tab's charts and lay them out.
+
+    The per-day SHAP charts read the explanation dataset; the feature-importance
+    section at the bottom reads the importance dataset (plus one mean |SHAP|
+    chart on the explanation dataset).
 
     Parameters
     ----------
@@ -2925,6 +3236,8 @@ def build_explanation_tab(
     spec : DashboardSpec
     explanation_id : int
         The explanation dataset.
+    importance_id : int
+        The importance dataset.
 
     Returns
     -------
@@ -2968,6 +3281,10 @@ def build_explanation_tab(
         "Feature values & contributions", feature_table_params(spec, explanation_id)
     )
     by_period = add("Contributions by period", contribution_by_period_params(spec, explanation_id))
+    add_importance = _chart_adder(chart, charts, importance_id)
+    bars = add_importance("Permutation importance", importance_bar_params(spec, importance_id))
+    mean_shap = add("Mean |SHAP| by feature", mean_abs_shap_params(spec, explanation_id))
+    table = add_importance("Feature importance table", importance_table_params(spec, importance_id))
 
     sections: list[dict[str, Any]] = [
         {
@@ -2986,8 +3303,18 @@ def build_explanation_tab(
                 [(by_period, "Contributions by period", 12, 44)],
             ],
         },
+        {
+            "header": IMPORTANCE_SECTION_HEADER,
+            "rows": [
+                [
+                    (bars, "Permutation importance", 6, 40),
+                    (mean_shap, "Mean |SHAP| by feature", 6, 40),
+                ],
+                [(table, "Feature importance table", 12, 36)],
+            ],
+        },
     ]
-    return DashboardTab("Explanation (SHAP)", charts, sections)
+    return DashboardTab("Explanation", charts, sections)
 
 
 def build_compare_tab(
@@ -3235,8 +3562,15 @@ def build_dashboard(
     int
     """
 
-    def dataset(name: str, sql: str, columns: list[tuple[str, str, bool]]) -> int:
-        dataset_id = upsert_dataset(client, database_id, name, sql, columns)
+    def dataset(
+        name: str,
+        sql: str,
+        columns: list[tuple[str, str, bool]],
+        main_dttm_col: str = "trade_datetime",
+    ) -> int:
+        dataset_id = upsert_dataset(
+            client, database_id, name, sql, columns, main_dttm_col=main_dttm_col
+        )
         logger.info("dataset {}: id={}", name, dataset_id)
         return dataset_id
 
@@ -3254,6 +3588,12 @@ def build_dashboard(
         spec.explanation_comparison_dataset_sql,
         spec.explanation_comparison_dataset_columns,
     )
+    importance_id = dataset(
+        spec.importance_dataset_name,
+        spec.importance_dataset_sql,
+        spec.importance_dataset_columns,
+        main_dttm_col="published_at",
+    )
 
     def chart(name: str, params: dict, on: int) -> int:
         chart_id = upsert_chart(client, name, on, params)
@@ -3261,7 +3601,7 @@ def build_dashboard(
         return chart_id
 
     accuracy = build_accuracy_tab(chart, spec, dataset_id)
-    explanation = build_explanation_tab(chart, spec, explanation_id)
+    explanation = build_explanation_tab(chart, spec, explanation_id, importance_id)
     compare = build_compare_tab(chart, spec, comparison_id, explanation_comparison_id)
     tabs = [accuracy, explanation, compare]
     all_charts = [chart_id for tab in tabs for chart_id in tab.chart_ids]
@@ -3272,11 +3612,16 @@ def build_dashboard(
     cmp_detail = compare.charts["Candidate vs baseline vs actual (30-min detail)"]
     cmp_improved = compare.charts["Most improved days"]
     cmp_worsened = compare.charts["Most worsened days"]
-    # The charts that explain a Day: the Explanation tab and the Compare tab's
-    # explanation-vs-baseline section (the Day filter's scope, and what a day
-    # click in the day tables drills into).
+    # The charts that explain a Day: the Explanation tab minus its run-level
+    # feature-importance section, plus the Compare tab's explanation-vs-baseline
+    # section (the Day filter's scope, and what a day click in the day tables
+    # drills into).
     explained = [
-        *explanation.chart_ids,
+        *(
+            chart_id
+            for name, chart_id in explanation.charts.items()
+            if name not in RUN_LEVEL_CHART_NAMES
+        ),
         *(compare.charts[name] for name in EXPLANATION_VS_BASELINE_CHART_NAMES),
     ]
     chart_configuration = build_chart_configuration(
