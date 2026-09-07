@@ -68,6 +68,20 @@ row per paper: what it is, the PDF, and which research doc cites it.
   (`research/spot_price/observations.md#o-001-…`) so they resolve in the
   docsify site; image paths are relative to the page (`assets/…`).
 
+## Writing style
+
+These documents follow the repository's writing style, set out in `CLAUDE.md`.
+
+- Plain language. Short sentences, one idea each. Everyday words where the
+  meaning survives: "no gaps" over "gapless", "can be scored" over
+  "selectable". An aside gets its own sentence or is cut.
+- Short. A decision is one to three lines, and a justification appears once,
+  where it belongs. An investigation cites the task README's scope defaults
+  rather than restating them, and the task README's index carries the verdict
+  and the headline number, not the whole result.
+- Shortening never drops a decision, number, name or formula. Plainer, not
+  vaguer. When a run of numbers resists a sentence, put it in a table.
+
 ## Assets
 
 Store only plots and other small artifacts used directly in observation or

@@ -8,18 +8,19 @@
 - **Related investigations:**
   [R-003 — Day type as a categorical feature](research/demand/R-003-day-type-feature.md)
   (the day type is the only `dim_date` attribute the model has had so far);
-  [R-004 — Year-ago load from a prior-year reference day](research/demand/R-004-prior-year-load-lag.md)
-  (its E-002 strategy `lightgbm_msm_popw_daytype_simday` is the baseline here; its
-  similar-day selector reads three of these attributes, but the model never sees them)
+  [R-004 — Year-ago load from a prior-year reference day](research/demand/R-004-prior-year-load-lag.md).
+  Its E-002 strategy `lightgbm_msm_popw_daytype_simday` is the baseline here.
+  Its similar-day selector reads three of these attributes, but the model never
+  sees them
 
 ## Question
 
-Do the calendar attributes `dim_date` holds — where the day sits in the year,
-half, quarter and month, how much of a holiday it is, whether it is a working
-day, and how far it is from the nearest holiday — carry information about
-Tokyo-area demand that the model's current calendar inputs (`time_code`,
-`month`, `day_of_week`, `day_type`) do not, and does adding them lower overall
-out-of-sample MAE?
+`dim_date` holds a set of calendar attributes: where the day sits in the year,
+half, quarter and month; how much of a holiday it is; whether it is a working
+day; and how far it is from the nearest holiday. Do they carry information
+about Tokyo-area demand that the model's current calendar inputs
+(`time_code`, `month`, `day_of_week`, `day_type`) do not? And does adding them
+lower overall out-of-sample MAE?
 
 ## Motivation
 
@@ -51,9 +52,8 @@ of the ten.
 
 - **Forecast target:** the 48 half-hourly `demand_kwh` values of
   `fct_area_demand_generation_actual` for day D, Tokyo area (`--area tokyo`)
-- **Information cutoff:** D-1 at 09:30 JST; usable demand history = delivery
-  days ≤ D-2; observed-weather features use complete observation days ≤ D-2;
-  forecast features use the MSM vintage referenced 21:00 JST D-2; every
+- **Information cutoff:** the [task defaults](research/demand/README.md).
+  Forecast features use the MSM vintage referenced 21:00 JST D-2. Every
   calendar attribute of D is known from the calendar
 - **Baseline:** `lightgbm_msm_popw_daytype_simday` — the R-004 E-002 run
   [`008868fe59274abfb49f128e29aa28fe`](http://localhost:5005/#/experiments/2/runs/008868fe59274abfb49f128e29aa28fe),
@@ -113,9 +113,9 @@ Pre-registered from the researcher's stated expectation:
 
 ### Decision rule
 
-The standing rule of R-004 E-002: keep if overall MAE is lower and the 95 %
+The standing rule of R-004 E-002. Keep if overall MAE is lower and the 95 %
 bootstrap interval of the daily paired MAE difference excludes zero, with no
-day type materially worse; inconclusive if the interval includes zero; reject
+day type materially worse. Inconclusive if the interval includes zero. Reject
 if MAE is higher and the interval excludes zero. The decision is the
 researcher's.
 
@@ -127,11 +127,11 @@ researcher's.
   compared as run
 - **Candidate runs:**
   [`e3e3bd619f894eed9958bdd29ad99c58`](http://localhost:5005/#/experiments/2/runs/e3e3bd619f894eed9958bdd29ad99c58)
-  (2026-09-06, `lightgbm_msm_popw_daytype_simday_calendar --start-date
-  2024-08-18 --end-date 2026-08-17 --area tokyo`, no `--train-start`; 729
-  delivery days, 34,954 predictions, one skipped day — 2025-06-21, as in
-  every run; 105 refits; 9.1 min; the selector fitted to the same weights
-  as the baseline run, so the ten features are the only difference)
+  (2026-09-06, `lightgbm_msm_popw_daytype_simday_calendar --start-date 2024-08-18
+  --end-date 2026-08-17 --area tokyo`, no `--train-start`). 729 delivery days,
+  34,954 predictions, one skipped day (2025-06-21, as in every run), 105
+  refits, 9.1 min. The selector fitted to the same weights as the baseline run,
+  so the ten features are the only difference
 - **Code or pull request:** branch `feature/demand-calendar-features`
 
 ### Results
@@ -160,10 +160,10 @@ Matched window 2024-08-18 to 2026-08-17, 729 days, `compare_demand_runs.py`
 Daily paired comparison over the 729 days: the candidate is lower on 43.5 %
 of days (317); mean daily-MAE difference +42,436 kWh, 95 % bootstrap
 interval over days [+23,233, +61,413] (10,000 resamples, seed 0); median
-+17,828 kWh. By calendar month the candidate is lower in 7 of 25 months
-(2024-09, 2024-12, 2025-01, 2025-05, 2025-12, 2026-02, 2026-05) and higher
-in 18; the largest increases are 2025-04 (+38.8 %), 2025-07 (+35.0 %),
-2026-07 (+28.5 %), 2026-04 (+20.0 %) and 2026-03 (+19.2 %).
++17,828 kWh. By calendar month the candidate is lower in 7 of 25 months (2024-09, 2024-12,
+2025-01, 2025-05, 2025-12, 2026-02, 2026-05) and higher in 18. The largest
+increases are 2025-04 (+38.8 %), 2025-07 (+35.0 %), 2026-07 (+28.5 %), 2026-04
+(+20.0 %) and 2026-03 (+19.2 %).
 
 ![MAE by month](assets/R-005-E-001-mae-by-month.png)
 
@@ -282,10 +282,10 @@ researcher's.
 - **Candidate runs:**
   [`a8da46c57cd745c1a7c2b311c7085de0`](http://localhost:5005/#/experiments/2/runs/a8da46c57cd745c1a7c2b311c7085de0)
   (2026-09-06, `lightgbm_msm_popw_daytype_simday_holidaydegree --start-date
-  2024-08-18 --end-date 2026-08-17 --area tokyo`, no `--train-start`; 729
-  delivery days, 34,954 predictions, one skipped day — 2025-06-21, as in
-  every run; 105 refits; 8.4 min; the selector fitted to the same weights
-  as the baseline and E-001 runs, so the feature is the only difference)
+  2024-08-18 --end-date 2026-08-17 --area tokyo`, no `--train-start`). 729
+  delivery days, 34,954 predictions, one skipped day (2025-06-21, as in every
+  run), 105 refits, 8.4 min. The selector fitted to the same weights as the
+  baseline and E-001 runs, so the feature is the only difference
 - **Code or pull request:** branch `feature/demand-holiday-features`, stacked
   on `feature/demand-calendar-features` (PR #51)
 
@@ -381,12 +381,12 @@ window — the investigation's hypothesis restricted to these two features.
 
 ### Change
 
-- **Features** — `HOLIDAY_DISTANCE_FEATURE_COLS` (`tasks/demand/features.py`)
-  = `days_since_holiday`, `days_until_holiday`: calendar days from the
+- **Features** — `HOLIDAY_DISTANCE_FEATURE_COLS` (`tasks/demand/features.py`) =
+  `days_since_holiday`, `days_until_holiday`. These are calendar days from the
   delivery day back to the last and forward to the next `dim_date.is_holiday`
-  day (0 on a holiday), computed by `load_day_calendar` over the spine and
-  joined per delivery day by E-001's `join_day_calendar`, restricted to these
-  two columns. Not categorical. The eight other calendar attributes are left
+  day, and 0 on a holiday. `load_day_calendar` computes them over the spine,
+  and E-001's `join_day_calendar` joins them per delivery day, restricted to
+  these two columns. Not categorical. The eight other calendar attributes are left
   out.
 - **Strategy** — `lightgbm_msm_popw_daytype_simday_holidaydistance`
   (`LightGbmMsmPopWeightedDayTypeSimilarDayHolidayDistanceStrategy`): E-001's
@@ -414,10 +414,10 @@ researcher's.
 - **Candidate runs:**
   [`f7153839b2d34f5fbbed4deb479835b3`](http://localhost:5005/#/experiments/2/runs/f7153839b2d34f5fbbed4deb479835b3)
   (2026-09-06, `lightgbm_msm_popw_daytype_simday_holidaydistance --start-date
-  2024-08-18 --end-date 2026-08-17 --area tokyo`, no `--train-start`; 729
-  delivery days, 34,954 predictions, one skipped day — 2025-06-21; 105
-  refits; 5.4 min; the same selector weights as the baseline run, so the two
-  features are the only difference)
+  2024-08-18 --end-date 2026-08-17 --area tokyo`, no `--train-start`). 729
+  delivery days, 34,954 predictions, one skipped day (2025-06-21), 105 refits,
+  5.4 min. The same selector weights as the baseline run, so the two features
+  are the only difference
 - **Code or pull request:** branch `feature/demand-holiday-features`, stacked
   on `feature/demand-calendar-features` (PR #51)
 
@@ -447,11 +447,11 @@ Matched window 2024-08-18 to 2026-08-17, 729 days, `compare_demand_runs.py`
 Daily paired comparison over the 729 days: the candidate is lower on 45.8 %
 of days (334); mean daily-MAE difference +37,742 kWh, 95 % bootstrap
 interval over days [+22,513, +53,333] (10,000 resamples, seed 0); median
-+9,534 kWh. By calendar month the candidate is lower in 8 of 25 months
-(2024-09, 2024-12, 2025-05, 2025-08, 2025-10, 2025-12, 2026-02, 2026-08)
-and higher in 17; the largest increases are 2025-07 (+29.7 %), 2026-07
-(+25.9 %), 2025-01 (+18.0 %), 2026-03 (+17.2 %) and 2024-11 (+15.3 %), the
-largest decreases 2024-12 (−11.6 %) and 2025-12 (−9.3 %).
++9,534 kWh. By calendar month the candidate is lower in 8 of 25 months (2024-09, 2024-12,
+2025-05, 2025-08, 2025-10, 2025-12, 2026-02, 2026-08) and higher in 17. The
+largest increases are 2025-07 (+29.7 %), 2026-07 (+25.9 %), 2025-01 (+18.0 %),
+2026-03 (+17.2 %) and 2024-11 (+15.3 %). The largest decreases are 2024-12
+(−11.6 %) and 2025-12 (−9.3 %).
 
 ![MAE by month](assets/R-005-E-003-mae-by-month.png)
 
@@ -473,18 +473,17 @@ Share of the mean absolute SHAP contribution per feature
 
 ### Interpretation
 
-The overall error rises 6.5 % and the rise is broad: every day part (+4.4 %
-to +9.6 %), every day type (weekdays +8.5 %, weekends +3.7 %, holidays
-+1.5 %), every season, the top-10 % demand days (+11.8 %) and 17 of 25
-months. The largest increases are the two Julys (2025-07 +29.7 %, 2026-07
+The overall error rises 6.5 % and the rise is broad. Every day part (+4.4 % to
++9.6 %), every day type (weekdays +8.5 %, weekends +3.7 %, holidays +1.5 %),
+every season, the top-10 % demand days (+11.8 %) and 17 of 25 months. The largest increases are the two Julys (2025-07 +29.7 %, 2026-07
 +25.9 %), 2025-01 and 2026-03; the largest decreases the two Decembers
 (2024-12 −11.6 %, 2025-12 −9.3 %). The bias grows from −28,365 to −41,675
 kWh.
 
-The two distances take 5.3 % of the attribution mass between them (3.0 %
-and 2.3 %), from `day_type` (6.4 % → 3.7 %), `time_code` (13.3 % →
-11.6 %) and the observed temperature (6.6 % → 5.3 %); the D-7 lag's share
-rises (4.3 % → 5.6 %).
+The two distances take 5.3 % of the attribution mass between them, 3.0 % and
+2.3 %. It comes from `day_type` (6.4 % → 3.7 %), `time_code` (13.3 % →
+11.6 %) and the observed temperature (6.6 % → 5.3 %). The D-7 lag's share rises
+(4.3 % → 5.6 %).
 
 Limitations: as in E-001, one area and one 729-day window.
 
@@ -520,11 +519,12 @@ hypothesis restricted to these six features.
 
 ### Change
 
-- **Features** — `CALENDAR_COUNT_FEATURE_COLS` (`tasks/demand/features.py`)
-  = `half` (1 before July 1, else 2), `quarter`, `day_of_month`,
-  `day_of_quarter`, `day_of_year`, `fiscal_quarter` (April = Q1), the
-  `dim_date` columns of PR #48 plus the fiscal quarter, joined per delivery
-  day by E-001's `join_day_calendar`, restricted to these six columns. Not
+- **Features** — `CALENDAR_COUNT_FEATURE_COLS` (`tasks/demand/features.py`) =
+  `half` (1 before July 1, else 2), `quarter`, `day_of_month`,
+  `day_of_quarter`, `day_of_year` and `fiscal_quarter` (April = Q1). These are
+  the `dim_date` columns of PR #48 plus the fiscal quarter. E-001's
+  `join_day_calendar` joins them per delivery day, restricted to these six
+  columns. Not
   categorical. The holiday degree, the working-day flag and the two holiday
   distances are left out.
 - **Strategy** — `lightgbm_msm_popw_daytype_simday_calendarcounts`
@@ -554,10 +554,10 @@ researcher's.
 - **Candidate runs:**
   [`9182d469ff70443099ff89b75c9f3a6b`](http://localhost:5005/#/experiments/2/runs/9182d469ff70443099ff89b75c9f3a6b)
   (2026-09-06, `lightgbm_msm_popw_daytype_simday_calendarcounts --start-date
-  2024-08-18 --end-date 2026-08-17 --area tokyo`, no `--train-start`; 729
-  delivery days, 34,954 predictions, one skipped day — 2025-06-21; 105
-  refits; 11.8 min; the same selector weights as the baseline run, so the
-  six features are the only difference)
+  2024-08-18 --end-date 2026-08-17 --area tokyo`, no `--train-start`). 729
+  delivery days, 34,954 predictions, one skipped day (2025-06-21), 105 refits,
+  11.8 min. The same selector weights as the baseline run, so the six features
+  are the only difference
 - **Code or pull request:** branch `feature/demand-holiday-features`, stacked
   on `feature/demand-calendar-features` (PR #51) — PR #53
 
@@ -587,11 +587,11 @@ Matched window 2024-08-18 to 2026-08-17, 729 days, `compare_demand_runs.py`
 Daily paired comparison over the 729 days: the candidate is lower on 44.9 %
 of days (327); mean daily-MAE difference +24,335 kWh, 95 % bootstrap
 interval over days [+6,010, +43,115] (10,000 resamples, seed 0); median
-+12,522 kWh. By calendar month the candidate is lower in 10 of 25 months —
-December through February and May of both years, plus 2024-09 and 2025-08 —
-and higher in 15; the largest increases are 2025-04 (+45.8 %), 2026-07
-(+25.0 %), 2025-11 (+20.2 %), 2026-04 (+19.1 %) and 2024-11 (+15.3 %), the
-largest decreases 2025-05 (−15.6 %), 2025-01 (−12.0 %), 2024-12 (−10.9 %),
++12,522 kWh. By calendar month the candidate is lower in 10 of 25 months and higher in 15.
+The lower ones are December through February and May of both years, plus
+2024-09 and 2025-08. The largest increases are 2025-04 (+45.8 %), 2026-07
+(+25.0 %), 2025-11 (+20.2 %), 2026-04 (+19.1 %) and 2024-11 (+15.3 %). The
+largest decreases are 2025-05 (−15.6 %), 2025-01 (−12.0 %), 2024-12 (−10.9 %),
 2026-02 (−10.5 %) and 2026-05 (−10.2 %).
 
 ![MAE by month](assets/R-005-E-004-mae-by-month.png)
@@ -617,19 +617,18 @@ Share of the mean absolute SHAP contribution per feature
 
 ### Interpretation
 
-The overall error rises 4.2 % and the interval over days excludes zero. The
-shape is E-001's: weekdays (+7.7 %) and weekends (+3.0 %), every day part,
+The overall error rises 4.2 % and the interval over days excludes zero. The shape is E-001's. Weekdays (+7.7 %) and weekends (+3.0 %), every day part,
 spring, summer and autumn, the top-10 % demand days and 15 of 25 months are
-worse, while holidays improve 13.4 % — more than E-001's 10.0 %, the holiday
-MAE now below the weekday and weekend MAE — and winter 6.3 %. The largest
+worse. Holidays improve 13.4 %, more than E-001's 10.0 %, putting the holiday
+MAE below the weekday and weekend MAE. Winter improves 6.3 %. The largest
 increase is 2025-04 (+45.8 %); the two Julys and the two Novembers follow.
 The lowest actual-demand band (below 10,000 MWh) improves 17.9 %.
 
 The six features take 7.4 % of the attribution mass, `day_of_year` (3.8 %)
 the largest; `half` and `quarter` are never split on and `fiscal_quarter`
-almost never, as in E-001. `month` falls from 2.8 % to 0.2 %, `day_type`
-from 6.4 % to 4.4 %, the observed temperature from 6.6 % to 4.6 % and
-`time_code` from 13.3 % to 11.5 %; the D-7 lag rises from 4.3 % to 6.1 %.
+almost never, as in E-001. `month` falls from 2.8 % to 0.2 %, `day_type` from 6.4 % to 4.4 %, the observed
+temperature from 6.6 % to 4.6 % and `time_code` from 13.3 % to 11.5 %. The D-7
+lag rises from 4.3 % to 6.1 %.
 
 Limitations: as in E-001, one area and one 729-day window.
 
@@ -653,11 +652,11 @@ a reference strategy.
 
 ## Current conclusion
 
-E-001 (2026-09-06): adding the ten `dim_date` calendar features to the
-Tokyo baseline raises overall MAE 7.3 % on the matched 729-day window
-(585,362 → 627,877 kWh; interval over days [+23,233, +61,413]), with a
-broad deterioration across day parts, weekdays, weekends and seasons and a
-10 % improvement on holidays. Rejected by the researcher on 2026-09-06: the
+E-001 (2026-09-06). Adding the ten `dim_date` calendar features to the Tokyo
+baseline raises overall MAE 7.3 % on the matched 729-day window (585,362 →
+627,877 kWh; interval over days [+23,233, +61,413]). The deterioration is broad
+across day parts, weekdays, weekends and seasons, with a 10 % improvement on
+holidays. Rejected by the researcher on 2026-09-06: the
 hypothesis that the ten features carry predictive value the model lacks is
 not supported on this window.
 
@@ -668,22 +667,22 @@ two holiday distances alone raise it 6.5 % ([+22,513, +53,333]) across
 every day part, day type and season. E-001's holiday gain (−10.0 %) appears
 with neither subset. Both rejected by the researcher on 2026-09-06.
 
-E-004 (2026-09-06): the six calendar counts alone (`half`, `quarter`,
+E-004 (2026-09-06). The six calendar counts alone (`half`, `quarter`,
 `day_of_month`, `day_of_quarter`, `day_of_year`, `fiscal_quarter`) raise
-overall MAE 4.2 % (interval over days [+6,010, +43,115]) with E-001's shape:
-weekdays, weekends, every day part and three seasons worse, holidays
-−13.4 % and winter −6.3 %. E-001's holiday gain comes with this subset;
+overall MAE 4.2 %, interval over days [+6,010, +43,115]. The shape is E-001's:
+weekdays, weekends, every day part and three seasons worse, holidays −13.4 %
+and winter −6.3 %. E-001's holiday gain comes with this subset;
 `day_of_year` carries half of the six's attribution, `half` and `quarter`
 none. Rejected by the researcher on 2026-09-06.
 
 ## Open questions
 
-- Which of the six calendar counts carries E-004's holiday gain (−13.4 %),
-  and whether it can be had without the weekday and weekend loss: not
+- Which of the six calendar counts carries E-004's holiday gain (−13.4 %), and
+  whether it can be had without the weekday and weekend loss. It is not
   `holiday_degree` alone (E-002) and not the two holiday distances alone
-  (E-003); `day_of_year` is the largest of the six by SHAP share and `half`
-  and `quarter` are never used (the per-day SHAP waterfall of the
-  Explanation tab shows any run's decomposition on any holiday)
+  (E-003). `day_of_year` is the largest of the six by SHAP share, and `half`
+  and `quarter` are never used. The per-day SHAP waterfall of the Explanation
+  tab shows any run's decomposition on any holiday
 
 ## Final disposition
 
