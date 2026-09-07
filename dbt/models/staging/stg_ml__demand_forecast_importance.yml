@@ -7,7 +7,8 @@ models:
       As-is representation of pma_ml.demand_forecast_importance (the
       permutation feature importance of the demand forecasts). One
       row per MLflow run, area, model feature and repeat. Column documentation
-      lives on the source (models/raw/ml.yml).
+      lives on the source (models/raw/ml.yml). Empty (no rows, the contract's
+      types) until the first backtest creates the source table.
     data_tests:
       - dbt_utils.unique_combination_of_columns:
           arguments:

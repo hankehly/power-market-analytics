@@ -440,7 +440,11 @@
   (`plots.permutation_importance_plot`) → `stg_ml__<task>_forecast_importance` →
   `fct_<task>_forecast_importance` (no `std`: no time axis; singular test: `n_periods` and the
   MAE reconcile with the accuracy mart per run) → Superset dataset `<task>_forecast_importance`
-  (the Explanation tab's Feature importance section).
+  (the Explanation tab's Feature importance section). The two `stg_ml__<task>_forecast_importance`
+  models guard their source with `load_relation` (pre-hook macro `refresh_ml_source_if_exists`,
+  `dbt/macros/`): until the first backtest creates `pma_ml.<task>_forecast_importance` they build
+  as an empty frame of the contract's types, so an unqualified `dbt build` (`refresh-all`) does
+  not abort on a warehouse that has never published importance.
 - Exogenous features: `LightGbmOcctoStrategy` joins `OcctoDemandForecast`
   (`datasets.load_occto_demand_forecast`, from `fct_occto_demand_supply_forecast_daily`) to each
   delivery day's rows via the `_join_daily_features` hook; its training set therefore
