@@ -33,11 +33,12 @@ selector instead.
 The researcher's stated remedy for O-002 and O-003 is a same-day-previous-year
 load feature:
 
-- [O-002](research/demand/observations.md#o-002-the-working-day-between-山の日-and-お盆-is-heavily-over-forecast-driven-by-the-d-7-lag): on 2025-08-12 and 2026-08-12, a working day squeezed between a weekend and
-お盆, the baseline over-forecasts by 3.9 M and 2.8 M kWh per period. The SHAP
-decomposition attributes the excess to `lag_7d_demand_kwh`: the same weekday
-one week earlier was an ordinary working day. The same weekday one
-  year earlier sits in the same position relative to お盆.
+- [O-002](research/demand/observations.md#o-002-the-working-day-between-山の日-and-お盆-is-heavily-over-forecast-driven-by-the-d-7-lag):
+  on 2025-08-12 and 2026-08-12, a working day squeezed between a weekend and
+  お盆, the baseline over-forecasts by 3.9 M and 2.8 M kWh per period. The SHAP
+  decomposition attributes the excess to `lag_7d_demand_kwh`: the same weekday
+  one week earlier was an ordinary working day. The same weekday one year
+  earlier sits in the same position relative to お盆.
 - [O-003](research/demand/observations.md#o-003-建国記念の日-is-heavily-under-forecast-the-day-type-outweighing-the-d-7-lag): on 建国記念の日 2026-02-11
   (and 2025-02-11) the baseline under-forecasts by 3.1 M kWh per period with
   `day_type` the dominant negative contribution: the holiday category pulls

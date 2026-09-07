@@ -106,10 +106,10 @@ under the data dir whatever the download window.
   — RISH serving an HTML error page with a 200 status is caught here rather than becoming
   a corrupt cache entry.
 - **RISH mtimes are not authoritative.** File modification times on the archive
-do not reliably reflect JMA's publication schedule, and this pipeline never
-uses them for freshness or resume decisions. Only the reference run's issue
-time (`power_market_analytics.msm.reference_at_for`), computed purely from the
-delivery date, drives which files are fetched.
+  do not reliably reflect JMA's publication schedule, and this pipeline never
+  uses them for freshness or resume decisions. Only the reference run's issue
+  time (`power_market_analytics.msm.reference_at_for`), computed purely from
+  the delivery date, drives which files are fetched.
 
 ## 3. Vintage policy
 
@@ -123,17 +123,17 @@ the demand model see information it could not actually have had at forecast time
 Why the 12 UTC D−2 run and not another:
 
 - **12 UTC D−2 is the latest run whose horizon still reaches every hour of D.**
-FH51 of that run lands at reference + 51 h = 15:00 UTC D = **24:00 JST D**, the
-last hour-ending of the delivery day (`hour_ending_for(51) == 24`). FH28 lands
-at **01:00 JST D** (`hour_ending_for(28) == 1`), the first. The run is published (RISH
-  distribution observed ~23:30 JST D−2) well before the 09:30 JST D−1 cutoff — about ten
-  hours of margin.
+  FH51 of that run lands at reference + 51 h = 15:00 UTC D = **24:00 JST D**,
+  the last hour-ending of the delivery day (`hour_ending_for(51) == 24`). FH28
+  lands at **01:00 JST D** (`hour_ending_for(28) == 1`), the first. The run is
+  published (RISH distribution observed ~23:30 JST D−2) well before the 09:30
+  JST D−1 cutoff — about ten hours of margin.
 - **The 21 UTC D−2 run cannot be used.** Its horizon reaches only 21:00 UTC +
-39 h = 12:00 UTC D = **21:00 JST D**. That is three hours short of the delivery
-day's last hour-ending, 24:00 JST D, so 22:00, 23:00 and 24:00 are missing.
-(FH39 is the pre-extension era; even post-extension its practical distribution
-timing is the same run family.) A
-  39-hour horizon run simply cannot cover the full day.
+  39 h = 12:00 UTC D = **21:00 JST D**. That is three hours short of the
+  delivery day's last hour-ending, 24:00 JST D, so 22:00, 23:00 and 24:00 are
+  missing. (FH39 is the pre-extension era; even post-extension its practical
+  distribution timing is the same run family.) A 39-hour horizon run simply
+  cannot cover the full day.
 - **The 00 UTC D−1 run cannot be used**: although its horizon (FH51 or FH78 depending on
   era) would cover D, it is not distributed until roughly **11:30 JST D−1** — *after* the
   09:30 JST D−1 cutoff. Using it would leak same-day information the demand model could not
@@ -292,19 +292,20 @@ nearest grid index on each axis independently, then converts to the flat row-maj
 GRIB values array uses:
 
 - The query point must fall inside the grid's extent, **inclusive of its four
-corners**. A 1e-9 tolerance is applied on the boundary check, so an exact corner
-is never rejected merely because a step size like `0.05` is not exactly
-representable in binary floating point. A station strictly outside the domain raises `MsmError`.
+  corners**. A 1e-9 tolerance is applied on the boundary check, so an exact
+  corner is never rejected merely because a step size like `0.05` is not
+  exactly representable in binary floating point. A station strictly outside
+  the domain raises `MsmError`.
 - **Ties resolve toward the lower index** on each axis — the point encountered first in the
   grid's scan order (`_nearest_index`: `floor(x)` unless the fractional part exceeds exactly
   `0.5`).
 - Three things are persisted on every record: the selected grid point's own
-coordinates, its flat index, and the **great-circle (haversine) distance** to
-the query station, rounded to 3 decimals with `EARTH_RADIUS_KM = 6371.0088`.
-They land in `grid_latitude`, `grid_longitude` and `grid_distance_km`. So every
-downstream consumer can see exactly how far the sampled point is from the
-station it is attributed to, and a station's own coordinates are never
-conflated with its nearest grid point's.
+  coordinates, its flat index, and the **great-circle (haversine) distance** to
+  the query station, rounded to 3 decimals with `EARTH_RADIUS_KM = 6371.0088`.
+  They land in `grid_latitude`, `grid_longitude` and `grid_distance_km`. So
+  every downstream consumer can see exactly how far the sampled point is from
+  the station it is attributed to, and a station's own coordinates are never
+  conflated with its nearest grid point's.
 
 ## 6. Extract format
 
@@ -612,10 +613,10 @@ Joined `fct_jma_msm_weather_forecast_hourly` to `fct_jma_weather_hourly` on `sta
 
 - **Median temperature MAE: 1.66 °C. p90: 2.57 °C.**
 - Outliers are **physically explained by grid-vs-station elevation**, not a pipeline defect:
-  - `s47639` 富士山 (Mt. Fuji, station elevation 3,775 m) has a **+8.28 °C warm bias**. The nearest
-~5 km grid cell's terrain elevation is far below the summit's, so the model's
-surface temperature at that grid point is naturally warmer than what a station
-on the actual peak observes.
+  - `s47639` 富士山 (Mt. Fuji, station elevation 3,775 m) has a **+8.28 °C warm
+    bias**. The nearest ~5 km grid cell's terrain elevation is far below the
+    summit's, so the model's surface temperature at that grid point is
+    naturally warmer than what a station on the actual peak observes.
   - Basin stations — 松本 (Matsumoto, 610 m) and 諏訪 (Suwa, 760 m) — run **~−3 °C** cold,
     consistent with basin cold-pooling the ~5 km grid cannot resolve.
   - `s47662` 東京 (Tokyo) maps to grid point 35.70°N/139.75°E, **0.923 km** away from the

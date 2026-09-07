@@ -100,10 +100,10 @@ hours within ±1 万kW. Behind the headline:
   (174 on 04-14 h10) — the same days as A-1's scientific-notation files; A-1's
   opening fortnight is a different vintage.
 - **From mid-2025, A-1 has an 18:00–19:00 defect.** Time codes 37 and 38 carry
-the same offset — ±60–190 万kW, 2–4 %, both signs, not a period shift — on 166
-of the 514 days from 2025-04 to 2026-08, rising from 1 day/month to 18–19.
-でんき予報's hourly and 5-minute values agree with each other there, a median
-4 万kW apart, while A-1 is 37 万kW off. A-1 is the odd one.
+  the same offset — ±60–190 万kW, 2–4 %, both signs, not a period shift — on 166
+  of the 514 days from 2025-04 to 2026-08, rising from 1 day/month to 18–19.
+  でんき予報's hourly and 5-minute values agree with each other there, a median 4
+  万kW apart, while A-1 is 37 万kW off. A-1 is the odd one.
 - Excluding those, the two drift apart slowly: bias +0.04 (FY2023) → +1.26 万kW
   (FY2026), daytime hours +0.9–1.0, MAE 0.4 → 1.75 — ≤ 0.06 % of level.
 - A flat ½/½ split of an hourly mean misses A-1's true half-hours by MAE

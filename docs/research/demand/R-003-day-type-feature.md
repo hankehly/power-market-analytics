@@ -93,14 +93,13 @@ weekends. `day_type` is 0 = Weekday, 1 = Weekend, 2 = Holiday.
 
 - **Feature** — `day_type`, the delivery day's category per `dim_date`:
   *Holiday* takes precedence over *Weekend* (`is_weekend`), else *Weekday*.
-*Holiday* is `is_holiday`: a national holiday or a customary non-working day,
-whatever weekday it falls on. These are the same labels and precedence as the
-compare script's day-type segment, so the model's categories are the research
-tables' segments. Loaded once for the whole `dim_date` spine
+  *Holiday* is `is_holiday`: a national holiday or a customary non-working day,
+  whatever weekday it falls on. These are the same labels and precedence as the
+  compare script's day-type segment, so the model's categories are the research
+  tables' segments. Loaded once for the whole `dim_date` spine
   (`load_day_types` → `DayTypeCalendar`, grain = day) and joined to every
-  training and prediction row on the delivery day (`join_day_type`); a
-  delivery day outside the calendar is unforecastable, like a missing
-  temperature.
+  training and prediction row on the delivery day (`join_day_type`); a delivery
+  day outside the calendar is unforecastable, like a missing temperature.
 - **Categorical** — the shared LightGBM base gained a
   `categorical_feature_cols` class attribute that is passed to
   `LGBMRegressor.fit(categorical_feature=…)` and logged as

@@ -109,20 +109,20 @@ instead of 1.5.
 
 Overall MAE 1.46 万kW (0.09 %), bias +0.40. Two regimes:
 
-- **2022-04 → 2023-02: the two series disagree in daylight.** The でんき予報
-value sits above A-1 by +4 to +10 万kW per month on average, with bias +9.4 in
-2022-06 and +9.6 in 2022-09. Almost all of it falls between 08:00 and 16:00:
-FY2022's hourly bias peaks at +11.4 万kW at 12:00 and stays under +1.4 at
-night. The gap shrinks from
-  2022-10 (bias −0.4, MAE 7.2) and is gone by 2023-03; 294 days of FY2022 have an
-  hour more than 3 万kW apart, 8 days of FY2023 (the last on 2023-07-31), none
-  after. A-1's opening fortnight (2022-04-01 → 14, the scientific-notation
-  vintage) is the worst stretch: bias +3.6, MAE 7.4.
+- **2022-04 → 2023-02: the two series disagree in daylight.** The でんき予報 value
+  sits above A-1 by +4 to +10 万kW per month on average, with bias +9.4 in
+  2022-06 and +9.6 in 2022-09. Almost all of it falls between 08:00 and 16:00:
+  FY2022's hourly bias peaks at +11.4 万kW at 12:00 and stays under +1.4 at
+  night. The gap shrinks from 2022-10 (bias −0.4, MAE 7.2) and is gone by
+  2023-03; 294 days of FY2022 have an hour more than 3 万kW apart, 8 days of
+  FY2023 (the last on 2023-07-31), none after. A-1's opening fortnight
+  (2022-04-01 → 14, the scientific-notation vintage) is the worst stretch: bias
+  +3.6, MAE 7.4.
 - **2023-03 onward: the integer display of one measurement.** Bias −0.40 to
-−0.48 in every hour of the day, MAE 0.42, and 60 % of hours within ±0.5 万kW.
-From 2023-08 no hour is more than 3 万kW apart. The でんき予報 integer runs
-0.4 万kW below the A-1 hourly mean, nothing more. Unlike Tokyo, Kansai's A-1
-  shows no 18:00–19:00 defect (hours 17–19 sit at the same −0.47 bias as the rest).
+  −0.48 in every hour of the day, MAE 0.42, and 60 % of hours within ±0.5 万kW.
+  From 2023-08 no hour is more than 3 万kW apart. The でんき予報 integer runs 0.4 万kW
+  below the A-1 hourly mean, nothing more. Unlike Tokyo, Kansai's A-1 shows no
+  18:00–19:00 defect (hours 17–19 sit at the same −0.47 bias as the rest).
 
 The FY2022 daylight gap is a property of the published series (both are as
 Kansai publishes them today; April 2022 A-1 was re-issued in 2023-09). It is
