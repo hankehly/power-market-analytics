@@ -224,3 +224,107 @@ sources:
             description: Same instant as the run's spot_price_forecast rows (naive JST).
             data_tests:
               - not_null
+      - name: demand_forecast_importance
+        description: >
+          Permutation feature importance of the forecasts in demand_forecast,
+          written by the same backtest run (scripts/demand_backtest.py;
+          SlidingWindowLightGbmStrategy.permutation_importance —
+          scikit-learn's permutation_importance over the run's refits, each
+          row re-scored by the model that forecast its day). One row per
+          MLflow run, area, model feature and repeat: the run's MAE on its
+          scored periods and the MAE after shuffling that feature's column
+          across them. Partitioned by run_id and overwritten per run like
+          demand_forecast; a strategy with nothing to shuffle writes nothing here.
+        columns:
+          - name: run_id
+            description: MLflow run id (experiment demand); the run's tag importance_table points back here.
+            data_tests:
+              - not_null
+          - name: strategy
+            description: Strategy registry key, e.g. lightgbm_msm_popw_daytype.
+            data_tests:
+              - not_null
+          - name: area_code
+            description: Bidding zone, joins to dim_area.area_code.
+            data_tests:
+              - not_null
+          - name: feature
+            description: The model feature, as listed in the run's lgbm_feature_cols param.
+            data_tests:
+              - not_null
+          - name: feature_order
+            description: The feature's 1-based position in the model's feature list.
+            data_tests:
+              - not_null
+          - name: repeat_index
+            description: Shuffle number, 0 .. permutation_repeats − 1 (run param).
+            data_tests:
+              - not_null
+          - name: n_periods
+            description: The run's scored periods (the rows of fct_demand_forecast_accuracy with an actual); the same on every row of the run.
+            data_tests:
+              - not_null
+          - name: mae_demand_kwh
+            description: The run's MAE over its scored periods (kWh per 30-minute period), the baseline; the same on every row of the run.
+            data_tests:
+              - not_null
+          - name: permuted_mae_demand_kwh
+            description: The MAE over the same periods after shuffling the feature's column (kWh per 30-minute period); minus mae_demand_kwh = the importance.
+            data_tests:
+              - not_null
+          - name: published_at
+            description: Same instant as the run's demand_forecast rows (naive JST).
+            data_tests:
+              - not_null
+      - name: spot_price_forecast_importance
+        description: >
+          Permutation feature importance of the forecasts in spot_price_forecast,
+          written by the same backtest run (scripts/spot_price_backtest.py;
+          SlidingWindowLightGbmStrategy.permutation_importance —
+          scikit-learn's permutation_importance over the run's refits, each
+          row re-scored by the model that forecast its day). One row per
+          MLflow run, area, model feature and repeat: the run's MAE on its
+          scored periods and the MAE after shuffling that feature's column
+          across them. Partitioned by run_id and overwritten per run like
+          spot_price_forecast; a strategy with nothing to shuffle (previous_day) writes nothing here.
+        columns:
+          - name: run_id
+            description: MLflow run id (experiment spot_price); the run's tag importance_table points back here.
+            data_tests:
+              - not_null
+          - name: strategy
+            description: Strategy registry key, e.g. lightgbm.
+            data_tests:
+              - not_null
+          - name: area_code
+            description: Bidding zone, joins to dim_area.area_code.
+            data_tests:
+              - not_null
+          - name: feature
+            description: The model feature, as listed in the run's lgbm_feature_cols param.
+            data_tests:
+              - not_null
+          - name: feature_order
+            description: The feature's 1-based position in the model's feature list.
+            data_tests:
+              - not_null
+          - name: repeat_index
+            description: Shuffle number, 0 .. permutation_repeats − 1 (run param).
+            data_tests:
+              - not_null
+          - name: n_periods
+            description: The run's scored periods (the rows of fct_spot_price_forecast_accuracy with an actual); the same on every row of the run.
+            data_tests:
+              - not_null
+          - name: mae_price_jpy_kwh
+            description: The run's MAE over its scored periods (JPY/kWh), the baseline; the same on every row of the run.
+            data_tests:
+              - not_null
+          - name: permuted_mae_price_jpy_kwh
+            description: The MAE over the same periods after shuffling the feature's column (JPY/kWh); minus mae_price_jpy_kwh = the importance.
+            data_tests:
+              - not_null
+          - name: published_at
+            description: Same instant as the run's spot_price_forecast rows (naive JST).
+            data_tests:
+              - not_null

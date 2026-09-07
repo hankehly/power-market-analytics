@@ -1,0 +1,87 @@
+models:
+  - name: fct_spot_price_forecast_importance
+    config:
+      contract:
+        enforced: true
+    description: >
+      Permutation feature importance of the spot price forecast runs in
+      fct_spot_price_forecast. Grain: one row per MLflow run x area x model
+      feature x repeat (shuffle). feature and feature_order are degenerate
+      dimensions like strategy. n_periods and mae_price_jpy_kwh describe the run
+      (its scored periods and its MAE over them, the baseline) and repeat on
+      every row; permuted_mae_price_jpy_kwh is the MAE over the same periods
+      after shuffling the feature's column, so permuted − mae is the
+      feature's importance (ΔMAE), and 100 x that / mae its importance in
+      percent. The measures are averages: aggregate over the repeats of one
+      feature (avg, stddev_pop), never across features or runs. Baseline =
+      the run's own error: n_periods and mae_price_jpy_kwh equal the accuracy
+      mart's period count and MAE for the run (singular test). Drill across
+      to fct_spot_price_forecast_accuracy on (run_id, area_key). Only strategies with features to shuffle (the LightGBM ones; previous_day has none) have rows here.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - run_id
+              - area_key
+              - feature
+              - repeat_index
+    columns:
+      - name: area_key
+        data_type: int
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_area')
+                field: area_key
+      - name: run_id
+        data_type: string
+        data_tests:
+          - not_null
+      - name: strategy
+        data_type: string
+        data_tests:
+          - not_null
+      - name: feature
+        data_type: string
+        data_tests:
+          - not_null
+      - name: feature_order
+        data_type: int
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 1
+      - name: repeat_index
+        data_type: int
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+      - name: n_periods
+        data_type: int
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 1
+      - name: mae_price_jpy_kwh
+        data_type: double
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+      - name: permuted_mae_price_jpy_kwh
+        data_type: double
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+      - name: published_at
+        data_type: timestamp
+        data_tests:
+          - not_null
