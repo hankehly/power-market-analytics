@@ -1356,8 +1356,9 @@ class TestDashboardSpecs:
         assert demand.importance_metric == script.sql_metric(
             "avg(permuted_mae_mwh) - avg(mae_mwh)", "ΔMAE (MWh)", option_name="importance_delta_mae"
         )
+        # try_divide: a zero MAE yields null rather than an ANSI DIVIDE_BY_ZERO error
         assert demand.importance_pct_metric == script.sql_metric(
-            "100 * (avg(permuted_mae_mwh) - avg(mae_mwh)) / avg(mae_mwh)",
+            "100 * try_divide(avg(permuted_mae_mwh) - avg(mae_mwh), avg(mae_mwh))",
             "Importance %",
             option_name="importance_pct",
         )

@@ -943,8 +943,9 @@ class DashboardSpec:
 
     @property
     def importance_pct_metric(self) -> dict:
+        """ΔMAE as a percentage of the MAE; null (not an ANSI error) when the MAE is zero."""
         return sql_metric(
-            f"100 * ({self.importance_delta_sql}) / avg({self.importance_mae_col})",
+            f"100 * try_divide({self.importance_delta_sql}, avg({self.importance_mae_col}))",
             "Importance %",
             option_name="importance_pct",
         )
