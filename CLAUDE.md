@@ -83,8 +83,10 @@
   backtest (strategies: `previous_day`, `lightgbm`, `lightgbm_occto`; areas =
   `dim_area.area_code`). Logs to MLflow (`just open mlflow`) and publishes forecasts to the
   warehouse (and, for the LightGBM strategies, their TreeSHAP contributions to
-  `pma_ml.spot_price_forecast_contribution` — build `+fct_spot_price_forecast_accuracy
-  +fct_spot_price_forecast_contribution` afterwards). `--start-date/--end-date` pin the
+  `pma_ml.spot_price_forecast_contribution` and their permutation feature importance to
+  `pma_ml.spot_price_forecast_importance` (`--importance-repeats`, default 5) — build
+  `+fct_spot_price_forecast_accuracy +fct_spot_price_forecast_contribution
+  +fct_spot_price_forecast_importance` afterwards). `--start-date/--end-date` pin the
   first training row — set all three identically for a feature experiment and its matched
   baseline. New strategies subclass `ForecastStrategy`, register in `STRATEGIES`, and get
   their inputs wired in `build_strategy`
@@ -135,9 +137,10 @@
   flags as the spot script
   (`--days` defaults to 365); logs to the MLflow experiment `demand`, publishes to
   `pma_ml.demand_forecast`, then `just dbt build --select +fct_demand_forecast_accuracy
-  +fct_demand_forecast_contribution` (the second selector materialises the run's TreeSHAP
-  contributions for the dashboard's Explanation (SHAP) tab; the first is what its Run filter
-  reads).
+  +fct_demand_forecast_contribution +fct_demand_forecast_importance` (the second selector
+  materialises the run's TreeSHAP contributions for the dashboard's Explanation tab, the
+  third its permutation feature importance for that tab's Feature importance section —
+  `--importance-repeats`, default 5; the first is what its Run filter reads).
 - `just python scripts/compare_demand_runs.py --baseline <run_id> --candidate <run_id>` — the
   demand task's matched two-run comparison (`tasks/demand/compare.py`): MAE overall / MAPE /
   bias / by day part, day type, month, season, 2,000-MWh actual-demand band, top-10 % demand
@@ -152,15 +155,17 @@
   `DashboardSpec` (dataset SQL, unit, formats, band/calibration columns) drives one shared set of
   chart/layout builders; charts are matched by name *within their dataset*, so both dashboards
   share chart names. Rerun after `docker compose down -v` or after editing a spec.
-  Each dashboard has four virtual datasets — `<task>_forecast_analysis` (the accuracy mart),
+  Each dashboard has five virtual datasets — `<task>_forecast_analysis` (the accuracy mart),
   `<task>_forecast_explanation` (`fct_<task>_forecast_contribution` joined to the accuracy mart:
   one row per period × component, so AVG-only metrics), `<task>_forecast_comparison` and
-  `<task>_forecast_explanation_comparison` (both for the Compare tab) — and three top-level tabs:
+  `<task>_forecast_explanation_comparison` (both for the Compare tab) and
+  `<task>_forecast_importance` (`fct_<task>_forecast_importance` joined to `dim_area`: one row
+  per feature × repeat, run grain, `main_dttm_col` = `published_at`) — and three top-level tabs:
   **Accuracy** (KPI tiles, error structure, calibration & distribution, runs & drilldown),
-  **Explanation (SHAP)** and **Compare**, each built by its own `build_<tab>_tab` function
+  **Explanation** and **Compare**, each built by its own `build_<tab>_tab` function
   returning a `DashboardTab` (charts by name in creation order + layout sections) that
-  `build_dashboard` wires into filters and cross-filters. In **Explanation
-  (SHAP)**, a **Day** native filter (scoped to that tab and to the Compare tab's
+  `build_dashboard` wires into filters and cross-filters. In **Explanation**, a **Day** native
+  filter (scoped to that tab's per-day charts and to the Compare tab's
   explanation-vs-baseline section; cascades from Run,
   defaults to the default run's last day; empty = the run's mean decomposition; every value is
   a mean per period) drives base / forecast / actual / net-effect tiles, a `waterfall` of the
@@ -171,7 +176,14 @@
   the contributions' scale around zero) with two lines on the same axis — `Forecast − base`, the
   signed sum of the bars (a stack of mixed signs has no visible edge for it), and
   `Actual − base`; the gap between the lines is the period's error. Both line metrics read the
-  base off the period's base row, so the chart's query B is unfiltered.
+  base off the period's base row, so the chart's query B is unfiltered. At the bottom of the
+  tab, the **Feature importance** section (the run, not the Day: outside the Day filter and the
+  day tables' cross-filters — `RUN_LEVEL_CHART_NAMES`) shows **Permutation importance** —
+  horizontal bars of ΔMAE per feature, the MAE increase when that feature's column is shuffled
+  across the run's scored periods (`avg(permuted_mae) − avg(mae)`, mean over the repeats) —
+  next to **Mean |SHAP| by feature** on the explanation dataset (base row excluded), and the
+  **Feature importance table** (MAE, permuted MAE, ΔMAE, std over repeats, importance %).
+  Correlated features share importance; the section header says so.
   **Compare** — a third virtual dataset `<task>_forecast_comparison` (the accuracy mart self-joined
   on day × time code × area: the Run filter's run as the candidate against a **Baseline** native
   filter's run, both pinned inside the dataset SQL with Superset Jinja `filter_values()`, so
@@ -198,11 +210,11 @@
   Run labels are `published_at | area | strategy | run_id prefix` (`RUN_LABEL_SQL`, one
   definition); the leaderboard shows each run's first / last day and day count. Runs
   published before 2026-08-26 have no contributions and show an empty tab until re-run. After a
-  backtest run, both marts must be rebuilt before the dashboards make sense — `just dbt build
-  --select +fct_<task>_forecast_accuracy +fct_<task>_forecast_contribution`;
-  `+fct_<task>_forecast_contribution` alone does not refresh the accuracy mart (which the Run
-  filter reads) nor the forecast fact the additivity test joins to, and the Run filter then never
-  lists the new run. Clicking a date in **Worst days** (Accuracy tab) or in **Most improved days** / **Most worsened days** (Compare tab) cross-filters the Explanation tab (and the 30-minute detail charts) to that day — cross-filters persist across tabs, and it combines with the Day filter, so clear Day (or pick the same day) first.
+  backtest run, the three marts must be rebuilt before the dashboards make sense — `just dbt
+  build --select +fct_<task>_forecast_accuracy +fct_<task>_forecast_contribution
+  +fct_<task>_forecast_importance`; `+fct_<task>_forecast_contribution` alone does not refresh
+  the accuracy mart (which the Run filter reads) nor the forecast fact the additivity test joins
+  to, and the Run filter then never lists the new run. Clicking a date in **Worst days** (Accuracy tab) or in **Most improved days** / **Most worsened days** (Compare tab) cross-filters the Explanation tab (and the 30-minute detail charts) to that day — cross-filters persist across tabs, and it combines with the Day filter, so clear Day (or pick the same day) first.
 - Host-side dbt also works: `cd dbt && DBT_THRIFT_HOST=localhost uv run dbt <cmd>`.
 - Anything that creates a SparkSession MUST run in the devcontainer (metastore/warehouse only
   resolve on the compose network); plain python and dbt work from the host too.
@@ -412,6 +424,23 @@
   keyed by artifact stem; both backtest scripts call it after publishing and log each frame as
   `<stem>.csv`, and an implementation may log metrics inside it (the demand similar-day strategy
   does).
+- Importance: `ForecastStrategy.permutation_importance(run, n_repeats=5, seed=0)` (default
+  `None`) returns a `PermutationImportance` frame (grain feature × repeat: `n_periods`, `mae` =
+  the run's MAE on its scored periods, `permuted_mae`); the LightGBM base keeps every refit
+  (`_models`, `_model_of_day`) and `forecasting/importance.py` wraps them in
+  `WalkForwardPredictor` (a scikit-learn estimator routing each row to the model that forecast
+  its day) for `sklearn.inspection.permutation_importance` (`neg_mean_absolute_error`; the same
+  shuffles for every feature), so the importance is walk-forward and out of sample. The scripts
+  publish it (`publish.build_importance_records` / `publish_importance_records` →
+  `pma_ml.<task>_forecast_importance` = `TaskSpec.importance_table`, columns `TaskSpec.mae_col` /
+  `permuted_mae_col` = `mae_demand_kwh` / `permuted_mae_demand_kwh`; tag `importance_table`;
+  params `permutation_repeats`, `permutation_seed`) and log `permutation_importance.csv`
+  (`PermutationImportance.summary()`: mean / population std over repeats, importance %),
+  `permutation_importance_repeats.csv` and `permutation_importance_plot.png`
+  (`plots.permutation_importance_plot`) → `stg_ml__<task>_forecast_importance` →
+  `fct_<task>_forecast_importance` (no `std`: no time axis; singular test: `n_periods` and the
+  MAE reconcile with the accuracy mart per run) → Superset dataset `<task>_forecast_importance`
+  (the Explanation tab's Feature importance section).
 - Exogenous features: `LightGbmOcctoStrategy` joins `OcctoDemandForecast`
   (`datasets.load_occto_demand_forecast`, from `fct_occto_demand_supply_forecast_daily`) to each
   delivery day's rows via the `_join_daily_features` hook; its training set therefore
@@ -514,7 +543,7 @@
   SQL — `forecast_demand_mwh`, `error_mwh`, … — with plain `,.1f`/`,.0f` formats, 2,000-MWh
   actual-demand bands (`10000-12000`), calibration x = actual rounded to 1,000 MWh);
   contributions to `pma_ml.demand_forecast_contribution` → `fct_demand_forecast_contribution` →
-  the dashboard's Explanation (SHAP) tab.
+  the dashboard's Explanation tab.
 
 ## Gotchas
 
@@ -595,6 +624,11 @@
   nullable flag (阿蘇山 s47821 post-closure padding rows, 2017-12-12..31) — don't tighten either.
 - `scipy` is a declared dependency since 2026-09-05 (the similar-day weight fit uses
   `scipy.optimize.least_squares`); `scipy.*` is mypy-ignored like `shap.*`.
+- `scikit-learn` is a declared dependency since 2026-09-08 (`sklearn.inspection.permutation_importance`;
+  it was already installed through lightgbm / mlflow / shap); `sklearn.*` is mypy-ignored. Its
+  `permutation_importance` needs a real estimator (`BaseEstimator` with `fit`), keeps row order
+  on every scoring call (so positional routing to the refits is safe) and returns run-level
+  scores only.
 
 ## Claude Code settings
 

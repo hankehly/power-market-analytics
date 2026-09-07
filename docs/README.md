@@ -458,7 +458,8 @@ at 9:55 JST on D-1, forecast all 48 half-hour prices for delivery day D) and
 records the results in two places, linked by the MLflow `run_id`:
 
 - **MLflow** (`just open mlflow`, experiment `spot_price`) — params, metrics,
-  SHAP plots and CSV artifacts per run; the experiment record.
+  SHAP plots, the permutation feature importance (a CSV and a bar plot) and
+  CSV artifacts per run; the experiment record.
 - **Warehouse** — row-level forecasts written to `pma_ml.spot_price_forecast`
   (partitioned by `run_id`; republishing a run replaces its rows), which dbt
   models into `fct_spot_price_forecast` and `fct_spot_price_forecast_accuracy`.
@@ -494,7 +495,12 @@ newest run with KPI tiles (MAE, bias, RMSE, RMSE/MAE, WAPE, P90),
 error-structure heatmaps and day-type slices, calibration and
 error-distribution views, a cross-run leaderboard, a worst-days drill list
 (click a row to cross-filter the dashboard to that day), and a zoomable
-30-minute forecast-vs-actual detail. A **Compare** tab puts the run against a
+30-minute forecast-vs-actual detail. An **Explanation** tab decomposes a day's
+forecast into per-feature SHAP contributions and, at the bottom, shows the
+run's **Feature importance**: permutation importance (the MAE increase when a
+feature's column is shuffled across the run, computed with scikit-learn over
+the walk-forward models) next to the mean |SHAP| per feature. A **Compare**
+tab puts the run against a
 **Baseline** run chosen in a second filter: delta tiles, diverging ΔMAE %
 bars by segment, ΔMAE % heatmaps, daily ΔMAE, the cumulative error
 reduction, most-improved / most-worsened day tables, the SHAP contribution

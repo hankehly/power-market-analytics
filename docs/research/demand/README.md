@@ -40,8 +40,9 @@ narrow them as the question requires.
   with its seeded bootstrap CI over days; `--mae-by-month-png` writes the
   by-month figure) and Superset **Demand Forecast Analysis** (day part, day
   type, actual-demand bands, calibration curve, error histogram, and the
-  per-day SHAP waterfall (mean per period) of the **Explanation (SHAP)** tab
-  (Day filter)); its **Compare** tab shows a run against a Baseline run
+  per-day SHAP waterfall (mean per period) of the **Explanation** tab (Day
+  filter) and its run-level Feature importance section (permutation ΔMAE per
+  feature, mean |SHAP|)); its **Compare** tab shows a run against a Baseline run
   (matched periods only): ΔMAE by day part, day type, day of week, month,
   band and time code, the share of days lower, the median daily ΔMAE, the
   most improved / worsened days and the per-feature SHAP contribution deltas
