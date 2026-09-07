@@ -15,13 +15,15 @@ demand-only tab would cost more than a shared one.
 ## Decisions (option B, approved 2026-09-06)
 
 1. **A third top-level tab, "Compare".** Accuracy and Explanation (SHAP) stay as they are.
-2. **A comparison dataset built with Jinja.** A third virtual dataset per dashboard
-   self-joins the accuracy mart: the candidate run against the baseline run, on delivery
-   day, time code and area. The baseline run comes from the Baseline filter through
-   Superset's `filter_values()`. This needs `ENABLE_TEMPLATE_PROCESSING`, which is now on
-   in `conf/superset/superset_config.py` (it was off; verified on 2026-09-06 with a probe
-   dataset: the value of a filter in a chart-data request reaches the dataset SQL, the
-   outer WHERE on the same column also applies, and the SQL renders without a filter).
+2. **A comparison dataset built with Jinja.** A third virtual dataset per
+   dashboard self-joins the accuracy mart: the candidate run against the
+   baseline run, on delivery day, time code and area. The baseline run comes
+   from the Baseline filter through Superset's `filter_values()`. This needs
+   `ENABLE_TEMPLATE_PROCESSING`, which is now on in
+   `conf/superset/superset_config.py`; it was off. A probe dataset verified
+   three things on 2026-09-06: the value of a filter in a chart-data request
+   reaches the dataset SQL, the outer WHERE on the same column also applies,
+   and the SQL renders without a filter.
 3. **Only matched periods count.** The join is inner, so a segment compares the same
    periods for both runs, as `compare_<task>_runs.py` asserts. A coverage tile shows when
    the windows differ.
@@ -57,10 +59,11 @@ demand-only tab would cost more than a shared one.
 
 ## Scope
 
-In scope: the Superset feature flag, the comparison dataset template and its column
-metadata, the Baseline filter and its default, the Compare tab and its charts, fixed
-label colours, the run-label change, the leaderboard columns, the `--baseline-run`
-option, tests, documentation, the rollout on the local stack.
+In scope: the Superset feature flag; the comparison dataset template and its
+column metadata; the Baseline filter and its default; the Compare tab and its
+charts; fixed label colours; the run-label change; the leaderboard columns; the
+`--baseline-run` option; tests; documentation; and the rollout on the local
+stack.
 
 Out of scope: a SHAP comparison (a "versus baseline" waterfall of contribution deltas can
 reuse the same self-join on the contribution fact later), the bootstrap CI, any change to
@@ -128,12 +131,13 @@ join pma_curated.dim_area a ... join dim_delivery_period p ... join dim_date d .
   only, through the existing `excluded` mechanism (the Day filter is scoped the same way).
 - Description: "Reference run; the Compare tab shows the Run (candidate) against it over
   the periods both runs scored".
-- Default on load: the newest *other* run with the same area, first day, last day and
-  period count as the default Run. `run_defaults()` runs one query listing the mart's
-  runs (label, area, first / last day, period count, newest first) and applies the rule
-  and the `--baseline-run` override in Python, returning a `RunDefaults` (run label, last
-  day, baseline label or None); a `--baseline-run <run_id or 8-char prefix>` that matches
-  no run keeps the rule and logs a warning. With no matching run the filter has no
+- Default on load: the newest *other* run with the same area, first day, last
+  day and period count as the default Run. `run_defaults()` runs one query
+  listing the mart's runs — label, area, first and last day, period count,
+  newest first. It applies the rule and the `--baseline-run` override in
+  Python, returning a `RunDefaults` of run label, last day, and baseline label
+  or None. A `--baseline-run <run_id or 8-char prefix>` that matches no run
+  keeps the rule and logs a warning. With no matching run the filter has no
   default and the tab shows "No data" until one is picked.
 - Choosing the candidate itself is allowed; every delta is then zero.
 
@@ -175,14 +179,15 @@ Every chart reads the comparison dataset. Titles say what the number is relative
    MAE levels are on the tiles and the day tables. Then two heatmaps of ΔMAE %, year ×
    month and year × time code, on `blue_white_yellow` with `value_bounds` ±30 so white
    is "no change" and blue is better.
-4. **Day by day** (section): daily ΔMAE as Better / Worse bars over the window
-   (x = `date_key`, zoomable, full width); the running total of the error reduction as a
-   line (`rolling_type: cumsum` over the daily `Error reduction`, full width): a steady
-   slope is a broad gain, a few steps is a gain concentrated in a few days. Then two
-   tables side by side, **Most improved days** and **Most worsened days**: date, day of
-   week, day type, holiday name (`dim_date.holiday_name_ja`, added to the shared context
-   of the comparison dataset), Baseline MAE, Candidate MAE, ΔMAE, ΔMAE %, ten rows each,
-   sorted by ΔMAE ascending and descending.
+4. **Day by day** (section). Daily ΔMAE as Better / Worse bars over the window
+   (x = `date_key`, zoomable, full width). Then the running total of the error
+   reduction as a line: `rolling_type: cumsum` over the daily
+   `Error reduction`, full width. A steady slope is a broad gain, a few steps a
+   gain concentrated in a few days. Then two tables side by side, **Most improved
+   days** and **Most worsened days**. Columns: date, day of week, day type,
+   holiday name (`dim_date.holiday_name_ja`, added to the shared context of the
+   comparison dataset), Baseline MAE, Candidate MAE, ΔMAE and ΔMAE %. Ten rows
+   each, sorted by ΔMAE ascending and descending.
 5. **Detail** (section): forecast vs actual at the 30-minute grain with three lines,
    Actual, Candidate, Baseline (zoomable, full width).
 
@@ -220,11 +225,11 @@ the delta tiles use the same two colours; the heatmaps' blue-white-yellow scheme
   `delta_bar_params`, `delta_heatmap_params`, `daily_delta_bar_params`,
   `cumulative_reduction_params`, `ranked_days_params(direction)`,
   `comparison_detail_params`. Existing builders are untouched except the leaderboard.
-- `build_native_filters` gains the Baseline filter (keyword-only parameters);
-  `run_defaults()` runs one query listing the mart's runs (label, area, first / last day,
-  period count, newest first) and applies the rule and the `--baseline-run` override in
-  Python, returning a `RunDefaults` (run label, last day, baseline label or None); `main`
-  gains `--baseline-run`.
+- `build_native_filters` gains the Baseline filter, as keyword-only parameters.
+  `run_defaults()` runs one query listing the mart's runs — label, area, first
+  and last day, period count, newest first — and applies the rule and the
+  `--baseline-run` override in Python, returning a `RunDefaults` of run label,
+  last day, and baseline label or None. `main` gains `--baseline-run`.
 - `build_position_json` is unchanged: the tab is a third entry in `tabs`.
 
 ### 7. Superset configuration
@@ -236,12 +241,13 @@ works in SQL Lab; the stack is local-only with admin users, so no further harden
 
 ## Verification
 
-- Unit tests (`tests/test_create_forecast_dashboard.py`, the fake Superset session): the
-  comparison SQL pinned per task, the column metadata in select order, every new metric's
-  SQL, the Baseline filter (targets, scope, default, required), the default-baseline
-  query and `--baseline-run` override and its warning, the cross-filter mapping, the
-  label colours, the leaderboard metrics, the tab layout (three tabs, chart ids in the
-  right sections, widths summing to 12). Coverage stays at 100 %.
+- Unit tests in `tests/test_create_forecast_dashboard.py`, against the fake
+  Superset session: the comparison SQL pinned per task; the column metadata in
+  select order; every new metric's SQL; the Baseline filter's targets, scope,
+  default and required flag; the default-baseline query, the `--baseline-run`
+  override and its warning; the cross-filter mapping; the label colours; the
+  leaderboard metrics; and the tab layout — three tabs, chart ids in the right
+  sections, widths summing to 12. Coverage stays at 100 %.
 - `just lint`, `just mypy`, `just test`.
 - Live: `just python scripts/create_forecast_dashboard.py`, then in the browser
   (Playwright) on the demand dashboard: Run = `008868fe…` (R-004 E-002), Baseline =

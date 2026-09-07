@@ -84,7 +84,7 @@ reason the loader checks the header text of every file it reads.
 4. **Revisions** — actuals files are normally created at ~00:05 on
    target date + 1 (`ファイル更新日/時間`), but a few were re-issued later
    (2022-12-01 and 12-02 on 2022-12-14 10:17; 2024-03-11 on 2024-04-19).
-   Because past months are therefore not immutable and the whole history is
+   Because past months are not immutable and the whole history is
    ~5 MB, the downloader re-fetches every zip on every run.
 
 ## 5. Publication timing

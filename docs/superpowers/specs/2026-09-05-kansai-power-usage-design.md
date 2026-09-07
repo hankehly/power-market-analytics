@@ -38,7 +38,7 @@ The source was profiled on 2026-09-05: every monthly zip since 2016-04 (126 zips
 5. **A `修正後` row corrects the row above it.** One file (2016-04-24) holds
    `修正後,,1212,,65,4/25 システム不具合による数値誤りのため修正` under the hour-0 row
    (1267 万kW, 68 %). The non-blank measures of the correction row replace the previous
-   row's; blank ones keep the original. The warehouse therefore holds 1212 万kW and 65 % for
+   row's; blank ones keep the original. The warehouse holds 1212 万kW and 65 % for
    2016-04-24 00:00. Kansai's own note says the original was a system error, and the
    5-minute table carries the same correction. (Open point 2.)
 6. **`AreaActualsSource` gets `known_missing_days: frozenset[datetime.date]`**, default
@@ -55,12 +55,12 @@ The source was profiled on 2026-09-05: every monthly zip since 2016-04 (126 zips
    blank), `supply_capacity_mankw >= demand_mankw` (holds on every row that has one),
    `supply_capacity_mankw is null` exactly when `delivery_date < 2019-09-12`,
    `forecast_mankw` and `usage_rate_pct` not null (present in every layout). A singular
-   test requires the history to be gapless from 2016-04-01 except 2024-03-31: row count
+   test requires the history to have no gaps from 2016-04-01 except 2024-03-31: row count
    = (span days − 1) × 24 and no row on 2024-03-31. If Kansai ever publishes that day the
    test fails on both clauses, and the fix is to drop the day from the spec and the test.
 9. **`fct_area_power_usage_hourly` gets a `kansai` CTE unioned under `tokyo`**, joined to
    `dim_area` on `area_code = 'kansai'` (seed row 6, 関西). Same `demand_kwh` = 万kW ×
-   10,000. The fact's "gapless" claim becomes "gapless except Kansai 2024-03-31".
+   10,000. The fact's "no gaps" claim becomes "no gaps except Kansai 2024-03-31".
 10. **The hour convention is TEPCO's**: `TIME h:00` is the hour starting then. Verified
     against the Kansai A-1 files already on disk, summed per hour: MAE 0.5 万kW on
     2025-08-01 and 2026-01-15 (6.9 on 2022-04-01, the April-2022 A-1 vintage offset TEPCO
@@ -103,13 +103,17 @@ The source was profiled on 2026-09-05: every monthly zip since 2016-04 (126 zips
   (TEPCO's yearly files). A file under any other header must hold exactly one date.
 - `HourlyRow`, `HourlyFile`: moved from `tepco/power_usage.py`, unchanged.
 - `parse_hourly(file, source) -> HourlyFile`. Today's TEPCO parser plus decisions 4 and 5:
-  every line is `rstrip("\r\n").rstrip(",")`; the stamp is line 1; the hourly table is the
-  block under the first accepted header and ends at the first blank line; a row whose first
-  field is `修正後` is recognised before the field-count check, its measure fields
-  (positions 2 up to the header's last) merge into the previous row and anything beyond
-  (the note) is ignored; every other row must have the header's field count; every day
-  covers hours 0 to 23 exactly once; a file whose header is not in `multi_day_headers`
-  holds one date. Errors are `ValueError` naming the file, as today.
+
+- every line is `rstrip("\r\n").rstrip(",")`;
+- the stamp is line 1;
+- the hourly table is the block under the first accepted header and ends at the
+  first blank line;
+- a row whose first field is `修正後` is recognised before the field-count
+  check: its measure fields, positions 2 up to the header's last, merge into the
+  previous row, and anything beyond (the note) is ignored;
+- every other row must have the header's field count;
+- every day covers hours 0 to 23 exactly once;
+- a file whose header is not in `multi_day_headers` holds one date. Errors are `ValueError` naming the file, as today.
 - The `__`-prefixed contract source names and `_SOURCE_COLUMNS`: moved here.
 - `PowerUsageCsvLoader(CsvLoader)`: class attribute `source: PowerUsageSource`; `_read_all`
   parses every file with `parse_hourly(file, self.source)`, keeps `self._file_rows(parsed)`
@@ -174,12 +178,13 @@ not null).
 
 ## 6. Docs
 
-- `docs/Kansai-Power-Usage-Retrieval.md`: TEPCO's outline — what it is, files and URLs,
-  daily layout with the three headers, quirks (padded files, the correction row, the
-  missing day, the 2020-11-16 使用率 change, the member rename, the revision policy),
-  comparison with the Kansai A-1 series over 2022-04-01 → the last loaded day (the
-  numbers come from the real load, section 8), downloading and loading, the 5-minute
-  table not ingested. Sidebar entry after the Kansai A-1 doc.
+- `docs/Kansai-Power-Usage-Retrieval.md`: TEPCO's outline: what it is, files
+  and URLs, and the daily layout with the three headers. Then the quirks —
+  padded files, the correction row, the missing day, the 2020-11-16 使用率 change,
+  the member rename, the revision policy. Then the comparison with the Kansai
+  A-1 series over 2022-04-01 → the last loaded day, whose numbers come from the
+  real load (section 8). Then downloading and loading, and the 5-minute table
+  not being ingested. Sidebar entry after the Kansai A-1 doc.
 - `docs/README.md`: a Loaded row (関西電力送配電, でんき予報, 2016-04-01 ~ yesterday, one
   known hole) and a Candidates row (its 5-minute table, 太陽光 from 2019-09-12); the
   `fct_area_power_usage_hourly` bullet says Tokyo and Kansai.
@@ -193,11 +198,12 @@ not null).
 - Download: a response that is not a zip, a zip with no matching member, a member dated
   outside its month, or a settled month missing a day not in `known_missing_days` raise
   `AreaActualsDownloadError`; HTTP errors propagate. `refresh-all` stops before the load.
-- Parse: a missing or malformed stamp, no accepted header, an empty block, a row whose
-  field count differs from the header's after the trailing-comma strip, a `TIME` not on
-  the hour, a day not covering hours 0 to 23 exactly once, or a single-day file holding
-  two dates raise `ValueError` with the file name. A `修正後` row with a non-numeric
-  measure fails the contract cast, naming the file.
+- Parse. Any of these raises `ValueError` with the file name: a missing or
+  malformed stamp, no accepted header, an empty block, a row whose field count
+  differs from the header's after the trailing-comma strip, a `TIME` not on the
+  hour, a day not covering hours 0 to 23 exactly once, or a single-day file
+  holding two dates. A `修正後` row with a non-numeric measure fails the contract
+  cast, naming the file.
 - Load: grain duplicates and nulls in non-nullable columns fail as for every `CsvLoader`,
   naming the offending files.
 
@@ -207,24 +213,30 @@ not null).
   correction row (applied; blanks keep the original; a correction with no row above
   fails), the one-date rule with and without `multi_day_headers`, and the loader base with
   the `_file_rows` hook.
-- `tests/test_kansai_power_usage.py` (new): the spec (URL, names, both member patterns,
-  the three headers, the missing day), the downloader through the shared fakes (a month
-  archive with both member generations; the settled month 2024-03 passes without the
-  31st; another absent day fails), the loader end to end on the local Spark fixture with
-  the three layouts and a padded file (values, nulls before 2019-09-12, `source_file`,
-  `file_updated_at`).
+- `tests/test_kansai_power_usage.py` (new) covers three things. The spec: URL,
+  names, both member patterns, the three headers, the missing day. The
+  downloader through the shared fakes: a month archive with both member
+  generations, the settled month 2024-03 passing without the 31st, and another
+  absent day failing. The loader end to end on the local Spark fixture with the
+  three layouts and a padded file: values, nulls before 2019-09-12,
+  `source_file`, `file_updated_at`.
 - `tests/test_tepco_power_usage.py`: unchanged behaviour; only imports move if any.
 - `tests/test_area_actuals.py`: `known_missing_days` on `_check_month_coverage`.
 - Script tests: `download_kansai_power_usage` next to the TEPCO one in
   `test_download_scripts.py`; `load_kansai_power_usage` in `GENERIC_SCRIPTS` and
   `CONTRACT_GRAINS` of `test_load_scripts.py`.
 - Gates: `just test` at 100 % coverage, `just lint`, `just mypy`, `just dbt build` green.
-- Proof for the PR body, from the real run in the devcontainer: every zip and daily file
-  downloaded (126 and 3,808 as of 2026-09-05); (days − 1) × 24 rows loaded (91,392 for
-  2016-04-01 → 2026-09-04, plus 24 per later day); 2016-04-24 00:00
-  = 1212 万kW; 2025-03-14 (padded) and 2025-05-07 (zero-padded date) present; no row on
-  2024-03-31; supply null exactly before 2019-09-12; the fact vs the Kansai A-1 fact
-  summed per `dim_delivery_period.hour_of_day` (bias, MAE, MAE %), which also fills the
+- Proof for the PR body, from the real run in the devcontainer:
+
+- every zip and daily file downloaded — 126 and 3,808 as of 2026-09-05;
+- (days − 1) × 24 rows loaded — 91,392 for 2016-04-01 → 2026-09-04, plus 24 per
+  later day;
+- 2016-04-24 00:00 = 1212 万kW;
+- 2025-03-14 (padded) and 2025-05-07 (zero-padded date) present;
+- no row on 2024-03-31;
+- supply null exactly before 2019-09-12;
+- the fact against the Kansai A-1 fact summed per
+  `dim_delivery_period.hour_of_day` (bias, MAE, MAE %), which also fills the
   doc's comparison section.
 - Review loop per CLAUDE.md: Codex, then Copilot, then report ready.
 

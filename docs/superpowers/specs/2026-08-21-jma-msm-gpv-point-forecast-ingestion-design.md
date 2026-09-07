@@ -123,7 +123,7 @@ Important product changes:
 - 00/12 UTC runs extended through FH51 in March 2019.
 - 00/12 UTC runs extended through FH78 in June 2022.
 
-A full delivery day from one pre-cutoff vintage should therefore not be promised before the FH51 extension in March 2019.
+A full delivery day from one pre-cutoff vintage should not be promised before the FH51 extension in March 2019.
 
 ## Weather elements
 
