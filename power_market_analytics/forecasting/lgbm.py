@@ -5,7 +5,8 @@ A concrete strategy sets ``task``, ``name``, ``feature_cols``,
 some features are categories) and implements ``_add_features`` (lags,
 exogenous columns); everything else — the calendar features, periodic refits
 on a trailing window, TreeSHAP recording per forecast day and their melt into
-``contributions()`` for the warehouse, replaying the walk-forward forecasts
+``contributions()`` for the warehouse, the permutation importance over the
+kept refits, replaying the walk-forward forecasts
 through MLflow's static-dataset evaluation and the SHAP summary plots — lives
 here.
 """
@@ -34,6 +35,13 @@ from power_market_analytics.forecasting.frames import (
     DayAheadForecast,
     ForecastContributions,
     HalfHourlySeries,
+    PermutationImportance,
+)
+from power_market_analytics.forecasting.importance import (
+    DEFAULT_N_REPEATS,
+    DEFAULT_SEED,
+    MODEL_INDEX_COL,
+    permutation_importance,
 )
 from power_market_analytics.forecasting.strategy import ForecastStrategy, ForecastUnavailableError
 
@@ -88,7 +96,9 @@ class SlidingWindowLightGbmStrategy(ForecastStrategy[HalfHourlySeries, LightGbmE
     window of the trailing ``train_window_days`` days of history (or as much
     of it as exists), so every delivery day is scored by a model fitted only
     on data published before it. Each :meth:`predict` call also records the
-    exact TreeSHAP contributions of the model that scored it.
+    exact TreeSHAP contributions of the model that scored it, and every refit
+    is kept so :meth:`permutation_importance` can re-score each day with the
+    model that forecast it.
 
     Training and prediction rows go through the same feature builder
     (:meth:`_features`), so the two can never disagree: the base adds
@@ -152,6 +162,10 @@ class SlidingWindowLightGbmStrategy(ForecastStrategy[HalfHourlySeries, LightGbmE
             None if train_start_date is None else pd.Timestamp(train_start_date).as_unit("ns")
         )
         self._model: lightgbm.LGBMRegressor | None = None
+        #: Every refit, in fit order; ``_model`` is always its last element.
+        self._models: list[lightgbm.LGBMRegressor] = []
+        #: Index into ``_models`` of the model that scored each predicted day.
+        self._model_of_day: dict[pd.Timestamp, int] = {}
         self._trained_through: pd.Timestamp | None = None
         self._fit_anchor: pd.Timestamp | None = None
         self._n_fits = 0
@@ -201,6 +215,7 @@ class SlidingWindowLightGbmStrategy(ForecastStrategy[HalfHourlySeries, LightGbmE
         # the assigned trade_date column is datetime64[ns] per the contract.
         target_date = pd.Timestamp(target_date).as_unit("ns")
         model = self._ensure_fitted(history.df, target_date)
+        self._model_of_day[target_date] = len(self._models) - 1
         points = pd.DataFrame(
             {"trade_date": target_date, "time_code": np.arange(1, N_PERIODS + 1, dtype="int64")}
         )
@@ -361,6 +376,67 @@ class SlidingWindowLightGbmStrategy(ForecastStrategy[HalfHourlySeries, LightGbmE
             .sort_values([*GRAIN_COLS, "component_order"], ignore_index=True)
         )
         return ForecastContributions.from_df(melted)
+
+    def permutation_importance(
+        self,
+        run: BacktestRun,
+        *,
+        n_repeats: int = DEFAULT_N_REPEATS,
+        seed: int = DEFAULT_SEED,
+    ) -> PermutationImportance:
+        """Walk-forward permutation importance over the run's scored periods.
+
+        The recorded per-day features (the same rows :meth:`contributions`
+        melts) are aligned to ``run.result`` and each row is tagged with the
+        refit that forecast its day; scikit-learn then shuffles one feature at
+        a time across all rows and re-scores them through
+        :class:`~power_market_analytics.forecasting.importance.WalkForwardPredictor`.
+
+        Parameters
+        ----------
+        run : BacktestRun
+            The backtest whose scored periods define the rows.
+        n_repeats, seed : int, optional
+            Shuffles per feature and their seed.
+
+        Returns
+        -------
+        PermutationImportance
+
+        Raises
+        ------
+        RuntimeError
+            If no day has been predicted yet, or a scored period of ``run``
+            has no recorded forecast (the backtest and the run disagree).
+        """
+        if not self._shap_records:
+            raise RuntimeError(f"{self.name}: no recorded forecasts; run the backtest first")
+        columns = list(dict.fromkeys([*GRAIN_COLS, *self.feature_cols]))
+        pooled = pd.concat(
+            [
+                records[columns].assign(**{MODEL_INDEX_COL: self._model_of_day[day]})
+                for day, records in self._shap_records.items()
+            ],
+            ignore_index=True,
+        )
+        rows = run.result.df[[*GRAIN_COLS, self.task.actual_col]].merge(
+            pooled, how="left", on=GRAIN_COLS, validate="one_to_one", indicator=True
+        )
+        missing = rows.loc[rows["_merge"] == "left_only", GRAIN_COLS]
+        if not missing.empty:
+            first = missing.iloc[0]
+            raise RuntimeError(
+                f"{self.name}: {len(missing)} scored period(s) have no recorded forecast, "
+                f"e.g. {first['trade_date'].date()} time_code {first['time_code']}"
+            )
+        return permutation_importance(
+            rows.drop(columns="_merge"),
+            self._models,
+            self.feature_cols,
+            actual_col=self.task.actual_col,
+            n_repeats=n_repeats,
+            seed=seed,
+        )
 
     def evaluate(
         self,
@@ -554,6 +630,7 @@ class SlidingWindowLightGbmStrategy(ForecastStrategy[HalfHourlySeries, LightGbmE
         )
         trained_through = train["trade_date"].max()
         self._model = model
+        self._models.append(model)
         self._trained_through = trained_through
         self._fit_anchor = target_date
         self._n_fits += 1

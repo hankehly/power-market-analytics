@@ -26,6 +26,7 @@ from tests.support import import_script
 
 FORECAST_TABLE = "pma_ml.demand_forecast"
 CONTRIBUTION_TABLE = "pma_ml.demand_forecast_contribution"
+IMPORTANCE_TABLE = "pma_ml.demand_forecast_importance"
 
 
 def last_run() -> mlflow.entities.Run:
@@ -53,6 +54,15 @@ def published_contribution_rows(spark, run_id: str) -> pd.DataFrame:
         .filter(F.col("run_id") == run_id)
         .toPandas()
         .sort_values(["trade_date", "time_code", "component_order"], ignore_index=True)
+    )
+
+
+def published_importance_rows(spark, run_id: str) -> pd.DataFrame:
+    return (
+        spark.table(IMPORTANCE_TABLE)
+        .filter(F.col("run_id") == run_id)
+        .toPandas()
+        .sort_values(["feature_order", "repeat_index"], ignore_index=True)
     )
 
 
@@ -245,6 +255,69 @@ class TestBacktestScript:
             sums.reindex(forecasts.index).to_numpy(), forecasts.to_numpy(), rtol=1e-9, atol=1e-3
         )
 
+        # The run's permutation importance lands next to them: 5 features x 5 repeats.
+        assert run.data.tags["importance_table"] == IMPORTANCE_TABLE
+        assert params["permutation_repeats"] == "5"
+        assert params["permutation_seed"] == "0"
+        assert {
+            "permutation_importance.csv",
+            "permutation_importance_repeats.csv",
+            "permutation_importance_plot.png",
+        } <= artifacts
+        importance = published_importance_rows(spark, run.info.run_id)
+        assert list(importance.columns) == [
+            "strategy",
+            "area_code",
+            "feature",
+            "feature_order",
+            "repeat_index",
+            "n_periods",
+            "mae_demand_kwh",
+            "permuted_mae_demand_kwh",
+            "published_at",
+            "run_id",
+        ]
+        assert len(importance) == 5 * 5
+        assert importance["feature"].unique().tolist() == [
+            "time_code",
+            "month",
+            "day_of_week",
+            "wavg_temperature_c",
+            "lag_7d_demand_kwh",
+        ]
+        assert importance["n_periods"].unique().tolist() == [144]
+        # the baseline is the run's own MAE (the MLflow evaluation replays the same rows)
+        assert importance["mae_demand_kwh"].iloc[0] == pytest.approx(
+            run.data.metrics["mean_absolute_error"], rel=1e-9
+        )
+        assert importance["published_at"].iloc[0] == published["published_at"].iloc[0]
+        summary = pd.read_csv(
+            mlflow.artifacts.download_artifacts(
+                run_id=run.info.run_id, artifact_path="permutation_importance.csv"
+            )
+        )
+        assert list(summary.columns) == [
+            "feature",
+            "feature_order",
+            "mae",
+            "permuted_mae",
+            "importance_mae",
+            "importance_std",
+            "importance_pct",
+            "n_repeats",
+        ]
+        assert summary["feature"].tolist() == importance["feature"].unique().tolist()
+        assert summary["n_repeats"].tolist() == [5] * 5
+
+    def test_importance_repeats_reaches_the_strategy(self, spark, curated_warehouse):
+        script = import_script("demand_backtest")
+        script.main(["--days", "1", "--shap-nsamples", "20", "--importance-repeats", "2"])
+        run = last_run()
+        assert run.data.params["permutation_repeats"] == "2"
+        importance = published_importance_rows(spark, run.info.run_id)
+        assert sorted(importance["repeat_index"].unique()) == [0, 1]
+        assert len(importance) == 2 * 7  # the default strategy's seven features
+
     def test_diagnostics_frames_are_logged_as_csv(self, spark, curated_warehouse, monkeypatch):
         script = import_script("demand_backtest")
         real_build_strategy = script.build_strategy
@@ -282,27 +355,33 @@ class TestBacktestScript:
         )
         assert logged["reference_date"].tolist() == ["2023-04-12"]
 
-    def test_strategy_without_contributions_skips_publishing(
+    def test_strategy_without_contributions_or_importance_skips_publishing(
         self, spark, curated_warehouse, monkeypatch
     ):
         # Every registered demand strategy is LightGBM-based and always explains itself
         # (unlike spot_price's previous_day); simulate a non-explaining strategy here so
-        # the "nothing to publish" branch is exercised too.
+        # the "nothing to publish" branches are exercised too.
         script = import_script("demand_backtest")
         real_build_strategy = script.build_strategy
 
-        def build_strategy_without_contributions(*args, **kwargs):
+        def build_strategy_without_explanations(*args, **kwargs):
             strategy = real_build_strategy(*args, **kwargs)
             monkeypatch.setattr(strategy, "contributions", lambda: None)
+            monkeypatch.setattr(strategy, "permutation_importance", lambda run, **kw: None)
             return strategy
 
-        monkeypatch.setattr(script, "build_strategy", build_strategy_without_contributions)
+        monkeypatch.setattr(script, "build_strategy", build_strategy_without_explanations)
         script.main(["--days", "1", "--shap-nsamples", "20"])
         run = last_run()
         assert run.info.status == "FINISHED"
         assert "contribution_table" not in run.data.tags
+        assert "importance_table" not in run.data.tags
+        assert "permutation_repeats" not in run.data.params
+        assert "permutation_importance.csv" not in artifact_names(run.info.run_id)
         if spark.catalog.tableExists(CONTRIBUTION_TABLE):
             assert published_contribution_rows(spark, run.info.run_id).empty
+        if spark.catalog.tableExists(IMPORTANCE_TABLE):
+            assert published_importance_rows(spark, run.info.run_id).empty
 
     def test_hole_day_is_partly_scored_and_its_d7_successor_skipped(self, spark, curated_warehouse):
         # 2024-04-20 has actuals for time codes 1..10 only (48 forecasts, 10 scored);
@@ -459,6 +538,14 @@ class TestBacktestScript:
         script = import_script("demand_backtest")
         script.main(["--days", "2", "--train-start", "2024-04-01", "--shap-nsamples", "20"])
         assert last_run().data.params["lgbm_train_start_date"] == "2024-04-01"
+
+    def test_importance_repeats_below_one_is_rejected_before_the_run(self, capsys):
+        # Checked at parse time: no backtest runs and nothing is published for a bad count.
+        script = import_script("demand_backtest")
+        with pytest.raises(SystemExit) as exc:
+            script.main(["--days", "1", "--importance-repeats", "0"])
+        assert exc.value.code == 2
+        assert "--importance-repeats must be >= 1, got 0" in capsys.readouterr().err
 
     def test_end_date_after_the_data_is_rejected(self, spark, curated_warehouse):
         script = import_script("demand_backtest")
