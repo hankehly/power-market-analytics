@@ -20,10 +20,10 @@ holidays?
 
 [O-001](research/demand/observations.md#o-001-holidays-dominate-the-worst-days-and-are-over-forecast):
 on the baseline run `2556e3f2…` (`lightgbm_msm_popw`, Tokyo, 729 days
-2024-08-18..2026-08-17) 15 of the 20 worst days by daily MAE are holidays,
-although holidays are 60 of the 729 days; holiday MAE is 1,760,466 kWh against
-665,046 on weekdays, and 96 % of it is positive bias (+1,688,435 kWh) — the
-model over-forecasts 59 of the 60 holidays. Holidays are 8 % of the scored
+2024-08-18..2026-08-17), 15 of the 20 worst days by daily MAE are holidays,
+though holidays are only 60 of the 729 days. Holiday MAE is 1,760,466 kWh
+against 665,046 on weekdays, and 96 % of it is positive bias (+1,688,435 kWh):
+the model over-forecasts 59 of the 60 holidays. Holidays are 8 % of the scored
 points but carry 20 % of the run's total absolute error.
 
 The researcher's reasoning, as stated: the day category is not passed to the
@@ -31,14 +31,13 @@ model during training, so it has no guidance that these days represent the
 special human behaviour of not working, which changes electricity usage. As a
 result the model often over-estimates the amount of electricity needed — less
 electricity is used than forecast — which the researcher attributes to there
-being less commercial activity on holidays. The proposed change is therefore
-to add a day-type categorical to the model.
+being less commercial activity on holidays. The proposed change is to add a
+day-type categorical to the model.
 
-The inputs already exist: `dim_date` flags every day as a weekend and/or a
-holiday, where `is_holiday` covers the Cabinet Office 国民の祝日 and, since
-2026-08-25 (PR #14), the customary non-working days 年末年始 12/30–1/3,
-ゴールデンウィーク 4/30–5/2 and お盆 8/13–16 — the 年末年始 and お盆 days that
-top O-001's worst-days table. The baseline's calendar features are
+The inputs already exist: `dim_date` flags every day as a weekend and/or a holiday. `is_holiday` covers
+the Cabinet Office 国民の祝日 and, since 2026-08-25 (PR #14), the customary
+non-working days 年末年始 12/30–1/3, ゴールデンウィーク 4/30–5/2 and お盆
+8/13–16 — the 年末年始 and お盆 days that top O-001's worst-days table. The baseline's calendar features are
 `time_code`, `month` and `day_of_week`, so a holiday on a Monday–Friday has the
 same calendar input as a working day of that weekday.
 
@@ -55,19 +54,18 @@ same calendar input as a working day of that weekday.
 
 - **Forecast target:** the 48 half-hourly `demand_kwh` values of
   `fct_area_demand_generation_actual` for day D, Tokyo area (`--area tokyo`)
-- **Information cutoff:** D-1 at 09:30 JST; usable demand history = delivery
-  days ≤ D-2; observed-weather features use complete observation days ≤ D-2 at
-  東京 s47662; forecast features use the MSM vintage referenced 21:00 JST D-2
-  population-weighted over the area's 21 weighted stations; the day type of D
-  is known from the calendar
+- **Information cutoff:** the [task defaults](research/demand/README.md), with
+  東京 s47662 as the representative station. Forecast features use the MSM
+  vintage referenced 21:00 JST D-2, population-weighted over the area's 21
+  weighted stations. The day type of D is known from the calendar
 - **Baseline:** `lightgbm_msm_popw` — the R-002 E-001 candidate run
   [`2556e3f2b94c4cf59efc6b2fff1bddef`](http://localhost:5005/#/experiments/2/runs/2556e3f2b94c4cf59efc6b2fff1bddef),
   the demand baseline since 2026-08-24, compared as run (not re-run)
 - **Primary metric:** MAE (kWh per 30-minute period)
-- **Important segments:** the *Holiday* day type (MAE and bias) and the
-  worst days (the 20 delivery days with the highest daily MAE) — the
-  researcher's stated expectations; *Weekday* and *Weekend* as no-harm checks;
-  day part and calendar month as consistency checks
+- **Important segments:** the *Holiday* day type (MAE and bias) and the worst
+  days, the 20 delivery days with the highest daily MAE. Those are the
+  researcher's stated expectations. *Weekday* and *Weekend* are no-harm checks;
+  day part and calendar month are consistency checks
 - **Evaluation method:** rolling out-of-sample backtest over identical delivery
   dates and training rows for baseline and candidate (`--start-date 2024-08-18
   --end-date 2026-08-17`, no `--train-start`, exactly the baseline run's
@@ -85,24 +83,23 @@ information the researcher expects, this is where it shows first.
 
 ### Experiment hypothesis
 
-Adding `day_type` — 0 = Weekday, 1 = Weekend, 2 = Holiday — to the
-`lightgbm_msm_popw` feature set, declared to LightGBM as a categorical column,
-will lower holiday MAE and shrink the positive holiday bias on the matched
-window, improve the worst days that are holidays, and lower overall MAE,
-without a material deterioration on weekdays or weekends.
+Adding `day_type` to the `lightgbm_msm_popw` feature set, declared to LightGBM
+as a categorical column, will lower holiday MAE and shrink the positive holiday
+bias on the matched window. It will improve the worst days that are holidays
+and lower overall MAE, without a material deterioration on weekdays or
+weekends. `day_type` is 0 = Weekday, 1 = Weekend, 2 = Holiday.
 
 ### Change
 
 - **Feature** — `day_type`, the delivery day's category per `dim_date`:
-  *Holiday* (`is_holiday`: a national holiday or a customary non-working day,
-  whatever weekday it falls on) takes precedence over *Weekend*
-  (`is_weekend`), else *Weekday* — the same labels and precedence as the
-  compare script's day-type segment, so the model's categories are the
-  research tables' segments. Loaded once for the whole `dim_date` spine
+  *Holiday* takes precedence over *Weekend* (`is_weekend`), else *Weekday*.
+  *Holiday* is `is_holiday`: a national holiday or a customary non-working day,
+  whatever weekday it falls on. These are the same labels and precedence as the
+  compare script's day-type segment, so the model's categories are the research
+  tables' segments. Loaded once for the whole `dim_date` spine
   (`load_day_types` → `DayTypeCalendar`, grain = day) and joined to every
-  training and prediction row on the delivery day (`join_day_type`); a
-  delivery day outside the calendar is unforecastable, like a missing
-  temperature.
+  training and prediction row on the delivery day (`join_day_type`); a delivery
+  day outside the calendar is unforecastable, like a missing temperature.
 - **Categorical** — the shared LightGBM base gained a
   `categorical_feature_cols` class attribute that is passed to
   `LGBMRegressor.fit(categorical_feature=…)` and logged as
@@ -150,11 +147,11 @@ MAE is not lower or overall MAE is higher with an interval that excludes zero.
 - **Baseline run:** `lightgbm_msm_popw-tokyo`
   [`2556e3f2b94c4cf59efc6b2fff1bddef`](http://localhost:5005/#/experiments/2/runs/2556e3f2b94c4cf59efc6b2fff1bddef)
   — the R-002 E-001 candidate on the PR #13 code version, compared as run.
-  The candidate runs on this investigation's code version; the only shared
+    The candidate runs on this investigation's code version. The only shared
   code that changed is the base class's `categorical_feature` pass-through,
-  verified a no-op for strategies without categorical columns, and the
-  `dim_date` customary holidays (PR #14) enter only the new feature and the
-  day-type segment tables, not the baseline's forecasts.
+  verified a no-op for strategies without categorical columns. The `dim_date`
+  customary holidays (PR #14) enter only the new feature and the day-type
+  segment tables, not the baseline's forecasts.
 - **Candidate run:** `lightgbm_msm_popw_daytype-tokyo`
   [`7ce891253f584ed39f179f76a7a8c7c9`](http://localhost:5005/#/experiments/2/runs/7ce891253f584ed39f179f76a7a8c7c9)
   — run 2026-08-25 with the baseline's flags; `lgbm_categorical_feature_cols
@@ -170,18 +167,18 @@ MAE is not lower or overall MAE is higher with an interval that excludes zero.
   --candidate 7ce891253f584ed39f179f76a7a8c7c9 --mae-by-month-png …`; the
   worst-days, holiday-by-holiday and holiday-kind tables were queried from
   `fct_demand_forecast_accuracy` × `dim_date` the same way as O-001's.
-- **Matched window:** the R-001/R-002 window — 729 delivery days
-  2024-08-18..2026-08-17, 34,954 scored points per run, identical training
-  rows and refit schedule (both training sets start at the first demand day,
+- **Matched window:** the R-001/R-002 window of 729 delivery days
+  2024-08-18..2026-08-17, 34,954 scored points per run, with identical training
+  rows and refit schedule. Both training sets start at the first demand day,
   2022-04-01, and both skip 2025-06-21 for its D-7 lag in the 2025-06-14 TSO
-  hole)
-- **Segment definitions:** as in R-002 (`tasks/demand/compare.py`: day parts
-  per `dim_delivery_period.day_part`, day types from `dim_date`, 2,000-MWh
-  bands, top-10 % demand days; daily paired comparison = percentile bootstrap
-  of the mean daily-MAE difference over days, 10,000 resamples, seed 0), plus
-  the worst-days table (the 20 delivery days with the highest daily MAE, per
-  run) and the holiday kinds (元日 / 年末年始; お盆; ゴールデンウィーク 4/30–5/2;
-  a national holiday on a weekday; a national holiday on a Saturday/Sunday)
+  hole
+- **Segment definitions:** as in R-002, i.e. `tasks/demand/compare.py`. This
+  experiment adds two:
+  - the worst-days table, the 20 delivery days with the highest daily MAE per
+    run;
+  - the holiday kinds: 元日 / 年末年始, お盆, ゴールデンウィーク 4/30–5/2, a
+    national holiday on a weekday, and a national holiday on a
+    Saturday/Sunday.
 
 ### Results
 
@@ -249,26 +246,31 @@ The candidate is lower on 18 of these 20 days; their mean daily MAE falls
 from 3,208,622 to 1,346,528 (−58 %), and every one of the 15 holidays among
 them improves, by 55 % to 90 %. The two that get worse are the working days
 before お盆 (2025-08-12 +15 %, 2026-08-12 +11 %, both over-forecast more than
-before). The candidate's own 20 worst days contain 4 holidays (the baseline's
-contained 15); its three worst are 2025-08-12 (+3,858,649), 2026-02-11
+before). The candidate's own 20 worst days contain 4 holidays, against 15 in the
+baseline's. Its three worst are 2025-08-12 (+3,858,649), 2026-02-11
 建国記念の日 (−3,071,435; −1,147,127 in the baseline) and 2026-08-12
 (+2,837,390), followed by 2025-12-29, the Monday before 年末年始 (+2,610,079;
 +2,218,287 in the baseline).
 
-Holiday by holiday, the candidate is lower on 53 of the 60; 35 holidays keep a
-positive daily bias (59 in the baseline). The seven holidays that get worse are
-all under-forecast by the candidate: 2025-01-13 成人の日 (1,213,771 →
-2,592,018; bias +1,165,823 → −2,592,018), 2025-02-11 建国記念の日 (1,196,317 →
-1,534,427), 2025-05-02 ゴールデンウィーク Friday (522,385 → 901,064),
-2025-07-21 海の日 (1,202,479 → 1,509,700), 2025-11-23 勤労感謝の日, a Sunday
-(233,536 → 632,155), 2026-02-11 建国記念の日 (1,147,127 → 3,071,435; the one
-holiday the baseline already under-forecast) and 2026-05-01 ゴールデンウィーク
-Friday (580,482 → 1,076,621).
+Holiday by holiday, the candidate is lower on 53 of the 60. 35 holidays keep a
+positive daily bias, against 59 in the baseline. The seven holidays that get
+worse are all under-forecast by the candidate:
 
-Weekdays adjacent to a holiday (daily MAE): the 12 weekdays immediately before
-a holiday go from 1,185,735 to 1,388,594 (+17 %; bias +592,436 → +900,156),
-the 23 weekdays immediately after from 904,548 to 911,609 (+1 %), the other
-441 weekdays from 648,752 to 564,229 (−13 %; bias −241,110 → −69,184).
+| Holiday | Baseline → candidate MAE |
+|---|---|
+| 2025-01-13 成人の日 | 1,213,771 → 2,592,018 (bias +1,165,823 → −2,592,018) |
+| 2025-02-11 建国記念の日 | 1,196,317 → 1,534,427 |
+| 2025-05-02 ゴールデンウィーク Friday | 522,385 → 901,064 |
+| 2025-07-21 海の日 | 1,202,479 → 1,509,700 |
+| 2025-11-23 勤労感謝の日 (a Sunday) | 233,536 → 632,155 |
+| 2026-02-11 建国記念の日 | 1,147,127 → 3,071,435 — the one holiday the baseline already under-forecast |
+| 2026-05-01 ゴールデンウィーク Friday | 580,482 → 1,076,621 |
+
+Weekdays adjacent to a holiday, by daily MAE. The 12 weekdays immediately
+before a holiday go from 1,185,735 to 1,388,594 (+17 %; bias +592,436 →
++900,156). The 23 weekdays immediately after go from 904,548 to 911,609 (+1 %).
+The other 441 weekdays go from 648,752 to 564,229 (−13 %; bias −241,110 →
+−69,184).
 
 MAE by day part (candidate lower in all four):
 
@@ -315,48 +317,48 @@ the 18th–31st and 2026-08 the 1st–17th):
 MAE by season: Winter (Dec–Feb) −27.2 %, Spring (Mar–May) −12.5 %, Summer
 (Jun–Aug) −16.1 %, Autumn (Sep–Nov) −13.6 %.
 
-Daily paired comparison (daily MAE, candidate − baseline, 729 days): the
-candidate is lower on 61.6 % of days (449 of 729); mean difference
-−134,134 kWh with a 95 % bootstrap CI over days of [−167,972, −102,160] kWh;
-median difference −24,070 kWh; the ten most-improved days account for 28 % of
-the total absolute-error reduction.
+Daily paired comparison (daily MAE, candidate − baseline, 729 days). The
+candidate is lower on 61.6 % of days (449 of 729). Mean difference −134,134 kWh,
+95 % bootstrap CI over days [−167,972, −102,160] kWh, median difference
+−24,070 kWh. The ten most-improved days account for 28 % of the total
+absolute-error reduction.
 
-Other cuts of the same two runs (not tabulated here): every 2,000-MWh
-actual-demand band is lower (−12.0 % to −25.2 % between 10,000 and
-24,000 MWh, −58.6 % in the lowest 8,000–10,000 MWh band, where holidays sit);
-the top-10 % demand days (daily mean ≥ 19,489 MWh, 73 days) −21.7 % against
+Other cuts of the same two runs, not tabulated here. Every 2,000-MWh
+actual-demand band is lower: −12.0 % to −25.2 % between 10,000 and 24,000 MWh,
+and −58.6 % in the lowest 8,000–10,000 MWh band, where holidays sit. The
+top-10 % demand days (daily mean ≥ 19,489 MWh, 73 days) are −21.7 % against
 −17.9 % on the other 90 %.
 
 ### Interpretation
 
 Read against the pre-registered expected evidence:
 
-- **Lower holiday MAE and a bias closer to zero:** yes, and large — holiday
+- **Lower holiday MAE and a bias closer to zero:** yes, and large. Holiday
   MAE −56.5 % (1,760,466 → 765,403 kWh), the holiday bias +1,688,435 →
   +83,172 kWh, the share of over-forecast holiday points 93 % → 57 %, holiday
   MAPE 12.6 % → 5.3 %. Every holiday kind improves, most where the baseline
   was worst (元日 / 年末年始 −74 %, お盆 −63 %, national holidays on weekdays
-  −47 %) and least on the customary ゴールデンウィーク days 4/30–5/2 (−24 %),
-  which the candidate now under-forecasts on average (bias −449,736).
-- **The worst days:** yes — the 15 holidays among the baseline's 20 worst days
-  improve by 55–90 %, the candidate is lower on 18 of those 20 days (mean
-  daily MAE −58 %), and only 4 holidays remain among the candidate's 20 worst.
+  −47 %). It improves least on the customary ゴールデンウィーク days 4/30–5/2
+  (−24 %), which the candidate now under-forecasts on average (bias −449,736).
+- **The worst days:** yes. The 15 holidays among the baseline's 20 worst days
+  improve by 55–90 % and the candidate is lower on 18 of those 20 days (mean
+  daily MAE −58 %). Only 4 holidays remain among the candidate's 20 worst.
 - **Lower overall MAE, mostly through holidays:** yes — −18.4 % (728,573 →
   594,325 kWh; MAPE 4.52 % → 3.66 %), of which 61 % comes from the holidays.
   The weekdays contribute another 36 % (−11.3 %, concentrated on the weekdays
   not adjacent to a holiday: −13 %, with their bias moving from −241,110 to
   −69,184); weekends −2.4 %.
-- **No material deterioration on weekdays or weekends:** none — both are
-  lower, all four day parts are lower (−14 % to −22 %), all four seasons and
-  21 of 25 months are lower (the four higher months are within +2.1 %), and
-  the paired-difference interval over days excludes zero. The gain is less
-  concentrated than R-002's (28 % of it from the ten most-improved days).
+- **No material deterioration on weekdays or weekends:** none. Both are lower,
+  as are all four day parts (−14 % to −22 %), all four seasons and 21 of 25
+  months. The four higher months are within +2.1 %, and the paired-difference
+  interval over days excludes zero. The gain is less concentrated than
+  R-002's, with 28 % of it from the ten most-improved days.
 
-What got worse, which the expected evidence did not anticipate: 7 of the 60
-holidays, all of which the candidate under-forecasts — 2026-02-11 建国記念の日
-is now the run's second-worst day (−3,071,435) and 2025-01-13 成人の日 its
-fifth (−2,592,018) — and the 12 weekdays immediately before a holiday
-(+17 %), where the over-forecast grows: the candidate's worst day is
+What got worse, which the expected evidence did not anticipate. First, 7 of
+the 60 holidays, all of which the candidate under-forecasts: 2026-02-11
+建国記念の日 is now the run's second-worst day (−3,071,435) and 2025-01-13
+成人の日 its fifth (−2,592,018). Second, the 12 weekdays immediately before a
+holiday (+17 %), where the over-forecast grows. The candidate's worst day is
 2025-08-12, the Tuesday before お盆, and 2026-08-12 and 2025-12-29 (the
 working days before お盆 and 年末年始) are its third and fourth.
 
@@ -375,13 +377,15 @@ the researcher's commercial-activity explanation.
 **Decision:** Keep (confirmed by the researcher on 2026-08-26)
 
 Applying the rule as written: holiday MAE falls materially (−56.5 %) and the
-holiday bias shrinks (+1.69 M → +0.08 M kWh); overall MAE is lower with the
-bootstrap interval of the daily paired difference excluding zero; neither
-weekdays (−11.3 %) nor weekends (−2.4 %) deteriorate — every "keep" condition
-is met. Three things the rule does not capture were put to the researcher:
-seven holidays get worse and are now under-forecast (two of them are among the
-candidate's five worst days), the customary ゴールデンウィーク days are
-under-forecast on average, and the weekday before a holiday deteriorates
+holiday bias shrinks (+1.69 M → +0.08 M kWh). Overall MAE is lower, with the
+bootstrap interval of the daily paired difference excluding zero. Neither
+weekdays (−11.3 %) nor weekends (−2.4 %) deteriorate. Every "keep" condition
+is met.
+
+Three things the rule does not capture were put to the researcher. Seven
+holidays get worse and are now under-forecast, two of them among the
+candidate's five worst days. The customary ゴールデンウィーク days are
+under-forecast on average. And the weekday before a holiday deteriorates
 (+17 %). The researcher confirmed the decision on 2026-08-26, judging the MAE
 improvement and the reduction of the holiday bias significant; the three
 points stay recorded under *Open questions*. Resulting change:
@@ -402,21 +406,21 @@ E-001 executed on 2026-08-25. On the matched window (Tokyo, 729 delivery days
 2024-08-18..2026-08-17), adding the `dim_date` day type (Weekday / Weekend /
 Holiday) to `lightgbm_msm_popw` as a LightGBM categorical lowers overall MAE
 by 18.4 % (728,573 → 594,325 kWh; MAPE 4.52 % → 3.66 %). The effect is where
-the hypothesis placed it: holiday MAE −56.5 % with the holiday over-forecast
-essentially removed (bias +1,688,435 → +83,172 kWh), the 15 holidays among
-the baseline's 20 worst days improved by 55–90 %, and no day type, day part
-or season deteriorated (21 of 25 months lower; CI over days excludes zero).
-The residual holiday error is two-sided — seven holidays are now
-under-forecast — and the weekday before a holiday gets worse (+17 %).
+the hypothesis placed it. Holiday MAE −56.5 %, with the holiday over-forecast
+essentially removed (bias +1,688,435 → +83,172 kWh). The 15 holidays among
+the baseline's 20 worst days improved by 55–90 %. No day type, day part or
+season deteriorated: 21 of 25 months lower, CI over days excludes zero.
+The residual holiday error is two-sided, with seven holidays now
+under-forecast, and the weekday before a holiday gets worse (+17 %).
 **Keep**, confirmed by the researcher on 2026-08-26: the hypothesis that the
 model lacked the day category is supported by this single-area experiment,
 and `lightgbm_msm_popw_daytype` is now the demand baseline.
 
 ## Open questions
 
-- Whether one *Holiday* level is the right granularity: the candidate's
-  residual holiday error is two-sided (35 of 60 holidays over-forecast, 25
-  under-forecast), the customary ゴールデンウィーク days 4/30–5/2 are
+- Whether one *Holiday* level is the right granularity. The candidate's
+  residual holiday error is two-sided: 35 of 60 holidays over-forecast, 25
+  under-forecast. The customary ゴールデンウィーク days 4/30–5/2 are
   under-forecast on average, and the weekday before a holiday is over-forecast
   more than in the baseline.
 - Whether the gain on weekdays not adjacent to a holiday (−13 %) persists on

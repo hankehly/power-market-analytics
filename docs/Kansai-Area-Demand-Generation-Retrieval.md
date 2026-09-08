@@ -103,7 +103,7 @@ style as the rows; one 2022-03 file has an unpadded hour and trailing commas
 4. **Revisions** — files are normally created at ~00:13 on target date + 1;
    all of April 2022 was re-issued on 2023-09-11 12:31. Past months are not
    immutable, so every zip is re-fetched on every run.
-5. **No sentinel zeros, no scientific notation** — hence `bigint` measures
+5. **No sentinel zeros, no scientific notation**, so `bigint` measures
    straight from raw and no zero-nulling in `std` (contrast TEPCO).
 
 ## 5. Publication timing
@@ -142,10 +142,10 @@ just python scripts/load_kansai_area_demand_generation.py
 just dbt build
 ```
 
-The loader reads all ~1,600 daily files in a **single Spark scan** (`CsvLoader._scan_positional`),
-sniffing each file's `ファイル更新日` line in Python and joining the stamp back on the file name —
-a full reload takes about 8 s (before 2026-08-30 the per-file union spent ~3 min planning
-and ~40 s per Spark action).
+The loader reads all ~1,600 daily files in a **single Spark scan**
+(`CsvLoader._scan_positional`). It sniffs each file's `ファイル更新日` line in
+Python and joins the stamp back on the file name. A full reload takes about
+8 s.
 
 Warehouse path: `pma_raw.kansai_area_demand_generation_actual` →
 `stg_kansai__area_demand_generation_actual` →

@@ -1,8 +1,8 @@
 # e-Stat Census Population Mesh (国勢調査 500 m メッシュ) Data Retrieval
 
 How the Statistics Bureau publishes the Population Census on the 500 m mesh
-through e-Stat 統計GIS, what the files look like, how the privacy processing
-works, and how `power_market_analytics.estat` brings the total
+through e-Stat 統計GIS, and what the files look like. How the privacy
+processing works. And how `power_market_analytics.estat` brings the total
 population per mesh into the warehouse for every configured census vintage.
 The output feeds a later population-weighted weather aggregation; the
 weather-grid crosswalk and the weights themselves are **not** part of this
@@ -29,11 +29,11 @@ the official census counts, 127,094,745 and 126,146,099) and the official
   | 2015 | 2015-10-01 | JGD2000 (世界測地系) | `T000847` | `T000847001` 人口総数 | 151 |
   | 2020 | 2020-10-01 | JGD2000 | `T001101` | `T001101001` 人口（総数） | 151 |
 
-  e-Stat also publishes a JGD2011 duplicate of the 2020 tables; the JGD2000
-  product is used so mesh geography is consistent across the initial vintages
-  (`dim_population_mesh_500m` asserts that every mesh code carries a single
-  set of geographic attributes — a JGD2011 vintage would need its own
-  decision at that time).
+  e-Stat also publishes a JGD2011 duplicate of the 2020 tables. The JGD2000
+product is used so mesh geography is consistent across the initial vintages:
+`dim_population_mesh_500m` asserts that every mesh code carries a single set of
+geographic attributes. A JGD2011 vintage would need its own decision at that
+time.
 - **Packaging**: the 第１次地域区画 (primary mesh, four digits) packages, one
   zip per primary mesh, listed on the filtered listing pages
   ([2015](https://www.e-stat.go.jp/gis/statmap-search?page=1&type=1&toukeiCode=00200521&toukeiYear=2015&aggregateUnit=H&serveyId=H002005112015&statsId=T000847),
@@ -62,12 +62,14 @@ The response is JSON whose fields are HTML fragments:
 | `side_mega` | The hit count (`<span class="… js-total_resource">151</span>件のデータ`) |
 
 `CensusVintage.listing_detail_url(page)` derives that URL from the vintage's
-`listing_url` (path swap + the two flags), the downloader walks pages
-`1..M` using the `N/Mページ` index, collects the `code=` values of the
-download links (order preserved, duplicates dropped), and requires that
-every link carry the vintage's `statsId`, that every code be four digits, and
-that the de-duplicated count equal `expected_file_count` (151) — a changed
-publication fails loudly instead of loading a partial country.
+`listing_url`, by a path swap plus the two flags. The downloader walks pages
+`1..M` using the `N/Mページ` index and collects the `code=` values of the
+download links, order preserved and duplicates dropped.
+
+It then requires three things: that every link carry the vintage's `statsId`,
+that every code be four digits, and that the de-duplicated count equal
+`expected_file_count` (151). A changed publication fails loudly instead of
+loading a partial country.
 
 Individual archives:
 
@@ -77,12 +79,11 @@ GET https://www.e-stat.go.jp/gis/statmap-search/data
 → application/octet-stream, Content-Disposition: attachment; filename*=UTF-8''tbl{stats_id}H{code}.zip
 ```
 
-Plain `GET`, no session, cookie or user agent required. The archives are
-generated on request and take **~10 s each** server-side regardless of size
-(1 KB for an offshore islet up to 1.2 MB for 5339 Tokyo; ~36 MB for both
-vintages, ~120 MB extracted), so a cold download of one vintage is ~25 min
-and both vintages ~50 min; the downloader spaces requests 0.5 s apart on top
-of that. A rerun with everything cached takes ~10 s (listing pages only).
+Plain `GET`, no session, cookie or user agent required. The archives are generated on request and take **~10 s each** server-side
+regardless of size. They run from 1 KB for an offshore islet up to 1.2 MB for
+5339 Tokyo, about 36 MB for both vintages and ~120 MB extracted. So a cold
+download of one vintage is ~25 min and both vintages ~50 min. The downloader
+spaces requests 0.5 s apart on top of that. A rerun with everything cached takes ~10 s (listing pages only).
 
 ## 3. Archive and text-file format
 
@@ -119,10 +120,10 @@ semicolon-delimited `GASSAN`.
 
 ## 4. Privacy processing — what is (not) done with it
 
-The 秘匿処理 exists to protect small-count detail cells: for a mesh with very
+The 秘匿処理 exists to protect small-count detail cells. For a mesh with very
 few residents, the sex / age / household breakdown is replaced by `*`
-(`HTKSYORI = 2`) and added to a neighbouring mesh (`HTKSYORI = 1`), whose
-detail columns therefore cover several meshes. **Total population is
+(`HTKSYORI = 2`) and added to a neighbouring mesh (`HTKSYORI = 1`). That
+neighbour's detail columns then cover several meshes. **Total population is
 explicitly excluded** from this — the table definition marks it 秘匿対象外 —
 so every mesh reports its own headcount, and the pipeline:
 
@@ -138,7 +139,7 @@ so every mesh reports its own headcount, and the pipeline:
   non-negative integer, or a mesh code is malformed / outside its file's
   primary mesh.
 
-Summing `population_total` across meshes is therefore correct for any
+Summing `population_total` across meshes is correct for any
 geography; the detail columns are not loaded because they would not be.
 
 ## 5. Mesh codes and coordinates
@@ -194,14 +195,17 @@ listing pages (8 cheap JSON calls per vintage — this is what enforces the
 expected file count) and reuses every cached archive; census tables never
 change once published, so `--force` is only for a corrupted cache.
 
-The loader takes the downloader root, finds `*/txt/*.txt`, identifies each
-file's vintage from its name (`statsId` → `VINTAGES`), sniffs the two header
-rows in Python (all four privacy columns and the vintage's population column
-must be present, line 2 must be the label row), reads each vintage's files in a
-single Spark scan (`windows-31j`; files grouped by their exact header line, the
-primary mesh code joined back on the file name), validates every row per file in
-one grouped pass before casting (§4), injects
-`census_year`, `census_date`, `geodetic_datum`, `stats_id`,
+The loader takes the downloader root and finds `*/txt/*.txt`. For each file it
+identifies the vintage from the name (`statsId` → `VINTAGES`) and sniffs the
+two header rows in Python: all four privacy columns and the vintage's
+population column must be present, and line 2 must be the label row.
+
+It reads each vintage's files in a single Spark scan (`windows-31j`), with
+files grouped by their exact header line and the primary mesh code joined back
+on the file name. Every row is validated per file in one grouped pass before
+casting (§4).
+
+It then injects `census_year`, `census_date`, `geodetic_datum`, `stats_id`,
 `primary_mesh_code`, `population_total` (from the vintage's column) and
 `source_file`, and full-reloads `pma_raw.estat_census_population_mesh`
 (contract `conf/schemas/estat_census_population_mesh.yaml`, grain
@@ -213,9 +217,8 @@ just python scripts/load_estat_census_population_mesh.py
 just dbt build
 ```
 
-A full reload of the 302 files (0.94 M rows) takes ~19 s (27 s wall for the script); before
-2026-08-30 the loader unioned one frame per file and ran one Spark action per file for the
-row checks.
+A full reload of the 302 files (0.94 M rows) takes ~19 s, 27 s wall for the
+script.
 
 Warehouse path: `pma_raw.estat_census_population_mesh` →
 `stg_estat__census_population_mesh` → `std_estat__census_population_mesh`
@@ -226,12 +229,13 @@ additive across meshes, not across census years). No `population_weight`
 column: its denominator depends on the later target geography or weather
 grid.
 
-Unit tests: `tests/test_estat.py` (vintages, decoder, listing pagination and
-link discovery from fixture JSON, expected-count / dedup / cache / force /
-atomic write / malformed-archive behaviour), `tests/test_estat_loader.py`
-(CP932 parsing, both population-column mappings, privacy metadata, every
-load-time validation), plus the CLI registries in
-`tests/test_download_scripts.py` / `tests/test_load_scripts.py` — `just test`.
+Unit tests: `just test` covers three places. `tests/test_estat.py` holds the vintages, the
+decoder, listing pagination and link discovery from fixture JSON, and the
+expected-count / dedup / cache / force / atomic write / malformed-archive
+behaviour. `tests/test_estat_loader.py` holds CP932 parsing, both
+population-column mappings, privacy metadata and every load-time validation.
+The CLI registries are in `tests/test_download_scripts.py` and
+`tests/test_load_scripts.py`.
 
 ## 7. Adding a census vintage
 

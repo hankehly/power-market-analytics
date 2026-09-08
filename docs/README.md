@@ -80,32 +80,33 @@ once-per-census snapshot, joins its own mesh dimension instead):
   2025-04-01 onward — the 48-point 翌々日 series began with FY2025; before
   that only the daily peak/min points above exist. Okinawa and the wide-area
   block / reserve columns stay in `std_occto__area_reserve_rate_dad`.
-- `fct_area_demand_generation_actual` — TSO-published area actuals (the
-  インバランス料金 「系統の需給に関する情報」 items A-1/B-1/B-4): total demand,
-  total generation and wind+solar generation per 30-minute delivery period
-  (energy in kWh, additive), one row per delivery period per area — Tokyo
+- `fct_area_demand_generation_actual` — TSO-published area actuals, the
+  インバランス料金 「系統の需給に関する情報」 items A-1/B-1/B-4. Total demand,
+  total generation and wind+solar generation per 30-minute delivery period,
+  energy in kWh and additive, one row per delivery period per area. Tokyo
   (TEPCO Power Grid) and Kansai (関西電力送配電) today, one `std_<tso>__…`
-  model per TSO unioned underneath (same grain as
-  `fct_jepx_spot_area_price`). Covers 2022-04-01 onward through the last
-  finalized day; measures are null where the TSO published no observation
-  (Tokyo 2025-06-14 time codes 11-48, Kansai 2025-10-12 × 22 periods).
+  model per TSO unioned underneath, same grain as `fct_jepx_spot_area_price`.
+  Covers 2022-04-01 onward through the last finalized day. Measures are null
+  where the TSO published no observation (Tokyo 2025-06-14 time codes 11-48,
+  Kansai 2025-10-12 × 22 periods).
 - `fct_area_power_usage_hourly` — the TSO でんき予報 hourly 電力使用状況
-  display series (Tokyo — TEPCO Power Grid — and Kansai — 関西電力送配電):
-  area demand per delivery hour (energy in kWh = the published 1時間平均 万kW
-  × 10,000, additive), one row per date × `hour_of_day` × area. Covers
-  2016-04-01 — the only public area demand before A-1 begins — through
-  yesterday, gapless except Kansai 2024-03-31. It is this series alone, not
-  stitched with A-1 (a display product at 万kW resolution, revised without
-  notice at best; the two differ by 0.05 % MAE over their overlap):
+  display series for Tokyo (TEPCO Power Grid) and Kansai (関西電力送配電). Area
+  demand per delivery hour, energy in kWh = the published 1時間平均 万kW ×
+  10,000 and additive, one row per date × `hour_of_day` × area. Covers
+  2016-04-01, the only public area demand before A-1 begins, through
+  yesterday, with no gaps except Kansai 2024-03-31. It is this series alone,
+  not stitched with A-1: it is a display product at 万kW resolution, revised
+  without notice at best, and the two differ by 0.05 % MAE over their overlap.
   `hour_of_day` references `dim_delivery_hour`, the 24-row shrunken rollup of
   `dim_delivery_period`, so the two facts drill across by summing the
   30-minute fact per `dim_delivery_period.hour_of_day`. The daily files'
   予測値 / 使用率 / 供給力 stay in the `std_<tso>__power_usage_hourly` models.
-- `fct_census_population_mesh` — Population Census total population per
-  500 m mesh (e-Stat 統計GIS 4次メッシュ), one row per census vintage (2015,
-  2020 — JGD2000 products) per nine-digit `mesh_code`; a periodic snapshot at
-  the census date, additive across meshes (population as published at every
-  mesh, privacy processing untouched) but not across census years. Joins
+- `fct_census_population_mesh` — Population Census total population per 500 m
+  mesh (e-Stat 統計GIS 4次メッシュ). One row per census vintage (2015 and 2020,
+  both JGD2000 products) per nine-digit `mesh_code`. It is a periodic snapshot
+  at the census date. It is additive across meshes, since the population is as
+  published at every mesh with the privacy processing untouched, but not across
+  census years. Joins
   `dim_population_mesh_500m` (one row per mesh: primary mesh, datum, bounding
   box and centroid decoded from the code). Intended for population-weighted
   weather aggregation later; no weights or weather-grid crosswalk are stored.
@@ -419,10 +420,10 @@ Notes:
 - `fct_jma_weather_hourly.observed_at` marks the end of the observation hour;
   precipitation and sunshine accumulate over `[observed_hour_start_at,
   observed_at]`, temperature and wind are instantaneous at `observed_at`.
-  `phenomenon_absent` columns are null only when the quality flag is 2/1/0
-  (for snow depth, also null when snow is untracked off-season); value 0 with
-  `phenomenon_absent = 0` is a JMA "trace" reading (below measurement
-  resolution), distinct from a true zero (`phenomenon_absent = 1`).
+  `phenomenon_absent` columns are null only when the quality flag is 2/1/0, and
+  for snow depth also when snow is untracked off-season. Value 0 with
+  `phenomenon_absent = 0` is a JMA "trace" reading, below measurement
+  resolution, which is distinct from a true zero (`phenomenon_absent = 1`).
 - `fct_occto_demand_supply_forecast_daily` MW columns are additive across areas; the
   `usage_rate` / `reserve_rate` columns are fractions (0.924 = 92.4%, converted
   from OCCTO's percentages in the standardized layer) and non-additive
@@ -458,8 +459,8 @@ at 9:55 JST on D-1, forecast all 48 half-hour prices for delivery day D) and
 records the results in two places, linked by the MLflow `run_id`:
 
 - **MLflow** (`just open mlflow`, experiment `spot_price`) — params, metrics,
-  SHAP plots, the permutation feature importance (a CSV and a bar plot) and
-  CSV artifacts per run; the experiment record.
+  SHAP plots, the permutation feature importance as a CSV and a bar plot, and
+  CSV artifacts per run. It is the experiment record.
 - **Warehouse** — row-level forecasts written to `pma_ml.spot_price_forecast`
   (partitioned by `run_id`; republishing a run replaces its rows), which dbt
   models into `fct_spot_price_forecast` and `fct_spot_price_forecast_accuracy`.
@@ -468,48 +469,56 @@ records the results in two places, linked by the MLflow `run_id`:
 (MLflow experiment `demand`), writing to `fct_demand_forecast` and
 `fct_demand_forecast_accuracy`.
 
-Strategies: `previous_day` (naive), `lightgbm` (calendar + 1-day-lag features)
-and `lightgbm_occto` (the same plus the OCCTO 翌々日 peak-demand hour, peak
-demand and peak supply capacity for the delivery day — published D-2 evening,
-so inside the information cutoff). For a feature experiment, pin
-`--start-date`/`--end-date` and `--train-start` identically for candidate and
-baseline (the OCCTO history starts 2024-04-01, so `--train-start 2024-04-01`
-matches a `lightgbm` baseline to it), then
+Three strategies: `previous_day` (naive), `lightgbm` (calendar and 1-day-lag
+features) and `lightgbm_occto`. The last adds the OCCTO 翌々日 peak-demand
+hour, peak demand and peak supply capacity for the delivery day, published
+D-2 evening and so inside the information cutoff.
+
+For a feature experiment, pin `--start-date`/`--end-date` and `--train-start`
+identically for candidate and baseline. The OCCTO history starts 2024-04-01, so
+`--train-start 2024-04-01` matches a `lightgbm` baseline to it. Then run
+`just dbt build --select +fct_spot_price_forecast_accuracy`, and
 `scripts/compare_spot_price_runs.py --baseline <run_id> --candidate <run_id>`
 prints matched MAE/bias tables by day part, near the OCCTO peak hour, by month
-and for high-price days after `just dbt build --select
-+fct_spot_price_forecast_accuracy`. Experiments are written up under
-[`research/spot_price/`](research/spot_price/README.md) (conventions in
-[`research/`](research/README.md)).
+and for high-price days. Experiments are written up under
+[`research/spot_price/`](research/spot_price/README.md), with conventions in
+[`research/`](research/README.md).
 
-Charting happens in Superset (`just open superset`): one forecast-analysis
-dashboard per task — **Spot Price Forecast Analysis** and **Demand Forecast
-Analysis** — both built by `scripts/create_forecast_dashboard.py` (no
-arguments = every dashboard, `--task spot_price` / `--task demand` = one),
-which idempotently creates each task's virtual dataset
-(`spot_price_forecast_analysis` / `demand_forecast_analysis`: the accuracy
-mart joined to `dim_area`, `dim_delivery_period` and `dim_date`), every
-chart, the sectioned layout and the run filter — rerun it to rebuild
-everything after a `docker compose down -v`. Each dashboard opens on the
-newest run with KPI tiles (MAE, bias, RMSE, RMSE/MAE, WAPE, P90),
-error-structure heatmaps and day-type slices, calibration and
-error-distribution views, a cross-run leaderboard, a worst-days drill list
-(click a row to cross-filter the dashboard to that day), and a zoomable
-30-minute forecast-vs-actual detail. An **Explanation** tab decomposes a day's
-forecast into per-feature SHAP contributions and, at the bottom, shows the
-run's **Feature importance**: permutation importance (the MAE increase when a
-feature's column is shuffled across the run, computed with scikit-learn over
-the walk-forward models) next to the mean |SHAP| per feature. A **Compare**
-tab puts the run against a
-**Baseline** run chosen in a second filter: delta tiles, diverging ΔMAE %
-bars by segment, ΔMAE % heatmaps, daily ΔMAE, the cumulative error
+Charting happens in Superset (`just open superset`), with one
+forecast-analysis dashboard per task: **Spot Price Forecast Analysis** and
+**Demand Forecast Analysis**.
+
+`scripts/create_forecast_dashboard.py` builds both. No arguments rebuilds every
+dashboard; `--task spot_price` or `--task demand` rebuilds one. It creates each
+task's virtual dataset (`spot_price_forecast_analysis` /
+`demand_forecast_analysis`, the accuracy mart joined to `dim_area`,
+`dim_delivery_period` and `dim_date`), every chart, the sectioned layout and the
+run filter. Rerunning it is safe, so it is how everything is rebuilt after a
+`docker compose down -v`.
+
+Each dashboard opens on the newest run with KPI tiles (MAE, bias, RMSE,
+RMSE/MAE, WAPE, P90), error-structure heatmaps and day-type slices, calibration
+and error-distribution views, a cross-run leaderboard, a worst-days drill list
+and a zoomable 30-minute forecast-vs-actual detail. Clicking a row of the drill
+list cross-filters the dashboard to that day.
+
+An **Explanation** tab decomposes a day's forecast into per-feature SHAP
+contributions. At its foot sits the run's **Feature importance**: the
+permutation importance of each feature next to its mean |SHAP|. Permutation
+importance is the MAE increase when that feature's column is shuffled across
+the run, computed with scikit-learn over the walk-forward models.
+
+A **Compare** tab puts the run against a **Baseline** run chosen in a second
+filter, over the periods both runs scored. It holds delta tiles, diverging
+ΔMAE % bars by segment, ΔMAE % heatmaps, daily ΔMAE, the cumulative error
 reduction, most-improved / most-worsened day tables, the SHAP contribution
-deltas per feature against the baseline, and a three-line detail, over the
-periods both runs scored. The two are the same layout with the
-same chart names; only the quantity shows through — JPY/kWh vs kWh (demand
-values are SI-formatted, `1.098M`), and "MAE by actual price band" /
-"Calibration: forecast vs actual price level" become "… actual demand band"
-(fixed 2-GWh bins) / "… actual demand level" (rounded to 1 GWh).
+deltas per feature against the baseline, and a three-line detail.
+
+The two dashboards are the same layout with the same chart names. Only the
+quantity shows through, JPY/kWh against kWh, with demand values SI-formatted as
+`1.098M`. "MAE by actual price band" becomes "… actual demand band" (fixed
+2-GWh bins), and "Calibration: forecast vs actual price level" becomes "…
+actual demand level" (rounded to 1 GWh).
 
 ![Spot Price Forecast Analysis dashboard](img/superset/forecast-dashboard.png)
 
@@ -521,18 +530,18 @@ values are SI-formatted, `1.098M`), and "MAE by actual price band" /
 
 The project runs inside a Docker Compose stack (see `docker-compose.yaml`):
 
-- **devcontainer** — Python 3.13 + uv + Spark client tooling; open the repo in VS Code and reopen in container
-- **postgres-metastore** — backing store for the Hive Metastore (host port 5432)
-- **postgres-mlflow** — backing store for MLflow (host port 5433)
-- **hive-metastore** — standalone Hive Metastore backed by Postgres
-- **thriftserver** — Spark Thrift Server (JDBC/ODBC, port 10000; Spark UI on 4040)
-- **mlflow** — experiment tracking UI on port 5005
-- **postgres-superset** — backing store for Superset metadata (host port 5434)
-- **superset** — Apache Superset BI UI on port 8088 (admin login, see `.env`;
-  the Spark Thriftserver data connection is registered in the Superset UI)
-- **superset-mcp** — Superset MCP server on port 5008, lets Claude Code manage
-  datasets/charts (no-auth dev mode; wired up in `.mcp.json`)
-- **docsify** — serves `docs/` on port 3000
+| Service | Port | What it is |
+|---|---|---|
+| **devcontainer** | — | Python 3.13 + uv + Spark client tooling. Open the repo in VS Code and reopen in container |
+| **postgres-metastore** | 5432 | Backing store for the Hive Metastore |
+| **postgres-mlflow** | 5433 | Backing store for MLflow |
+| **hive-metastore** | — | Standalone Hive Metastore backed by Postgres |
+| **thriftserver** | 10000 | Spark Thrift Server (JDBC/ODBC); Spark UI on 4040 |
+| **mlflow** | 5005 | Experiment tracking UI |
+| **postgres-superset** | 5434 | Backing store for Superset metadata |
+| **superset** | 8088 | Apache Superset BI UI. Admin login in `.env`; the Spark Thriftserver connection is registered in the UI |
+| **superset-mcp** | 5008 | Superset MCP server, lets Claude Code manage datasets and charts. No-auth dev mode, wired up in `.mcp.json` |
+| **docsify** | 3000 | Serves `docs/` |
 
 ### Setup
 
@@ -570,13 +579,15 @@ directly with `cd dbt && DBT_THRIFT_HOST=localhost uv run dbt <command>`.
 
 ## Code review process
 
-Every pull request — documentation-only ones included — is reviewed by **Codex** before it
-is merged (the only reviewer since 2026-09-06; the Copilot review that used to follow it was
-dropped); Claude drives the loop and reports the PR as ready — the researcher merges unless
-they have explicitly asked Claude to. The
-mechanics (the exact `gh api` polls and their timestamps, why the Codex trigger is never
-spelled out in a PR body or reply, resolving review threads, stacked PRs) are in
-`CLAUDE.md` under *Code review (pull requests)*; this is the shape of the loop:
+Every pull request is reviewed by **Codex** before it is merged, documentation-only
+ones included. Codex has been the only reviewer since 2026-09-06, when the Copilot
+review that used to follow it was dropped. Claude drives the loop and reports the PR
+as ready; the researcher merges unless they have explicitly asked Claude to.
+
+The mechanics are in `CLAUDE.md` under *Code review (pull requests)*: the exact
+`gh api` polls and their timestamps, why the Codex trigger is never spelled out in a
+PR body or reply, resolving review threads, and stacked PRs. This is the shape of the
+loop:
 
 ```mermaid
 flowchart TD
@@ -591,7 +602,7 @@ flowchart TD
     nudge -.-> codex
 ```
 
-One rule the diagram compresses: the repository's required checks must pass on the PR's
-*current* head, so a branch that has fallen behind `main` is brought up to date (merge
-`main` in — never rebase a reviewed branch) and, being a new head, goes through the loop
-once more before it is merged.
+One rule the diagram compresses. The repository's required checks must pass on the
+PR's *current* head. So a branch that has fallen behind `main` is brought up to date
+by merging `main` into it, never by rebasing a reviewed branch. That makes a new head,
+which goes through the loop once more before it is merged.

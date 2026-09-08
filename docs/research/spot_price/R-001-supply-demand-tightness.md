@@ -105,9 +105,10 @@ than the variation across time segments. Otherwise reject the change.
   segment tables from `scripts/compare_spot_price_runs.py`
 - **Matched window (answers the open question below):** OCCTO Tokyo rows are gap-free from
   2024-04-01 (the first non-trial day) through 2026-08-17; JEPX Tokyo actuals end 2026-08-16.
-  Both runs use training rows from 2024-04-01 (the candidate drops rows without an OCCTO
-  forecast anyway; the baseline is clipped to the same first day with `--train-start`) and
-  evaluate the identical 503 delivery days 2025-04-01..2026-08-16 (24,144 points). Both
+  Both runs use training rows from 2024-04-01 and evaluate the identical 503
+  delivery days 2025-04-01..2026-08-16 (24,144 points). The candidate drops
+  rows without an OCCTO forecast anyway, and the baseline is clipped to the
+  same first day with `--train-start`. Both
   made 72 weekly refits with identical training-row counts (17,520 rows growing to the
   35,040-row / 730-day cap from 2026-04-01). Model parameters, refit cadence and base
   features are unchanged; the three OCCTO columns are the only difference.
@@ -195,11 +196,11 @@ uncertainty interval has been computed for any of the differences.
 **Decision:** Inconclusive (provisional — applied mechanically from the decision rule;
 researcher to confirm)
 
-Applying the rule as written: overall and daytime MAE are both lower on the matched
-window; Overnight and Evening deteriorate by +0.08 / +0.05 JPY/kWh; the improvement is
-not consistent across calendar months (8 of 17) and is smaller than the variation across
-months and day parts. The result does not depend on a few extreme days (those days get
-worse). The rule's "inconclusive" branch therefore applies rather than "keep".
+Applying the rule as written: overall and daytime MAE are both lower on the
+matched window. Overnight and Evening deteriorate by +0.08 / +0.05 JPY/kWh. The
+improvement is not consistent across calendar months (8 of 17) and is smaller
+than the variation across months and day parts. The result does not depend on a few extreme days (those days get
+worse). So the rule's "inconclusive" branch applies rather than "keep".
 
 ### Follow-up ideas
 
@@ -211,10 +212,11 @@ worse). The rule's "inconclusive" branch therefore applies rather than "keep".
 ## Current conclusion
 
 E-001 executed on 2026-08-16. On the matched window (train from 2024-04-01, evaluate
-2025-04-01..2026-08-16), the three OCCTO peak-demand/supply features lower overall MAE
-by 2.2 % and daytime MAE by 5.6 %, with the largest gain near the forecast peak hour and
-a smaller daytime under-forecast bias, but Overnight/Evening MAE rise slightly and the
-month-by-month effect is mixed (better in 8 of 17 months). Provisionally inconclusive
+2025-04-01..2026-08-16), the three OCCTO peak-demand/supply features lower
+overall MAE by 2.2 % and daytime MAE by 5.6 %. The largest gain is near the
+forecast peak hour, and the daytime under-forecast bias is smaller. But
+Overnight and Evening MAE rise slightly, and the month-by-month effect is
+mixed: better in 8 of 17 months. Provisionally inconclusive
 per the E-001 decision rule.
 
 ## Open questions

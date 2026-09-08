@@ -1,12 +1,16 @@
 # JMA MSM GPV Retrieval
 
-This document describes how JMA's MSM (メソ数値予報モデル, mesoscale numerical prediction
-model) surface-grid GPV forecast is retrieved from Kyoto University's RISH archive, decoded
-from GRIB2 into per-station hourly records, and loaded into the warehouse: the product and
-its publication schedule, the RISH mirror's URL/etiquette, the single-vintage policy this
-pipeline ingests and why, the GRIB2 element/grid metadata the decoder trusts (including a
-multi-field-message gotcha the real data surfaced), the extract and warehouse schemas, and
-how to run/operate the pipeline ([§8](#8-operations)). It mirrors the depth of
+How JMA's MSM (メソ数値予報モデル, mesoscale numerical prediction model)
+surface-grid GPV forecast is retrieved from Kyoto University's RISH archive,
+decoded from GRIB2 into per-station hourly records, and loaded into the
+warehouse.
+
+This document covers the product and its publication schedule, the RISH
+mirror's URL and etiquette, the single-vintage policy this pipeline ingests and
+why, and the GRIB2 element and grid metadata the decoder trusts — including a
+multi-field-message gotcha the real data surfaced. It ends with the extract and
+warehouse schemas, and how to run the pipeline
+([§8](#8-operations)). It mirrors the depth of
 [docs/OCCTO-Demand-Forecast-Retrieval.md](OCCTO-Demand-Forecast-Retrieval.md).
 
 Source of truth for the constants and logic described here: `power_market_analytics/msm.py`
@@ -45,18 +49,18 @@ if RISH or JMA changes the product, re-verify against a live file before trustin
   `power_market_analytics.msm.EARLIEST_DELIVERY_DATE` is **2019-04-01**, one month after the
   change, so every ingested delivery day's 12 UTC D−2 run is guaranteed to carry FH51.
   Historical backfills default to `DEFAULT_BACKFILL_START` **2022-04-01** instead, matching
-  the other refresh tasks' backfill start (TEPCO/Kansai actuals, etc.). The warehouse has
-  held **2019-04-01 →** since the 2026-09-05 backfill ([§9.2](#92-dbt-build)), which passed
-  `--start-date 2019-04-01` explicitly; a fresh clone must do the same to reproduce it —
-  `just refresh-all` runs the downloader with its defaults and stops at 2022-04-01 (extracts
-  already cached before that date are still loaded: the loader reads every `csv.gz` under
-  the data dir, whatever the download window).
+  the other refresh tasks' backfill start (TEPCO/Kansai actuals, etc.). The warehouse has held **2019-04-01 →** since the 2026-09-05 backfill
+([§9.2](#92-dbt-build)), which passed `--start-date 2019-04-01` explicitly. A
+fresh clone must do the same to reproduce it: `just refresh-all` runs the
+downloader with its defaults and stops at 2022-04-01. Extracts already cached
+before that date are still loaded, because the loader reads every `csv.gz`
+under the data dir whatever the download window.
 - **Availability — how far back the archive serves this pipeline** (verified 2026-09-05
   against the RISH `original` tree, by directory listing and by running the extractor on
   real files):
   - RISH holds MSM surface files back to at least 2016 for all eight daily runs, but every
     run before 2019-03-05 has only the `FH00-15` / `FH16-33` / `FH34-39` members. Under this
-    pipeline's vintage policy ([§3](#3-vintage-policy)) the floor is therefore delivery day
+    pipeline's vintage policy ([§3](#3-vintage-policy)) the floor is delivery day
     **2019-03-07**; `EARLIEST_DELIVERY_DATE` (2019-04-01) keeps a month of margin, and
     `MsmDownloader.download_range` refuses an earlier `--start-date`.
   - A 2019-04-01 12 UTC `FH40-51` file decodes with the current extractor unchanged
@@ -65,12 +69,16 @@ if RISH or JMA changes the product, re-verify against a live file before trustin
     ([§5.3](#53-grid-metadata-and-scan-handling)) and the same instantaneous elements, but
     **no downward shortwave radiation** (0/4/7, added 2017-12), so the completeness check
     fails as designed ("6 of 72 expected messages are absent").
-  - Reaching 2016 is therefore a vintage-policy or product change, not a start-date change:
-    the MSM **21 UTC D−2** run (FH19–39 → JST 01:00–21:00 of D, 22:00–24:00 uncovered;
-    distributed roughly 08:30 JST D−1, about an hour before the 09:30 cutoff — unverified,
-    RISH mtimes being non-authoritative) or the **GSM** Japan-region surface files
-    (`..._GSM_GPV_Rjp_Lsurf_FD0000-0312_grib2.bin`, 84 h horizon, ~20 km grid, present on
-    RISH for the 2016 12 UTC runs; a separate element/grid configuration). Either also needs
+  - Reaching 2016 is a vintage-policy or product change, not a start-date
+    change. Two candidates:
+    - the MSM **21 UTC D−2** run: FH19–39 → JST 01:00–21:00 of D, leaving
+      22:00–24:00 uncovered. It is distributed roughly 08:30 JST D−1, about an
+      hour before the 09:30 cutoff — unverified, RISH mtimes being
+      non-authoritative.
+    - the **GSM** Japan-region surface files
+      (`..._GSM_GPV_Rjp_Lsurf_FD0000-0312_grib2.bin`): 84 h horizon, ~20 km
+      grid, present on RISH for the 2016 12 UTC runs. A separate element and
+      grid configuration. Either also needs
     the two radiation columns nullable before 2017-12 through raw, `std` and `fct`.
 
 ## 2. The RISH archive
@@ -87,21 +95,21 @@ if RISH or JMA changes the product, re-verify against a live file before trustin
   time and forecast-hour banding) that this pipeline's leakage-safe vintage selection
   ([§3](#3-vintage-policy)) depends on.
 - **Academic-use etiquette**: RISH is an academic mirror with no published rate limit of
-  its own. `MsmDownloader` is deliberately polite: downloads are sequential (one HTTP
-  request in flight at a time) and throttled to at least `request_interval` seconds apart
-  (default 1.0 s), with bounded retries (`max_attempts`, default 3, backoff
-  `request_interval * attempt`) on transient failures.
+  its own. `MsmDownloader` is deliberately polite. Downloads are sequential and
+  throttled to at least `request_interval` seconds apart, default 1.0 s.
+  Transient failures get bounded retries: `max_attempts`, default 3, backoff
+  `request_interval * attempt`.
 - **Gaps are possible and must surface as errors.** RISH's archive can have publication
   gaps or files not yet published; an HTTP 404 is treated as a **completeness failure**
   (`MsmDownloadError`, naming the URL), never as an empty/partial forecast. Downloaded
   content is also checked for the 4-byte `GRIB` magic before being trusted as a GRIB2 file
   — RISH serving an HTML error page with a 200 status is caught here rather than becoming
   a corrupt cache entry.
-- **RISH mtimes are not authoritative.** File modification times on the archive do not
-  reliably reflect JMA's publication schedule; this pipeline never uses them for freshness
-  or resume decisions — only the reference run's issue time
-  (`power_market_analytics.msm.reference_at_for`), computed purely from the delivery date,
-  drives which files are fetched.
+- **RISH mtimes are not authoritative.** File modification times on the archive
+  do not reliably reflect JMA's publication schedule, and this pipeline never
+  uses them for freshness or resume decisions. Only the reference run's issue
+  time (`power_market_analytics.msm.reference_at_for`), computed purely from
+  the delivery date, drives which files are fetched.
 
 ## 3. Vintage policy
 
@@ -114,17 +122,18 @@ the demand model see information it could not actually have had at forecast time
 
 Why the 12 UTC D−2 run and not another:
 
-- **12 UTC D−2 is the latest run whose horizon still reaches every hour of D.** FH51 of the
-  12 UTC D−2 run lands at reference + 51 h = 15:00 UTC D = **24:00 JST D** — the last
-  hour-ending of the delivery day (`hour_ending_for(51) == 24`); FH28 lands at
-  **01:00 JST D** (`hour_ending_for(28) == 1`), the first. The run is published (RISH
-  distribution observed ~23:30 JST D−2) well before the 09:30 JST D−1 cutoff — about ten
-  hours of margin.
-- **The 21 UTC D−2 run cannot be used**: its horizon (FH39 pre-extension era; even
-  post-extension its practical distribution timing is the same run family) reaches only
-  21:00 UTC + 39 h = 12:00 UTC D = **21:00 JST D** — three hours short of the delivery day's
-  last hour-ending (24:00 JST D; the missing hour-endings are 22:00, 23:00, 24:00). A
-  39-hour horizon run simply cannot cover the full day.
+- **12 UTC D−2 is the latest run whose horizon still reaches every hour of D.**
+  FH51 of that run lands at reference + 51 h = 15:00 UTC D = **24:00 JST D**,
+  the last hour-ending of the delivery day (`hour_ending_for(51) == 24`). FH28
+  lands at **01:00 JST D** (`hour_ending_for(28) == 1`), the first. The run is
+  published (RISH distribution observed ~23:30 JST D−2) well before the 09:30
+  JST D−1 cutoff — about ten hours of margin.
+- **The 21 UTC D−2 run cannot be used.** Its horizon reaches only 21:00 UTC +
+  39 h = 12:00 UTC D = **21:00 JST D**. That is three hours short of the
+  delivery day's last hour-ending, 24:00 JST D, so 22:00, 23:00 and 24:00 are
+  missing. (FH39 is the pre-extension era; even post-extension its practical
+  distribution timing is the same run family.) A 39-hour horizon run simply
+  cannot cover the full day.
 - **The 00 UTC D−1 run cannot be used**: although its horizon (FH51 or FH78 depending on
   era) would cover D, it is not distributed until roughly **11:30 JST D−1** — *after* the
   09:30 JST D−1 cutoff. Using it would leak same-day information the demand model could not
@@ -136,11 +145,12 @@ evaluated has already been published and is safe to fetch.
 
 ## 4. File set and forecast-lead table
 
-Every delivery day reads exactly **three** GRIB2 archive members from the 12 UTC D−2 run
-directory (`power_market_analytics.msm.source_files_for`), each covering a band of forecast
-hours; only a subset of each file's leads is actually used — the rest of the file is decoded
-but discarded (skipped) rather than fetched separately, since RISH bands files this way and
-splitting a band mid-file is not possible over HTTP range requests here.
+Every delivery day reads exactly **three** GRIB2 archive members from the
+12 UTC D−2 run directory (`power_market_analytics.msm.source_files_for`), each
+covering a band of forecast hours. Only a subset of each file's leads is used;
+the rest is decoded and discarded rather than fetched separately. RISH bands
+files this way, and splitting a band mid-file is not possible over HTTP range
+requests here.
 
 | Archive member (`FH<band>`) | Leads physically in the file | Leads used by this pipeline | JST hour-endings covered |
 |---|---|---|---|
@@ -173,12 +183,15 @@ forecast feature downstream.
 
 ### 5.1 The multi-field-message gotcha
 
-**JMA packs many fields into one GRIB2 message envelope.** A whole archive member is a
-*single* envelope containing many logical (element, forecast-hour) fields — the real
-FH16-33 file holds 12 elements × 18 forecast hours = **216 fields**, all inside one
-envelope. ecCodes' default behaviour on such a file yields only the **first** field; its
-multi-field support has to be turned on (`eccodes.codes_grib_multi_support_on()`) for the
-message-iteration loop to see all 216. This is **process-global ecCodes state** that other
+**JMA packs many fields into one GRIB2 message envelope.** A whole archive
+member is a *single* envelope containing many logical (element, forecast-hour)
+fields. The real FH16-33 file holds 12 elements × 18 forecast hours = **216
+fields**, all inside one envelope.
+
+ecCodes' default behaviour on such a file yields only the **first** field. Its
+multi-field support has to be turned on
+(`eccodes.codes_grib_multi_support_on()`) for the message-iteration loop to see
+all 216. This is **process-global ecCodes state** that other
 code (including ecCodes' own multi-field writer) can flip back off, so
 `extract_station_records` re-asserts it on **every call** rather than once at import time;
 the call is idempotent and costs nothing. This was found as a real defect during the
@@ -210,30 +223,30 @@ tolerated. The real file's messages confirmed every row of this table exactly:
 | `middle_cloud_cover_pct` | 0/6/4 | 1 (ground/surface) | Middle cloud cover | Instantaneous, % |
 | `high_cloud_cover_pct` | 0/6/5 | 1 (ground/surface) | High cloud cover | Instantaneous, % |
 
-The height annotations in the "Surface type" column (1.5 m, 10 m) come from JMA's MSM
-format specification, not from a decode-time assertion: the decoder checks only
-`typeOfFirstFixedSurface` (103) against `MsmElement.surface_type`, never the height value
-itself (the height is carried but not checked by the decoder — a level-103 message's
-`scaledValueOfFirstFixedSurface`/ecCodes `level` key does hold the 1.5 m / 10 m figure
-independently, only `typeOfFirstFixedSurface` is asserted here) — the heights are
-documentation of what 103 means for each element, not something this pipeline re-verifies
-per message.
+The height annotations in the "Surface type" column (1.5 m, 10 m) come from
+JMA's MSM format specification, not from a decode-time assertion. The decoder
+checks only `typeOfFirstFixedSurface` (103) against `MsmElement.surface_type`,
+never the height itself. A level-103 message's
+`scaledValueOfFirstFixedSurface` (ecCodes `level`) does hold the 1.5 m / 10 m
+figure independently, but only `typeOfFirstFixedSurface` is asserted here. The
+heights document what 103 means for each element; this pipeline does not
+re-verify them per message.
 
 Two other checks apply to every message before it is used
-(`_check_message_identity`): `editionNumber` must be **2** (GRIB2 throughout the archive)
-and `productionStatusOfProcessedData` must be **0** (operational data — the archive can in
-principle carry test/research runs, and this pipeline must never load one), and its
-`dataDate`/`dataTime` must equal the reference run being fetched (guards against a
-misnamed or stale cached file).
+(`_check_message_identity`): `editionNumber` must be **2**, GRIB2 throughout the archive.
+`productionStatusOfProcessedData` must be **0**, operational data: the archive
+can in principle carry test or research runs, and this pipeline must never load
+one. And `dataDate`/`dataTime` must equal the reference run being fetched, which
+guards against a misnamed or stale cached file.
 
-The two **statistical** elements (precipitation, shortwave radiation) use GRIB2 Product
-Definition Template 8 (a statistically-processed field over a time interval) with a 1-hour
-accumulation/mean window ending at the message's forecast hour; the ten instantaneous
-elements are valid *at* that hour. The decoder asserts that encoding per message
-(`_check_step_encoding`): template 8 over exactly `(lead − 1, lead]` for a statistical
-element, template 0 at `lead` for an instantaneous one, with step keys read in hours — so a
-cumulative `(0, lead]` field or a re-templated product can never be published as an hourly
-value. Both land on the same `StationHourRecord` — the record is
+The two **statistical** elements (precipitation, shortwave radiation) use GRIB2
+Product Definition Template 8, with a 1-hour accumulation or mean window ending
+at the message's forecast hour. The ten instantaneous elements are valid *at*
+that hour. The decoder asserts that encoding per message (`_check_step_encoding`):
+template 8 over exactly `(lead − 1, lead]` for a statistical element, template 0
+at `lead` for an instantaneous one, with step keys read in hours. So a
+cumulative `(0, lead]` field or a re-templated product can never be published as
+an hourly value. Both land on the same `StationHourRecord` — the record is
 read downstream as "the hour ending at `forecast_valid_at`" regardless of which semantics an
 individual value column carries (documented per-column in the std/fct model descriptions,
 [§7](#7-warehouse-models)).
@@ -278,19 +291,21 @@ in a completed record — a whole missing message is a hard failure ([§5.2](#52
 nearest grid index on each axis independently, then converts to the flat row-major index the
 GRIB values array uses:
 
-- The query point must fall inside the grid's extent, **inclusive of its four corners**; a
-  1e-9 floating-point tolerance is applied on the boundary check so an exact corner is never
-  rejected merely because a step size like `0.05` is not exactly representable in binary
-  floating point. A station strictly outside the domain raises `MsmError`.
+- The query point must fall inside the grid's extent, **inclusive of its four
+  corners**. A 1e-9 tolerance is applied on the boundary check, so an exact
+  corner is never rejected merely because a step size like `0.05` is not
+  exactly representable in binary floating point. A station strictly outside
+  the domain raises `MsmError`.
 - **Ties resolve toward the lower index** on each axis — the point encountered first in the
   grid's scan order (`_nearest_index`: `floor(x)` unless the fractional part exceeds exactly
   `0.5`).
-- The selected grid point's own coordinates, its flat index, and the **great-circle
-  (haversine) distance** to the query station (rounded to 3 decimals,
-  `EARTH_RADIUS_KM = 6371.0088`) are all persisted on every record
-  (`grid_latitude`, `grid_longitude`, `grid_distance_km`), so every downstream consumer can
-  see exactly how far the sampled point is from the station it's attributed to — a station's
-  own coordinates and its nearest grid point's coordinates are never conflated.
+- Three things are persisted on every record: the selected grid point's own
+  coordinates, its flat index, and the **great-circle (haversine) distance** to
+  the query station, rounded to 3 decimals with `EARTH_RADIUS_KM = 6371.0088`.
+  They land in `grid_latitude`, `grid_longitude` and `grid_distance_km`. So
+  every downstream consumer can see exactly how far the sampled point is from
+  the station it is attributed to, and a station's own coordinates are never
+  conflated with its nearest grid point's.
 
 ## 6. Extract format
 
@@ -378,11 +393,12 @@ arithmetic needed on either side.
 *at* `forecast_valid_at` — the same statistical/instantaneous split established at GRIB
 decode time ([§5.2](#52-element-identification-and-the-surface-element-table)).
 
-**Downstream join convention**: JEPX's 48 half-hourly `time_code`s map onto this hourly grain
-via `hour_ending = (time_code + 1) // 2` (the same convention the demand task's temperature
-feature uses, `docs/../CLAUDE.md`'s demand-task bullet) — this fact has no half-hourly grain
-of its own and is not duplicated across the two half-hour periods of an hour; a consumer
-resolves the hour first, then reads one row.
+**Downstream join convention**: JEPX's 48 half-hourly `time_code`s map onto this hourly grain via
+`hour_ending = (time_code + 1) // 2`, the same convention the demand task's
+temperature feature uses (`docs/../CLAUDE.md`'s demand-task bullet). This fact
+has no half-hourly grain of its own and is not duplicated across the two
+half-hour periods of an hour. A consumer resolves the hour first, then reads
+one row.
 
 Every weather value column is the **nearest MSM grid point's** value
 (`grid_latitude`/`grid_longitude`/`grid_distance_km`), not a station-specific forecast — the
@@ -390,12 +406,13 @@ grid point's elevation and terrain can differ materially from the station's own
 ([§9.4](#94-forecast-vs-observed-comparison) shows this in the verified numbers). `dbt_utils.accepted_range`
 tests on the fct model encode the physically-derived plausibility bounds (e.g.
 `low_cloud_cover_pct` 0–100, `grid_distance_km` 0–5). One deliberate allowance:
-`total_cloud_cover_pct` and `relative_humidity_pct` are tested against 0–100.1, because the
-GRIB2 packing of those fields overshoots 100 on rare rows — cloud cover by up to ~0.011
-(157 of 5.7 M rows in the 2022-04 → 2026-08 backfill), relative humidity by up to ~0.015
-(7 of 9.7 M rows once the 2019-04-01 backfill was loaded, all in 2019-11 and 2020-03);
-values are kept as decoded rather than clamped, and the three layer covers stay within
-0–100.
+`total_cloud_cover_pct` and `relative_humidity_pct` are tested against
+0–100.1, because the GRIB2 packing of those fields overshoots 100 on rare rows.
+Cloud cover overshoots by up to ~0.011, on 157 of 5.7 M rows in the 2022-04 →
+2026-08 backfill. Relative humidity overshoots by up to ~0.015, on 7 of 9.7 M
+rows once the 2019-04-01 backfill was loaded, all in 2019-11 and 2020-03.
+Values are kept as decoded rather than clamped, and the three layer covers stay
+within 0–100.
 
 ## 8. Operations
 
@@ -410,11 +427,11 @@ just dbt build
 `just refresh-all` runs the same three steps (the downloader with its defaults) after every
 other source.
 
-`scripts/load_jma_msm_surface_forecast.py` reads all ~2,700 daily `csv.gz` extracts in a single
-Spark scan (they share one header line, so `CsvLoader`'s header-grouped default read applies):
-a full reload of 9.7 M rows takes under a minute (46 s for 2,716 files on 2026-09-05) and
-lands in 88 parquet files (349 MB). Before 2026-08-30 the loader unioned one frame per file,
-which needed the 20g driver.
+`scripts/load_jma_msm_surface_forecast.py` reads all ~2,700 daily `csv.gz`
+extracts in a single Spark scan. They share one header line, so `CsvLoader`'s
+header-grouped default read applies. A full reload of 9.7 M rows takes under a
+minute — 46 s for 2,716 files on 2026-09-05 — and lands in 88 parquet files
+(349 MB).
 
 `scripts/download_jma_msm_surface_forecast.py` flags:
 
@@ -426,19 +443,21 @@ which needed the 20g driver.
 | `--force` | off | Re-download every GRIB2 file and rebuild the extract even for a cached delivery day |
 | `--keep-grib` | off | Keep the three GRIB2 files after a successful extract (deleted by default to bound disk use across a backfill) |
 
-Stations to extract are loaded once per invocation from `dbt/seeds/jma_stations.csv` +
-`dbt/seeds/jma_station_areas.csv` (`power_market_analytics.msm.load_stations`) — every
-staffed station mapped to a JEPX area, active or discontinued, sorted by `station_id`; a
-station missing its area mapping or its coordinates fails the whole run rather than being
-silently skipped.
+Stations to extract are loaded once per invocation from
+`dbt/seeds/jma_stations.csv` and `dbt/seeds/jma_station_areas.csv`
+(`power_market_analytics.msm.load_stations`). That is every staffed station
+mapped to a JEPX area, active or discontinued, sorted by `station_id`. A station
+missing its area mapping or its coordinates fails the whole run rather than
+being silently skipped.
 
 ### 8.2 Volumes and the devcontainer rebuild
 
-~157 MB per delivery day ([§4](#4-file-set-and-forecast-lead-table)) ≈ **54 GiB for a full
-year** of backfill — comparable in shape to the other GRIB2/zip-archive pipelines in this
-repo but the single largest per-day volume of any of them; a full historical backfill from
-`DEFAULT_BACKFILL_START` should be run detached, and GRIBs left un-deleted (`--keep-grib`)
-only when actively debugging a decode issue, given the disk cost.
+~157 MB per delivery day ([§4](#4-file-set-and-forecast-lead-table)) ≈ **54 GiB
+for a full year** of backfill. That is comparable in shape to the other GRIB2
+and zip-archive pipelines in this repo, but the single largest per-day volume of
+any of them. Run a full historical backfill from `DEFAULT_BACKFILL_START`
+detached. Given the disk cost, leave GRIBs un-deleted (`--keep-grib`) only when
+actively debugging a decode issue.
 
 **The devcontainer image must be rebuilt** (`docker compose build devcontainer`) before
 the MSM download / load scripts can run inside it — the baked venv predates the `eccodes` /
@@ -446,11 +465,9 @@ the MSM download / load scripts can run inside it — the baked venv predates th
 happens, the download+extract step can still run **host-side**
 (`uv run python scripts/download_jma_msm_surface_forecast.py ...`, no Spark/metastore
 needed). The load step (`just python scripts/load_jma_msm_surface_forecast.py`) needs the
-rebuilt image as well: `MsmForecastCsvLoader` lives in the same `power_market_analytics/msm.py`
-as the decoder, which imports eccodes at module level. (The pipeline originally kept the
-loader in an eccodes-free `msm.py` and the decoder/downloader in a separate `msm_grib.py`
-so loading could run in the old image; the split was dropped on 2026-08-29 — rebuilding the
-image is cheap enough not to warrant it.)
+rebuilt image as well: `MsmForecastCsvLoader` lives in the same `power_market_analytics/msm.py` as the
+decoder, which imports eccodes at module level. So the loader needs eccodes
+installed too.
 
 ### 8.3 Resume behavior
 
@@ -459,12 +476,14 @@ caches by default: an already-downloaded GRIB2 file or an already-extracted `csv
 reused unless `--force`. A `--force` rebuild first removes the day's cached `csv.gz` and
 manifest, so a forced rebuild that fails partway leaves the day visibly incomplete and the
 next ordinary run re-attempts it instead of re-serving the stale extract that prompted the
-`--force`. On any failure mid-day — a download error, a decode error, or the
-record-count sanity check (`len(stations) * 24`) failing — **nothing is ever left at the
-day's `csv_path`**: the manifest is written first and the `csv.gz` committed last
-([§6.2](#62-manifest)), so the `csv.gz`'s existence is the sole "this day is done" signal the
-cache check trusts, and a half-written day is always re-attempted by a later non-`--force`
-call rather than silently treated as complete. GRIB2 files already downloaded before a
+`--force`. On any failure mid-day, **nothing is ever left at the day's `csv_path`**. That
+covers a download error, a decode error, and the record-count sanity check
+(`len(stations) * 24`) failing.
+
+The manifest is written first and the `csv.gz` committed last
+([§6.2](#62-manifest)). So the `csv.gz`'s existence is the sole "this day is
+done" signal the cache check trusts, and a half-written day is always
+re-attempted by a later non-`--force` call rather than treated as complete. GRIB2 files already downloaded before a
 mid-day failure are left in place (for inspection, and to avoid re-downloading them on
 retry) even though the day itself isn't marked done.
 
@@ -568,10 +587,11 @@ date, host-side): **1,110 new delivery days** — 2019-04-01 → 2022-03-31 plus
 days/hour: RISH served ~30 MB/s this time against ~3.5 MB/s in August), no retries or errors,
 222 MB of new `csv.gz` extracts, every file exactly 3,576 rows, no missing day anywhere in
 2019-04-01 → 2026-09-06 (2,716 extracts, 542 MB). Reload: **9,712,416 raw rows in 46 s**,
-88 parquet files. The full `just dbt build` then read PASS=820 ERROR=1 — the one failure the
-`relative_humidity_pct` 0–100 range test on the fct, 7 rows of 100.001–100.015 in 2019-11 and
-2020-03, the same packing overshoot as cloud cover, allowed the same way
-([§7](#7-warehouse-models), PR #37) — after which it is fully green again: **PASS=821 WARN=0
+88 parquet files. The full `just dbt build` then read PASS=820 ERROR=1. The one failure was the
+`relative_humidity_pct` 0–100 range test on the fct: 7 rows of 100.001–100.015
+in 2019-11 and 2020-03, the same packing overshoot as cloud cover, allowed the
+same way ([§7](#7-warehouse-models), PR #37). After that it is fully green
+again: **PASS=821 WARN=0
 ERROR=0**. `fct_jma_msm_weather_forecast_hourly` now spans **2019-04-01 → 2026-09-06**: 149
 stations × 2,716 delivery days, 9,712,416 rows.
 
@@ -590,10 +610,10 @@ Joined `fct_jma_msm_weather_forecast_hourly` to `fct_jma_weather_hourly` on `sta
 
 - **Median temperature MAE: 1.66 °C. p90: 2.57 °C.**
 - Outliers are **physically explained by grid-vs-station elevation**, not a pipeline defect:
-  - `s47639` 富士山 (Mt. Fuji, station elevation 3,775 m) has a **+8.28 °C warm bias** — the
-    nearest ~5 km grid cell's terrain elevation is far below the summit's, so the model's
-    surface temperature at that grid point is naturally warmer than what a station on the
-    actual peak observes.
+  - `s47639` 富士山 (Mt. Fuji, station elevation 3,775 m) has a **+8.28 °C warm
+    bias**. The nearest ~5 km grid cell's terrain elevation is far below the
+    summit's, so the model's surface temperature at that grid point is
+    naturally warmer than what a station on the actual peak observes.
   - Basin stations — 松本 (Matsumoto, 610 m) and 諏訪 (Suwa, 760 m) — run **~−3 °C** cold,
     consistent with basin cold-pooling the ~5 km grid cannot resolve.
   - `s47662` 東京 (Tokyo) maps to grid point 35.70°N/139.75°E, **0.923 km** away from the

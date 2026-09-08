@@ -21,11 +21,11 @@ IDs and statuses: [research README](research/README.md); scope defaults:
 
 ### Observation
 
-In the Superset **Demand Forecast Analysis** dashboard's **Worst days** table
-(the 20 delivery days with the highest daily MAE) for the run above, the
-researcher noticed that many of the worst days fall on holidays, and that on
-those days the forecast is above the actual — the model over-forecasts, i.e.
-less electricity is used than forecast.
+The **Worst days** table of the Superset **Demand Forecast Analysis** dashboard
+lists the 20 delivery days with the highest daily MAE. For the run above, the
+researcher noticed that many of them fall on holidays, and that on those days
+the forecast is above the actual. The model over-forecasts: less electricity is
+used than forecast.
 
 Queried from `fct_demand_forecast_accuracy` joined to `dim_date` (day type as
 the compare script defines it: *Holiday* when `dim_date.is_holiday` — a
@@ -81,11 +81,11 @@ else *Weekday*; daily MAE and bias = the mean over the day's 48 periods of
   errors fall on Saturdays and Sundays (e.g. 2025-11-23 勤労感謝の日, a Sunday:
   MAE 233,536 kWh).
 
-**Researcher's reading (recorded as supplied):** the model is not given the
-day category during training, so it has no guidance that these days represent
-the special human behaviour of not working, which changes electricity usage;
-the over-forecast is attributed to there being less commercial activity on
-holidays, hence less electricity used than forecast. The model's calendar
+**Researcher's reading (recorded as supplied):** the model is not given the day
+category during training, so it has no guidance that these days represent the
+special human behaviour of not working, which changes electricity usage. The
+over-forecast is attributed to there being less commercial activity on
+holidays, and so less electricity used than forecast. The model's calendar
 features are `time_code`, `month` and `day_of_week` only (plus the D-7 demand
 lag and the temperature features), so a holiday on a Monday–Friday carries the
 same calendar input as any working day of that weekday.
@@ -113,18 +113,18 @@ same calendar input as any working day of that weekday.
   with TreeSHAP contributions; same forecasts and MAE as the E-001 candidate
   `7ce89125…`)
 - **Status:** Unreviewed
-- **Related investigations:** [R-003 — Day type as a categorical feature](research/demand/R-003-day-type-feature.md)
-  (its *Open questions* already record that the weekday before a holiday got
-  worse, +17 %, with 2025-08-12 and 2026-08-12 the candidate's worst and
-  third-worst days);
-  [O-001](research/demand/observations.md#o-001-holidays-dominate-the-worst-days-and-are-over-forecast)
-  (both days were among the R-002 baseline's 20 worst, over-forecast)
+- **Related investigations:** [R-003 — Day type as a categorical
+  feature](research/demand/R-003-day-type-feature.md). Its *Open questions*
+  already record that the weekday before a holiday got worse, +17 %, with
+  2025-08-12 and 2026-08-12 the candidate's worst and third-worst days. Also
+  [O-001](research/demand/observations.md#o-001-holidays-dominate-the-worst-days-and-are-over-forecast):
+  both days were among the R-002 baseline's 20 worst, over-forecast.
 
 ### Observation
 
 In the Superset **Demand Forecast Analysis** dashboard for the run above, the
 researcher noticed that 2026-08-12 and 2025-08-12 are heavily over-forecast,
-and read the **Explanation (SHAP)** tab's per-day decomposition (mean per
+and read the **Explanation** tab's per-day decomposition (mean per
 period) for them:
 
 - the `lag_7d_demand_kwh` contribution pushes the forecast up, because the
@@ -153,10 +153,10 @@ Both days are the single working day squeezed between two off-days — 山の日
 all 48 periods are over-forecast (daily bias = daily MAE). The Monday before
 山の日 2026 (2026-08-10) is also over-forecast, by +1,531,659 kWh.
 
-The per-day decomposition as the dashboard shows it (mean per period of the
-TreeSHAP contributions in `fct_demand_forecast_contribution`; `base` is the
-model's expected value; feature values are the means of what the model saw;
-`base` + Σ contributions = the mean forecast):
+The per-day decomposition as the dashboard shows it. Values are the mean per
+period of the TreeSHAP contributions in `fct_demand_forecast_contribution`.
+`base` is the model's expected value, feature values are the means of what the
+model saw, and `base` + Σ contributions = the mean forecast.
 
 | Component | 2025-08-12 feature value | 2025-08-12 contribution (kWh) | 2026-08-12 feature value | 2026-08-12 contribution (kWh) |
 |---|---:|---:|---:|---:|
@@ -179,17 +179,17 @@ model's expected value; feature values are the means of what the model saw;
   +290,316.
 - On 2025-08-12 the lag is again the largest contribution (+1,645,623;
   +2,825,973 in the daytime), but the forecast temperature does not counteract
-  it — at 27.99 °C (29.62 °C in the daytime) it adds +1,446,555 (+2,368,341
-  in the daytime), and `day_type` +539,865. The daytime bias is +5,333,359 kWh
+  it. At 27.99 °C (29.62 °C in the daytime) it adds +1,446,555 (+2,368,341 in
+  the daytime), and `day_type` +539,865. The daytime bias is +5,333,359 kWh
   (MAPE 29.4 %).
 - The D-7 days the lag carried (Tokyo actuals from
-  `fct_area_demand_generation_actual`): 2026-08-05 (Wed) averaged
-  17,371,000 kWh per period with a 21,937,000 peak (16:00–16:30) against
-  14,169,792 / 16,780,000 on 2026-08-12 — the target day ran at 0.816× its
-  D-7 level with an almost identical profile (correlation of the 48-period
-  profiles 0.992); 2025-08-05 (Tue) averaged 22,337,604 with a 28,567,000
-  peak against 15,950,833 / 18,398,000 on 2025-08-12 (0.714×, correlation
-  0.992).
+  `fct_area_demand_generation_actual`): 2026-08-05 (Wed) averaged 17,371,000
+  kWh per period with a 21,937,000 peak (16:00–16:30), against 14,169,792 /
+  16,780,000 on 2026-08-12. The target day ran at 0.816× its D-7 level with an
+  almost identical profile: the correlation of the 48-period profiles is 0.992.
+  2025-08-05 (Tue) averaged 22,337,604 with a 28,567,000 peak against
+  15,950,833 / 18,398,000 on 2025-08-12, so 0.714× at the same 0.992
+  correlation.
 - The same calendar day of the previous year, queried as context for the
   idea below: 2025-08-12 vs 2026-08-12 — profile correlation 0.976, 2026 at
   0.888× the 2025 level.
@@ -209,14 +209,15 @@ model's expected value; feature values are the means of what the model saw;
 - MLflow run: [`0a6b8a5560d445d5b9705bde99cf13ae`](http://localhost:5005/#/experiments/2/runs/0a6b8a5560d445d5b9705bde99cf13ae)
   (`lightgbm_msm_popw_daytype-tokyo`, the SHAP rollout run)
 - Superset dashboard: **Demand Forecast Analysis** → **Accuracy** → **Worst
-  days**; **Explanation (SHAP)** → **SHAP waterfall**, **Feature values &
-  contributions** and the contributions-by-period chart with the Day filter
-  set to 2026-08-12 / 2025-08-12; the tables above are the same numbers
-  queried from `pma_curated.fct_demand_forecast_accuracy`,
-  `pma_curated.fct_demand_forecast_contribution` × `pma_curated.dim_date`
-  and `pma_curated.fct_area_demand_generation_actual` on 2026-08-27 (day
-  parts as in R-003: overnight 00–06, morning 06–08, daytime 08–18, evening
-  18–24).
+  days**. Then **Explanation** → **SHAP waterfall**, **Feature values &
+  contributions** and the contributions-by-period chart, with the Day filter
+  set to 2026-08-12 / 2025-08-12.
+
+The tables above are the same numbers, queried on 2026-08-27 from
+`pma_curated.fct_demand_forecast_accuracy`,
+`pma_curated.fct_demand_forecast_contribution` × `pma_curated.dim_date` and
+`pma_curated.fct_area_demand_generation_actual`. Day parts are as in R-003:
+overnight 00–06, morning 06–08, daytime 08–18, evening 18–24.
 
 ---
 
@@ -229,20 +230,21 @@ model's expected value; feature values are the means of what the model saw;
 - **MLflow run:** [`0a6b8a5560d445d5b9705bde99cf13ae`](http://localhost:5005/#/experiments/2/runs/0a6b8a5560d445d5b9705bde99cf13ae)
   (the same run as O-002)
 - **Status:** Unreviewed
-- **Related investigations:** [R-003 — Day type as a categorical feature](research/demand/R-003-day-type-feature.md)
-  (both days are among the seven holidays the day-type feature made worse:
-  2026-02-11 went from −1,147,127 to −3,071,435 kWh and is the run's
-  second-worst day, 2025-02-11 from 1,196,317 to 1,534,427 MAE; the residual
-  holiday error being two-sided is an R-003 open question);
-  [O-002](research/demand/observations.md#o-002-the-working-day-between-山の日-and-お盆-is-heavily-over-forecast-driven-by-the-d-7-lag)
-  (the same idea — the load of the same day the previous year — from the
-  opposite failure)
+- **Related investigations:** [R-003 — Day type as a categorical
+  feature](research/demand/R-003-day-type-feature.md) (both days are among the
+  seven holidays the day-type feature made worse: 2026-02-11 went from
+  −1,147,127 to −3,071,435 kWh and is the run's second-worst day; 2025-02-11
+  from 1,196,317 to 1,534,427 MAE. That the residual holiday error is two-sided
+  is an R-003 open question.) Also
+  [O-002](research/demand/observations.md#o-002-the-working-day-between-山の日-and-お盆-is-heavily-over-forecast-driven-by-the-d-7-lag),
+  which reaches the same idea — the load of the same day the previous year —
+  from the opposite failure.
 
 ### Observation
 
 In the same dashboard and run, the researcher noticed that 2026-02-11 and
 2025-02-11 (建国記念の日 both years) are heavily under-forecast, and read the
-**Explanation (SHAP)** tab's per-day decomposition for them: here the
+**Explanation** tab's per-day decomposition for them. The
 `lag_7d_demand_kwh` contribution pushes the daytime load forecast up as
 expected, but `day_type` counteracts it heavily and pushes the forecast down
 too low.
@@ -283,9 +285,9 @@ The per-day decomposition (mean per period, as in O-002):
   contribution in absolute terms and the only large negative one, and it
   outweighs the D-7 lag. In the daytime periods (08–18), where the error is
   largest, the lag contributes +1,353,941 (2025) / +1,115,219 (2026) kWh per
-  period and the day type −2,274,605 / −2,060,199; the daytime bias is
-  −1,987,589 (2025; MAPE 10.9 %) and −4,368,264 (2026; MAPE 21.0 %, forecast
-  16,430,086 against an actual of 20,798,350).
+  period and the day type −2,274,605 / −2,060,199. The daytime bias is
+  −1,987,589 in 2025 (MAPE 10.9 %) and −4,368,264 in 2026 (MAPE 21.0 %,
+  forecast 16,430,086 against an actual of 20,798,350).
 - The day-type contribution on these days (−1.85 M / −1.59 M kWh per period)
   is of the same size as on the お盆-adjacent 山の日 2025-08-11 (−1,758,221),
   where the day was forecast within +270,347.
@@ -310,7 +312,7 @@ from knowing the load for the same day the previous year.
 
 - MLflow run: [`0a6b8a5560d445d5b9705bde99cf13ae`](http://localhost:5005/#/experiments/2/runs/0a6b8a5560d445d5b9705bde99cf13ae)
 - Superset dashboard: **Demand Forecast Analysis** → **Accuracy** → **Worst
-  days**; **Explanation (SHAP)** with the Day filter set to 2026-02-11 /
+  days**; **Explanation** with the Day filter set to 2026-02-11 /
   2025-02-11; the numbers above were queried from the same marts as O-002 on
   2026-08-27.
 

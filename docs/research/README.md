@@ -52,8 +52,11 @@ row per paper: what it is, the PDF, and which research doc cites it.
   asked.
 - Create one investigation document for each coherent forecasting question by
   copying [the investigation template](research/investigation-template.md)
-  into the task folder. Fill its *Scope and constraints* block from the task
-  README's scope defaults.
+  into the task folder. Its *Scope and constraints* block cites the task
+  README's scope defaults and records only what the investigation changes.
+- The task README's investigation index carries the verdict, the headline
+  number and the decision date. The reasoning stays in the investigation.
+- Writing style: `CLAUDE.md`, *Writing style*.
 - IDs are stable and **numbered per task**: each task folder has its own
   `O-001…` observations and `R-001…` investigations, and experiments are
   `E-001…` within an investigation. A bare ID is ambiguous across tasks, so

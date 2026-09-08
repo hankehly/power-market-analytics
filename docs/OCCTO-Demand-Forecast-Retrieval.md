@@ -1,15 +1,19 @@
 # OCCTO Demand Forecast (翌々日) Data Retrieval
 
-This document describes how to obtain 電力需要予想・ピーク時供給力 (demand forecast /
-peak supply capacity) data — in particular the 翌々日 (day-after-next) series — from
-OCCTO's public portal, programmatically and without a browser: the portal's request
-framework, the bulk-download protocol that returns the **entire history in a single CSV**,
-the file format, the catalog of other datasets reachable through the same endpoint, and
-how to use the downloader/loader in `power_market_analytics/occto.py`.
-[§9](#9-広域予備率-エリア広域ブロック情報-翌々日-half-hourly-area-demand--supply) covers the
-second dataset the same code retrieves: the half-hourly 広域予備率 エリア・広域ブロック情報
-(翌々日) publication — the source of `fct_occto_demand_supply_forecast_30m` — including
-its 150,000-row download cap and the alternative 広域予備率Web公表システム portal.
+How to obtain 電力需要予想・ピーク時供給力 (demand forecast / peak supply
+capacity) data from OCCTO's public portal, programmatically and without a
+browser. The 翌々日 (day-after-next) series is the one this pipeline uses.
+
+This document covers the portal's request framework, the bulk-download protocol
+that returns the **entire history in a single CSV**, the file format, the
+catalog of other datasets reachable through the same endpoint, and how to use
+the downloader and loader in `power_market_analytics/occto.py`.
+
+[§9](#9-広域予備率-エリア広域ブロック情報-翌々日-half-hourly-area-demand--supply)
+covers the second dataset the same code retrieves: the half-hourly 広域予備率
+エリア・広域ブロック情報 (翌々日) publication, the source of
+`fct_occto_demand_supply_forecast_30m`. It includes the 150,000-row download
+cap and the alternative 広域予備率Web公表システム portal.
 
 All protocol details were established empirically on 2026-08-16 by driving the portal in
 a browser, capturing its network traffic, and replaying the requests with plain HTTP
@@ -102,7 +106,7 @@ The UI flow is CSV保存 → `reference/print` (validation) → confirm dialog �
    (`Content-Disposition: attachment;filename=<timestamp>_電力需要予想ピーク時供給力翌々日.csv`).
 
 Both `downloadKey` and `requestToken` are required — a download with a blank or reused
-token returns the 不正なリクエスト page. Each download therefore needs its own
+token returns the 不正なリクエスト page. Each download needs its own
 `ok` → `download` pair, but one session can issue many pairs.
 
 ### 3.2 Request parameters
@@ -190,12 +194,12 @@ All with HTTP 200:
   page (error HTML is UTF-8).
 
 **Seen once, 2026-09-06 11:41 JST.** A fresh session's first `download` of the reserve-rate
-series came back as the error screen right after `ok` had issued the pair. Nothing
-reproduced it: the same window minutes later, three demand → reserve-rate runs back to
-back, a `download` sent to another of the portal's four backends (`HSERVERID`; sessions
-are replicated, so it succeeds) and two sessions that received the identical `downloadKey`
-in the same second (`YYYYMMDDHHMMSS_CF01S010C` is session-scoped; both succeed) all passed.
-`OcctoBulkDownloader` therefore retries such a window
+series came back as the error screen right after `ok` had issued the pair. Nothing reproduced it. Four probes all passed: the same window minutes later;
+three demand → reserve-rate runs back to back; a `download` sent to another of
+the portal's four backends (`HSERVERID` — sessions are replicated, so it
+succeeds); and two sessions that received the identical `downloadKey` in the
+same second (`YYYYMMDDHHMMSS_CF01S010C` is session-scoped, and both succeed).
+`OcctoBulkDownloader` retries such a window
 ([§8](#8-downloading-and-loading-with-power_market_analyticsoccto)).
 
 ## 4. The 翌々日 CSV format
@@ -325,23 +329,25 @@ groups submit 翌々日計画 by **D−2 10:00**; the TSOs' 需給バランス�
 due **D−2 17:30**; OCCTO then computes and publishes the 広域予備率 (業務規程 第108条２).
 The 2023-03-29 briefing timeline reads: D−2 10時 BG計画提出期限 → 17時頃 一送需給バランス
 計画提出期限 → **18時頃 広域予備率公表**; D−1 10時頃 スポット約定 → 12時 BG翌日計画提出期限.
-So the 翌々日 forecast for D is available roughly **16 hours before the JEPX day-ahead
-auction for D closes** (D−1 10:00 gate closure), which is what makes it usable as a
-spot-price feature; the 翌日 forecast (D−1 ~17:35) is **not** — it lands after the
-auction.
+So the 翌々日 forecast for D is available roughly **16 hours before the JEPX
+day-ahead auction for D closes**, at the D−1 10:00 gate closure. That is what
+makes it usable as a spot-price feature. The 翌日 forecast (D−1 ~17:35) is
+**not**: it lands after the auction.
 
 History: 翌々日 publication began 2024-03-11 (values through 2024-03-31 published as
 参考値); FY2024 had two daily points (最大需要時・最小予備率時), FY2025 onward 48
 half-hourly points; the 2025-03-05 screen change renamed 「最小予備率時（MW）」 to
 「最小総需要予想（MW）」 — the semantic break in [§4](#4-the-翌々日-csv-format).
 
-**Revisions after first publication.** The rules allow recalculation in principle
-(業務規程 第108条２ bases the calculation on plans 「当該計画を変更する計画を含む」, and
-OCCTO says it re-assesses 「必要に応じて」 when supply-demand changes unexpectedly), but
-empirically the 翌々日 series behaves as a **single D−2 snapshot**: the CSV has exactly one
-策定日 per (対象日, エリア), always D−2, and all 124 sampled update timestamps fall on D−2
-(the lone 23:38 case may be a same-evening re-publication; the field only shows the latest
-update). The 翌々日 view is superseded by the separate 翌日 dataset, not overwritten.
+**Revisions after first publication.** The rules allow recalculation in
+principle: 業務規程 第108条２ bases the calculation on plans
+「当該計画を変更する計画を含む」, and OCCTO says it re-assesses 「必要に応じて」
+when supply-demand changes unexpectedly.
+
+Empirically, though, the 翌々日 series behaves as a **single D−2 snapshot**. The
+CSV has exactly one 策定日 per (対象日, エリア), always D−2, and all 124 sampled
+update timestamps fall on D−2. The lone 23:38 case may be a same-evening
+re-publication; the field only shows the latest update. The 翌々日 view is superseded by the separate 翌日 dataset, not overwritten.
 
 **Scheduling**: pull once daily **after ~18:15 JST** to catch the p90 case; a second pull
 next morning covers rare late updates. Sources:
@@ -378,10 +384,10 @@ windows into one file; see [§9.2](#92-bulk-download-and-the-150000-row-cap)).
 
 A window the portal fails to serve — its error screen ([§3.4](#34-failure-modes)), the
 session-timeout JSON, a login without a session cookie or an HTTP 5xx at any step — is
-retried: `max_attempts=3` per window, `retry_wait=5.0` s before each retry. An attempt is
-the `LOGIN_login` GET (first window, and every retry), the `ok` and the `download`; a
-failure at any of the three consumes it, and every retry clears the cookie jar first so the
-portal issues a new session and a new key/token pair (a used pair is one-shot). A rejection
+retried: `max_attempts=3` per window, `retry_wait=5.0` s before each retry. An attempt is the `LOGIN_login` GET (first window, and every retry), the `ok`
+and the `download`. A failure at any of the three consumes it. Every retry
+clears the cookie jar first, so the portal issues a new session and a new
+key/token pair. A used pair is one-shot. A rejection
 of the request itself — a validation `errMessage`, an HTTP 4xx, a CSV with the wrong
 header — is raised at once. Transient failures are `OcctoTransientError` (a subclass of `OcctoDownloadError`),
 raised after the last attempt with the page's message, e.g.
@@ -411,11 +417,12 @@ just python scripts/load_occto_area_reserve_rate.py        # §9
 just dbt build
 ```
 
-`scripts/load_occto_demand_forecast.py` performs a full reload through the generic
-`CsvLoader` with the contract in `conf/schemas/occto_demand_forecast_dad.yaml`
-(`windows-31j`, dates parsed from `yyyy/MM/dd`, grain `(target_date, area_name_ja)`
-enforced, the two 時刻 columns kept as strings because `24:00` is not a valid Spark
-time) into `pma_raw.occto_demand_forecast_dad`. dbt then builds:
+`scripts/load_occto_demand_forecast.py` performs a full reload into
+`pma_raw.occto_demand_forecast_dad`, through the generic `CsvLoader` with the
+contract in `conf/schemas/occto_demand_forecast_dad.yaml`. The contract sets
+`windows-31j`, parses dates from `yyyy/MM/dd`, enforces the grain
+`(target_date, area_name_ja)`, and keeps the two 時刻 columns as strings because
+`24:00` is not a valid Spark time. dbt then builds:
 
 | Model | Layer | What it adds |
 |---|---|---|
@@ -440,10 +447,10 @@ Data-caveat handling:
 
 ## 9. 広域予備率 エリア・広域ブロック情報 (翌々日): half-hourly area demand / supply
 
-The second dataset this pipeline retrieves. OCCTO's 広域予備率 (wide-area reserve rate)
-publication gives, for every target date, 30-minute period and supply area, the area's
-forecast demand, supply capacity and reserve together with the wide-area block the area
-is grouped into for that period and the block's totals and rates. It is the half-hourly
+The second dataset this pipeline retrieves. OCCTO's 広域予備率 (wide-area reserve rate) publication gives, for every target
+date, 30-minute period and supply area, the area's forecast demand, supply
+capacity and reserve. It also gives the wide-area block the area is grouped
+into for that period, with the block's totals and rates. It is the half-hourly
 counterpart of the two-point demand forecast above and the source of
 `fct_occto_demand_supply_forecast_30m`. Everything below was verified 2026-08-16.
 

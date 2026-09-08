@@ -1,10 +1,10 @@
 # JMA Hourly Weather Data Retrieval
 
-This document describes how we obtain historical hourly weather observations from the
-Japan Meteorological Agency (JMA) for JEPX spot price forecasting: the reverse-engineered
-HTTP protocol, the station and element model, the per-request limits, the format of the
-downloaded CSV files, and how to use the downloader in
-`power_market_analytics/jma.py`.
+How we obtain historical hourly weather observations from the Japan
+Meteorological Agency (JMA) for JEPX spot price forecasting. This document
+covers the reverse-engineered HTTP protocol, the station and element model, the
+per-request limits, the format of the downloaded CSV files, and how to use the
+downloader in `power_market_analytics/jma.py`.
 
 All protocol details below were established empirically on 2026-07-20 by driving the JMA
 site in a browser, capturing its network traffic, and replaying the requests with plain
@@ -170,11 +170,11 @@ var tag = ['降水量', '風', '気温', '日照時間', '積雪・降雪', 'そ
 ```
 
 i.e. `kansoku[i]` for `i = 0..5` covers **[precipitation, wind, temperature, sunshine,
-snow, other]**. Values: `0` = not observed, `1` = observed; `2` also renders as observed
-and appears only in the sunshine position — at active AMeDAS stations whose sunshine
-sensor was replaced by satellite-derived *estimated* sunshine (推計値, from ~2021).
-"Other" (その他) covers the staffed-station extras and, at modern four-element AMeDAS
-stations, humidity. Observed examples from `pd=44` (Tokyo):
+snow, other]**. Values: `0` = not observed, `1` = observed. `2` also renders as observed and appears
+only in the sunshine position, at active AMeDAS stations whose sunshine sensor
+was replaced by satellite-derived *estimated* sunshine (推計値, from ~2021).
+"Other" (その他) covers the staffed-station extras and, at modern four-element
+AMeDAS stations, humidity. Observed examples from `pd=44` (Tokyo):
 
 | Station | `kansoku` | Reading |
 |---|---|---|
@@ -186,11 +186,13 @@ stations, humidity. Observed examples from `pd=44` (Tokyo):
 A full-scrape orchestrator should read `kansoku` per station and request only the
 elements the station observes.
 
-`JmaStationMasterDownloader` automates this enumeration: it discovers the area codes from
-`pd=00`, walks all ~61 area pages, and writes one row per station — id, prefecture, name,
-kana, decimal-degree coordinates, elevation, the raw `kansoku` mask plus its decoded
-digits, and the end-of-observation date for discontinued stations — to
-the `jma_stations` dbt seed (see [§8](#8-downloading-with-power_market_analyticsjma)).
+`JmaStationMasterDownloader` automates this enumeration. It discovers the area
+codes from `pd=00`, walks all ~61 area pages, and writes one row per station to
+the `jma_stations` dbt seed (see
+[§8](#8-downloading-with-power_market_analyticsjma)). Each row carries the id,
+prefecture, name, kana, decimal-degree coordinates, elevation, the raw
+`kansoku` mask plus its decoded digits, and the end-of-observation date for
+discontinued stations.
 Coordinates are given by JMA in degrees + decimal minutes (0.1′ ≈ 185 m precision);
 southern latitudes (南緯, the Antarctic station) parse as negative.
 
@@ -205,19 +207,28 @@ for reference — the station-type taxonomy, `kansoku` decoding, and the mdrr hi
 below all still apply to it — but AMeDAS stations are no longer scraped, downloaded, or
 loaded into the warehouse.
 
-**JEPX areas only, since 2026-08-21.** A second scope cut drops the staffed stations that
-lie outside every JEPX area, so `dim_jma_station.area_key` is a required foreign key to
-`dim_area`: the 8 Okinawa stations (pd 91 — 沖縄電力's supply area, no JEPX product), 昭和
-(pd 99, Antarctica), and 南鳥島 `s47991` (東京都, but excluded from TEPCO PG's supply area
-per its 託送供給等約款; the JMA/JSDF outpost self-generates). The filter is
-`jepx_areas_only=True` on `JmaStationMasterDownloader` (policy constants
-`NON_JEPX_AREA_PREFECTURE_CODES` / `NON_JEPX_AREA_STATION_IDS`), passed by both
-`scripts/update_jma_stations_seed.py` and `scripts/download_jma_hourly_all.py`. Each
-remaining station's JEPX area is assigned in the hand-curated `dbt/seeds/jma_station_areas.csv`
-(prefecture-level per the TSO 供給区域 definitions in their 託送供給等約款, except 静岡,
-which splits at the 富士川 — TEPCO PG east, Chubu PG west; the only other split
-prefectures, 福井/岐阜/三重/兵庫/香川/愛媛, have no staffed station in their
-minority-TSO exclaves — note 敦賀市 is Hokuriku territory, the Kansai boundary being 関峠).
+**JEPX areas only, since 2026-08-21.** A second scope cut drops the staffed
+stations that lie outside every JEPX area, so `dim_jma_station.area_key` is a
+required foreign key to `dim_area`. Three groups go:
+
+- the 8 Okinawa stations (pd 91), 沖縄電力's supply area, which has no JEPX
+  product;
+- 昭和 (pd 99), in Antarctica;
+- 南鳥島 `s47991`, in 東京都 but excluded from TEPCO PG's supply area per its
+  託送供給等約款 — the JMA/JSDF outpost self-generates.
+
+The filter is `jepx_areas_only=True` on `JmaStationMasterDownloader` (policy
+constants `NON_JEPX_AREA_PREFECTURE_CODES` / `NON_JEPX_AREA_STATION_IDS`),
+passed by both `scripts/update_jma_stations_seed.py` and
+`scripts/download_jma_hourly_all.py`.
+
+Each remaining station's JEPX area is assigned in the hand-curated
+`dbt/seeds/jma_station_areas.csv`. The mapping is prefecture-level, per the TSO
+供給区域 definitions in their 託送供給等約款. The exception is 静岡, which
+splits at the 富士川: TEPCO PG east, Chubu PG west. The only other split
+prefectures — 福井/岐阜/三重/兵庫/香川/愛媛 — have no staffed station in their
+minority-TSO exclaves. Note that 敦賀市 is Hokuriku territory, the Kansai
+boundary being 関峠.
 
 ### 4.3 Station metadata changes over time
 
@@ -316,12 +327,10 @@ all for one station over one full year of hourly data:
 | 15 elements, 2 stations | 32 | ✗ |
 
 Rule of thumb: **≤ 5 value columns × 1 station × 1 full year per request** (~44k values
-succeeded; ~61k was rejected, so the cap lies between). The downloader models the cap as
-`MAX_VALUES_PER_REQUEST = 44_000` values (columns × hours) and splits over-budget
-station-years into time windows instead of rejecting them; the 2026-08-20 spike confirmed
-an 8-column half-year (~35k values) passes. (An earlier version of the downloader enforced
-a flat `MAX_VALUE_COLUMNS = 5` and raised on anything wider — that reject no longer
-exists.)
+succeeded; ~61k was rejected, so the cap lies between). The downloader models the cap as `MAX_VALUES_PER_REQUEST = 44_000` values
+(columns × hours) and splits over-budget station-years into time windows
+instead of rejecting them. The 2026-08-20 spike confirmed an 8-column half-year
+(~35k values) passes.
 
 ### 6.2 Rate limiting
 
@@ -335,21 +344,20 @@ which takes about 5.5 minutes at the observed ~15 s/request.
 ### 6.3 Packing math for a full scrape
 
 Requests (windows) per station-year = `window_count()` =
-`ceil(value columns × hours ÷ MAX_VALUES_PER_REQUEST)`. The current scrape set
-(`SCRAPE_ELEMENTS`, [§5](#5-hourly-observation-elements)) is 7 elements / 8 value columns
-(wind counts 2), which exceeds the 44,000-value budget for a full year
-(8 × 8,760 ≈ 70k) but not for a half-year (8 × 4,380 ≈ 35k) — so every station-year splits
-into **2 windows**, stitched into one file ([§7.1](#71-encoding-and-overall-structure)).
+`ceil(value columns × hours ÷ MAX_VALUES_PER_REQUEST)`. The current scrape set (`SCRAPE_ELEMENTS`,
+[§5](#5-hourly-observation-elements)) is 7 elements over 8 value columns, wind
+counting 2. That exceeds the 44,000-value budget for a full year (8 × 8,760 ≈
+70k) but not for a half-year (8 × 4,380 ≈ 35k). So every station-year splits
+into **2 windows**, stitched into one file
+([§7.1](#71-encoding-and-overall-structure)).
 
 Scope: 149 staffed stations in the seed (146 active + 3 discontinued; the JEPX-area
 re-scope removed 10 — [§4](#4-stations)). Two of the
 discontinued stations ended before 2016 and so contribute no station-years at all;
-阿蘇山 `s47821` ended 2017-12-11 and contributes only 2016–2017. Station-years therefore
-total 146 × 11 + 1 × 2 ≈ 1,608, × 2 windows/station-year ≈ **3,220 requests**. Server response time
-(~10 s per file) dominates the 5-second spacing, so the realistic pace is ~15 s/request ≈
-**13.5 hours cold** for the full staffed network — smaller than the pre-re-scope core-set
-AMeDAS scrape below despite the extra elements, because it covers ~149 stations instead of
-~1,300. A current-year refresh is still 2 windows/station (the window count is planned off
+阿蘇山 `s47821` ended 2017-12-11 and contributes only 2016–2017. Station-years
+total 146 × 11 + 1 × 2 ≈ 1,608, × 2 windows/station-year ≈ **3,220 requests**. Server response time (~10 s per file) dominates the 5-second spacing, so the
+realistic pace is ~15 s/request ≈ **13.5 hours cold** for the full staffed
+network. A current-year refresh is still 2 windows/station (the window count is planned off
 the full calendar year, not how much of it has elapsed — [§7.4](#74-time-semantics)), so
 149 stations × 2 windows ≈ 300 requests ≈ 1.25 hours.
 
@@ -419,23 +427,24 @@ Each element occupies a contiguous group: value column(s), then appended info co
 **The group width varies by element and station type**:
 
 - Every group ends with 品質情報 (per value) and one 均質番号.
-- Elements that record "did the phenomenon occur" — precipitation (101), sunshine (401),
-  and **snow depth (501)** — additionally carry a 現象なし情報 column **at staffed
-  stations** (AMeDAS elements and non-phenomenon elements like temperature never have it).
-  Earlier passes of this doc listed only 101/401/503 as phenomenon elements; the
-  2026-08-20 spike ([§6.1](#61-data-volume-cap)) downloaded the current 7-element staffed
-  scrape set live and
-  showed 501 (積雪の深さ) also carries a 現象なし情報 column — 503 (降雪の深さ, snowfall)
-  is not in the scrape set and was never verified either way. Verified side by side: the
-  identical temp+precip+sunshine+wind request returns **17 columns for 東京 (staffed)
-  but 15 for 府中 (AMeDAS)** — no request parameter changes this, so a loader cannot
-  assume one fixed layout across station types.
+- Elements that record "did the phenomenon occur" — precipitation (101),
+  sunshine (401), and **snow depth (501)** — also carry a 現象なし情報 column **at
+  staffed stations** (AMeDAS elements and non-phenomenon elements like
+  temperature never have it). The 2026-08-20 spike
+  ([§6.1](#61-data-volume-cap)) downloaded the current 7-element staffed scrape
+  set live and confirmed 501 (積雪の深さ) carries one. 503 (降雪の深さ, snowfall)
+  is not in the scrape set and was never verified either way.
+  Verified side by side: the identical temp+precip+sunshine+wind request
+  returns **17 columns for 東京 (staffed) but 15 for 府中 (AMeDAS)** — no request
+  parameter changes this, so a loader cannot assume one fixed layout across
+  station types.
 - Wind expands to 風速 (value, 品質情報) + 風向 (value, 品質情報) + one shared 均質番号.
   Wind direction is a 16-point compass string (北西 etc.) or 静穏 (calm), not a number.
-- Value semantics differ too: a rainless/sunless hour at a staffed station is stored as
-  `0` with 現象なし情報 = 1, while AMeDAS sunshine stores an **empty cell with quality 8**
-  for nighttime hours — empty does not always mean missing; interpret value cells
-  together with their quality flag and element.
+- Value semantics differ too. A rainless or sunless hour at a staffed station
+  is stored as `0` with 現象なし情報 = 1, while AMeDAS sunshine stores an **empty
+  cell with quality 8** for nighttime hours. Empty does not always mean
+  missing, so interpret value cells together with their quality flag and
+  element.
 
 ### 7.3 Appended information values
 
@@ -472,7 +481,7 @@ boundary and a real break exactly on that boundary is invisible in the CSV alone
 ### 7.4 Time semantics
 
 - Timestamps are JST. Hours run 01:00–24:00, and with `ymdLiteral=1` hour 24:00 is
-  stored as **00:00 of the next day**. A year file therefore covers
+  stored as **00:00 of the next day**. A year file so covers
   `Jan 1 01:00` through `Jan 1 00:00` of the following year — 8,760 rows (8,784 in leap
   years) with **no overlap** between consecutive year files.
 - The current year's file ends at yesterday 24:00 (= today 00:00 JST).
@@ -480,10 +489,11 @@ boundary and a real break exactly on that boundary is invisible in the CSV alone
 ### 7.5 Minimum distinct formats for ingestion
 
 A file's column layout is a pure function of **(element set) × (station class)** — nothing
-else. Within one class and one fixed element set, every station produces the identical
-layout: unobserved elements still emit standard-width groups (empty value, quality 0;
-verified at a precipitation-only station), all 149 staffed stations in the seed observe
-all elements (`kansoku=111111`), and discontinued stations keep the layout too. A set containing a
+else. Within one class and one fixed element set, every station produces the
+identical layout. Unobserved elements still emit standard-width groups, with an
+empty value and quality 0, verified at a precipitation-only station. All 149
+staffed stations in the seed observe all elements (`kansoku=111111`), and
+discontinued stations keep the layout too. A set containing a
 phenomenon element (降水量 101, 日照時間 401, 積雪の深さ 501 — [§7.2](#72-column-groups))
 has two layout variants across station classes (staffed adds 現象なし情報); a set without
 any has one shared layout everywhere.
@@ -534,12 +544,12 @@ Consequences, given the pre-re-scope 5-value-column cap and both station classes
 - Even 東京 has holes: in 2016–2026 hourly temperature, 2019 has 3 missing hours
   (flag 1), 2020 and 2024 one each, 2022 one quasi-normal hour (flag 5). Loaders must
   tolerate empty value cells wherever the quality flag is not 8/5/4.
-- The "unobserved elements still emit standard-width groups (empty value, quality 0)"
-  rule ([§7.5](#75-minimum-distinct-formats-for-ingestion)) holds for column *widths*,
-  but the quality cell itself is not always populated: at a few AMeDAS stations the
-  wind-direction 品質情報 cell is empty instead of 0 while the wind element is
-  unobserved (a1674 through 2022-10-30, a1643/a1644 in Dec 2016). Loaders must treat
-  that flag as nullable.
+- The "unobserved elements still emit standard-width groups (empty value,
+  quality 0)" rule ([§7.5](#75-minimum-distinct-formats-for-ingestion)) holds
+  for column *widths*, but the quality cell itself is not always populated. At
+  a few AMeDAS stations the wind-direction 品質情報 cell is empty instead of 0
+  while the wind element is unobserved: a1674 through 2022-10-30, and
+  a1643/a1644 in Dec 2016. Loaders must treat that flag as nullable.
 - Discontinued stations appear in the station list with an end date; their files simply
   stop at that date.
 - 全天日射量 and 降水量 print a bare `0` at some hours and a decimal (`0.0`, `1.56`) at
@@ -598,12 +608,13 @@ station, `station_id` as the natural key).
 
 ### The full-network scrape
 
-`scripts/download_jma_hourly_all.py` orchestrates the staffed-station scrape: it loads the
-station master (downloading it first if absent, staffed stations only —
-[§4](#4-stations)), plans the request windows for `SCRAPE_ELEMENTS` per station-year (2
-windows/station-year — [§6.3](#63-packing-math-for-a-full-scrape)) — skipping stations that
-ended before the window and truncating discontinued stations at their end year — and
-downloads every missing file. It is resumable (existing files are cached; re-running
+`scripts/download_jma_hourly_all.py` orchestrates the staffed-station scrape in
+three steps. It loads the station master, downloading it first if absent,
+staffed stations only ([§4](#4-stations)). It plans the request windows for
+`SCRAPE_ELEMENTS` per station-year, 2 windows each
+([§6.3](#63-packing-math-for-a-full-scrape)), skipping stations that ended
+before the window and truncating discontinued stations at their end year. Then
+it downloads every missing file. It is resumable (existing files are cached; re-running
 continues where it stopped and retries earlier failures), refreshes a current-year file
 only when it predates today, logs and skips per-download failures, and aborts after 10
 consecutive failures as a rate-limit circuit breaker. See
@@ -620,28 +631,30 @@ nohup uv run python scripts/download_jma_hourly_all.py > jma_scrape.log 2>&1 &
 
 ### Loading into the warehouse
 
-`scripts/load_jma_hourly.py` performs a full reload of the downloaded staffed-station files
-into `pma_raw.jma_hourly_staffed` — the single format at the current scrape's coverage
-([§7.5](#75-minimum-distinct-formats-for-ingestion); the pre-re-scope
-`pma_raw.jma_hourly_amedas` table is gone, since AMeDAS is out of scope — [§4](#4-stations))
-— via `JmaHourlyCsvLoader` (`power_market_analytics/jma.py`), a positional variant
-of the generic `CsvLoader`: because the JMA header rows repeat labels per element, columns
-are addressed as `_c0`..`_c26` (27 columns) in the load contract
-`conf/schemas/jma_hourly_staffed.yaml`, `station_id` is injected from the file name, and
-each file's column count is checked against the contract before reading — now a guard
-against JMA layout drift rather than a station-class mixup, since only one layout is
-expected. The dbt staging model `stg_jma__hourly_staffed` exposes the raw table as-is with
+`scripts/load_jma_hourly.py` performs a full reload of the downloaded
+staffed-station files into `pma_raw.jma_hourly_staffed`. That is the single
+format at the current scrape's coverage
+([§7.5](#75-minimum-distinct-formats-for-ingestion)). The pre-re-scope
+`pma_raw.jma_hourly_amedas` table is gone, AMeDAS being out of scope
+([§4](#4-stations)).
+
+The loader is `JmaHourlyCsvLoader` (`power_market_analytics/jma.py`), a
+positional variant of the generic `CsvLoader`. The JMA header rows repeat
+labels per element, so columns are addressed as `_c0`..`_c26` — 27 columns — in
+the load contract `conf/schemas/jma_hourly_staffed.yaml`. `station_id` is
+injected from the file name. Each file's column count is checked against the
+contract before reading; with only one layout expected, that check now guards
+against JMA layout drift rather than a station-class mixup. The dbt staging model `stg_jma__hourly_staffed` exposes the raw table as-is with
 an enforced contract, a grain uniqueness test, and accepted-values tests on the flag
 columns; a single `stg` → `std` → `fct` chain (`std_jma__hourly` →
 `fct_jma_weather_hourly`) carries it downstream. Loading needs Spark, so run inside the
-devcontainer. The loader checks every file in Python (column count, station id in the name)
-and then reads all of them in a **single Spark scan** (`CsvLoader._scan_positional`; the
-station id comes from each row's file name), so a full reload of ~1,600 station-year files
-(13.7 M rows) takes about a minute — 50 s with the files in the OS cache, 100 s cold — and
-runs at any driver size (verified at `SPARK_DRIVER_MEMORY=4g`). Before 2026-08-30 it unioned
-one frame per file, which cost ~8 min of planning, a 45 MiB task binary and ~1 h 45 min per
-load on a 20g driver — the reason the compose default is still 20g (the MSM loader has not
-been converted yet).
+devcontainer. The loader checks every file in Python, for column count and the station id in
+the name, then reads all of them in a **single Spark scan**
+(`CsvLoader._scan_positional`, the station id coming from each row's file
+name). A full reload of ~1,600 station-year files (13.7 M rows) takes about a
+minute: 50 s with the files in the OS cache, 100 s cold. It runs at any driver
+size, verified at `SPARK_DRIVER_MEMORY=4g`. The compose default is still 20g as
+headroom, sized per `.env.template`; no loader needs it.
 
 ```bash
 just python scripts/load_jma_hourly.py
@@ -681,12 +694,13 @@ df = pd.read_csv(
 - The station master is the dbt seed `dbt/seeds/jma_stations.csv` (UTF-8,
   version-controlled, one row per station including discontinued ones, sorted by
   prefecture then station id), surfaced in the warehouse as `dim_jma_station`.
-- Currently downloaded: all 149 staffed stations in the seed (146 active + 阿蘇山,
-  discontinued 2017 and so files only through that year; 伊吹山/剣山 discontinued before
-  the 2016+ window and so contribute no files) — the 7-element `SCRAPE_ELEMENTS`
-  stitched files, 27 columns, 2016 through current, backfilled 2026-08-20. The 10
-  stations outside every JEPX area ([§4](#4-stations)) were downloaded in that backfill
-  but removed from `data/jma/hourly/` and the warehouse on 2026-08-21.
+- Currently downloaded: all 149 staffed stations in the seed. 146 are active.
+  阿蘇山 was discontinued in 2017, so it has files only through that year, and 伊吹山
+  / 剣山 were discontinued before the 2016+ window, so they contribute none. The
+  files are the 7-element `SCRAPE_ELEMENTS` stitched ones, 27 columns, 2016
+  through current, backfilled 2026-08-20. The 10 stations outside every JEPX
+  area ([§4](#4-stations)) were downloaded in that backfill but removed from
+  `data/jma/hourly/` and the warehouse on 2026-08-21.
 
 ## Appendix A: Prefecture (`pd`) codes
 

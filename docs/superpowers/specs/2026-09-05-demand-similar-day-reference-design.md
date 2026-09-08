@@ -59,16 +59,20 @@ of 2026-09-02 to 09-04.
    the backtest at each LightGBM refit if they do move.
 8. **One feature: the single nearest day.** Top-K days, the distance itself and a blended
    curve are later experiments.
-9. **Holiday attributes come from `dim_date`.** "Holiday" for the two distances means a
-   named holiday, `is_holiday = true`: 祝日 plus 年末年始 12/30 to 1/3, ゴールデンウィーク 4/30
-   to 5/2 and お盆 8/13 to 8/16. Weekends do not count. This follows Rubattu, Maroni and
-   Corani (AALTD 2023), whose "days since last / until next holiday" sit beside separate
-   Holiday and Weekend features (confirmed 2026-09-05); weekends are graded by
-   `holiday_degree` instead. 休日度合い is `dim_date.holiday_degree`
-   (spec `2026-09-05-dim-date-holiday-degree-design.md`, branch
-   `feature/dim-date-holiday-degree`): a double in {0, 0.3, 0.5, 0.8, 1.0}, the greatest of
-   the calendar grade (Sunday or 祝日 1.0, Saturday 0.8), the special-period grade (first day
-   0.8, other days 1.0) and the sandwiched-day grade (one bridge day 0.5, two 0.3).
+9. **Holiday attributes come from `dim_date`.** "Holiday" for the two distances
+   means a named holiday, `is_holiday = true`: 祝日 plus 年末年始 12/30 to 1/3,
+   ゴールデンウィーク 4/30 to 5/2 and お盆 8/13 to 8/16. Weekends do not count. This
+   follows Rubattu, Maroni and Corani (AALTD 2023), whose "days since last /
+   until next holiday" sit beside separate Holiday and Weekend features
+   (confirmed 2026-09-05). Here weekends are graded by `holiday_degree`
+   instead.
+
+休日度合い is `dim_date.holiday_degree` (spec
+`2026-09-05-dim-date-holiday-degree-design.md`, branch
+`feature/dim-date-holiday-degree`): a double in {0, 0.3, 0.5, 0.8, 1.0}. It is
+the greatest of three grades — the calendar grade (Sunday or 祝日 1.0, Saturday
+0.8), the special-period grade (first day 0.8, other days 1.0) and the
+sandwiched-day grade (one bridge day 0.5, two 0.3).
 10. **Which days can be scored.** D can be scored when two things hold: D has its own
     forecast profile (MSM, from 2019-04-01), and every day of its window, D − 394 to
     D − 334, is on or after the first day with both an hourly load and an observed profile
@@ -123,11 +127,12 @@ One row per `dim_date` day that has a day before and after it. Key: `trade_date`
 | `holiday_degree` | float64 | `dim_date.holiday_degree`, in {0, 0.3, 0.5, 0.8, 1.0} (decision 9) |
 
 `DayCalendar.day_types()` returns the `DayTypeCalendar` the parent strategy needs, so
-`dim_date` is read once. `datasets.load_day_calendar(spark=None)` reads the columns above and
-computes the two holiday distances in pandas with a forward and a backward fill over the
-spine (no gaps; as implemented, in place of SQL window functions), then drops the days before
-the spine's first holiday and after its last so both distances are defined (the spine starts
-2016-01-01, a holiday), and logs the counts.
+`dim_date` is read once. `datasets.load_day_calendar(spark=None)` reads the columns above and computes
+the two holiday distances in pandas, with a forward and a backward fill over the
+spine, which has no gaps. That is how it is implemented, in place of SQL window
+functions. It then drops the days before the spine's first holiday and after its
+last, so both distances are defined — the spine starts 2016-01-01, a holiday —
+and logs the counts.
 `load_day_types` does not change.
 
 ### 4.2 Candidates

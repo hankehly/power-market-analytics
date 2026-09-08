@@ -17,9 +17,9 @@
 
 ## Question
 
-Does giving the model the load of a reference day one year earlier — a day
-chosen to stand for the target day — improve Tokyo-area day-ahead demand
-forecasts, in particular on the days where the D-7 lag or the day type alone
+Does giving the model the load of a reference day one year earlier, a day
+chosen to stand for the target day, improve Tokyo-area day-ahead demand
+forecasts? In particular on the days where the D-7 lag or the day type alone
 misleads it?
 
 Broadened on 2026-09-05 after E-001. As first written, the question named one
@@ -33,12 +33,12 @@ selector instead.
 The researcher's stated remedy for O-002 and O-003 is a same-day-previous-year
 load feature:
 
-- [O-002](research/demand/observations.md#o-002-the-working-day-between-山の日-and-お盆-is-heavily-over-forecast-driven-by-the-d-7-lag): on 2025-08-12 and
-  2026-08-12 — a working day squeezed between a weekend and お盆 — the
-  baseline over-forecasts by 3.9 M and 2.8 M kWh per period, and the SHAP
-  decomposition attributes the excess to `lag_7d_demand_kwh`: the same
-  weekday one week earlier was an ordinary working day. The same weekday one
-  year earlier sits in the same position relative to お盆.
+- [O-002](research/demand/observations.md#o-002-the-working-day-between-山の日-and-お盆-is-heavily-over-forecast-driven-by-the-d-7-lag):
+  on 2025-08-12 and 2026-08-12, a working day squeezed between a weekend and
+  お盆, the baseline over-forecasts by 3.9 M and 2.8 M kWh per period. The SHAP
+  decomposition attributes the excess to `lag_7d_demand_kwh`: the same weekday
+  one week earlier was an ordinary working day. The same weekday one year
+  earlier sits in the same position relative to お盆.
 - [O-003](research/demand/observations.md#o-003-建国記念の日-is-heavily-under-forecast-the-day-type-outweighing-the-d-7-lag): on 建国記念の日 2026-02-11
   (and 2025-02-11) the baseline under-forecasts by 3.1 M kWh per period with
   `day_type` the dominant negative contribution: the holiday category pulls
@@ -47,19 +47,23 @@ load feature:
 
 The inputs were built for it. `dim_date.prior_year_reference_date` (PR #29,
 2026-08-31) names, for every day of the spine, the day one year earlier that
-stands for it: the same weekday 52 weeks back for a working day (shifted to
-D−357, then D−371, when that day is a holiday), D−364 for a weekend, the
-same-named holiday within 14 days of the same calendar date a year earlier
-for a holiday (else the nearest non-working day). The researcher's decisions
-on 2026-08-31: the reference is never null (the spine's first year resolves
-to 2015 dates), D−357 is tried before D−371, and a bridge-day flag is left to
-its own investigation. `fct_area_power_usage_hourly` (PR #18, 2026-08-30)
-holds the TSO でんき予報 hourly load from 2016-04-01 — the only public Tokyo
-area demand before the A-1 series begins in 2022-04 — and the researcher's
-decision is to take the year-ago load from that series **alone** for the
-whole history, not to stitch it with the A-1 fact after 2022-04 (the two
-differ by 0.05 % MAE over their overlap; see the [TEPCO power-usage
-doc](TEPCO-Power-Usage-Retrieval.md#5-comparison-with-the-a-1-series-2022-04-01--2026-08-27-38621-hours)).
+stands for it:
+
+- a working day takes the same weekday 52 weeks back, shifted to D−357 and
+  then D−371 when that day is a holiday;
+- a weekend takes D−364;
+- a holiday takes the same-named holiday within 14 days of the same calendar
+  date a year earlier, else the nearest non-working day.
+
+The researcher's decisions on 2026-08-31: the reference is never null, since
+the spine's first year resolves to 2015 dates; D−357 is tried before D−371;
+and a bridge-day flag is left to its own investigation. `fct_area_power_usage_hourly` (PR #18, 2026-08-30) holds the TSO でんき予報
+hourly load from 2016-04-01. That is the only public Tokyo area demand before
+the A-1 series begins in 2022-04. The researcher's decision is to take the
+year-ago load from that series **alone** for the whole history, not to stitch
+it with the A-1 fact after 2022-04. The two differ by 0.05 % MAE over their
+overlap; see the [TEPCO power-usage
+doc](TEPCO-Power-Usage-Retrieval.md#5-comparison-with-the-a-1-series-2022-04-01--2026-08-27-38621-hours).
 That is what gives the first year of A-1 training rows (2022-04 → 2023-03) a
 year-ago value; with the 730-day training window the earliest window of the
 matched backtest starts in 2022-08.
@@ -79,14 +83,13 @@ rule in E-001, a learned similar-day selector in E-002.
 
 - **Forecast target:** the 48 half-hourly `demand_kwh` values of
   `fct_area_demand_generation_actual` for day D, Tokyo area (`--area tokyo`)
-- **Information cutoff:** D-1 at 09:30 JST; usable demand history = delivery
-  days ≤ D-2; observed-weather features use complete observation days ≤ D-2
-  at 東京 s47662; forecast features use the MSM vintage referenced 21:00 JST
-  D-2 population-weighted over the area's 21 weighted stations; the day type
-  and the calendar attributes of D are known from the calendar; the year-ago
-  load and, in E-002, the candidates' observed weather are at least 334 days
-  old, and the selector's weights are fitted only on pairs whose target day
-  precedes the first forecast day
+- **Information cutoff:** the [task defaults](research/demand/README.md), with
+  東京 s47662 as the representative station. Forecast features use the MSM
+  vintage referenced 21:00 JST D-2, population-weighted over the area's 21
+  weighted stations. The day type and the calendar attributes of D are known
+  from the calendar. The year-ago load is at least 334 days old, as is the
+  candidates' observed weather in E-002, and the selector's weights are fitted
+  only on pairs whose target day precedes the first forecast day
 - **Baseline:** `lightgbm_msm_popw_daytype` — the R-003 E-001 candidate as
   re-run with SHAP contributions on 2026-08-26,
   [`0a6b8a5560d445d5b9705bde99cf13ae`](http://localhost:5005/#/experiments/2/runs/0a6b8a5560d445d5b9705bde99cf13ae)
@@ -123,18 +126,19 @@ any day type.
 
 ### Change
 
-- **Feature** — `lag_1y_demand_kwh`: the hourly `demand_kwh` of
-  `fct_area_power_usage_hourly` on D's `dim_date.prior_year_reference_date`
-  at the hour containing the period (`hour_ending = (time_code + 1) // 2`,
-  the alignment of the temperature features), divided by 2 so the hour's
+- **Feature** — `lag_1y_demand_kwh` is the hourly `demand_kwh` of
+  `fct_area_power_usage_hourly` on D's `dim_date.prior_year_reference_date`,
+  at the hour containing the period (`hour_ending = (time_code + 1) // 2`, the
+  alignment of the temperature features). It is divided by 2, so the hour's
   energy is spread evenly over its two delivery periods and the value sits on
-  the target's scale (kWh per 30-minute period). Loaded once for the whole
-  history (`load_area_hourly_load` → `AreaHourlyLoad`, grain load day × hour;
-  `load_prior_year_calendar` → `PriorYearCalendar`, grain day) and joined to
-  every training and prediction row (`join_prior_year_load`); a row without a
-  year-ago hour is dropped and a target day without one is unforecastable,
-  like every other feature — for Tokyo that never happens, the hourly series
-  being gapless from 2016-04-01.
+  the target's scale of kWh per 30-minute period.
+
+  It is loaded once for the whole history (`load_area_hourly_load` →
+  `AreaHourlyLoad`, grain load day × hour; `load_prior_year_calendar` →
+  `PriorYearCalendar`, grain day) and joined to every training and prediction
+  row (`join_prior_year_load`). A row without a year-ago hour is dropped and a
+  target day without one cannot be forecast, like every other feature. For
+  Tokyo that never happens: the hourly series has no gaps from 2016-04-01.
 - **Strategy** — `lightgbm_msm_popw_daytype_lag1y`
   (`LightGbmMsmPopWeightedDayTypeLag1yStrategy`): the baseline's features plus
   `lag_1y_demand_kwh`; model parameters, refit cadence, the population
@@ -213,10 +217,10 @@ metric sets).
 | Mean error / bias, daytime | +4,729 | −853 | −5,582 | — |
 | Holiday MAE | 765,403 | 687,908 | −77,495 | −10.1 % |
 
-Daily paired comparison: the candidate is lower on 51.6 % of days (376 of
-729); mean daily-MAE difference +341 kWh, **95 % bootstrap CI over days
-[−15,231, +15,754]** (10,000 resamples, seed 0); median daily-MAE difference
-−4,352 kWh; lower in 13 of 25 calendar months
+Daily paired comparison. The candidate is lower on 51.6 % of days (376 of
+729). Mean daily-MAE difference +341 kWh, **95 % bootstrap CI over days
+[−15,231, +15,754]** (10,000 resamples, seed 0), median daily-MAE difference
+−4,352 kWh. It is lower in 13 of 25 calendar months
 ([figure](assets/R-004-E-001-mae-by-month.png)). Winter −3.4 %, autumn
 −0.6 %, spring +2.5 %, summer +2.2 %; the top-10 % demand days −4.6 %, the
 other 90 % +0.8 %.
@@ -254,14 +258,15 @@ day and the reference it read:
 | 2025-02-11 Tue | 建国記念の日 (O-003) | 2024-02-11 Sun (`same_holiday`) | 1,534,427 (−) | 1,370,447 (−) | −11 % | −48,225 |
 | 2026-02-11 Wed | 建国記念の日 (O-003) | 2025-02-11 Tue (`same_holiday`) | 3,071,435 (−) | 1,902,022 (−) | −38 % | +1,295,521 |
 
-On the two 8/12s the reference is, by construction of the shifted rule, an
-ordinary week (D−364 is お盆, so D−357 — one week *after* the holiday a year
-earlier — is taken): the year-ago load is 19.8 M / 20.8 M kWh per period and
-adds +1.5 M / +1.4 M to a day that is already over-forecast. On 2026-02-11
-the reference is the same holiday on a Tuesday and the year-ago load
-(18.0 M) offsets most of the day-type pull (−917,001); on 2025-02-11 the
-reference is the same holiday on a *Sunday* and the feature contributes
-almost nothing.
+On the two 8/12s the shifted rule makes the reference an ordinary week: D−364
+is お盆, so D−357 is taken, one week *after* the holiday a year earlier. The
+year-ago load is then 19.8 M / 20.8 M kWh per period and adds +1.5 M / +1.4 M
+to a day that is already over-forecast.
+
+On 2026-02-11 the reference is the same holiday on a Tuesday, and the year-ago
+load (18.0 M) offsets most of the day-type pull (−917,001). On 2025-02-11 the
+reference is the same holiday on a *Sunday* and the feature contributes almost
+nothing.
 
 By the rule that chose the reference (days of the window):
 
@@ -279,40 +284,42 @@ population-weighted forecast temperature 22.9 %, `time_code` 17.0 %,
 the baseline's decomposition on the O-002 days), the observed temperature
 5.4 %.
 
-Worst days: the baseline's 20 worst days are lower in the candidate on 12 and
-higher on 8; the candidate's top three are the baseline's (2025-08-12,
-2026-08-12 and 2025-12-29, the Monday before 年末年始, all over-forecast and
-1–7 % worse), while 2026-02-11 drops from #2 to #7 (−38 %), 2025-01-13
+Worst days. Of the baseline's 20 worst, 12 are lower in the candidate and 8
+higher. The candidate's top three are the baseline's: 2025-08-12, 2026-08-12
+and 2025-12-29, the Monday before 年末年始, all over-forecast and 1–7 % worse.
+Four holidays fall a long way: 2026-02-11 from #2 to #7 (−38 %), 2025-01-13
 成人の日 from #5 to #86 (−61 %), 2024-12-26 from #14 to #188 (−56 %) and
-2026-01-01 元日 from #19 to #178 (−53 %). New among the candidate's 20 worst:
-2025-06-19 Thu (#99 → #11, 928,334 → 1,646,364, under-forecast) and
-2025-02-23 天皇誕生日 on a Sunday (#288 → #20, 582,199 → 1,452,737,
-over-forecast): its `same_holiday` reference 2024-02-23 was a Friday, so the
-year-ago load of a weekday holiday was read for a Sunday holiday.
+2026-01-01 元日 from #19 to #178 (−53 %). Two days are new among the candidate's 20 worst. 2025-06-19 Thu (#99 → #11,
+928,334 → 1,646,364) is under-forecast. 2025-02-23 天皇誕生日 on a Sunday
+(#288 → #20, 582,199 → 1,452,737) is over-forecast: its `same_holiday`
+reference 2024-02-23 was a Friday, so the year-ago load of a weekday holiday
+was read for a Sunday holiday.
 
 ### Reading against the decision rule
 
-Overall MAE is not lower and the interval over days includes zero — by the
+Overall MAE is not lower and the interval over days includes zero. By the
 pre-registered rule the result is **inconclusive** overall, with the
-**refine** branch indicated: the holiday half of the hypothesis holds
-(holidays −10 %, the O-003 day −38 %, 元日 / 年末年始 and weekday national
-holidays −17 % / −19 %), the O-002 half does not — the shifted reference
-avoids the holiday-adjacent week by design, so the year-ago load cannot
-carry the "working day squeezed before お盆" effect (the bridge-day flag the
-researcher deferred on 2026-08-31 addresses exactly that day) — and the
-feature costs on weekends (+2.8 %), overnight (+5.6 %) and お盆 (+23 %). The
-decision (keep / refine / reject) is the researcher's.
+**refine** branch indicated.
+
+The holiday half of the hypothesis holds: holidays −10 %, the O-003 day
+−38 %, 元日 / 年末年始 and weekday national holidays −17 % / −19 %. The O-002
+half does not. The shifted reference avoids the holiday-adjacent week by
+design, so the year-ago load cannot carry the "working day squeezed before
+お盆" effect. The bridge-day flag the researcher deferred on 2026-08-31
+addresses exactly that day. And the feature costs on weekends (+2.8 %),
+overnight (+5.6 %) and お盆 (+23 %).
+
+The decision (keep / refine / reject) is the researcher's.
 
 ### Decision
 
 **Decision:** Reject (the researcher, 2026-09-05)
 
-The researcher's reasons, recorded as given: the approach works well for some
-holidays (special days), but overall it does not contribute enough to warrant
-its use; and its way of handling proximity days — days like 2026-08-10, a
-Monday sandwiched between a weekend and 山の日 — is poor, because sometimes
-there are no days in recent history that have the exact same calendar
-characteristics. Resulting change
+The researcher's reasons, recorded as given. The approach works well for some
+holidays, the special days, but overall it does not contribute enough to
+warrant its use. And it handles proximity days poorly — days like 2026-08-10,
+a Monday sandwiched between a weekend and 山の日 — because recent history
+sometimes holds no day with the exact same calendar characteristics. Resulting change
 ([PR #35](https://github.com/hankehly/power-market-analytics/pull/35),
 2026-09-05): `dim_date` loses `prior_year_reference_date` and
 `prior_year_reference_rule` (with their generic tests and the two singular
@@ -357,9 +364,9 @@ proximity days and holidays.
 
 Strategy `lightgbm_msm_popw_daytype_simday` = the baseline + the feature.
 The reference day is the nearest of the 61 days in D − 364 ± 30 under a
-weighted distance over seven parts (calendar days from D − 364; the target's
-forecast against the candidate's observed temperature, humidity and rain;
-days since and until a named holiday; holiday degree), the weights fitted
+weighted distance over seven parts: calendar days from D − 364; the target's
+forecast against the candidate's observed temperature, humidity and rain; days
+since and until a named holiday; and holiday degree. The weights are fitted
 once per run on past pairs. Parts, fit and frames: the design spec.
 
 ### Expected evidence
@@ -421,12 +428,12 @@ In the four daily-bias rows the two change columns are the change in the
 error's size (|bias|), so a negative change is an improvement, as in the
 MAE rows; the signed values show the direction of the error.
 
-Daily paired comparison: the candidate is lower on 53.4 % of days (389 of
-729); mean daily-MAE difference −9,007 kWh, 95 % bootstrap CI over days
-[−26,812, +8,548] (10,000 resamples, seed 0); median −14,615 kWh; the ten
+Daily paired comparison. The candidate is lower on 53.4 % of days (389 of
+729). Mean daily-MAE difference −9,007 kWh, 95 % bootstrap CI over days
+[−26,812, +8,548] (10,000 resamples, seed 0), median −14,615 kWh. The ten
 most-improved days account for 142 % of the total absolute-error reduction.
 By month the sign flips often (2025-02 +14 %, 2026-03 +17 %, 2025-04 −18 %,
-2026-06 −18 %); by season autumn −7.7 %, winter −1.8 %, spring +2.4 %,
+2026-06 −18 %). By season, autumn −7.7 %, winter −1.8 %, spring +2.4 %,
 summer +0.4 %.
 
 ![MAE by month](assets/R-004-E-002-mae-by-month.png)
@@ -450,20 +457,20 @@ the same days — nine of the ten improve; the exception, a Sunday, is flat:
 Daily MAE from `fct_demand_forecast_accuracy` for runs `0a6b8a55…` (baseline)
 and `008868fe…` (candidate); the runs are immutable, so the rows cannot drift.
 
-The proximity day E-001 could not handle, 2026-08-10 (the Monday between a
-Sunday and 山の日), is the clearest case: the selector picked 2025-08-12, the
-working day before お盆 one year earlier (lag 363; the plain D − 364 day was
-山の日 2025, ranked 10th), and the day's MAE fell from 1,531,659 to 647,311
-(−58 %), the bias from +1,531,659 to +562,271. For 2026-08-12 it picked the
+The clearest case is the proximity day E-001 could not handle, 2026-08-10, the
+Monday between a Sunday and 山の日. The selector picked 2025-08-12, the working
+day before お盆 one year earlier, at lag 363; the plain D − 364 day was 山の日
+2025, ranked 10th. The day's MAE fell from 1,531,659 to 647,311 (−58 %) and
+the bias from +1,531,659 to +562,271. For 2026-08-12 it picked the
 same 2025-08-12 (lag 365) and the MAE fell 19.5 %, although by realised load
 difference that pick ranked 6th of 61 behind the plain D − 364 day.
 
-Retrieval check (the run's `similar_day_retrieval.csv`, 729 forecast days,
-the paper's load difference, Eq. 3): selected day 0.048 mean (0.042 median),
-the plain D − 364 day 0.075 (0.056), the oracle 0.021 (0.019); the selected
-day beats D − 364 on 59.1 % of days and is D − 364 itself on 13.4 %; by
-realised outcome the selected day ranks a median 7th of the 61 candidates
-(rank 1 on 14.3 %). Chosen lags: 364 on 98 days, 371 on 56, 365 on 49, 357
+Retrieval check, from the run's `similar_day_retrieval.csv` over 729 forecast
+days, using the paper's load difference (Eq. 3). Selected day 0.048 mean
+(0.042 median), the plain D − 364 day 0.075 (0.056), the oracle 0.021 (0.019).
+The selected day beats D − 364 on 59.1 % of days and is D − 364 itself on
+13.4 %. By realised outcome it ranks a median 7th of the 61 candidates, and
+1st on 14.3 %. Chosen lags: 364 on 98 days, 371 on 56, 365 on 49, 357
 on 48, 363 on 42; the rest spread over the window.
 
 Fitted weights (shares of the squared distance): `holiday_degree` 0.477,
@@ -477,21 +484,23 @@ Fitted weights (shares of the squared distance): `holiday_degree` 0.477,
 
 ### Interpretation
 
-The feature is used heavily (half the SHAP mass) and lowers overall MAE by
-1.5 %, but the interval over days includes zero and the gain sits on a few
-days: the ten most-improved days carry more than the whole reduction, and
-the month-by-month sign flips. Where it helps: weekdays (−4.8 %), evenings
-(−7.5 %), the top-10 % demand days (−7.2 %), and the O-002 days — the
-working day before お盆 is over-forecast by 46 % less in 2025 and 20 % less
-in 2026, which E-001's rule could not touch. Where it hurts: weekends
-(+6.5 %), overnight (+3.0 %), and the bias moves further negative. Holidays
+The feature is used heavily, taking half the SHAP mass, and lowers overall MAE
+by 1.5 %. But the interval over days includes zero and the gain sits on a few
+days: the ten most-improved days carry more than the whole reduction, and the
+month-by-month sign flips.
+
+Where it helps: weekdays (−4.8 %), evenings (−7.5 %), the top-10 % demand days
+(−7.2 %), and the O-002 days. The working day before お盆 is over-forecast by
+46 % less in 2025 and 20 % less in 2026, which E-001's rule could not touch.
+Where it hurts: weekends (+6.5 %), overnight (+3.0 %), and the bias moves
+further negative. Holidays
 are unchanged overall; of the O-003 days one improves (2026-02-11, −10 %)
 and one worsens (2025-02-11, +8 %).
 
-The retrieval check says the selector does its own job only partly: it
-beats the plain D − 364 day on 59 % of days and its picks are on average
-36 % closer to the target's load than D − 364 (0.048 vs 0.075), but they
-remain far from the best candidate (0.021), ranking a median 7th of 61.
+The retrieval check says the selector does its own job only partly. It beats
+the plain D − 364 day on 59 % of days, and its picks are on average 36 %
+closer to the target's load than D − 364 (0.048 vs 0.075). But they remain far
+from the best candidate (0.021), ranking a median 7th of 61.
 The learned weights sit almost entirely on the holiday degree and the
 temperature; humidity, rain and days-until-holiday get none.
 
@@ -526,21 +535,21 @@ The same day the researcher made E-002 the new demand baseline (see
 ## Current conclusion
 
 E-001 (2026-08-31) tested the researcher's remedy for O-002 / O-003 on the
-matched window (Tokyo, 729 delivery days 2024-08-18..2026-08-17): overall MAE
-+0.1 % with the interval over days including zero; holidays −10 %
-(建国記念の日 2026-02-11 −38 %, 元日 / 年末年始 −17 %); the working days before
-お盆 unchanged, お盆 +23 %, weekends +2.8 %, overnight +5.6 %. **Reject**,
+matched window of Tokyo, 729 delivery days 2024-08-18..2026-08-17. Overall MAE
++0.1 %, with the interval over days including zero. Holidays −10 %
+(建国記念の日 2026-02-11 −38 %, 元日 / 年末年始 −17 %). The working days
+before お盆 were unchanged, お盆 +23 %, weekends +2.8 %, overnight +5.6 %. **Reject**,
 decided by the researcher on 2026-09-05: the year-ago load on a rule-chosen
 prior-year reference date helps some special days but not enough overall,
 and the reference-date rules handle proximity days poorly when recent history
 holds no day with the same calendar characteristics. The column, the strategy
 and its inputs were removed.
 
-E-002 (run 2026-09-05) keeps the feature and replaces the rule with a
-learned similar-day selector: overall MAE −1.5 % (594,325 → 585,362) with
-the interval over days including zero; weekdays −4.8 %, evenings −7.5 %,
-the working day before お盆 −46 % / −20 %, the 2026-08-10 proximity day
-−58 %; weekends +6.5 %. Nine of the baseline's ten worst days improve. The
+E-002 (run 2026-09-05) keeps the feature and replaces the rule with a learned
+similar-day selector. Overall MAE −1.5 % (594,325 → 585,362), with the interval
+over days including zero. Weekdays −4.8 %, evenings −7.5 %, the working day
+before お盆 −46 % / −20 %, the 2026-08-10 proximity day −58 %. Weekends
++6.5 %. Nine of the baseline's ten worst days improve. The
 selector beats the plain D − 364 day on 59 % of days. **Keep**, decided by
 the researcher on 2026-09-06: the worst days, which the investigation set
 out to fix, are where the feature helps.

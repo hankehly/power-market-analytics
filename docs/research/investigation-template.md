@@ -1,7 +1,8 @@
 # R-XXX — Investigation title
 
 <!-- Copy this file into the task folder (docs/research/<task>/) as
-     R-XXX-<slug>.md, using the next R number *within that task*. -->
+     R-XXX-<slug>.md, using the next R number *within that task*.
+     Conventions and writing style: docs/research/README.md. -->
 
 **Status:** Backlog  
 **Created:** YYYY-MM-DD  

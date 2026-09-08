@@ -10,55 +10,58 @@ statuses: [research README](research/README.md).
 
 ## Scope defaults
 
-Copy these into a new investigation's *Scope and constraints* block and
-narrow them as the question requires.
+**Forecast target.** The 48 half-hourly `demand_kwh` values of
+`fct_area_demand_generation_actual` for day D in one area. `--area` takes
+`tokyo` or `kansai`, the TSO feeds loaded so far.
 
-- **Forecast target:** the 48 half-hourly `demand_kwh` values of
-  `fct_area_demand_generation_actual` for day D in one area (`--area`:
-  `tokyo`, `kansai` — the TSO feeds loaded so far)
-- **Information cutoff:** D-1 at 09:30 JST (`TaskSpec.issue_offset`); usable
-  demand history = delivery days ≤ D-2 (`history_lead_days = 2`, TSO 実績
-  files finalise after midnight); weather features use complete observation
-  days ≤ D-2 at the area's representative JMA station
-  (`dim_area.representative_jma_station_id`)
-- **Baseline:** a strategy run in the `demand` MLflow experiment —
-  `lightgbm_msm_popw_daytype_simday` (the kept baseline since
-  [R-004](research/demand/R-004-prior-year-load-lag.md) E-002, 2026-09-06; its
-  E-002 run `008868fe59274abfb49f128e29aa28fe` is the reference run, Tokyo,
-  2024-08-18 to 2026-08-17). It runs for Tokyo only until another TSO's
-  でんき予報 is loaded, so `scripts/demand_backtest.py` keeps
-  `lightgbm_msm_popw_daytype` (the baseline from
-  [R-003](research/demand/R-003-day-type-feature.md), 2026-08-26) as its
-  default and as the Kansai baseline; `lightgbm`, `lightgbm_msm` and
-  `lightgbm_msm_popw` remain as reference strategies. Pin `--start-date`,
-  `--end-date` and `--train-start` identically for a candidate and its baseline
-- **Primary metric:** MAE (kWh)
-- **Segments reported by the tooling:** `scripts/compare_demand_runs.py
-  --baseline <run_id> --candidate <run_id>` (matched two-run tables: overall
-  MAE / MAPE / bias, day part, day type, calendar month, season, 2,000-MWh
-  actual-demand bands, top-10 % demand days, and the daily paired comparison
-  with its seeded bootstrap CI over days; `--mae-by-month-png` writes the
-  by-month figure) and Superset **Demand Forecast Analysis** (day part, day
-  type, actual-demand bands, calibration curve, error histogram, and the
-  per-day SHAP waterfall (mean per period) of the **Explanation** tab (Day
-  filter) and its run-level Feature importance section (permutation ΔMAE per
-  feature, mean |SHAP|)); its **Compare** tab shows a run against a Baseline run
-  (matched periods only): ΔMAE by day part, day type, day of week, month,
-  band and time code, the share of days lower, the median daily ΔMAE, the
-  most improved / worsened days and the per-feature SHAP contribution deltas
-  (a day's or the run's mean per period) — the bootstrap CI stays in the
-  compare script
-- **Evaluation method:** rolling out-of-sample backtest over identical
-  delivery dates and training rows for baseline and candidate; accuracy rows
-  in `fct_demand_forecast_accuracy` after
-  `just dbt build --select +fct_demand_forecast_accuracy`
+**Information cutoff.** D-1 at 09:30 JST (`TaskSpec.issue_offset`). Usable
+demand history is delivery days ≤ D-2, because TSO 実績 files finalise after
+midnight (`history_lead_days = 2`). Weather features use complete observation
+days ≤ D-2 at the area's representative JMA station
+(`dim_area.representative_jma_station_id`).
+
+**Baseline.** A strategy run in the `demand` MLflow experiment. The current
+baseline is `lightgbm_msm_popw_daytype_simday`, kept since
+[R-004](research/demand/R-004-prior-year-load-lag.md) E-002 on 2026-09-06; its
+reference run is `008868fe59274abfb49f128e29aa28fe` (Tokyo, 2024-08-18 to
+2026-08-17). It runs for Tokyo only until another TSO's でんき予報 is loaded.
+So `scripts/demand_backtest.py` keeps `lightgbm_msm_popw_daytype` as its
+default and as the Kansai baseline
+([R-003](research/demand/R-003-day-type-feature.md), 2026-08-26). `lightgbm`,
+`lightgbm_msm` and `lightgbm_msm_popw` stay registered as reference
+strategies. Pin `--start-date`, `--end-date` and `--train-start` identically
+for a candidate and its baseline.
+
+**Primary metric.** MAE (kWh).
+
+**Segments reported by the tooling.** Two tools cover them, and an
+investigation cites what it used rather than listing the whole set:
+
+- `scripts/compare_demand_runs.py --baseline <run_id> --candidate <run_id>` —
+  matched two-run tables by day part, day type, calendar month, season,
+  2,000-MWh actual-demand band and top-10 % demand days. It also reports
+  overall MAE / MAPE / bias and the daily paired comparison with its seeded
+  bootstrap CI over days. `--mae-by-month-png` writes the by-month figure. The
+  bootstrap CI is only here, not in Superset.
+- Superset **Demand Forecast Analysis** — year, time code, calendar month, day
+  of week, day part, day type and 2,000-MWh actual-demand band, plus the
+  calibration curve, the error histogram and the per-day SHAP waterfall of the
+  **Explanation** tab. That tab also carries the run's Feature importance:
+  permutation ΔMAE per feature, next to the mean |SHAP|. Its **Compare** tab
+  puts a run against a Baseline run over the periods both scored. Season and
+  top-10 % demand days are in the compare script only.
+
+**Evaluation method.** Rolling out-of-sample backtest over identical delivery
+dates and training rows for baseline and candidate. Accuracy rows land in
+`fct_demand_forecast_accuracy` after
+`just dbt build --select +fct_demand_forecast_accuracy`.
 
 ## Investigation index
 
 | ID | Investigation | Status | Current conclusion |
 |---|---|---|---|
-| R-001 | [Forecast temperature as a demand feature](research/demand/R-001-forecast-temperature.md) | In progress | E-001 run 2026-08-23: adding the MSM forecast temperature at 東京 s47662 (`lightgbm_msm`) cuts Tokyo MAE 32.4 % (1,103,392 → 745,695 kWh; MAPE 6.82 % → 4.62 %) on the matched 729-day window, lower in 25/25 months and every day part — provisionally Keep, researcher to confirm. |
-| R-002 | [Population-weighted area temperature](research/demand/R-002-population-weighted-temperature.md) | Supported | E-001 run 2026-08-23: population-weighting the MSM forecast temperature over the Tokyo area's 21 stations (`lightgbm_msm_popw`) cuts MAE a further 2.3 % vs `lightgbm_msm` (745,695 → 728,573 kWh), all day parts lower, 17/25 months, CI over days excludes zero, summer/autumn-only and small — Keep, confirmed 2026-08-24; `lightgbm_msm_popw` is now the demand baseline. |
-| R-003 | [Day type as a categorical feature](research/demand/R-003-day-type-feature.md) | Supported | E-001 run 2026-08-25 (triggered by O-001: 15 of the 20 worst days are holidays, over-forecast): adding the `dim_date` day type (Weekday / Weekend / Holiday) as a LightGBM categorical (`lightgbm_msm_popw_daytype`) cuts Tokyo MAE 18.4 % vs the R-002 candidate run `2556e3f2…` (728,573 → 594,325 kWh; MAPE 4.52 % → 3.66 %) on the matched 729-day window — holiday MAE −56.5 % with the holiday bias +1.69 M → +0.08 M kWh, the 15 holidays among the baseline's 20 worst days −55 % to −90 %, all day parts and 21/25 months lower, CI over days excludes zero; seven holidays (now under-forecast) and the weekday before a holiday get worse — Keep, confirmed 2026-08-26; `lightgbm_msm_popw_daytype` is now the demand baseline and the script default. |
-| R-004 | [Year-ago load from a prior-year reference day](research/demand/R-004-prior-year-load-lag.md) | Supported | E-001 run 2026-08-31 (triggered by O-002 / O-003): `lightgbm_msm_popw_daytype_lag1y` = the baseline + `lag_1y_demand_kwh` (the でんき予報 hourly load on `dim_date.prior_year_reference_date`, per period) vs run `0a6b8a55…` on the matched 729-day window — overall MAE 594,325 → 594,639 (+0.1 %), CI over days [−15,231, +15,754]: inconclusive; holidays −10.1 % (建国記念の日 2026-02-11 −38 %, 元日/年末年始 −17 %) but お盆 +23 %, weekends +2.8 %, overnight +5.6 %; the working days before お盆 (O-002) unchanged — their D−357 reference is an ordinary week; `lag_1y` takes 31 % of the SHAP mass — Reject, decided by the researcher on 2026-09-05: the approach works well for some holidays (special days) but overall does not contribute enough to warrant use, and its handling of proximity days (2026-08-10, sandwiched between a weekend and 山の日) is poor because recent history sometimes has no day with the exact same calendar characteristics; the strategy and `dim_date.prior_year_reference_date` were removed; **E-002 run 2026-09-05** (`lightgbm_msm_popw_daytype_simday`: the same feature from a learned similar-day selector, the nearest day in D − 364 ± 30 by a seven-part weighted distance fitted on 119,865 past pairs; run `008868fe…` vs the same baseline): overall MAE 594,325 → 585,362 (−1.5 %), CI over days [−26,812, +8,548] — inconclusive by the rule; weekdays −4.8 %, evenings −7.5 %, top-10 % demand days −7.2 %, the working day before お盆 −46 % (2025) / −20 % (2026); weekends +6.5 %, overnight +3.0 %; the selector beats D − 364 on 59 % of days (load difference 0.048 vs 0.075, oracle 0.021); nine of the baseline's ten worst days improve, the 2026-08-10 proximity day −58 % — **Keep**, decided by the researcher on 2026-09-06 for the worst and proximity days the investigation set out to fix; `lightgbm_msm_popw_daytype_simday` is now the Tokyo demand baseline (reference run `008868fe…`); the script default stays `lightgbm_msm_popw_daytype`, which also remains the Kansai baseline, because the new baseline runs for Tokyo only until Kansai's でんき予報 is loaded |
-| R-005 | [Calendar features from dim_date](research/demand/R-005-calendar-features.md) | Not supported | E-001 run 2026-09-06 (a modeling idea): `lightgbm_msm_popw_daytype_simday_calendar` = the baseline + ten `dim_date` calendar attributes (`half`, `quarter`, `day_of_month`, `day_of_quarter`, `day_of_year`, `holiday_degree`, `is_business_day`, `fiscal_quarter`, `days_since_holiday`, `days_until_holiday`) as plain numeric features; run `e3e3bd61…` vs the reference run `008868fe…` on the matched 729-day window — overall MAE 585,362 → 627,877 (+7.3 %), CI over days [+23,233, +61,413], higher in every day part, on weekdays (+10.9 %) and weekends (+5.7 %), in 18/25 months and on the top-10 % demand days (+8.7 %); holidays −10.0 %, winter −2.1 %; the ten take 11.7 % of the SHAP mass, mostly from `day_type` and `month`, `half` and `quarter` never split on — **Reject**, decided by the researcher on 2026-09-06; the baseline is unchanged and the strategy stays registered as a reference; **E-002 run 2026-09-06** (`lightgbm_msm_popw_daytype_simday_holidaydegree` = the baseline + `holiday_degree` alone; run `a8da46c5…` vs the same reference run): overall MAE 585,362 → 587,038 (+0.3 %), CI over days [−3,659, +6,970] — inconclusive by the rule; no segment moves more than 2 %, holidays +1.8 %, lower on 51.0 % of days and in 12/25 months; `holiday_degree` takes 4.8 % of the SHAP mass, mostly from `day_type` (6.4 → 2.9 %); **E-003 run 2026-09-06** (`lightgbm_msm_popw_daytype_simday_holidaydistance` = the baseline + `days_since_holiday` and `days_until_holiday` alone; run `f7153839…`): MAE 585,362 → 623,183 (+6.5 %), CI over days [+22,513, +53,333] — Reject by the rule; every day part, day type and season worse, top-10 % demand days +11.8 %, 2025-07 +29.7 %; the two take 5.3 % of the SHAP mass; E-001's holiday gain appears with neither subset — **both Reject**, decided by the researcher on 2026-09-06; the strategies stay registered as references; **E-004 run 2026-09-06** (`lightgbm_msm_popw_daytype_simday_calendarcounts` = the baseline + `half`, `quarter`, `day_of_month`, `day_of_quarter`, `day_of_year`, `fiscal_quarter` alone; run `9182d469…`): MAE 585,362 → 609,737 (+4.2 %), CI over days [+6,010, +43,115] — Reject by the rule; weekdays +7.7 %, weekends +3.0 %, every day part and three seasons worse, but holidays −13.4 % and winter −6.3 % — E-001's holiday gain comes with this subset; the six take 7.4 % of the SHAP mass, `day_of_year` 3.8 %, `half` / `quarter` never split on, `month` 2.8 → 0.2 % — **Reject**, decided by the researcher on 2026-09-06; the strategy stays registered as a reference and the baseline is unchanged |
+| R-001 | [Forecast temperature as a demand feature](research/demand/R-001-forecast-temperature.md) | In progress | E-001, 2026-08-23. The MSM forecast temperature at 東京 s47662 (`lightgbm_msm`) cuts Tokyo MAE 32.4 % (1,103,392 → 745,695 kWh; MAPE 6.82 % → 4.62 %). Lower in 25 of 25 months and every day part. Provisionally Keep, researcher to confirm. |
+| R-002 | [Population-weighted area temperature](research/demand/R-002-population-weighted-temperature.md) | Supported | E-001, 2026-08-23. Population-weighting the MSM forecast temperature over the Tokyo area's 21 stations (`lightgbm_msm_popw`) cuts MAE a further 2.3 % (745,695 → 728,573 kWh). All day parts lower, 17 of 25 months, CI over days excludes zero. The gain is small and summer/autumn only. Keep, confirmed 2026-08-24. |
+| R-003 | [Day type as a categorical feature](research/demand/R-003-day-type-feature.md) | Supported | E-001, 2026-08-25, triggered by O-001. The `dim_date` day type as a LightGBM categorical (`lightgbm_msm_popw_daytype`) cuts Tokyo MAE 18.4 % against run `2556e3f2…` (728,573 → 594,325 kWh; MAPE 4.52 % → 3.66 %). Holiday MAE −56.5 %, the holiday bias +1.69 M → +0.08 M kWh, CI over days excludes zero. Seven holidays and the weekday before a holiday get worse. Keep, confirmed 2026-08-26; now the script default. |
+| R-004 | [Year-ago load from a prior-year reference day](research/demand/R-004-prior-year-load-lag.md) | Supported | Two experiments, triggered by O-002 / O-003. **E-001** (2026-08-31) took the year-ago load from a rule-chosen reference date: MAE +0.1 %, CI over days includes zero, holidays −10.1 % but お盆 +23 %. Reject, 2026-09-05 — good on some holidays, too little overall, and poor on proximity days; the strategy and `dim_date.prior_year_reference_date` were removed. **E-002** (2026-09-05) replaced the rule with a learned similar-day selector (`lightgbm_msm_popw_daytype_simday`, run `008868fe…`): MAE −1.5 % (594,325 → 585,362), CI over days still includes zero, but nine of the baseline's ten worst days improve and the 2026-08-10 proximity day −58 %. **Keep**, 2026-09-06, for the days the investigation set out to fix; now the Tokyo baseline. The script default stays `lightgbm_msm_popw_daytype`, which remains the Kansai baseline. |
+| R-005 | [Calendar features from dim_date](research/demand/R-005-calendar-features.md) | Not supported | Four experiments, all run and rejected on 2026-09-06, all against reference run `008868fe…`. **E-001**, the ten `dim_date` calendar attributes together (`e3e3bd61…`): MAE +7.3 % (585,362 → 627,877), CI excludes zero, broadly worse but holidays −10.0 %. Three subsets then asked where that holiday gain sits. **E-002**, `holiday_degree` alone (`a8da46c5…`): +0.3 %, CI includes zero, no segment moves more than 2 % either way (holidays +1.8 %). **E-003**, the two holiday distances alone (`f7153839…`): +6.5 %, CI excludes zero, every day part, day type and season worse. **E-004**, the six calendar counts alone (`9182d469…`): +4.2 %, CI excludes zero, weekdays +7.7 % but holidays −13.4 % — the holiday gain comes with this subset. The baseline is unchanged; all four strategies stay registered as references. |
