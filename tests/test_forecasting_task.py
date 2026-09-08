@@ -91,6 +91,12 @@ class TestTaskSpec:
         assert spec.contribution_table == "pma_ml.load_forecast_contribution"
         assert spec.contribution_col == "contribution_load_mw"
 
+    def test_importance_table_and_mae_columns_derive_from_the_forecast_ones(self):
+        spec = make_spec()
+        assert spec.importance_table == "pma_ml.load_forecast_importance"
+        assert spec.mae_col == "mae_load_mw"
+        assert spec.permuted_mae_col == "permuted_mae_load_mw"
+
     def test_forecast_column_must_carry_the_forecast_prefix(self):
         class BareForecast(DayAheadForecast):
             forecast_col = "yhat_load_mw"

@@ -14,9 +14,12 @@ from power_market_analytics.forecasting.frames import (
     DayAheadForecast,
     ForecastContributionRecords,
     ForecastContributions,
+    ForecastImportanceRecords,
     ForecastRecords,
     HalfHourlySeries,
     MetricByYearTimeCode,
+    PermutationImportance,
+    PermutationImportanceSummary,
 )
 
 D1 = pd.Timestamp("2024-01-01").as_unit("ns")
@@ -381,3 +384,168 @@ class TestForecastContributionRecords:
         df.loc[0, "strategy"] = None
         with pytest.raises(ValueError, match="'strategy' has 1 null values"):
             ForecastContributionRecords.from_df(df)
+
+
+def importance_df() -> pd.DataFrame:
+    """Two features x two repeats over 96 scored periods; MAE 10; ``x`` hurts more."""
+    rows = []
+    for order, (feature, deltas) in enumerate(
+        [("x", [4.0, 6.0]), ("time_code", [0.0, 0.5])], start=1
+    ):
+        for repeat, delta in enumerate(deltas):
+            rows.append(
+                {
+                    "feature": feature,
+                    "feature_order": order,
+                    "repeat_index": repeat,
+                    "n_periods": 96,
+                    "mae": 10.0,
+                    "permuted_mae": 10.0 + delta,
+                }
+            )
+    return pd.DataFrame(rows).astype(
+        {"feature_order": "int64", "repeat_index": "int64", "n_periods": "int64"}
+    )
+
+
+class TestPermutationImportance:
+    def test_grain_and_schema(self):
+        assert PermutationImportance.keys == ["feature", "repeat_index"]
+        assert list(PermutationImportance.schema) == [
+            "feature",
+            "feature_order",
+            "repeat_index",
+            "n_periods",
+            "mae",
+            "permuted_mae",
+        ]
+        assert PermutationImportance.non_null_cols == [
+            "feature_order",
+            "n_periods",
+            "mae",
+            "permuted_mae",
+        ]
+        assert len(PermutationImportance.from_df(importance_df())) == 4
+
+    def test_n_periods_is_one_positive_value(self):
+        df = importance_df()
+        df.loc[0, "n_periods"] = 48
+        with pytest.raises(ValueError, match=r"n_periods must be one value >= 1, got \[48, 96\]"):
+            PermutationImportance.from_df(df)
+        df["n_periods"] = 0
+        with pytest.raises(ValueError, match=r"n_periods must be one value >= 1, got \[0\]"):
+            PermutationImportance.from_df(df)
+
+    def test_mae_is_one_non_negative_value(self):
+        df = importance_df()
+        df.loc[0, "mae"] = 9.0
+        with pytest.raises(ValueError, match=r"mae must be one value >= 0, got \[9\.0, 10\.0\]"):
+            PermutationImportance.from_df(df)
+        df["mae"] = -1.0
+        with pytest.raises(ValueError, match=r"mae must be one value >= 0, got \[-1\.0\]"):
+            PermutationImportance.from_df(df)
+
+    def test_permuted_mae_is_non_negative(self):
+        df = importance_df()
+        df.loc[0, "permuted_mae"] = -0.5
+        with pytest.raises(ValueError, match="permuted_mae must be >= 0"):
+            PermutationImportance.from_df(df)
+
+    def test_feature_order_is_constant_per_feature_and_runs_1_to_n(self):
+        df = importance_df()
+        df.loc[0, "feature_order"] = 2
+        with pytest.raises(ValueError, match="feature_order must be constant per feature"):
+            PermutationImportance.from_df(df)
+        df = importance_df()
+        df.loc[df["feature"] == "x", "feature_order"] = 3
+        with pytest.raises(ValueError, match=r"feature_order must run 1\.\.2, got \[2, 3\]"):
+            PermutationImportance.from_df(df)
+
+    def test_every_feature_carries_the_same_repeats(self):
+        df = importance_df()
+        df = df[~((df["feature"] == "x") & (df["repeat_index"] == 1))]
+        with pytest.raises(ValueError, match=r"every feature must carry repeats 0\.\.1"):
+            PermutationImportance.from_df(df)
+
+    def test_summary_is_one_row_per_feature_in_model_order(self):
+        summary = PermutationImportance.from_df(importance_df()).summary()
+        assert isinstance(summary, PermutationImportanceSummary)
+        assert list(summary.df.columns) == [
+            "feature",
+            "feature_order",
+            "mae",
+            "permuted_mae",
+            "importance_mae",
+            "importance_std",
+            "importance_pct",
+            "n_repeats",
+        ]
+        assert summary.df["feature"].tolist() == ["x", "time_code"]
+        assert summary.df["feature_order"].tolist() == [1, 2]
+        assert summary.df["mae"].tolist() == [10.0, 10.0]
+        assert summary.df["permuted_mae"].tolist() == [15.0, 10.25]
+        assert summary.df["importance_mae"].tolist() == [5.0, 0.25]
+        # population std over the repeats (ddof 0), as scikit-learn's importances_std
+        assert summary.df["importance_std"].tolist() == [1.0, 0.25]
+        assert summary.df["importance_pct"].tolist() == [50.0, 2.5]
+        assert summary.df["n_repeats"].tolist() == [2, 2]
+
+    def test_summary_pct_is_nan_when_the_mae_is_zero(self):
+        df = importance_df()
+        df["mae"] = 0.0
+        summary = PermutationImportance.from_df(df).summary()
+        assert summary.df["importance_pct"].isna().all()
+        assert summary.df["importance_mae"].tolist() == [15.0, 10.25]
+
+
+class TestPermutationImportanceSummary:
+    def test_grain_and_schema(self):
+        assert PermutationImportanceSummary.keys == ["feature"]
+        assert PermutationImportanceSummary.non_null_cols == [
+            "feature_order",
+            "mae",
+            "permuted_mae",
+            "importance_mae",
+            "importance_std",
+            "n_repeats",
+        ]
+
+
+def importance_records_df() -> pd.DataFrame:
+    return importance_df().assign(
+        run_id="r",
+        strategy="s",
+        area_code="tokyo",
+        published_at=pd.Timestamp("2026-09-08 10:00").as_unit("ns"),
+    )
+
+
+class TestForecastImportanceRecords:
+    def test_grain_and_schema(self):
+        assert ForecastImportanceRecords.keys == ["run_id", "area_code", "feature", "repeat_index"]
+        assert list(ForecastImportanceRecords.schema) == [
+            "run_id",
+            "strategy",
+            "area_code",
+            "feature",
+            "feature_order",
+            "repeat_index",
+            "n_periods",
+            "mae",
+            "permuted_mae",
+            "published_at",
+        ]
+        assert ForecastImportanceRecords.non_null_cols == [
+            "strategy",
+            "feature_order",
+            "n_periods",
+            "mae",
+            "permuted_mae",
+            "published_at",
+        ]
+        assert len(ForecastImportanceRecords.from_df(importance_records_df())) == 4
+
+    def test_duplicate_feature_repeat_within_a_run_rejected(self):
+        df = pd.concat([importance_records_df()] * 2, ignore_index=True)
+        with pytest.raises(ValueError, match="grain .* not unique"):
+            ForecastImportanceRecords.from_df(df)

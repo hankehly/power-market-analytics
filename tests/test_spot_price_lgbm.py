@@ -19,7 +19,7 @@ import pandas as pd
 import pytest
 
 from power_market_analytics.forecasting.backtest import BacktestRun, run_backtest
-from power_market_analytics.forecasting.frames import DayAheadForecast
+from power_market_analytics.forecasting.frames import DayAheadForecast, PermutationImportance
 from power_market_analytics.forecasting.strategy import ForecastUnavailableError
 from power_market_analytics.tasks.spot_price.frames import (
     OcctoDemandForecast,
@@ -629,6 +629,53 @@ class TestEvaluate:
                 ),
             ):
                 other.evaluate(eval_set)
+
+
+# --------------------------------------------------------------------------- permutation importance
+
+
+class TestPermutationImportance:
+    def test_baseline_is_the_backtests_mae_over_every_refit(self, backtested):
+        strategy, run = backtested
+        # 14 days at a 7-day cadence: two refits, both kept, the newest still current.
+        assert len(strategy._models) == 2
+        assert strategy._models[-1] is strategy._model
+        assert sorted(set(strategy._model_of_day.values())) == [0, 1]
+        assert strategy._model_of_day[pd.Timestamp("2024-04-01")] == 0
+        assert strategy._model_of_day[pd.Timestamp("2024-04-14")] == 1
+
+        importance = strategy.permutation_importance(run, n_repeats=3, seed=1)
+
+        assert isinstance(importance, PermutationImportance)
+        df = run.result.df
+        expected_mae = (df["forecast_price_jpy_kwh"] - df["actual_price_jpy_kwh"]).abs().mean()
+        assert importance.df["mae"].iloc[0] == pytest.approx(expected_mae, abs=1e-9)
+        assert importance.df["n_periods"].iloc[0] == 14 * 48
+        assert importance.df["feature"].unique().tolist() == list(BASE_FEATURE_COLS)
+        assert sorted(importance.df["repeat_index"].unique()) == [0, 1, 2]
+        summary = importance.summary().df.set_index("feature")
+        # April only: month is constant over the scored rows, so shuffling it changes nothing.
+        assert summary.loc["month", "importance_mae"] == 0.0
+        assert summary["importance_mae"].max() > 0.0
+
+    def test_defaults_are_five_repeats(self, backtested):
+        strategy, run = backtested
+        importance = strategy.permutation_importance(run)
+        assert sorted(importance.df["repeat_index"].unique()) == [0, 1, 2, 3, 4]
+
+    def test_every_scored_period_needs_a_recorded_forecast(self, prices):
+        full = LightGbmStrategy(train_window_days=30, refit_every_days=7)
+        run = run_backtest(full, prices, WINDOW_START, WINDOW_END)
+        other = LightGbmStrategy(train_window_days=30, refit_every_days=7)
+        run_backtest(other, prices, WINDOW_START, pd.Timestamp("2024-04-10"))
+        with pytest.raises(
+            RuntimeError,
+            match=(
+                r"lightgbm: 192 scored period\(s\) have no recorded forecast, "
+                r"e\.g\. 2024-04-11 time_code 1"
+            ),
+        ):
+            other.permutation_importance(run)
 
 
 # --------------------------------------------------------------------------- OCCTO strategy

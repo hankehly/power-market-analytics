@@ -46,9 +46,10 @@ investigation cites what it used rather than listing the whole set:
 - Superset **Demand Forecast Analysis** — year, time code, calendar month, day
   of week, day part, day type and 2,000-MWh actual-demand band, plus the
   calibration curve, the error histogram and the per-day SHAP waterfall of the
-  **Explanation (SHAP)** tab. Its **Compare** tab puts a run against a Baseline
-  run over the periods both scored. Season and top-10 % demand days are in the
-  compare script only.
+  **Explanation** tab. That tab also carries the run's Feature importance:
+  permutation ΔMAE per feature, next to the mean |SHAP|. Its **Compare** tab
+  puts a run against a Baseline run over the periods both scored. Season and
+  top-10 % demand days are in the compare script only.
 
 **Evaluation method.** Rolling out-of-sample backtest over identical delivery
 dates and training rows for baseline and candidate. Accuracy rows land in

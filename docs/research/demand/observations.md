@@ -124,7 +124,7 @@ same calendar input as any working day of that weekday.
 
 In the Superset **Demand Forecast Analysis** dashboard for the run above, the
 researcher noticed that 2026-08-12 and 2025-08-12 are heavily over-forecast,
-and read the **Explanation (SHAP)** tab's per-day decomposition (mean per
+and read the **Explanation** tab's per-day decomposition (mean per
 period) for them:
 
 - the `lag_7d_demand_kwh` contribution pushes the forecast up, because the
@@ -209,7 +209,7 @@ model saw, and `base` + Σ contributions = the mean forecast.
 - MLflow run: [`0a6b8a5560d445d5b9705bde99cf13ae`](http://localhost:5005/#/experiments/2/runs/0a6b8a5560d445d5b9705bde99cf13ae)
   (`lightgbm_msm_popw_daytype-tokyo`, the SHAP rollout run)
 - Superset dashboard: **Demand Forecast Analysis** → **Accuracy** → **Worst
-  days**. Then **Explanation (SHAP)** → **SHAP waterfall**, **Feature values &
+  days**. Then **Explanation** → **SHAP waterfall**, **Feature values &
   contributions** and the contributions-by-period chart, with the Day filter
   set to 2026-08-12 / 2025-08-12.
 
@@ -244,7 +244,7 @@ overnight 00–06, morning 06–08, daytime 08–18, evening 18–24.
 
 In the same dashboard and run, the researcher noticed that 2026-02-11 and
 2025-02-11 (建国記念の日 both years) are heavily under-forecast, and read the
-**Explanation (SHAP)** tab's per-day decomposition for them. The
+**Explanation** tab's per-day decomposition for them. The
 `lag_7d_demand_kwh` contribution pushes the daytime load forecast up as
 expected, but `day_type` counteracts it heavily and pushes the forecast down
 too low.
@@ -312,7 +312,7 @@ from knowing the load for the same day the previous year.
 
 - MLflow run: [`0a6b8a5560d445d5b9705bde99cf13ae`](http://localhost:5005/#/experiments/2/runs/0a6b8a5560d445d5b9705bde99cf13ae)
 - Superset dashboard: **Demand Forecast Analysis** → **Accuracy** → **Worst
-  days**; **Explanation (SHAP)** with the Day filter set to 2026-02-11 /
+  days**; **Explanation** with the Day filter set to 2026-02-11 /
   2025-02-11; the numbers above were queried from the same marts as O-002 on
   2026-08-27.
 

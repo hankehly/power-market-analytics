@@ -13,6 +13,7 @@ from power_market_analytics.forecasting.frames import (
     DayAheadForecast,
     ForecastContributions,
     HalfHourlySeries,
+    PermutationImportance,
 )
 from power_market_analytics.forecasting.task import TaskSpec
 
@@ -165,3 +166,34 @@ class ForecastStrategy[HistoryT: HalfHourlySeries, EvalSetT: DomainFrame](ABC):
             Empty by default.
         """
         return {}
+
+    def permutation_importance(
+        self,
+        run: BacktestRun,
+        *,
+        n_repeats: int = 5,
+        seed: int = 0,
+    ) -> PermutationImportance | None:
+        """Permutation feature importance over the periods the backtest scored.
+
+        Optional, like :meth:`contributions`. A model strategy shuffles each
+        feature's column across the run's scored rows, re-scores every day
+        with the model that forecast it, and reports the MAE increase per
+        feature and repeat; the baseline is the run's own MAE. The default,
+        for strategies without features to shuffle (a naive rule), is
+        ``None``: the backtest scripts then publish nothing.
+
+        Parameters
+        ----------
+        run : BacktestRun
+            The backtest's forecasts; fixes the rows that count.
+        n_repeats : int, optional
+            Shuffles per feature.
+        seed : int, optional
+            Seed of the shuffles.
+
+        Returns
+        -------
+        PermutationImportance or None
+        """
+        return None

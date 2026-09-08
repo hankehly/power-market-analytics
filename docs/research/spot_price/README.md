@@ -33,8 +33,9 @@ investigation cites what it used rather than listing the whole set:
   (`compare_demand_runs.py`).
 - Superset **Spot Price Forecast Analysis** — actual-price bands, the
   calibration curve, the error histogram and the per-day SHAP waterfall of the
-  **Explanation (SHAP)** tab. Its **Compare** tab puts a run against a
-  Baseline run over the periods both scored.
+  **Explanation** tab. That tab also carries the run's Feature importance:
+  permutation ΔMAE per feature, next to the mean |SHAP|. Its **Compare** tab
+  puts a run against a Baseline run over the periods both scored.
 
 **Evaluation method.** Rolling out-of-sample backtest over identical delivery
 dates and training rows for baseline and candidate. Accuracy rows land in

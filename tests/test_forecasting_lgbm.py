@@ -119,3 +119,17 @@ class TestSlidingWindowLightGbmStrategy:
             RuntimeError, match="m: no recorded contributions; run the backtest first"
         ):
             Minimal().contributions()
+
+    def test_permutation_importance_needs_a_backtest_first(self):
+        class Minimal(SlidingWindowLightGbmStrategy):
+            name = "m"
+            task = TASK
+            feature_cols = CALENDAR_FEATURE_COLS
+            eval_set_cls = LightGbmEvalSetBase
+            lookback_days = 0
+
+            def _add_features(self, featured, history_df):
+                return featured
+
+        with pytest.raises(RuntimeError, match="m: no recorded forecasts; run the backtest first"):
+            Minimal().permutation_importance(run=None)

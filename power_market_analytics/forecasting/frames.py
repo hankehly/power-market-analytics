@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from typing import ClassVar
 
+import numpy as np
 import pandas as pd
 
 from power_market_analytics.common.frames import DomainFrame
@@ -218,6 +219,141 @@ class ForecastContributionRecords(DomainFrame):
         "forecast_issued_ts",
         "component_order",
         "contribution",
+        "published_at",
+    ]
+
+
+class PermutationImportance(DomainFrame):
+    """Permutation feature importance of one backtest run, per feature and repeat.
+
+    ``feature_order`` is the feature's 1-based position in the strategy's
+    ``feature_cols``. ``n_periods`` (the scored periods) and ``mae`` (the run's
+    own MAE on them, the baseline) are the same on every row; ``permuted_mae``
+    is the MAE after shuffling the feature's column across those periods, once
+    per ``repeat_index``. Both MAEs are in the task's forecast unit.
+
+    Grain: (feature, repeat_index).
+    """
+
+    schema = {
+        "feature": "object",
+        "feature_order": "int64",
+        "repeat_index": "int64",
+        "n_periods": "int64",
+        "mae": "float64",
+        "permuted_mae": "float64",
+    }
+    keys = ["feature", "repeat_index"]
+    non_null_cols = ["feature_order", "n_periods", "mae", "permuted_mae"]
+
+    @classmethod
+    def _validate_extra(cls, df: pd.DataFrame) -> None:
+        name = cls.__name__
+        n_periods = sorted(df["n_periods"].unique().tolist())
+        if len(n_periods) != 1 or n_periods[0] < 1:
+            raise ValueError(f"{name}: n_periods must be one value >= 1, got {n_periods}")
+        mae = sorted(df["mae"].unique().tolist())
+        if len(mae) != 1 or mae[0] < 0:
+            raise ValueError(f"{name}: mae must be one value >= 0, got {mae}")
+        if (df["permuted_mae"] < 0).any():
+            raise ValueError(f"{name}: permuted_mae must be >= 0")
+        orders = df.groupby("feature")["feature_order"]
+        if (orders.nunique() != 1).any():
+            raise ValueError(f"{name}: feature_order must be constant per feature")
+        found = sorted(orders.first().tolist())
+        if found != list(range(1, len(found) + 1)):
+            raise ValueError(f"{name}: feature_order must run 1..{len(found)}, got {found}")
+        expected = tuple(range(int(df["repeat_index"].max()) + 1))
+        repeats = df.groupby("feature")["repeat_index"].apply(lambda s: tuple(sorted(s)))
+        if any(r != expected for r in repeats):
+            raise ValueError(f"{name}: every feature must carry repeats 0..{expected[-1]}")
+
+    def summary(self) -> PermutationImportanceSummary:
+        """Collapse the repeats into one row per feature.
+
+        Returns
+        -------
+        PermutationImportanceSummary
+            Sorted by ``feature_order``. ``importance_mae`` is the mean over
+            repeats of ``permuted_mae − mae`` (scikit-learn's
+            ``importances_mean``), ``importance_std`` its population standard
+            deviation (``importances_std``), ``importance_pct`` the mean as a
+            percentage of ``mae`` (NaN when ``mae`` is 0).
+        """
+        mae = float(self.df["mae"].iloc[0])
+        grouped = self.df.groupby(["feature", "feature_order"], sort=False)["permuted_mae"]
+        out = (
+            pd.DataFrame(
+                {
+                    "permuted_mae": grouped.mean(),
+                    "importance_std": grouped.std(ddof=0),
+                    "n_repeats": grouped.size(),
+                }
+            )
+            .reset_index()
+            .sort_values("feature_order", ignore_index=True)
+            .assign(mae=mae)
+        )
+        out["importance_mae"] = out["permuted_mae"] - mae
+        out["importance_pct"] = 100 * out["importance_mae"] / mae if mae > 0 else np.nan
+        return PermutationImportanceSummary.from_df(out.astype({"n_repeats": "int64"}))
+
+
+class PermutationImportanceSummary(DomainFrame):
+    """One row per feature: the mean and spread of its permutation importance over the repeats.
+
+    Grain: (feature).
+    """
+
+    schema = {
+        "feature": "object",
+        "feature_order": "int64",
+        "mae": "float64",
+        "permuted_mae": "float64",
+        "importance_mae": "float64",
+        "importance_std": "float64",
+        "importance_pct": "float64",
+        "n_repeats": "int64",
+    }
+    keys = ["feature"]
+    non_null_cols = [
+        "feature_order",
+        "mae",
+        "permuted_mae",
+        "importance_mae",
+        "importance_std",
+        "n_repeats",
+    ]
+
+
+class ForecastImportanceRecords(DomainFrame):
+    """One backtest run's permutation importance shaped for the task's importance
+    write-back table.
+
+    Grain: (run_id, area_code, feature, repeat_index). The MAE columns keep
+    their generic names here; the publisher writes them under the task's
+    unit-suffixed ``TaskSpec.mae_col`` / ``TaskSpec.permuted_mae_col``.
+    """
+
+    schema = {
+        "run_id": "object",
+        "strategy": "object",
+        "area_code": "object",
+        "feature": "object",
+        "feature_order": "int64",
+        "repeat_index": "int64",
+        "n_periods": "int64",
+        "mae": "float64",
+        "permuted_mae": "float64",
+        "published_at": "datetime64[ns]",
+    }
+    keys = ["run_id", "area_code", "feature", "repeat_index"]
+    non_null_cols = [
+        "strategy",
+        "feature_order",
+        "n_periods",
+        "mae",
+        "permuted_mae",
         "published_at",
     ]
 
