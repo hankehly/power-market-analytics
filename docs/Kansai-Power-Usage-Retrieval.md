@@ -54,10 +54,10 @@ The hourly header changed twice:
 | 2019-09-12 → 2025-12-24 | `DATE,TIME,当日実績(万kW),予想値(万kW),使用率(%),供給力想定値(万kW)` |
 | 2025-12-25 → | `DATE,TIME,当日実績(万kW),予想値(万kW),使用率(%),供給力(万kW)` |
 
-`当日実績(万kW)` is the hourly actual; `予想値(万kW)` is Kansai's hourly demand
-forecast as of the stamp — the day's last intraday revision, not a day-ahead
-forecast; `使用率(%)` is the usage rate ([§4](#4-quirks) for its definition
-change); `供給力想定値` / `供給力` is the hour's supply capacity. The warehouse
+`当日実績(万kW)` is the hourly actual. `予想値(万kW)` is Kansai's hourly demand
+forecast as of the stamp: the day's last intraday revision, not a day-ahead
+forecast. `使用率(%)` is the usage rate, whose definition changed
+([§4](#4-quirks)). `供給力想定値` / `供給力` is the hour's supply capacity. The warehouse
 keeps TEPCO's column names (`forecast_mankw`, `usage_rate_pct`,
 `supply_capacity_mankw`, the last null before 2019-09-12). No measure is ever
 blank or 0: demand runs from 922 万kW (2025-05-05 01:00) to 2,915 万kW
@@ -110,18 +110,19 @@ instead of 1.5.
 Overall MAE 1.46 万kW (0.09 %), bias +0.40. Two regimes:
 
 - **2022-04 → 2023-02: the two series disagree in daylight.** The でんき予報 value
-  sits above A-1 by +4 to +10 万kW per month on average (bias +9.4 in 2022-06 and
-  +9.6 in 2022-09), almost all of it between 08:00 and 16:00 — FY2022's hourly
-  bias peaks at +11.4 万kW at 12:00 and stays under +1.4 at night. The gap shrinks from
-  2022-10 (bias −0.4, MAE 7.2) and is gone by 2023-03; 294 days of FY2022 have an
-  hour more than 3 万kW apart, 8 days of FY2023 (the last on 2023-07-31), none
-  after. A-1's opening fortnight (2022-04-01 → 14, the scientific-notation
-  vintage) is the worst stretch: bias +3.6, MAE 7.4.
-- **2023-03 onward: the integer display of one measurement.** Bias −0.40 to −0.48
-  in every hour of the day, MAE 0.42, 60 % of hours within ±0.5 万kW, and from
-  2023-08 no hour is more than 3 万kW apart — the でんき予報 integer runs
-  0.4 万kW below the A-1 hourly mean, nothing more. Unlike Tokyo, Kansai's A-1
-  shows no 18:00–19:00 defect (hours 17–19 sit at the same −0.47 bias as the rest).
+  sits above A-1 by +4 to +10 万kW per month on average, with bias +9.4 in
+  2022-06 and +9.6 in 2022-09. Almost all of it falls between 08:00 and 16:00:
+  FY2022's hourly bias peaks at +11.4 万kW at 12:00 and stays under +1.4 at
+  night. The gap shrinks from 2022-10 (bias −0.4, MAE 7.2) and is gone by
+  2023-03; 294 days of FY2022 have an hour more than 3 万kW apart, 8 days of
+  FY2023 (the last on 2023-07-31), none after. A-1's opening fortnight
+  (2022-04-01 → 14, the scientific-notation vintage) is the worst stretch: bias
+  +3.6, MAE 7.4.
+- **2023-03 onward: the integer display of one measurement.** Bias −0.40 to
+  −0.48 in every hour of the day, MAE 0.42, and 60 % of hours within ±0.5 万kW.
+  From 2023-08 no hour is more than 3 万kW apart. The でんき予報 integer runs 0.4 万kW
+  below the A-1 hourly mean, nothing more. Unlike Tokyo, Kansai's A-1 shows no
+  18:00–19:00 defect (hours 17–19 sit at the same −0.47 bias as the rest).
 
 The FY2022 daylight gap is a property of the published series (both are as
 Kansai publishes them today; April 2022 A-1 was re-issued in 2023-09). It is
@@ -143,16 +144,15 @@ downloader.download_all()                           # 2016-04 .. yesterday's mon
 `KANSAI_POWER_USAGE` is a `PowerUsageSource` (an `AreaActualsSource` with
 `multi_day_headers`, empty here: every file holds one date): the URL template,
 2016-04, both member-name generations, the three hourly headers and
-`known_missing_days = {2024-03-31}`. `KansaiPowerUsageDownloader` is the shared
-`AreaActualsDownloader` bound to it — every zip re-downloaded, daily members
-extracted into `csv/`; a settled month must hold a member for every day except
-the listed one, the running month may be partial, and on the 1st the running
-month is skipped. `KansaiPowerUsageCsvLoader` is the shared `PowerUsageCsvLoader`
-bound to the spec: `parse_hourly` reads each file's hourly table (trailing
-commas removed, the `修正後` row applied, hours 0–23 exactly once, one date per
-file), all ~3,800 files land in one `createDataFrame`, and the contract
-`conf/schemas/kansai_power_usage_hourly.yaml` — TEPCO's column for column —
-casts the `__`-prefixed string columns. Grain `(target_date, hour_start)` is
+`known_missing_days = {2024-03-31}`. `KansaiPowerUsageDownloader` is the shared `AreaActualsDownloader` bound to it.
+Every zip is re-downloaded and the daily members extracted into `csv/`. A
+settled month must hold a member for every day except the listed one. The
+running month may be partial, and on the 1st it is skipped. `KansaiPowerUsageCsvLoader` is the shared `PowerUsageCsvLoader`
+bound to the spec: `parse_hourly` reads each file's hourly table: trailing commas removed, the
+`修正後` row applied, hours 0–23 exactly once, one date per file. All ~3,800
+files land in one `createDataFrame`. The contract
+`conf/schemas/kansai_power_usage_hourly.yaml`, TEPCO's column for column, casts
+the `__`-prefixed string columns. Grain `(target_date, hour_start)` is
 enforced at load time; an unknown header fails the load. End to end:
 
 ```bash
@@ -163,17 +163,21 @@ just dbt build
 
 (`just refresh-all` runs them after the Kansai A-1 pair.)
 
-Warehouse path: `pma_raw.kansai_power_usage_hourly` →
-`stg_kansai__power_usage_hourly` (as-is) → `std_kansai__power_usage_hourly`
-(typed time axis — `delivery_date`, `hour_start` 0–23 as published,
-`hour_ending` 1–24, `delivery_datetime` = hour start, `fiscal_year` — and the
-four measures as integer 万kW; tests pin `demand_mankw` ≥ 1, `forecast_mankw`
-and `usage_rate_pct` not null, `supply_capacity_mankw` null exactly before
-2019-09-12 and ≥ demand; the singular test
-`assert_std_kansai__power_usage_hourly_calendar_complete` requires the history
-gapless from 2016-04-01 except 2024-03-31) → the `kansai` branch of
-`fct_area_power_usage_hourly` (grain `date_key × hour_of_day × area_key`,
-`demand_kwh` = 万kW × 10,000). The fact is this series alone — not stitched
+Warehouse path: `pma_raw.kansai_power_usage_hourly` → `stg_kansai__power_usage_hourly` (as-is)
+→ `std_kansai__power_usage_hourly` → the `kansai` branch of
+`fct_area_power_usage_hourly`.
+
+`std` types the time axis: `delivery_date`, `hour_start` 0–23 as published,
+`hour_ending` 1–24, `delivery_datetime` = hour start, and `fiscal_year`. The
+four measures stay integer 万kW.
+
+Tests pin `demand_mankw` ≥ 1, `forecast_mankw` and `usage_rate_pct` not null,
+and `supply_capacity_mankw` null exactly before 2019-09-12 and ≥ demand. The
+singular test `assert_std_kansai__power_usage_hourly_calendar_complete`
+requires the history to have no gaps from 2016-04-01 except 2024-03-31.
+
+The fact has grain `date_key × hour_of_day × area_key`, with `demand_kwh` =
+万kW × 10,000. The fact is this series alone — not stitched
 with the A-1 series.
 
 Unit tests: `tests/test_power_usage.py` (the shared parser and loader: padded

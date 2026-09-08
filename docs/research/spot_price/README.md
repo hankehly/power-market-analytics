@@ -10,35 +10,37 @@ statuses: [research README](research/README.md).
 
 ## Scope defaults
 
-Copy these into a new investigation's *Scope and constraints* block and
-narrow them as the question requires.
+**Forecast target.** The JEPX spot area price (JPY/kWh) for each of the 48
+delivery periods of day D in one area (`dim_area.area_code`; `--area`).
 
-- **Forecast target:** JEPX spot area price (JPY/kWh) for each of the 48
-  delivery periods of day D in one area (`dim_area.area_code`; `--area`)
-- **Information cutoff:** D-1 at 09:55 JST, just before the 10:00 gate
-  closure (`TaskSpec.issue_offset`); usable price history = delivery days
-  ≤ D-1 (`history_lead_days = 1`)
-- **Baseline:** a strategy run in the `spot_price` MLflow experiment —
-  `previous_day`, `lightgbm` or `lightgbm_occto`
-  (`scripts/spot_price_backtest.py`); pin `--start-date`, `--end-date` and
-  `--train-start` identically for a candidate and its baseline
-- **Primary metric:** MAE (JPY/kWh)
-- **Segments reported by the tooling:** day part, periods near the OCCTO
-  forecast peak hour, calendar month, high-price days, bias
-  (`scripts/compare_spot_price_runs.py`); actual-price bands, the calibration
-  curve, the error histogram, the per-day SHAP waterfall (mean per period)
-  of the **Explanation** tab (Day filter) and its run-level Feature importance
-  section (permutation ΔMAE per feature, mean |SHAP|)
-  (Superset **Spot Price Forecast Analysis**); its **Compare** tab shows a
-  run against a Baseline run (matched periods only): ΔMAE by day part, day
-  of week, month, price band and time code, the share of days lower, the
-  median daily ΔMAE, the most improved / worsened days and the per-feature
-  SHAP contribution deltas (a day's or the run's mean per period) — the
-  bootstrap CI stays in the compare script
-- **Evaluation method:** rolling out-of-sample backtest over identical
-  delivery dates and training rows for baseline and candidate; accuracy rows
-  in `fct_spot_price_forecast_accuracy` after
-  `just dbt build --select +fct_spot_price_forecast_accuracy`
+**Information cutoff.** D-1 at 09:55 JST, just before the 10:00 gate closure
+(`TaskSpec.issue_offset`). Usable price history is delivery days ≤ D-1
+(`history_lead_days = 1`).
+
+**Baseline.** A strategy run in the `spot_price` MLflow experiment:
+`previous_day`, `lightgbm` or `lightgbm_occto`
+(`scripts/spot_price_backtest.py`). Pin `--start-date`, `--end-date` and
+`--train-start` identically for a candidate and its baseline.
+
+**Primary metric.** MAE (JPY/kWh).
+
+**Segments reported by the tooling.** Two tools cover them, and an
+investigation cites what it used rather than listing the whole set:
+
+- `scripts/compare_spot_price_runs.py` — day part, periods near the OCCTO
+  forecast peak hour, calendar month, high-price days and bias. It reports no
+  uncertainty interval; the daily paired bootstrap exists only for demand
+  (`compare_demand_runs.py`).
+- Superset **Spot Price Forecast Analysis** — actual-price bands, the
+  calibration curve, the error histogram and the per-day SHAP waterfall of the
+  **Explanation** tab. That tab also carries the run's Feature importance:
+  permutation ΔMAE per feature, next to the mean |SHAP|. Its **Compare** tab
+  puts a run against a Baseline run over the periods both scored.
+
+**Evaluation method.** Rolling out-of-sample backtest over identical delivery
+dates and training rows for baseline and candidate. Accuracy rows land in
+`fct_spot_price_forecast_accuracy` after
+`just dbt build --select +fct_spot_price_forecast_accuracy`.
 
 ## Investigation index
 

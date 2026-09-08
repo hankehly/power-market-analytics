@@ -8,14 +8,14 @@
 The JMA hourly pipeline currently ingests every station in the network (1,287 active:
 ~1,130 AMeDAS `a*` + 156 staffed `s*`), but the only consumer — the demand task's
 representative-station temperature feature — reads staffed stations exclusively
-(`dim_area.representative_jma_station_id`: 東京 s47662, 大阪 s47772). Analysis against the
-2020 census 500 m population mesh confirmed the staffed network alone covers Japan's
-population centers: every 政令指定都市 has an active s-station within 30 km (18 of 21
-within 13 km), 90% of the population lives within 30 km and 99.1% within 50 km of one.
+(`dim_area.representative_jma_station_id`: 東京 s47662, 大阪 s47772). Analysis against the 2020 census 500 m population mesh confirmed the staffed
+network alone covers Japan's population centers. Every 政令指定都市 has an
+active s-station within 30 km, 18 of the 21 within 13 km. 90 % of the
+population lives within 30 km of one, and 99.1 % within 50 km.
 Staffed stations also observe 官署-only elements (humidity, solar radiation, …) that
 AMeDAS lacks, and all 159 observe the full element set (`kansoku=111111`).
 
-Re-scoping to s-stations therefore loses nothing downstream, cuts a cold scrape from
+Re-scoping to s-stations loses nothing downstream, cuts a cold scrape from
 ~60 h to ~14 h even with expanded elements, and removes an entire ingestion leg
 (second CSV layout, second raw table, union in `std`).
 
@@ -80,7 +80,7 @@ docs/JMA-Weather-Data-Retrieval.md §6.1). Outcomes:
 ### 均質番号 caveat introduced by time slicing
 
 均質番号 restarts from 1 in every server response (doc §7.3). In a stitched year file the
-numbering therefore resets at each window boundary (e.g. Jul 1): homogeneity breaks are
+numbering resets at each window boundary (e.g. Jul 1): homogeneity breaks are
 only meaningful *within* a window, and a real break falling exactly on a window boundary
 is invisible in the CSV alone. This is the existing cross-file caveat at finer grain. The
 columns are carried through unchanged; the caveat is documented in the JMA doc and in the

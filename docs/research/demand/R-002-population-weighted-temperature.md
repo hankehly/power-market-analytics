@@ -18,8 +18,8 @@ area's staffed JMA stations — rather than by the single representative station
 
 The researcher's reasoning, as stated: the model currently looks at a single
 reference location per area (`dim_area.representative_jma_station_id`, 東京
-s47662 for Tokyo), so its weather input is too coarse — it does not take into
-account how the population is distributed across the area, nor how temperature
+s47662 for Tokyo), so its weather input is too coarse. It takes into account
+neither how the population is distributed across the area nor how temperature
 differs slightly from place to place. The hypothesis is that performance gains
 are being missed because one reference location per area is not enough, and
 that temperature weighted by population will give higher accuracy.
@@ -43,10 +43,10 @@ MSM point forecast at every staffed station
 
 - **Forecast target:** the 48 half-hourly `demand_kwh` values of
   `fct_area_demand_generation_actual` for day D, Tokyo area (`--area tokyo`)
-- **Information cutoff:** D-1 at 09:30 JST; usable demand history = delivery
-  days ≤ D-2; observed-weather features use complete observation days ≤ D-2 at
-  東京 s47662; forecast features use the MSM vintage referenced 21:00 JST D-2
-  (published ~23:30 JST D-2), at whichever stations the feature draws on
+- **Information cutoff:** the [task defaults](research/demand/README.md), with
+  東京 s47662 as the representative station. Forecast features use the MSM
+  vintage referenced 21:00 JST D-2 (published ~23:30 JST D-2), at whichever
+  stations the feature draws on
 - **Baseline:** `lightgbm_msm` — the R-001 E-001 candidate (baseline features +
   `forecast_temperature_c` at the representative station), re-run on the same
   code version as the candidate
@@ -80,30 +80,33 @@ baseline.
 
 ### Change
 
-- **Station weights** — new curated fact `fct_census_population_jma_station`
-  (grain `census_year × station_id`): every populated 500 m census mesh is
-  assigned to the staffed station nearest its centroid (great-circle distance)
-  among the stations that are mapped to a JEPX area and sit at or below
-  1,000 m elevation; a station's weight is its share of its area's population
-  (weights sum to 1 per area). The five stations above 1,000 m — 富士山
-  (3,775 m) and 奥日光 (1,292 m) in the Tokyo area, plus 伊吹山, 阿蘇山 and 剣山 —
-  are excluded because the MSM forecast at their grid points is documented as
-  unrepresentative of the lowland towns that would otherwise be nearest to them
-  (MSM retrieval doc §9.4); their meshes fall to the next-nearest station. A
-  mesh belongs to the area of its nearest station, an approximation of the TSO
-  supply-area boundary that is exact away from area borders; the resulting
-  Tokyo-area population is 45.3 M (2020), with 東京 41.7 %, 横浜 21.0 %, 千葉
-  7.6 %, 熊谷 7.1 %, つくば 4.6 %, … over 21 weighted stations.
+- **Station weights** — a new curated fact `fct_census_population_jma_station`
+  (grain `census_year × station_id`). Every populated 500 m census mesh is
+  assigned to the staffed station nearest its centroid by great-circle
+  distance, among the stations that are mapped to a JEPX area and sit at or
+  below 1,000 m elevation. A station's weight is its share of its area's
+  population, so weights sum to 1 per area.
+
+  Five stations above 1,000 m are excluded: 富士山 (3,775 m) and 奥日光
+  (1,292 m) in the Tokyo area, plus 伊吹山, 阿蘇山 and 剣山. The MSM forecast at
+  their grid points is documented as unrepresentative of the lowland towns that
+  would otherwise be nearest to them (MSM retrieval doc §9.4). Their meshes fall
+  to the next-nearest station.
+
+  A mesh belongs to the area of its nearest station. That approximates the TSO
+  supply-area boundary and is exact away from area borders. The resulting
+  Tokyo-area population is 45.3 M (2020) over 21 weighted stations, with 東京
+  41.7 %, 横浜 21.0 %, 千葉 7.6 %, 熊谷 7.1 %, つくば 4.6 %, …
 - **Feature** — `popw_forecast_temperature_c` =
   Σ weight × station forecast temperature per delivery day and hour-ending,
   renormalised over the stations that have a value for the hour
-  (`load_area_temperature_forecast_population_weighted`), using the latest
-  census vintage (2020) for the whole history; mapped onto the 30-minute
+  (`load_area_temperature_forecast_population_weighted`). It uses the latest
+  census vintage (2020) for the whole history, and maps onto the 30-minute
   periods at `hour_ending = (time_code + 1) // 2` like the single-station
   feature.
-- **Strategy** — `lightgbm_msm_popw` (`LightGbmMsmPopWeightedStrategy`): the
-  `lightgbm` baseline's five features plus `popw_forecast_temperature_c`
-  (replacing `forecast_temperature_c`); model parameters, refit cadence and the
+- **Strategy** — `lightgbm_msm_popw` (`LightGbmMsmPopWeightedStrategy`) takes
+  the `lightgbm` baseline's five features plus `popw_forecast_temperature_c`,
+  replacing `forecast_temperature_c`. Model parameters, refit cadence and the
   observed single-station `wavg_temperature_c` are unchanged, so the spatial
   representation of the *forecast* temperature is the only difference.
 
@@ -142,14 +145,14 @@ with an interval that excludes zero.
 - **Code or pull request:**
   [PR #13](https://github.com/hankehly/power-market-analytics/pull/13)
   (`fct_census_population_jma_station`, `LightGbmMsmPopWeightedStrategy`,
-  `load_area_temperature_forecast_population_weighted`); the segment tables,
+  `load_area_temperature_forecast_population_weighted`). The segment tables,
   the daily paired comparison and the figure below are the output of
   `scripts/compare_demand_runs.py --baseline 4bdb6087b6ed4d22948b8faf1d3e9202
   --candidate 2556e3f2b94c4cf59efc6b2fff1bddef --mae-by-month-png …`
-  (`tasks/demand/compare.py`, reading `fct_demand_forecast_accuracy`; first
-  computed ad hoc from the runs' `predictions.csv` and re-derived with the
-  script on 2026-08-24 — identical); accuracy rows for both runs are in
-  `fct_demand_forecast_accuracy` / the **Demand Forecast Analysis** dashboard
+  (`tasks/demand/compare.py`, reading `fct_demand_forecast_accuracy`). They were
+  first computed ad hoc from the runs' `predictions.csv` and re-derived with the
+  script on 2026-08-24, identical. Accuracy rows for both runs are in
+  `fct_demand_forecast_accuracy` and the **Demand Forecast Analysis** dashboard
 - **Matched window:** the R-001 window — 729 delivery days
   2024-08-18..2026-08-17, identical training rows and refit schedule (one day,
   2025-06-21, skipped by both for its D-7 lag in the 2025-06-14 TSO hole)
@@ -222,18 +225,18 @@ MAE by season (relative change, with its day parts):
 | Summer (Jun–Aug) | 828,118 | 785,474 | −5.1 % | −4.8 % | −2.2 % | −5.2 % | −6.0 % |
 | Autumn (Sep–Nov) | 601,642 | 579,505 | −3.7 % | −3.2 % | +0.8 % | −4.6 % | −3.1 % |
 
-Daily paired comparison (daily MAE, candidate − baseline, 729 days): the
-candidate is lower on 58.6 % of days (427 of 729); mean difference −17,200 kWh
-with a 95 % bootstrap CI over days of [−24,089, −10,185] kWh; median difference
-−11,434 kWh; the ten most-improved days account for 31 % of the total
+Daily paired comparison (daily MAE, candidate − baseline, 729 days). The
+candidate is lower on 58.6 % of days (427 of 729). Mean difference −17,200 kWh,
+95 % bootstrap CI over days [−24,089, −10,185] kWh, median difference
+−11,434 kWh. The ten most-improved days account for 31 % of the total
 absolute-error reduction.
 
-Other cuts of the same two runs (not tabulated here): weekdays −3.0 %, weekends
-−1.1 %, holidays −0.5 %; the top-10 % demand days (daily mean ≥ 19,489 MWh,
-73 days) −5.2 % against −1.8 % on the other 90 %; every 2,000-MWh actual-demand
-band from 10,000 MWh upward is lower, increasingly so at high demand (−5 % to
-−11 % above 22,000 MWh), while the lowest band (8,000–10,000 MWh, 148 points)
-is +0.7 %. In the candidate's SHAP importance plot (MLflow)
+Other cuts of the same two runs, not tabulated here. Weekdays −3.0 %, weekends
+−1.1 %, holidays −0.5 %. The top-10 % demand days (daily mean ≥ 19,489 MWh,
+73 days) are −5.2 % against −1.8 % on the other 90 %. Every 2,000-MWh
+actual-demand band from 10,000 MWh upward is lower, increasingly so at high
+demand (−5 % to −11 % above 22,000 MWh). The lowest band (8,000–10,000 MWh,
+148 points) is +0.7 %. In the candidate's SHAP importance plot (MLflow)
 `popw_forecast_temperature_c` ranks second, just above `time_code`, where the
 single-station `forecast_temperature_c` ranked third in the baseline's plot.
 
@@ -247,19 +250,20 @@ Read against the pre-registered expected evidence:
   `lightgbm` baseline; the population weighting removes a further 5 % of the
   remaining error.
 - **Consistent across months and day parts:** partly. All four day parts are
-  lower (−1.1 % to −2.7 %), and the candidate is better in 17 of 25 months,
-  but the monthly change ranges from −7.8 % (2025-06) to +4.4 % (2025-04), and
-  the gain is seasonal: summer −5.1 % and autumn −3.7 %, winter −0.1 % and
-  spring −0.4 % (essentially flat, with Overnight/Morning slightly worse in
-  those seasons). It is also larger on high-demand days and in the high
-  actual-demand bands. The paired-difference interval over days excludes zero,
-  the candidate wins on 59 % of days, and the ten most-improved days carry 31 %
-  of the total reduction — a more concentrated gain than R-001's (10 %).
+  lower (−1.1 % to −2.7 %) and the candidate is better in 17 of 25 months. But
+  the monthly change ranges from −7.8 % (2025-06) to +4.4 % (2025-04), and the
+  gain is seasonal: summer −5.1 % and autumn −3.7 % against winter −0.1 % and
+  spring −0.4 %. Winter and spring are essentially flat, with Overnight and
+  Morning slightly worse. The gain is also larger on high-demand days and in
+  the high actual-demand bands. The paired-difference interval over days
+  excludes zero and the candidate wins on 59 % of days. The ten most-improved
+  days carry 31 % of the total reduction, a more concentrated gain than
+  R-001's 10 %.
 - **No material deterioration in any day part:** none overall; the worst
   season × day-part cell is Spring Morning at +1.2 %.
 
-Limitations. One area (Tokyo) and one census vintage (2020 weights applied to
-2022–2026); the station weights rest on a nearest-station assignment of
+Limitations. One area (Tokyo) and one census vintage, the 2020 weights applied
+to 2022–2026. The station weights rest on a nearest-station assignment of
 meshes (Voronoi on 21 stations, ≤ 1,000 m rule) rather than on TSO
 supply-area polygons, and on the MSM grid-point forecast at each station.
 The observed-temperature feature is still the single representative station's,
@@ -274,14 +278,16 @@ causality.
 
 Applying the rule as written: overall MAE is lower, the candidate is better in
 most months (17 of 25), the bootstrap interval of the daily paired difference
-excludes zero, and no day part deteriorates — the "keep" conditions are met.
-Two things the rule does not capture were put to the researcher — the gain is
-small (−2.3 %) and seasonal (summer/autumn; winter/spring flat), and a third of
-it comes from ten days — and the researcher judged the accuracy gain sufficient
-to keep the weighting strategy. Resulting change: `lightgbm_msm_popw` is the
-demand baseline for later matched experiments and the default of
-`scripts/demand_backtest.py`; `lightgbm` and `lightgbm_msm` stay registered as
-reference strategies.
+excludes zero, and no day part deteriorates. The "keep" conditions are met.
+
+Two things the rule does not capture were put to the researcher. The gain is
+small (−2.3 %) and seasonal, summer and autumn only with winter and spring
+flat. And a third of it comes from ten days. The researcher judged the accuracy
+gain sufficient to keep the weighting strategy.
+
+Resulting change: `lightgbm_msm_popw` is the demand baseline for later matched
+experiments and the default of `scripts/demand_backtest.py`. `lightgbm` and
+`lightgbm_msm` stay registered as reference strategies.
 
 ### Follow-up ideas
 
