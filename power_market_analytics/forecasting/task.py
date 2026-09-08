@@ -19,8 +19,10 @@ class TaskSpec:
     """Everything the generic engine, strategies, publish and plots need to know
     about one modeling task.
 
-    The contribution table and column are derived (``contribution_table``,
-    ``contribution_col``) rather than stored.
+    The contribution table and column (``contribution_table``,
+    ``contribution_col``) and the importance table and MAE columns
+    (``importance_table``, ``mae_col``, ``permuted_mae_col``) are derived
+    rather than stored.
 
     Column names are not stored twice: they are read off the frame classes,
     which own the contracts.
@@ -105,6 +107,30 @@ class TaskSpec:
         forecast.
         """
         return "contribution_" + self.forecast_col.removeprefix("forecast_")
+
+    @property
+    def importance_table(self) -> str:
+        """Warehouse table the run's permutation feature importance is published to.
+
+        ``forecast_table`` with an ``_importance`` suffix, e.g.
+        ``pma_ml.demand_forecast_importance``.
+        """
+        return f"{self.forecast_table}_importance"
+
+    @property
+    def mae_col(self) -> str:
+        """Warehouse column of the importance rows' baseline MAE.
+
+        ``forecast_col`` with its ``forecast_`` prefix swapped for ``mae_``,
+        e.g. ``mae_demand_kwh`` — the forecast unit.
+        """
+        return "mae_" + self.forecast_col.removeprefix("forecast_")
+
+    @property
+    def permuted_mae_col(self) -> str:
+        """Warehouse column of the MAE after shuffling the feature, e.g.
+        ``permuted_mae_demand_kwh``."""
+        return "permuted_" + self.mae_col
 
     def history_cutoff(self, target_date: pd.Timestamp) -> pd.Timestamp:
         """Newest delivery day a strategy may see when forecasting ``target_date``.

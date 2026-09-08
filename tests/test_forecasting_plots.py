@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import pytest
+from matplotlib.container import BarContainer
 
 from power_market_analytics.common.metrics import mae, mape
-from power_market_analytics.forecasting.frames import MetricByYearTimeCode
+from power_market_analytics.forecasting.frames import (
+    MetricByYearTimeCode,
+    PermutationImportanceSummary,
+)
 from power_market_analytics.forecasting.plots import (
     SEQUENTIAL_AQUAS,
     SEQUENTIAL_BLUES,
@@ -16,6 +21,7 @@ from power_market_analytics.forecasting.plots import (
     _period_label,
     error_heatmaps,
     metric_by_year_time_code,
+    permutation_importance_plot,
 )
 from power_market_analytics.tasks.spot_price import TASK
 from power_market_analytics.tasks.spot_price.frames import SpotPriceBacktestResult
@@ -201,3 +207,54 @@ class TestErrorHeatmaps:
         assert fig.data[0].colorbar.title.text == "kWh"
         assert "MAE: %{z:.2f} kWh" in fig.data[0].hovertemplate
         assert [a.text for a in fig.layout.annotations] == ["MAE (kWh)", "MAPE (%)"]
+
+
+def make_summary() -> PermutationImportanceSummary:
+    return PermutationImportanceSummary.from_df(
+        pd.DataFrame(
+            {
+                "feature": ["time_code", "month", "lag_1d_price"],
+                "feature_order": [1, 2, 3],
+                "mae": [2.0, 2.0, 2.0],
+                "permuted_mae": [3.0, 2.0, 5.0],
+                "importance_mae": [1.0, 0.0, 3.0],
+                "importance_std": [0.1, 0.0, 0.5],
+                "importance_pct": [50.0, 0.0, 150.0],
+                "n_repeats": [5, 5, 5],
+            }
+        ).astype({"feature_order": "int64", "n_repeats": "int64"})
+    )
+
+
+class TestPermutationImportancePlot:
+    def test_horizontal_bars_largest_on_top_with_std_error_bars(self):
+        fig = permutation_importance_plot(TASK, make_summary(), title="lightgbm, tokyo")
+        try:
+            (ax,) = fig.axes
+            # barh draws bottom-up: ascending order puts the most important feature on top.
+            assert [t.get_text() for t in ax.get_yticklabels()] == [
+                "month",
+                "time_code",
+                "lag_1d_price",
+            ]
+            assert [bar.get_width() for bar in ax.patches] == [0.0, 1.0, 3.0]
+            # the bars and, because of xerr, their error-bar container
+            (bars,) = [c for c in ax.containers if isinstance(c, BarContainer)]
+            assert bars.errorbar is not None
+            assert ax.get_title(loc="left") == "lightgbm, tokyo"
+            assert ax.get_xlabel() == (
+                "ΔMAE (JPY/kWh) when the feature is shuffled; error bars = std over 5 repeats"
+            )
+        finally:
+            plt.close(fig)
+
+    def test_unit_comes_from_the_task(self):
+        import dataclasses
+
+        fig = permutation_importance_plot(
+            dataclasses.replace(TASK, unit="kWh"), make_summary(), "t"
+        )
+        try:
+            assert fig.axes[0].get_xlabel().startswith("ΔMAE (kWh)")
+        finally:
+            plt.close(fig)
