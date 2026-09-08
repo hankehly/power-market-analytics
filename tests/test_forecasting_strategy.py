@@ -66,3 +66,18 @@ class TestForecastStrategy:
                 raise NotImplementedError
 
         assert Done().diagnostics(history=None, run=None) == {}
+
+    def test_permutation_importance_defaults_to_none(self):
+        class Done(ForecastStrategy):
+            name = "done"
+
+            def predict(self, target_date, history):
+                raise NotImplementedError
+
+            def build_eval_set(self, history, start_date, end_date, run=None):
+                raise NotImplementedError
+
+            def evaluate(self, eval_set, **kwargs):
+                raise NotImplementedError
+
+        assert Done().permutation_importance(run=None) is None

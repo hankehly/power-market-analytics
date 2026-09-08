@@ -10,23 +10,28 @@ strategies) when two runs must be compared on identical delivery days and
 training rows, e.g. a feature experiment against its matched baseline.
 
 Strategies that explain their forecasts (the LightGBM ones) also publish
-their TreeSHAP contributions to ``pma_ml.spot_price_forecast_contribution``.
+their TreeSHAP contributions to ``pma_ml.spot_price_forecast_contribution`` and
+their permutation feature importance to ``pma_ml.spot_price_forecast_importance``.
 """
 
 import argparse
 
+import matplotlib.pyplot as plt
 import mlflow
 import pandas as pd
 from loguru import logger
 
 from power_market_analytics.common.tracking import MAPE_METRIC_NAME, log_dataframe, task_run
 from power_market_analytics.forecasting.backtest import daily_metrics, run_backtest
-from power_market_analytics.forecasting.plots import error_heatmaps
+from power_market_analytics.forecasting.importance import DEFAULT_N_REPEATS, DEFAULT_SEED
+from power_market_analytics.forecasting.plots import error_heatmaps, permutation_importance_plot
 from power_market_analytics.forecasting.publish import (
     build_contribution_records,
     build_forecast_records,
+    build_importance_records,
     publish_contribution_records,
     publish_forecast_records,
+    publish_importance_records,
 )
 from power_market_analytics.tasks.spot_price import MLFLOW_EXPERIMENT, TASK
 from power_market_analytics.tasks.spot_price.datasets import AREA_CODES, load_area_spot_prices
@@ -72,7 +77,15 @@ def main(argv: list[str] | None = None) -> None:
         default=500,
         help="Rows sampled for the SHAP plots in the MLflow evaluation.",
     )
+    parser.add_argument(
+        "--importance-repeats",
+        type=int,
+        default=DEFAULT_N_REPEATS,
+        help="Shuffles per feature for the permutation feature importance.",
+    )
     args = parser.parse_args(argv)
+    if args.importance_repeats < 1:
+        parser.error(f"--importance-repeats must be >= 1, got {args.importance_repeats}")
 
     with task_run(
         MLFLOW_EXPERIMENT,
@@ -137,6 +150,37 @@ def main(argv: list[str] | None = None) -> None:
             )
             publish_contribution_records(TASK, contribution_records)
             mlflow.set_tag("contribution_table", TASK.contribution_table)
+        importance = strategy.permutation_importance(
+            run, n_repeats=args.importance_repeats, seed=DEFAULT_SEED
+        )
+        if importance is None:
+            logger.info(
+                "{}: strategy has no permutation importance; nothing to publish", args.strategy
+            )
+        else:
+            publish_importance_records(
+                TASK,
+                build_importance_records(
+                    TASK,
+                    importance,
+                    run_id=mlflow_run.info.run_id,
+                    strategy=args.strategy,
+                    area_code=args.area,
+                    published_at=records.df["published_at"].iloc[0],
+                ),
+            )
+            mlflow.set_tag("importance_table", TASK.importance_table)
+            mlflow.log_params(
+                {"permutation_repeats": args.importance_repeats, "permutation_seed": DEFAULT_SEED}
+            )
+            summary = importance.summary()
+            log_dataframe(summary.df, "permutation_importance.csv")
+            log_dataframe(importance.df, "permutation_importance_repeats.csv")
+            figure = permutation_importance_plot(
+                TASK, summary, title=f"Permutation importance — {args.strategy}, {args.area}"
+            )
+            mlflow.log_figure(figure, "permutation_importance_plot.png")
+            plt.close(figure)
         for stem, frame in strategy.diagnostics(prices, run).items():
             log_dataframe(frame, f"{stem}.csv")
         heatmaps = error_heatmaps(
@@ -175,6 +219,8 @@ def main(argv: list[str] | None = None) -> None:
         logger.info(
             "Contributions written to {} (partition run_id={})", TASK.contribution_table, run_id
         )
+    if importance is not None:
+        logger.info("Importance written to {} (partition run_id={})", TASK.importance_table, run_id)
 
 
 if __name__ == "__main__":

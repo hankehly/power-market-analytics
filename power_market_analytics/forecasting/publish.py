@@ -5,9 +5,10 @@ artifacts); the warehouse holds the row-level forecasts so dbt can join them
 to actuals and dimensions and Superset can chart them. ``run_id`` is the link
 between the two systems.
 
-Each task has two destination tables — the forecasts (``TaskSpec.forecast_table``)
+Each task has three destination tables — the forecasts (``TaskSpec.forecast_table``)
 and, for strategies that explain themselves, their per-component contributions
-(``TaskSpec.contribution_table``) — both partitioned by ``run_id`` and written
+(``TaskSpec.contribution_table``) and their permutation feature importance
+(``TaskSpec.importance_table``) — all partitioned by ``run_id`` and written
 with dynamic partition overwrite, so republishing a run replaces exactly that
 run's rows.
 """
@@ -24,7 +25,9 @@ from power_market_analytics.forecasting.frames import (
     BacktestResult,
     ForecastContributionRecords,
     ForecastContributions,
+    ForecastImportanceRecords,
     ForecastRecords,
+    PermutationImportance,
 )
 from power_market_analytics.forecasting.task import TaskSpec
 from power_market_analytics.spark import get_spark_session
@@ -291,6 +294,102 @@ def publish_contribution_records(
     _overwrite_run_partitions(spark, table, sdf)
     logger.info(
         "Published {} contribution rows to {} (run_id={})",
+        len(records),
+        table,
+        records.df["run_id"].iloc[0],
+    )
+    return len(records)
+
+
+def build_importance_records(
+    task: TaskSpec,
+    importance: PermutationImportance,
+    *,
+    run_id: str,
+    strategy: str,
+    area_code: str,
+    published_at: pd.Timestamp,
+) -> ForecastImportanceRecords:
+    """Shape a strategy's permutation importance into warehouse write-back records.
+
+    Parameters
+    ----------
+    task : TaskSpec
+        Task the importance belongs to (unused beyond typing; the publisher
+        reads the column names off it).
+    importance : PermutationImportance
+        ``strategy.permutation_importance(run, …)``.
+    run_id, strategy, area_code : str
+        As for :func:`build_forecast_records`.
+    published_at : pandas.Timestamp
+        The instant stamped on the run's forecast records (naive JST).
+
+    Returns
+    -------
+    ForecastImportanceRecords
+    """
+    df = importance.df.assign(
+        run_id=run_id,
+        strategy=strategy,
+        area_code=area_code,
+        published_at=pd.Timestamp(published_at),
+    ).astype({"published_at": "datetime64[ns]"})
+    return ForecastImportanceRecords.from_df(df)
+
+
+def publish_importance_records(
+    task: TaskSpec, records: ForecastImportanceRecords, spark: SparkSession | None = None
+) -> int:
+    """Idempotently write one run's permutation importance to ``task.importance_table``.
+
+    Same mechanics as :func:`publish_forecast_records`; the generic ``mae`` /
+    ``permuted_mae`` columns are written as the task's unit-suffixed
+    ``mae_col`` / ``permuted_mae_col``.
+
+    Parameters
+    ----------
+    task : TaskSpec
+    records : ForecastImportanceRecords
+        Validated records for a single run.
+    spark : pyspark.sql.SparkSession, optional
+        Existing session; defaults to
+        :func:`power_market_analytics.spark.get_spark_session`.
+
+    Returns
+    -------
+    int
+        Number of rows written.
+    """
+    spark = spark if spark is not None else get_spark_session()
+    table = task.importance_table
+    _create_run_partitioned_table(
+        spark,
+        table,
+        f"""strategy string,
+          area_code string,
+          feature string,
+          feature_order int,
+          repeat_index int,
+          n_periods int,
+          {task.mae_col} double,
+          {task.permuted_mae_col} double,
+          published_at timestamp""",
+    )
+    sdf = spark.createDataFrame(records.df).select(
+        F.col("strategy").cast("string"),
+        F.col("area_code").cast("string"),
+        F.col("feature").cast("string"),
+        F.col("feature_order").cast("int"),
+        F.col("repeat_index").cast("int"),
+        F.col("n_periods").cast("int"),
+        F.col("mae").cast("double").alias(task.mae_col),
+        F.col("permuted_mae").cast("double").alias(task.permuted_mae_col),
+        F.col("published_at").cast("timestamp"),
+        F.col("run_id").cast("string"),
+    )
+    _overwrite_run_partitions(spark, table, sdf)
+    logger.info(
+        "Published {} importance rows to {} (run_id={})",
         len(records),
         table,
         records.df["run_id"].iloc[0],

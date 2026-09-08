@@ -17,12 +17,16 @@ from power_market_analytics.forecasting.frames import (
     BASE_COMPONENT,
     ForecastContributionRecords,
     ForecastContributions,
+    ForecastImportanceRecords,
+    PermutationImportance,
 )
 from power_market_analytics.forecasting.publish import (
     build_contribution_records,
     build_forecast_records,
+    build_importance_records,
     publish_contribution_records,
     publish_forecast_records,
+    publish_importance_records,
 )
 from power_market_analytics.tasks.spot_price import TASK
 from power_market_analytics.tasks.spot_price.frames import (
@@ -421,3 +425,142 @@ class TestPublishContributionRecords:
         assert published_contribution_rows(spark, "contrib-default-session")[
             "time_code"
         ].tolist() == [7, 7]
+
+
+IMPORTANCE_TABLE = TASK.importance_table  # pma_ml.spot_price_forecast_importance
+
+
+def make_importance(n_repeats: int = 2, mae: float = 10.0) -> PermutationImportance:
+    """Two features; the lag hurts ten times more than the time code per repeat."""
+    rows = [
+        {
+            "feature": feature,
+            "feature_order": order,
+            "repeat_index": repeat,
+            "n_periods": 96,
+            "mae": mae,
+            "permuted_mae": mae + step * (repeat + 1),
+        }
+        for order, (feature, step) in enumerate(
+            [("time_code", 0.1), ("lag_1d_price", 1.0)], start=1
+        )
+        for repeat in range(n_repeats)
+    ]
+    return PermutationImportance.from_df(
+        pd.DataFrame(rows).astype(
+            {"feature_order": "int64", "repeat_index": "int64", "n_periods": "int64"}
+        )
+    )
+
+
+class TestBuildImportanceRecords:
+    def test_stamps_the_run(self):
+        records = build_importance_records(
+            TASK,
+            make_importance(),
+            run_id="run-123",
+            strategy="lightgbm",
+            area_code="tokyo",
+            published_at=PUBLISHED_AT,
+        )
+        assert isinstance(records, ForecastImportanceRecords)
+        assert list(records.df.columns) == list(ForecastImportanceRecords.schema)
+        assert len(records) == 4
+        assert records.df["run_id"].eq("run-123").all()
+        assert records.df["strategy"].eq("lightgbm").all()
+        assert records.df["area_code"].eq("tokyo").all()
+        assert records.df["published_at"].eq(PUBLISHED_AT).all()
+        assert records.df["published_at"].dtype == "datetime64[ns]"
+        assert records.df["permuted_mae"].tolist() == [10.1, 10.2, 11.0, 12.0]
+
+
+def published_importance_rows(spark, run_id: str) -> pd.DataFrame:
+    return (
+        spark.sql(
+            f"""
+            select
+              strategy, area_code, feature, feature_order, repeat_index, n_periods,
+              mae_price_jpy_kwh, permuted_mae_price_jpy_kwh,
+              date_format(published_at, 'yyyy-MM-dd HH:mm:ss') as published_at,
+              run_id
+            from {IMPORTANCE_TABLE}
+            where run_id = '{run_id}'
+            order by feature_order, repeat_index
+            """
+        )
+        .toPandas()
+        .reset_index(drop=True)
+    )
+
+
+def importance_records(*, run_id, n_repeats=2, mae=10.0, strategy="lightgbm"):
+    return build_importance_records(
+        TASK,
+        make_importance(n_repeats=n_repeats, mae=mae),
+        run_id=run_id,
+        strategy=strategy,
+        area_code="tokyo",
+        published_at=PUBLISHED_AT,
+    )
+
+
+class TestPublishImportanceRecords:
+    def test_creates_the_partitioned_table_and_writes_the_rows(self, spark):
+        records = importance_records(run_id="imp-create")
+
+        assert publish_importance_records(TASK, records, spark=spark) == 4
+
+        assert spark.catalog.tableExists(IMPORTANCE_TABLE)
+        columns = {c.name: c for c in spark.catalog.listColumns(IMPORTANCE_TABLE)}
+        assert {name: c.dataType for name, c in columns.items()} == {
+            "strategy": "string",
+            "area_code": "string",
+            "feature": "string",
+            "feature_order": "int",
+            "repeat_index": "int",
+            "n_periods": "int",
+            "mae_price_jpy_kwh": "double",
+            "permuted_mae_price_jpy_kwh": "double",
+            "published_at": "timestamp",
+            "run_id": "string",
+        }
+        assert [name for name, c in columns.items() if c.isPartition] == ["run_id"]
+        rows = published_importance_rows(spark, "imp-create")
+        assert rows[["feature", "feature_order", "repeat_index", "n_periods"]].values.tolist() == [
+            ["time_code", 1, 0, 96],
+            ["time_code", 1, 1, 96],
+            ["lag_1d_price", 2, 0, 96],
+            ["lag_1d_price", 2, 1, 96],
+        ]
+        assert rows["mae_price_jpy_kwh"].tolist() == [10.0] * 4
+        assert rows["permuted_mae_price_jpy_kwh"].tolist() == [10.1, 10.2, 11.0, 12.0]
+        assert rows["published_at"].eq("2026-08-26 10:00:00").all()
+        assert rows["strategy"].eq("lightgbm").all()
+        assert rows["area_code"].eq("tokyo").all()
+
+    def test_republishing_a_run_replaces_only_that_runs_partition(self, spark):
+        keep = importance_records(run_id="imp-keep", mae=20.0)
+        first = importance_records(run_id="imp-replace", n_repeats=3)
+        publish_importance_records(TASK, keep, spark=spark)
+        assert publish_importance_records(TASK, first, spark=spark) == 6
+
+        second = importance_records(run_id="imp-replace", n_repeats=1, mae=30.0)
+        assert publish_importance_records(TASK, second, spark=spark) == 2
+
+        replaced = published_importance_rows(spark, "imp-replace")
+        assert replaced[
+            ["feature", "repeat_index", "permuted_mae_price_jpy_kwh"]
+        ].values.tolist() == [
+            ["time_code", 0, 30.1],
+            ["lag_1d_price", 0, 31.0],
+        ]
+        kept = published_importance_rows(spark, "imp-keep")
+        assert kept["mae_price_jpy_kwh"].tolist() == [20.0] * 4
+
+    def test_defaults_to_the_active_spark_session(self, spark):
+        records = importance_records(run_id="imp-default-session", n_repeats=1)
+        assert publish_importance_records(TASK, records) == 2
+        assert published_importance_rows(spark, "imp-default-session")["feature"].tolist() == [
+            "time_code",
+            "lag_1d_price",
+        ]
