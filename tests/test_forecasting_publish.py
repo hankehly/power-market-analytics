@@ -82,10 +82,10 @@ class TestBuildForecastRecords:
         assert records.df["run_id"].eq("run-123").all()
         assert records.df["strategy"].eq("previous_day").all()
         assert records.df["area_code"].eq("tokyo").all()
-        # Issued at 9:55 JST on D-1.
+        # Issued at 9:30 JST on D-1.
         issued = records.df.set_index(["trade_date", "time_code"])["forecast_issued_ts"]
-        assert issued.loc[(pd.Timestamp("2024-04-10"), 1)] == pd.Timestamp("2024-04-09 09:55")
-        assert issued.loc[(pd.Timestamp("2024-04-11"), 48)] == pd.Timestamp("2024-04-10 09:55")
+        assert issued.loc[(pd.Timestamp("2024-04-10"), 1)] == pd.Timestamp("2024-04-09 09:30")
+        assert issued.loc[(pd.Timestamp("2024-04-11"), 48)] == pd.Timestamp("2024-04-10 09:30")
         assert records.df["forecast_issued_ts"].dtype == "datetime64[ns]"
         # Forecast values pass through untouched.
         assert records.df["forecast_price_jpy_kwh"].tolist() == [
@@ -111,7 +111,7 @@ class TestBuildForecastRecords:
         assert before <= published_at.iloc[0] <= after
 
     def test_issue_time_comes_from_the_task_spec(self):
-        # A task issuing at 09:30 two days ahead stamps that instead of spot's 09:55.
+        # A task issuing two days ahead stamps its own offset, not spot's one-day one.
         other = dataclasses.replace(TASK, issue_offset=pd.Timedelta(days=-2, hours=9, minutes=30))
         records = build_forecast_records(
             other, make_result(["2024-04-10"], [1]), run_id="r", strategy="s", area_code="tokyo"
@@ -168,10 +168,10 @@ class TestPublishForecastRecords:
 
         rows = published_rows(spark, "pub-create")
         assert rows[["trade_date", "time_code", "forecast_issued_ts"]].values.tolist() == [
-            ["2024-04-10", 1, "2024-04-09 09:55"],
-            ["2024-04-10", 2, "2024-04-09 09:55"],
-            ["2024-04-11", 1, "2024-04-10 09:55"],
-            ["2024-04-11", 2, "2024-04-10 09:55"],
+            ["2024-04-10", 1, "2024-04-09 09:30"],
+            ["2024-04-10", 2, "2024-04-09 09:30"],
+            ["2024-04-11", 1, "2024-04-10 09:30"],
+            ["2024-04-11", 2, "2024-04-10 09:30"],
         ]
         assert rows["forecast_price_jpy_kwh"].tolist() == [10.1, 10.2, 10.1, 10.2]
         assert rows["strategy"].eq("lightgbm").all()
@@ -296,7 +296,7 @@ class TestBuildContributionRecords:
         assert records.df["run_id"].eq("run-123").all()
         assert records.df["strategy"].eq("lightgbm").all()
         assert records.df["area_code"].eq("tokyo").all()
-        assert records.df["forecast_issued_ts"].eq(pd.Timestamp("2024-04-09 09:55")).all()
+        assert records.df["forecast_issued_ts"].eq(pd.Timestamp("2024-04-09 09:30")).all()
         assert records.df["published_at"].eq(PUBLISHED_AT).all()
         assert records.df["published_at"].dtype == "datetime64[ns]"
         sums = records.df.groupby("time_code")["contribution"].sum()
@@ -395,7 +395,7 @@ class TestPublishContributionRecords:
             "where run_id = 'contrib-create' and feature_value is null"
         ).collect()[0]["n"]
         assert n_null == 2
-        assert rows["forecast_issued_ts"].eq("2024-04-09 09:55").all()
+        assert rows["forecast_issued_ts"].eq("2024-04-09 09:30").all()
         assert rows["published_at"].eq("2026-08-26 10:00:00").all()
         assert rows["strategy"].eq("lightgbm").all()
         assert rows["area_code"].eq("tokyo").all()

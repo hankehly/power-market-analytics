@@ -13,7 +13,7 @@ statuses: [research README](research/README.md).
 **Forecast target.** The JEPX spot area price (JPY/kWh) for each of the 48
 delivery periods of day D in one area (`dim_area.area_code`; `--area`).
 
-**Information cutoff.** D-1 at 09:55 JST, just before the 10:00 gate closure
+**Information cutoff.** D-1 at 09:30 JST, before the 10:00 gate closure
 (`TaskSpec.issue_offset`). Usable price history is delivery days ≤ D-1
 (`history_lead_days = 1`).
 

@@ -30,7 +30,7 @@ class OcctoDemandForecast(DomainFrame):
     demand, its hour, and the peak supply capacity. The min-demand fields
     (meaning changed 2025-04-01) and the derived rates are deliberately not
     part of this contract. The forecast for delivery day D is published on
-    D-2 at ~17:45 JST, so it is available at the task's D-1 09:55 cutoff and
+    D-2 at ~17:45 JST, so it is available at the task's D-1 09:30 cutoff and
     may be joined to D's feature rows without leakage.
 
     Grain: (trade_date), the forecast target date.

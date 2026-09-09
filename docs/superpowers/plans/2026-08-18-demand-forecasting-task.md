@@ -693,7 +693,7 @@ class TaskSpec:
         lies: 1 when D-1 is fully known at issue time, 2 when only D-2 is.
     issue_offset : pandas.Timedelta
         Issue time relative to D 00:00, e.g. ``Timedelta(days=-1, hours=9,
-        minutes=55)`` for 09:55 on D-1.
+        minutes=30)`` for 09:30 on D-1.
     forecast_table : str
         Warehouse table the run's forecasts are published to.
     history_cls, forecast_cls, result_cls, records_cls : type
@@ -785,7 +785,7 @@ EOF
 
 **Interfaces:**
 - Consumes: Task 1 bases, Task 2 `TaskSpec`.
-- Produces: `SpotPrices(HalfHourlySeries)` (`value_col="price_jpy_kwh"`), `SpotPriceForecast(DayAheadForecast)` (`forecast_col="forecast_price_jpy_kwh"`), `SpotPriceBacktestResult(BacktestResult)` (`actual_col="actual_price_jpy_kwh"`), `SpotPriceForecastRecords(ForecastRecords)`; `OcctoDemandForecast` unchanged; **temporary aliases** `DayAheadForecast = SpotPriceForecast`, `BacktestResult = SpotPriceBacktestResult`, `ForecastRecords = SpotPriceForecastRecords`, `N_PERIODS`, `MetricByYearTimeCode` re-exported (all removed in Task 9); `tasks.spot_price.TASK: TaskSpec` (name `spot_price`, unit `JPY/kWh`, lead 1, offset `Timedelta(days=-1, hours=9, minutes=55)`, table `pma_ml.spot_price_forecast`) and `MLFLOW_EXPERIMENT = TASK.name`.
+- Produces: `SpotPrices(HalfHourlySeries)` (`value_col="price_jpy_kwh"`), `SpotPriceForecast(DayAheadForecast)` (`forecast_col="forecast_price_jpy_kwh"`), `SpotPriceBacktestResult(BacktestResult)` (`actual_col="actual_price_jpy_kwh"`), `SpotPriceForecastRecords(ForecastRecords)`; `OcctoDemandForecast` unchanged; **temporary aliases** `DayAheadForecast = SpotPriceForecast`, `BacktestResult = SpotPriceBacktestResult`, `ForecastRecords = SpotPriceForecastRecords`, `N_PERIODS`, `MetricByYearTimeCode` re-exported (all removed in Task 9); `tasks.spot_price.TASK: TaskSpec` (name `spot_price`, unit `JPY/kWh`, lead 1, offset `Timedelta(days=-1, hours=9, minutes=30)`, table `pma_ml.spot_price_forecast`) and `MLFLOW_EXPERIMENT = TASK.name`.
 
 - [ ] **Step 1: Write the failing test for `TASK`**
 
@@ -814,7 +814,7 @@ class TestSpotPriceTask:
         assert MLFLOW_EXPERIMENT == "spot_price"
         assert TASK.unit == "JPY/kWh"
         assert TASK.history_lead_days == 1
-        assert TASK.issue_offset == pd.Timedelta(days=-1, hours=9, minutes=55)
+        assert TASK.issue_offset == pd.Timedelta(days=-1, hours=9, minutes=30)
         assert TASK.forecast_table == "pma_ml.spot_price_forecast"
         assert TASK.history_cls is SpotPrices
         assert TASK.forecast_cls is SpotPriceForecast
@@ -885,7 +885,7 @@ class OcctoDemandForecast(DomainFrame):
     demand, its hour, and the peak supply capacity. The min-demand fields
     (meaning changed 2025-04-01) and the derived rates are deliberately not
     part of this contract. The forecast for delivery day D is published on
-    D-2 at ~17:45 JST, so it is available at the task's D-1 09:55 cutoff and
+    D-2 at ~17:45 JST, so it is available at the task's D-1 09:30 cutoff and
     may be joined to D's feature rows without leakage.
 
     Grain: (trade_date), the forecast target date.
@@ -949,7 +949,7 @@ ForecastRecords = SpotPriceForecastRecords
 ```python
 """Day-ahead JEPX spot price forecasting.
 
-Task definition: at 9:55 JST on day D-1 (just before the 10:00 gate closure
+Task definition: at 9:30 JST on day D-1 (before the 10:00 gate closure
 of the day-ahead auction), forecast all 48 half-hour prices for delivery day
 D in a given area. At that moment the newest published spot results are for
 delivery day D-1 (published ~noon on D-2), so a strategy's usable history is
@@ -970,8 +970,8 @@ TASK = TaskSpec(
     name="spot_price",
     unit="JPY/kWh",
     history_lead_days=1,
-    # Forecasts for delivery day D are issued at 9:55 JST on D-1.
-    issue_offset=pd.Timedelta(days=-1, hours=9, minutes=55),
+    # Forecasts for delivery day D are issued at 9:30 JST on D-1.
+    issue_offset=pd.Timedelta(days=-1, hours=9, minutes=30),
     forecast_table="pma_ml.spot_price_forecast",
     history_cls=SpotPrices,
     forecast_cls=SpotPriceForecast,
@@ -2478,7 +2478,7 @@ FORECAST_COL = TASK.forecast_col
 class LightGbmEvalSet(LightGbmEvalSetBase):
     """Design matrix for evaluating :class:`LightGbmStrategy` with MLflow.
 
-    One row per forecast point, holding the features knowable at 9:55 JST on
+    One row per forecast point, holding the features knowable at 9:30 JST on
     D-1, the realized price, and the walk-forward forecast the backtest
     produced for that point. Unlike the naive eval set, ``time_code`` is a
     model feature here as well as a grain column.
@@ -2581,7 +2581,7 @@ class LightGbmOcctoStrategy(LightGbmStrategy):
 
     Experiment E-001 of docs/research/R-001-supply-demand-tightness.md: the
     OCCTO forecast for delivery day D (published D-2 ~17:45 JST, before the
-    D-1 09:55 cutoff) is joined to D's 48 rows, adding
+    D-1 09:30 cutoff) is joined to D's 48 rows, adding
     ``max_demand_hour_ending``, ``max_demand_mw`` and
     ``max_supply_capacity_mw`` to the feature set. Model parameters, refit
     cadence and the base features are unchanged.
@@ -2767,7 +2767,7 @@ Edit `tests/test_forecasting_publish.py`:
 - add one test to `TestBuildForecastRecords`:
   ```python
     def test_issue_time_comes_from_the_task_spec(self):
-        # A task issuing at 09:30 two days ahead stamps that instead of spot's 09:55.
+        # A task issuing two days ahead stamps its own offset, not spot's one-day one.
         other = dataclasses.replace(
             TASK, issue_offset=pd.Timedelta(days=-2, hours=9, minutes=30)
         )

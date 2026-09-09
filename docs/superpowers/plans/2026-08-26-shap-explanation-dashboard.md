@@ -666,7 +666,7 @@ class TestBuildContributionRecords:
         assert records.df["run_id"].eq("run-123").all()
         assert records.df["strategy"].eq("lightgbm").all()
         assert records.df["area_code"].eq("tokyo").all()
-        assert records.df["forecast_issued_ts"].eq(pd.Timestamp("2024-04-09 09:55")).all()
+        assert records.df["forecast_issued_ts"].eq(pd.Timestamp("2024-04-09 09:30")).all()
         assert records.df["published_at"].eq(PUBLISHED_AT).all()
         assert records.df["published_at"].dtype == "datetime64[ns]"
         sums = records.df.groupby("time_code")["contribution"].sum()
@@ -758,7 +758,7 @@ class TestPublishContributionRecords:
             "where run_id = 'contrib-create' and feature_value is null"
         ).collect()[0]["n"]
         assert n_null == 2
-        assert rows["forecast_issued_ts"].eq("2024-04-09 09:55").all()
+        assert rows["forecast_issued_ts"].eq("2024-04-09 09:30").all()
         assert rows["published_at"].eq("2026-08-26 10:00:00").all()
         assert rows["strategy"].eq("lightgbm").all()
         assert rows["area_code"].eq("tokyo").all()
@@ -1781,7 +1781,7 @@ Append to the `tables:` list of `dbt/models/raw/ml.yml`:
             data_tests:
               - not_null
           - name: forecast_issued_ts
-            description: When the forecast was made (9:55 JST on D-1), as on spot_price_forecast.
+            description: When the forecast was made (9:30 JST on D-1), as on spot_price_forecast.
             data_tests:
               - not_null
           - name: trade_date
