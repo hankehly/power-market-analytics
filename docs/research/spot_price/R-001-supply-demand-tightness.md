@@ -19,14 +19,14 @@ predefined day parts. See
 
 ## Current predictive hypothesis
 
-Adding supply and demand information available by the D-1 09:55 JST cutoff
+Adding supply and demand information available by the D-1 09:30 JST cutoff
 will reduce the LightGBM model's out-of-sample MAE, both overall and during
 daytime periods.
 
 ## Scope and constraints
 
 - **Forecast target:** Tokyo-area JEPX spot price for each of the 48 delivery periods
-- **Information cutoff:** D-1 at 09:55 JST
+- **Information cutoff:** D-1 at 09:30 JST
 - **Baseline:** Current LightGBM strategy without OCCTO demand or supply features
 - **Primary metric:** MAE
 - **Important segments:** Daytime periods, periods near the forecast maximum-demand hour,

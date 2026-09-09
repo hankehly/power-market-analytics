@@ -38,7 +38,7 @@ class TaskSpec:
         lies: 1 when D-1 is fully known at issue time, 2 when only D-2 is.
     issue_offset : pandas.Timedelta
         Issue time relative to D 00:00, e.g. ``Timedelta(days=-1, hours=9,
-        minutes=55)`` for 09:55 on D-1.
+        minutes=30)`` for 09:30 on D-1.
     forecast_table : str
         Warehouse table the run's forecasts are published to.
     history_cls, forecast_cls, result_cls, records_cls : type

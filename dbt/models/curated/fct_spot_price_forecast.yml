@@ -14,7 +14,7 @@ models:
       (date_key, time_code, area_key), or use fct_spot_price_forecast_accuracy
       which materializes that join. forecast_price_jpy_kwh is NON-ADDITIVE:
       average, never sum. horizon_hours is the lead time from
-      forecast_issued_ts (9:55 JST on the day before delivery) to the start
+      forecast_issued_ts (9:30 JST on the day before delivery) to the start
       of the delivery period, ~14-38 h for day-ahead forecasts.
     data_tests:
       - dbt_utils.unique_combination_of_columns:

@@ -21,7 +21,7 @@ class TestSpotPriceTask:
         assert MLFLOW_EXPERIMENT == "spot_price"
         assert TASK.unit == "JPY/kWh"
         assert TASK.history_lead_days == 1
-        assert TASK.issue_offset == pd.Timedelta(days=-1, hours=9, minutes=55)
+        assert TASK.issue_offset == pd.Timedelta(days=-1, hours=9, minutes=30)
         assert TASK.forecast_table == "pma_ml.spot_price_forecast"
         assert TASK.history_cls is SpotPrices
         assert TASK.forecast_cls is SpotPriceForecast
