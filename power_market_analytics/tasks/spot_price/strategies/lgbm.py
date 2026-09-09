@@ -27,7 +27,7 @@ FORECAST_COL = TASK.forecast_col
 class LightGbmEvalSet(LightGbmEvalSetBase):
     """Design matrix for evaluating :class:`LightGbmStrategy` with MLflow.
 
-    One row per forecast point, holding the features knowable at 9:55 JST on
+    One row per forecast point, holding the features knowable at 9:30 JST on
     D-1, the realized price, and the walk-forward forecast the backtest
     produced for that point. Unlike the naive eval set, ``time_code`` is a
     model feature here as well as a grain column.
@@ -130,7 +130,7 @@ class LightGbmOcctoStrategy(LightGbmStrategy):
 
     Experiment E-001 of docs/research/spot_price/R-001-supply-demand-tightness.md: the
     OCCTO forecast for delivery day D (published D-2 ~17:45 JST, before the
-    D-1 09:55 cutoff) is joined to D's 48 rows, adding
+    D-1 09:30 cutoff) is joined to D's 48 rows, adding
     ``max_demand_hour_ending``, ``max_demand_mw`` and
     ``max_supply_capacity_mw`` to the feature set. Model parameters, refit
     cadence and the base features are unchanged.

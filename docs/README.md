@@ -455,7 +455,7 @@ Notes:
 ## Forecast analysis
 
 `scripts/spot_price_backtest.py` backtests a forecasting strategy (day-ahead:
-at 9:55 JST on D-1, forecast all 48 half-hour prices for delivery day D) and
+at 9:30 JST on D-1, forecast all 48 half-hour prices for delivery day D) and
 records the results in two places, linked by the MLflow `run_id`:
 
 - **MLflow** (`just open mlflow`, experiment `spot_price`) — params, metrics,

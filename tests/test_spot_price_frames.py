@@ -186,7 +186,7 @@ class TestSpotPriceBacktestResult:
 
 
 # --------------------------------------------------------------------------- SpotPriceForecastRecords
-TS = pd.Timestamp("2024-01-01 09:55:00")
+TS = pd.Timestamp("2024-01-01 09:30:00")
 
 
 def records_df() -> pd.DataFrame:
