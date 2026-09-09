@@ -244,10 +244,10 @@ class TestBacktestScript:
         assert published["trade_date"].max() == pd.Timestamp("2024-05-03").date()
         first = published.iloc[0]
         # 2024-05-01 tc 1 forecast = 2024-04-30 tc 1 price: day_index 60, weekday, shape
-        # 12.0, wobble (420 + 13) % 11 = 4 -> 12.4; issued at 09:55 JST the day before.
+        # 12.0, wobble (420 + 13) % 11 = 4 -> 12.4; issued at 09:30 JST the day before.
         assert first["time_code"] == 1
         assert first["forecast_price_jpy_kwh"] == 12.4
-        assert first["forecast_issued_ts"] == pd.Timestamp("2024-04-30 09:55")
+        assert first["forecast_issued_ts"] == pd.Timestamp("2024-04-30 09:30")
 
     def test_lightgbm_publishes_its_permutation_importance(self, spark, curated_warehouse):
         script = import_script("spot_price_backtest")

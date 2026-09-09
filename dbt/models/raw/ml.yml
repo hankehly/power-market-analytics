@@ -33,7 +33,7 @@ sources:
               - not_null
           - name: forecast_issued_ts
             description: >
-              When the forecast was made: 9:55 JST on the day before
+              When the forecast was made: 9:30 JST on the day before
               delivery, per the task definition (naive JST, like all
               warehouse timestamps).
             data_tests:
@@ -190,7 +190,7 @@ sources:
             data_tests:
               - not_null
           - name: forecast_issued_ts
-            description: When the forecast was made (9:55 JST on D-1), as on spot_price_forecast.
+            description: When the forecast was made (9:30 JST on D-1), as on spot_price_forecast.
             data_tests:
               - not_null
           - name: trade_date

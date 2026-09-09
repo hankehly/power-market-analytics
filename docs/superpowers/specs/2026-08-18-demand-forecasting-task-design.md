@@ -64,7 +64,7 @@ Frozen dataclass:
 | `name` (MLflow experiment) | `spot_price` | `demand` |
 | `unit` | `JPY/kWh` | `kWh` |
 | `history_lead_days` | 1 | 2 |
-| `issue_offset` (from D 00:00) | −1 day + 09:55 | −1 day + 09:30 |
+| `issue_offset` (from D 00:00) | −1 day + 09:30 | −1 day + 09:30 |
 | `forecast_table` | `pma_ml.spot_price_forecast` | `pma_ml.demand_forecast` |
 | `history_cls / forecast_cls / result_cls / records_cls` | spot frames | demand frames |
 
@@ -171,7 +171,7 @@ title)` (MAE panel labelled with `task.unit`); palette constants move with it.
 
 ### 5.1 `spot_price` after the refactor (behaviour-preserving)
 
-- `__init__.py`: `TASK` (lead 1, 09:55, `pma_ml.spot_price_forecast`, spot
+- `__init__.py`: `TASK` (lead 1, 09:30, `pma_ml.spot_price_forecast`, spot
   frames); `MLFLOW_EXPERIMENT = TASK.name`.
 - `frames.py`: `SpotPrices(HalfHourlySeries)` `value_col="price_jpy_kwh"`;
   `SpotPriceForecast(DayAheadForecast)` `forecast_col="forecast_price_jpy_kwh"`;

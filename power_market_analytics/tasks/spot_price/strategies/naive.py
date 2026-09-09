@@ -29,7 +29,7 @@ TARGET_COL = TASK.actual_col
 class PreviousDayEvalSet(DomainFrame):
     """Design matrix for evaluating :class:`PreviousDayStrategy` with MLflow.
 
-    One row per forecast point, holding the features knowable at 9:55 JST on
+    One row per forecast point, holding the features knowable at 9:30 JST on
     D-1 alongside the realized price. ``lag_1d_price`` is by construction the
     value :meth:`PreviousDayStrategy.predict` returns, so MLflow's
     ``mean_absolute_error`` over this frame matches the backtest MAE.
