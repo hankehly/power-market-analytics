@@ -104,6 +104,13 @@ class LightGbmMsmPopWeightedDayTypeSimilarDayStrategy(PresetLightGbmStrategy):
         The strategy label when it differs from ``strategy_name``.
     **kwargs
         Forwarded to :class:`PresetLightGbmStrategy`.
+
+    Raises
+    ------
+    ValueError
+        If the preset carries a column this strategy adds itself (the
+        similar day's load or one of ``calendar_feature_cols``), which would
+        appear twice in the design matrix.
     """
 
     #: The registry name; the run's label unless ``name`` is given.
@@ -141,6 +148,12 @@ class LightGbmMsmPopWeightedDayTypeSimilarDayStrategy(PresetLightGbmStrategy):
             SIMILAR_DAY_FEATURE: "float64",
             **{col: DAY_CALENDAR_FEATURE_DTYPES[col] for col in self.calendar_feature_cols},
         }
+        duplicated = [col for col in preset.columns if col in extra]
+        if duplicated:
+            raise ValueError(
+                f"{self.name}: {duplicated} are this strategy's own features; "
+                "drop them from the preset"
+            )
         self.feature_cols = (*preset.feature_cols, *extra)
         self.eval_set_cls = preset_eval_set_cls(TASK, preset, dtypes, extra_dtypes=extra)
         self.census_year = census_year

@@ -270,6 +270,38 @@ class TestInit:
             assert schema[col] == DAY_CALENDAR_FEATURE_DTYPES[col]
         assert set(cls.calendar_feature_cols) <= set(strategy.eval_set_cls.non_null_cols)
 
+    @pytest.mark.parametrize(
+        ("cls", "ref"),
+        [
+            (LightGbmMsmPopWeightedDayTypeSimilarDayCalendarStrategy, "ftr_day_calendar:half"),
+            (
+                LightGbmMsmPopWeightedDayTypeSimilarDayHolidayDegreeStrategy,
+                "ftr_day_calendar:holiday_degree",
+            ),
+        ],
+        ids=["calendar+half", "holidaydegree+holiday_degree"],
+    )
+    def test_a_preset_column_the_strategy_adds_itself_is_rejected(self, sim_inputs, cls, ref):
+        # `--add` of a column the variant joins from the calendar would put it in
+        # the design matrix twice.
+        preset = PRESET.with_changes(add=(ref,), name="twice")
+        column = ref.partition(":")[2]
+        features = feature_frame(sim_inputs["features"].df.assign(**{column: 1.0}), preset.columns)
+        with pytest.raises(
+            ValueError, match=rf"{cls.strategy_name}: \['{column}'\] are this strategy's own"
+        ):
+            cls(
+                preset,
+                features,
+                sim_inputs["weather_forecast"],
+                sim_inputs["day_calendar"],
+                sim_inputs["weather_observed"],
+                sim_inputs["hourly_load"],
+                dtypes={**DTYPES, column: "int64"},
+                categorical=CATEGORICAL,
+                census_year=2020,
+            )
+
     def test_the_variants_cover_the_calendar_columns_as_documented(self):
         calendar, degree, distance, counts = CALENDAR_STRATEGIES
         assert calendar.calendar_feature_cols == DAY_CALENDAR_FEATURE_COLS

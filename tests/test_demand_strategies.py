@@ -269,6 +269,19 @@ class TestBuildSimilarDay:
         )
         assert strategy.categorical_feature_cols == ("day_type",)
 
+    def test_adding_a_calendar_column_a_variant_joins_itself_is_rejected(
+        self, spark, curated_warehouse, feature_marts
+    ):
+        with pytest.raises(ValueError, match=r"\['holiday_degree'\] are this strategy's own"):
+            build_strategy(
+                "lightgbm_msm_popw_daytype_simday_holidaydegree",
+                area_code="tokyo",
+                days=DAYS,
+                add=("ftr_day_calendar:holiday_degree",),
+                label="twice",
+                spark=spark,
+            )
+
     def test_a_similar_day_strategy_needs_its_days_too(self):
         with pytest.raises(ValueError, match="'lightgbm_msm_popw_daytype_simday' needs the days"):
             build_strategy("lightgbm_msm_popw_daytype_simday", area_code="tokyo")
