@@ -7,7 +7,8 @@ from pathlib import Path
 from typing import cast
 
 import yaml
-from feast import DataSource, Entity, FeatureStore, FeatureView
+from feast import Entity, FeatureStore, FeatureView
+from feast.data_source import DataSource
 from feast.feast_object import FeastObject
 from feast.feature_view import DUMMY_ENTITY_NAME
 from pyspark.sql import SparkSession
