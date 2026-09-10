@@ -19,6 +19,11 @@ python *args:
 dbt *args:
     @docker compose exec --workdir /workspace/dbt devcontainer dbt "$@"
 
+[doc("Serve the Feast UI (the feature catalogue: views, fields, entities, sources) on http://localhost:8888, host-side; refreshes the registry from the package first. Stop with Ctrl-C; `just open feast` opens it")]
+feast-ui:
+    uv run python -c "from power_market_analytics.features.store import open_store; open_store()"
+    uv run feast -c conf/feast ui --port 8888
+
 [doc("Regenerate power_market_analytics/features/views.py from the dbt manifest (host-side parse first)")]
 feature-views:
     cd dbt && DBT_THRIFT_HOST=localhost uv run dbt parse
@@ -32,19 +37,20 @@ shell:
 sql:
     @docker compose exec thriftserver /opt/spark/bin/beeline -u 'jdbc:hive2://localhost:10000/;auth=noSasl' -n admin
 
-[doc("Open a web UI in the browser: docsify | github (the repo) | mlflow | spark (thriftserver) | spark-dev (devcontainer session) | superset")]
+[doc("Open a web UI in the browser: docsify | feast (the feature catalogue, after `just feast-ui`) | github (the repo) | mlflow | spark (thriftserver) | spark-dev (devcontainer session) | superset")]
 open target:
     #!/usr/bin/env bash
     set -euo pipefail
     case "{{ target }}" in
         docsify)   url="http://localhost:3000" ;;
+        feast)     url="http://localhost:8888" ;;
         github)    url="https://github.com/hankehly/power-market-analytics" ;;
         mlflow)    url="http://localhost:5005" ;;
         spark)     url="http://localhost:4040" ;;
         spark-dev) url="http://localhost:4041" ;;
         superset)  url="http://localhost:8088" ;;
         *)
-            echo "Unknown target '{{ target }}'. Expected one of: docsify, github, mlflow, spark, spark-dev, superset" >&2
+            echo "Unknown target '{{ target }}'. Expected one of: docsify, feast, github, mlflow, spark, spark-dev, superset" >&2
             exit 1
             ;;
     esac
