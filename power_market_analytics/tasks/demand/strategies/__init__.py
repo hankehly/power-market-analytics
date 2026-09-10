@@ -1,88 +1,95 @@
-"""Forecast strategy registry for the demand task."""
+"""Forecast strategy registry for the demand task.
+
+A strategy name is a preset of ``tasks.demand.presets``, built as a
+:class:`~power_market_analytics.forecasting.preset_lgbm.PresetLightGbmStrategy`
+over the features Feast retrieves for the run's days, each row as of its own
+issue time; or one of the similar-day strategies, built the same way over the
+``lightgbm_msm_popw_daytype`` preset plus the inputs of their Python-built
+feature, until the similar day is a mart column of its own.
+"""
 
 from __future__ import annotations
+
+from collections.abc import Sequence
 
 import pandas as pd
 from pyspark.sql import SparkSession
 
+from power_market_analytics.features.frame import feature_frame
+from power_market_analytics.features.presets import categorical_columns, feature_dtypes
+from power_market_analytics.features.retrieval import entity_frame, historical_features
+from power_market_analytics.features.store import open_store
+from power_market_analytics.forecasting.preset_lgbm import PresetLightGbmStrategy
 from power_market_analytics.forecasting.strategy import ForecastStrategy
+from power_market_analytics.tasks.demand import TASK
 from power_market_analytics.tasks.demand.datasets import (
     load_area_hourly_load,
     load_area_observed_weather_population_weighted,
-    load_area_temperature,
-    load_area_temperature_forecast,
-    load_area_temperature_forecast_population_weighted,
     load_area_weather_forecast_population_weighted,
     load_day_calendar,
-    load_day_types,
 )
+from power_market_analytics.tasks.demand.presets import LIGHTGBM_MSM_POPW_DAYTYPE, PRESETS
 from power_market_analytics.tasks.demand.strategies.lgbm import (
     LightGbmMsmPopWeightedDayTypeSimilarDayCalendarCountStrategy,
     LightGbmMsmPopWeightedDayTypeSimilarDayCalendarStrategy,
     LightGbmMsmPopWeightedDayTypeSimilarDayHolidayDegreeStrategy,
     LightGbmMsmPopWeightedDayTypeSimilarDayHolidayDistanceStrategy,
     LightGbmMsmPopWeightedDayTypeSimilarDayStrategy,
-    LightGbmMsmPopWeightedDayTypeStrategy,
-    LightGbmMsmPopWeightedStrategy,
-    LightGbmMsmStrategy,
-    LightGbmStrategy,
 )
 
-# Typed to the concrete base because build_strategy instantiates entries with
-# LightGbmStrategy's constructor signature (temperature + train_start_date).
-STRATEGIES: dict[str, type[LightGbmStrategy]] = {
-    LightGbmStrategy.name: LightGbmStrategy,
-    LightGbmMsmStrategy.name: LightGbmMsmStrategy,
-    LightGbmMsmPopWeightedStrategy.name: LightGbmMsmPopWeightedStrategy,
-    LightGbmMsmPopWeightedDayTypeStrategy.name: LightGbmMsmPopWeightedDayTypeStrategy,
-    LightGbmMsmPopWeightedDayTypeSimilarDayStrategy.name: (
-        LightGbmMsmPopWeightedDayTypeSimilarDayStrategy
-    ),
-    LightGbmMsmPopWeightedDayTypeSimilarDayCalendarStrategy.name: (
-        LightGbmMsmPopWeightedDayTypeSimilarDayCalendarStrategy
-    ),
-    LightGbmMsmPopWeightedDayTypeSimilarDayCalendarCountStrategy.name: (
-        LightGbmMsmPopWeightedDayTypeSimilarDayCalendarCountStrategy
-    ),
-    LightGbmMsmPopWeightedDayTypeSimilarDayHolidayDegreeStrategy.name: (
-        LightGbmMsmPopWeightedDayTypeSimilarDayHolidayDegreeStrategy
-    ),
-    LightGbmMsmPopWeightedDayTypeSimilarDayHolidayDistanceStrategy.name: (
-        LightGbmMsmPopWeightedDayTypeSimilarDayHolidayDistanceStrategy
-    ),
+#: The similar-day strategies by name: the Tokyo baseline and its four calendar variants.
+SIMILAR_DAY_STRATEGIES: dict[str, type[LightGbmMsmPopWeightedDayTypeSimilarDayStrategy]] = {
+    cls.strategy_name: cls
+    for cls in (
+        LightGbmMsmPopWeightedDayTypeSimilarDayStrategy,
+        LightGbmMsmPopWeightedDayTypeSimilarDayCalendarStrategy,
+        LightGbmMsmPopWeightedDayTypeSimilarDayCalendarCountStrategy,
+        LightGbmMsmPopWeightedDayTypeSimilarDayHolidayDegreeStrategy,
+        LightGbmMsmPopWeightedDayTypeSimilarDayHolidayDistanceStrategy,
+    )
 }
+
+#: Every strategy name the backtest script accepts: the presets, then the similar-day ones.
+STRATEGIES: tuple[str, ...] = (*PRESETS, *SIMILAR_DAY_STRATEGIES)
 
 
 def build_strategy(
     name: str,
     *,
     area_code: str,
+    days: pd.DatetimeIndex | None = None,
     train_start_date: pd.Timestamp | None = None,
+    add: Sequence[str] = (),
+    drop: Sequence[str] = (),
+    label: str | None = None,
     spark: SparkSession | None = None,
 ) -> ForecastStrategy:
     """Instantiate a registered strategy with the inputs it needs.
 
-    Every registered strategy is a LightGBM model over the area's
-    temperature, so the temperature is loaded from the warehouse here and
-    ``train_start_date`` forwarded; strategies that also consume the MSM
-    forecast temperature get it loaded too — at the representative station,
-    or population-weighted over the area's stations with the latest census
-    vintage — the day-type strategy the ``dim_date`` calendar as well, and the
-    similar-day strategy (and its calendar-feature subclasses) the
-    population-weighted weather forecast and observations, the day calendar
-    and the hourly load. Callers only deal in registry names.
+    A preset's features are retrieved once here, for every delivery period
+    of ``days`` as of its issue time, so callers only deal in names. Which
+    features are categorical is read off the views. A similar-day strategy
+    retrieves the ``lightgbm_msm_popw_daytype`` preset (changed by ``add`` /
+    ``drop`` like any other) and loads its selector's inputs from the
+    warehouse.
 
     Parameters
     ----------
     name : str
-        Key in ``STRATEGIES``.
+        A preset name or a similar-day strategy name.
     area_code : str
-        dim_area.area_code value being forecast; selects the representative
-        station.
+        dim_area.area_code value being forecast.
+    days : pandas.DatetimeIndex, optional
+        The delivery days the strategy may train on or forecast; required.
     train_start_date : pandas.Timestamp, optional
         First delivery day eligible as a training row.
+    add, drop : sequence of str, optional
+        Feature references added to or dropped from the preset; need ``label``.
+    label : str, optional
+        The strategy label of the run when it differs from the preset's name;
+        required with ``add`` or ``drop``.
     spark : pyspark.sql.SparkSession, optional
-        Existing session to reuse for warehouse reads.
+        Existing session to reuse for the similar-day strategies' warehouse reads.
 
     Returns
     -------
@@ -93,43 +100,49 @@ def build_strategy(
     KeyError
         If ``name`` is not registered.
     ValueError
-        If the area has no temperature observations (or, for a strategy that
-        needs them, no temperature forecasts).
+        If ``add`` / ``drop`` come without ``label``, or ``days`` is missing;
+        for a similar-day strategy, also if the area has no weather forecasts
+        or observations.
     """
-    cls = STRATEGIES[name]
-    temperature = load_area_temperature(area_code, spark=spark)
-    if issubclass(cls, LightGbmMsmPopWeightedDayTypeSimilarDayStrategy):
-        weather = load_area_weather_forecast_population_weighted(area_code, spark=spark)
-        observed = load_area_observed_weather_population_weighted(
-            area_code, census_year=weather.census_year, spark=spark
-        )
-        return cls(
-            temperature,
-            weather.forecast,
-            load_day_calendar(spark=spark),
-            observed.weather,
-            load_area_hourly_load(area_code, spark=spark),
-            census_year=weather.census_year,
+    similar_day_cls = SIMILAR_DAY_STRATEGIES.get(name)
+    preset = PRESETS[name] if similar_day_cls is None else LIGHTGBM_MSM_POPW_DAYTYPE
+    if add or drop:
+        if not label:
+            raise ValueError(f"{name!r} with features added or dropped needs a label")
+        preset = preset.with_changes(add=add, drop=drop, name=label)
+    if days is None:
+        raise ValueError(f"{name!r} needs the days to retrieve its features for")
+    store = open_store()
+    retrieved = historical_features(
+        store, entity_frame(area_code, days, TASK.issue_offset), preset.features
+    )
+    frame = feature_frame(retrieved, preset.columns)
+    dtypes = feature_dtypes(preset)
+    categorical = categorical_columns(preset)
+    if similar_day_cls is None:
+        return PresetLightGbmStrategy(
+            TASK,
+            preset,
+            frame,
+            dtypes=dtypes,
+            categorical=categorical,
+            name=label,
             train_start_date=train_start_date,
         )
-    if issubclass(cls, LightGbmMsmPopWeightedDayTypeStrategy):
-        weighted = load_area_temperature_forecast_population_weighted(area_code, spark=spark)
-        return cls(
-            temperature,
-            weighted.forecast,
-            load_day_types(spark=spark),
-            census_year=weighted.census_year,
-            train_start_date=train_start_date,
-        )
-    if issubclass(cls, LightGbmMsmPopWeightedStrategy):
-        weighted = load_area_temperature_forecast_population_weighted(area_code, spark=spark)
-        return cls(
-            temperature,
-            weighted.forecast,
-            census_year=weighted.census_year,
-            train_start_date=train_start_date,
-        )
-    if issubclass(cls, LightGbmMsmStrategy):
-        forecast = load_area_temperature_forecast(area_code, spark=spark)
-        return cls(temperature, forecast, train_start_date=train_start_date)
-    return cls(temperature, train_start_date=train_start_date)
+    weather = load_area_weather_forecast_population_weighted(area_code, spark=spark)
+    observed = load_area_observed_weather_population_weighted(
+        area_code, census_year=weather.census_year, spark=spark
+    )
+    return similar_day_cls(
+        preset,
+        frame,
+        weather.forecast,
+        load_day_calendar(spark=spark),
+        observed.weather,
+        load_area_hourly_load(area_code, spark=spark),
+        dtypes=dtypes,
+        categorical=categorical,
+        census_year=weather.census_year,
+        name=label,
+        train_start_date=train_start_date,
+    )

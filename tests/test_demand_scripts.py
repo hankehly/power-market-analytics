@@ -147,7 +147,7 @@ class TestCompareScript:
 
 
 class TestBacktestScript:
-    def test_lightgbm_over_a_pinned_window(self, spark, curated_warehouse):
+    def test_lightgbm_over_a_pinned_window(self, spark, curated_warehouse, feature_marts):
         script = import_script("demand_backtest")
         script.main(
             [
@@ -176,7 +176,12 @@ class TestBacktestScript:
         assert params["n_days"] == "3"
         assert params["n_predictions"] == "144"
         assert params["n_days_skipped"] == "0"
-        assert params["temperature_lag_days"] == "2,3,4,5,6,7,8"
+        assert params["feature_preset"] == "lightgbm"
+        assert params["feature_preset_base"] == "none"
+        assert params["feature_refs"].startswith("ftr_day_calendar:month,")
+        assert params["lgbm_feature_cols"] == (
+            "time_code,month,day_of_week,wavg_temperature_c,lag_7d_demand_kwh"
+        )
         assert run.data.tags["strategy"] == "lightgbm"
         assert run.data.tags["area"] == "tokyo"
         assert run.data.tags["warehouse_table"] == FORECAST_TABLE
@@ -309,7 +314,7 @@ class TestBacktestScript:
         assert summary["feature"].tolist() == importance["feature"].unique().tolist()
         assert summary["n_repeats"].tolist() == [5] * 5
 
-    def test_importance_repeats_reaches_the_strategy(self, spark, curated_warehouse):
+    def test_importance_repeats_reaches_the_strategy(self, spark, curated_warehouse, feature_marts):
         script = import_script("demand_backtest")
         script.main(["--days", "1", "--shap-nsamples", "20", "--importance-repeats", "2"])
         run = last_run()
@@ -318,7 +323,9 @@ class TestBacktestScript:
         assert sorted(importance["repeat_index"].unique()) == [0, 1]
         assert len(importance) == 2 * 7  # the default strategy's seven features
 
-    def test_diagnostics_frames_are_logged_as_csv(self, spark, curated_warehouse, monkeypatch):
+    def test_diagnostics_frames_are_logged_as_csv(
+        self, spark, curated_warehouse, feature_marts, monkeypatch
+    ):
         script = import_script("demand_backtest")
         real_build_strategy = script.build_strategy
         seen: dict[str, object] = {}
@@ -356,7 +363,7 @@ class TestBacktestScript:
         assert logged["reference_date"].tolist() == ["2023-04-12"]
 
     def test_strategy_without_contributions_or_importance_skips_publishing(
-        self, spark, curated_warehouse, monkeypatch
+        self, spark, curated_warehouse, feature_marts, monkeypatch
     ):
         # Every registered demand strategy is LightGBM-based and always explains itself
         # (unlike spot_price's previous_day); simulate a non-explaining strategy here so
@@ -383,7 +390,9 @@ class TestBacktestScript:
         if spark.catalog.tableExists(IMPORTANCE_TABLE):
             assert published_importance_rows(spark, run.info.run_id).empty
 
-    def test_hole_day_is_partly_scored_and_its_d7_successor_skipped(self, spark, curated_warehouse):
+    def test_hole_day_is_partly_scored_and_its_d7_successor_skipped(
+        self, spark, curated_warehouse, feature_marts
+    ):
         # 2024-04-20 has actuals for time codes 1..10 only (48 forecasts, 10 scored);
         # 2024-04-27 cannot be forecast (its D-7 lag is the hole) and is skipped.
         script = import_script("demand_backtest")
@@ -415,7 +424,7 @@ class TestBacktestScript:
         assert contributions.groupby(["trade_date", "time_code"]).ngroups == len(published)
 
     def test_lightgbm_msm_skips_the_day_without_a_temperature_forecast(
-        self, spark, curated_warehouse
+        self, spark, curated_warehouse, feature_marts
     ):
         # 2024-05-15 has no MSM forecast rows: the candidate strategy cannot
         # forecast it and skips it, while the surrounding days are scored.
@@ -454,7 +463,9 @@ class TestBacktestScript:
         assert set(published["strategy"]) == {"lightgbm_msm"}
         assert FORECAST_MISSING_DAY.date() not in set(published["trade_date"])
 
-    def test_lightgbm_msm_popw_logs_the_census_year(self, spark, curated_warehouse):
+    def test_lightgbm_msm_popw_uses_the_weighted_forecast(
+        self, spark, curated_warehouse, feature_marts
+    ):
         script = import_script("demand_backtest")
         script.main(
             [
@@ -474,7 +485,7 @@ class TestBacktestScript:
         params = run.data.params
         assert params["n_days"] == "2"
         assert params["n_predictions"] == "96"
-        assert params["population_weight_census_year"] == "2020"
+        assert params["feature_preset"] == "lightgbm_msm_popw"
         assert params["lgbm_feature_cols"] == (
             "time_code,month,day_of_week,wavg_temperature_c,lag_7d_demand_kwh,"
             "popw_forecast_temperature_c"
@@ -482,7 +493,9 @@ class TestBacktestScript:
         published = published_rows(spark, run.info.run_id)
         assert set(published["strategy"]) == {"lightgbm_msm_popw"}
 
-    def test_lightgbm_msm_popw_daytype_logs_the_categorical_feature(self, spark, curated_warehouse):
+    def test_lightgbm_msm_popw_daytype_logs_the_categorical_feature(
+        self, spark, curated_warehouse, feature_marts
+    ):
         # 2024-05-03..06 are all holidays (憲法記念日, みどりの日, こどもの日, 休日).
         script = import_script("demand_backtest")
         script.main(
@@ -503,18 +516,19 @@ class TestBacktestScript:
         params = run.data.params
         assert params["n_days"] == "4"
         assert params["n_predictions"] == "192"
-        assert params["population_weight_census_year"] == "2020"
+        assert params["feature_preset"] == "lightgbm_msm_popw_daytype"
         assert params["lgbm_feature_cols"] == (
             "time_code,month,day_of_week,wavg_temperature_c,lag_7d_demand_kwh,"
             "popw_forecast_temperature_c,day_type"
         )
         assert params["lgbm_categorical_feature_cols"] == "day_type"
-        assert params["day_type_levels"] == "0=Weekday,1=Weekend,2=Holiday"
         published = published_rows(spark, run.info.run_id)
         assert len(published) == 192
         assert set(published["strategy"]) == {"lightgbm_msm_popw_daytype"}
 
-    def test_days_window_ends_at_the_last_day_in_the_data(self, spark, curated_warehouse):
+    def test_days_window_ends_at_the_last_day_in_the_data(
+        self, spark, curated_warehouse, feature_marts
+    ):
         script = import_script("demand_backtest")
         script.main(["--days", "2", "--shap-nsamples", "20"])
         run = last_run()
@@ -523,7 +537,9 @@ class TestBacktestScript:
         assert run.data.params["end_date"] == "2024-05-31"
         assert run.data.params["n_predictions"] == "96"
 
-    def test_default_strategy_is_the_kept_day_type_model(self, spark, curated_warehouse):
+    def test_default_strategy_is_the_kept_day_type_model(
+        self, spark, curated_warehouse, feature_marts
+    ):
         # demand/R-003 E-001 (confirmed 2026-08-26): lightgbm_msm_popw_daytype is the demand
         # baseline.
         script = import_script("demand_backtest")
@@ -532,12 +548,60 @@ class TestBacktestScript:
         assert run.info.run_name == "lightgbm_msm_popw_daytype-tokyo"
         assert run.data.params["strategy"] == "lightgbm_msm_popw_daytype"
         assert run.data.params["lgbm_categorical_feature_cols"] == "day_type"
-        assert run.data.params["population_weight_census_year"] == "2020"
+        assert run.data.params["feature_preset"] == "lightgbm_msm_popw_daytype"
 
-    def test_train_start_reaches_the_strategy(self, spark, curated_warehouse):
+    def test_train_start_reaches_the_strategy(self, spark, curated_warehouse, feature_marts):
         script = import_script("demand_backtest")
         script.main(["--days", "2", "--train-start", "2024-04-01", "--shap-nsamples", "20"])
         assert last_run().data.params["lgbm_train_start_date"] == "2024-04-01"
+
+    def test_add_and_drop_compose_a_named_feature_set(
+        self, spark, curated_warehouse, feature_marts
+    ):
+        script = import_script("demand_backtest")
+        script.main(
+            [
+                "--strategy",
+                "lightgbm",
+                "--add",
+                "ftr_day_calendar:day_type",
+                "--drop",
+                "ftr_day_calendar:day_of_week",
+                "--name",
+                "lightgbm_daytype",
+                "--start-date",
+                "2024-05-03",
+                "--end-date",
+                "2024-05-04",
+                "--shap-nsamples",
+                "20",
+                "--importance-repeats",
+                "1",
+            ]
+        )
+        run = last_run()
+        assert run.info.status == "FINISHED"
+        assert run.info.run_name == "lightgbm_daytype-tokyo"
+        assert run.data.tags["strategy"] == "lightgbm_daytype"
+        params = run.data.params
+        assert params["strategy"] == "lightgbm_daytype"
+        assert params["feature_preset"] == "lightgbm_daytype"
+        assert params["feature_preset_base"] == "lightgbm"
+        assert params["lgbm_feature_cols"] == (
+            "time_code,month,wavg_temperature_c,lag_7d_demand_kwh,day_type"
+        )
+        # The added day type is categorical by the mart's tag, not by any declaration.
+        assert params["lgbm_categorical_feature_cols"] == "day_type"
+        assert set(published_rows(spark, run.info.run_id)["strategy"]) == {"lightgbm_daytype"}
+        components = set(published_contribution_rows(spark, run.info.run_id)["component"])
+        assert "day_type" in components and "day_of_week" not in components
+
+    def test_add_or_drop_without_a_name_is_rejected(self, capsys):
+        script = import_script("demand_backtest")
+        with pytest.raises(SystemExit) as exc:
+            script.main(["--strategy", "lightgbm", "--add", "ftr_day_calendar:day_type"])
+        assert exc.value.code == 2
+        assert "give the run a --name" in capsys.readouterr().err
 
     def test_importance_repeats_below_one_is_rejected_before_the_run(self, capsys):
         # Checked at parse time: no backtest runs and nothing is published for a bad count.
@@ -547,14 +611,14 @@ class TestBacktestScript:
         assert exc.value.code == 2
         assert "--importance-repeats must be >= 1, got 0" in capsys.readouterr().err
 
-    def test_end_date_after_the_data_is_rejected(self, spark, curated_warehouse):
+    def test_end_date_after_the_data_is_rejected(self, spark, curated_warehouse, feature_marts):
         script = import_script("demand_backtest")
         with pytest.raises(SystemExit) as exc:
             script.main(["--end-date", "2030-01-01"])
         assert exc.value.code == 2
         assert last_run().info.status == "FAILED"
 
-    def test_start_after_end_is_rejected(self, spark, curated_warehouse, capsys):
+    def test_start_after_end_is_rejected(self, spark, curated_warehouse, feature_marts, capsys):
         script = import_script("demand_backtest")
         with pytest.raises(SystemExit) as exc:
             script.main(["--start-date", "2024-05-05", "--end-date", "2024-05-01"])

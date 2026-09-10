@@ -26,6 +26,15 @@ from tests.support import write_feature_store_yaml
 CALENDAR = "ftr_day_calendar:month"
 LAG = "ftr_period_jepx:lag_1d_price"
 DAY_TYPE = "ftr_day_calendar:day_type"
+#: Every registered preset's service, both tasks, sorted.
+REGISTERED_SERVICES = [
+    "demand__lightgbm",
+    "demand__lightgbm_msm",
+    "demand__lightgbm_msm_popw",
+    "demand__lightgbm_msm_popw_daytype",
+    "spot_price__lightgbm",
+    "spot_price__lightgbm_occto",
+]
 
 
 def preset(**overrides) -> Preset:
@@ -63,6 +72,12 @@ class TestPreset:
         assert changed.name == "q"
         assert changed.features == (CALENDAR, LAG, "ftr_day_occto:max_demand_mw")
         assert p.features == (CALENDAR, DAY_TYPE, LAG)  # unchanged
+
+    def test_with_changes_records_the_preset_it_started_from(self):
+        first = preset().with_changes(add=(DAY_TYPE,), name="q")
+        assert first.base == "p"
+        second = first.with_changes(drop=(DAY_TYPE,), name="r")
+        assert second.base == "q"
 
     def test_with_changes_rejects_an_absent_drop_and_a_present_add(self):
         with pytest.raises(ValueError, match=r"cannot drop \['ftr_x:y'\]"):
@@ -134,11 +149,8 @@ class TestFeatureService:
         }
         assert service.tags == {"task": "spot_price", "preset": "p", "categorical": "day_type"}
 
-    def test_the_catalogue_lists_the_spot_presets(self):
-        assert sorted(s.name for s in feature_services()) == [
-            "spot_price__lightgbm",
-            "spot_price__lightgbm_occto",
-        ]
+    def test_the_catalogue_lists_every_tasks_presets(self):
+        assert sorted(s.name for s in feature_services()) == REGISTERED_SERVICES
 
 
 class TestStoreServices:
@@ -153,7 +165,4 @@ class TestStoreServices:
             ).list_feature_services()
         ] == ["spot_price__stale"]
         store = open_store(repo)
-        assert sorted(s.name for s in store.list_feature_services()) == [
-            "spot_price__lightgbm",
-            "spot_price__lightgbm_occto",
-        ]
+        assert sorted(s.name for s in store.list_feature_services()) == REGISTERED_SERVICES
