@@ -1,4 +1,4 @@
-"""Presets: named feature lists, their dtypes off the views, and their feature services."""
+"""Presets: named feature lists, their dtypes and categoricals off the views, and their services."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 from feast import Field
-from feast.types import String
+from feast.types import Int64, String
 
 from power_market_analytics.features import presets as presets_module
 from power_market_analytics.features import views
@@ -14,11 +14,13 @@ from power_market_analytics.features.catalogue import feature_services
 from power_market_analytics.features.entities import ENTITIES
 from power_market_analytics.features.presets import (
     Preset,
+    categorical_columns,
     feature_column,
     feature_dtypes,
     feature_service,
 )
 from power_market_analytics.features.store import open_store
+from power_market_analytics.tasks.spot_price.presets import LIGHTGBM
 from tests.support import write_feature_store_yaml
 
 CALENDAR = "ftr_day_calendar:month"
@@ -46,7 +48,6 @@ class TestPreset:
         p = preset()
         assert p.columns == ("month", "lag_1d_price")
         assert p.feature_cols == ("time_code", "month", "lag_1d_price")
-        assert p.categorical == ()
 
     def test_rejects_a_duplicate_column(self):
         with pytest.raises(ValueError, match=r"duplicate feature columns \['month'\]"):
@@ -56,18 +57,11 @@ class TestPreset:
         with pytest.raises(ValueError, match="'time_code' is every preset's first feature"):
             preset(features=(CALENDAR, "ftr_x:time_code"))
 
-    def test_rejects_a_categorical_that_is_not_a_feature(self):
-        with pytest.raises(
-            ValueError, match=r"categorical columns \['day_type'\] are not features"
-        ):
-            preset(categorical=("day_type",))
-
     def test_with_changes_drops_adds_and_renames(self):
-        p = preset(features=(CALENDAR, DAY_TYPE, LAG), categorical=("day_type",))
+        p = preset(features=(CALENDAR, DAY_TYPE, LAG))
         changed = p.with_changes(add=("ftr_day_occto:max_demand_mw",), drop=(DAY_TYPE,), name="q")
         assert changed.name == "q"
         assert changed.features == (CALENDAR, LAG, "ftr_day_occto:max_demand_mw")
-        assert changed.categorical == ()
         assert p.features == (CALENDAR, DAY_TYPE, LAG)  # unchanged
 
     def test_with_changes_rejects_an_absent_drop_and_a_present_add(self):
@@ -103,9 +97,32 @@ class TestFeatureDtypes:
             feature_dtypes(preset(features=("ftr_x:note",)))
 
 
+class TestCategoricalColumns:
+    def test_reads_the_views_tag_in_feature_order(self):
+        assert categorical_columns(preset()) == ()
+        assert categorical_columns(preset(features=(LAG, DAY_TYPE, CALENDAR))) == ("day_type",)
+
+    def test_an_added_categorical_is_categorical(self):
+        # The registered preset has none; adding the day type (tagged in the
+        # mart) marks it without the preset saying so, and dropping it unmarks.
+        assert categorical_columns(LIGHTGBM) == ()
+        added = LIGHTGBM.with_changes(add=(DAY_TYPE,), name="lightgbm_daytype")
+        assert categorical_columns(added) == ("day_type",)
+        assert categorical_columns(added.with_changes(drop=(DAY_TYPE,), name="back")) == ()
+
+    def test_unknown_reference(self):
+        with pytest.raises(ValueError, match="unknown feature view 'ftr_x'"):
+            categorical_columns(preset(features=("ftr_x:y",)))
+
+    def test_a_field_without_tags_is_numeric(self, monkeypatch):
+        fake_view = SimpleNamespace(schema=[Field(name="n", dtype=Int64, tags=None)], join_keys=[])
+        monkeypatch.setattr(presets_module, "_views_by_name", lambda: {"ftr_x": fake_view})
+        assert categorical_columns(preset(features=("ftr_x:n",))) == ()
+
+
 class TestFeatureService:
     def test_one_projection_per_view_with_the_presets_columns(self):
-        p = preset(features=(CALENDAR, "ftr_day_calendar:day_type", LAG), categorical=("day_type",))
+        p = preset(features=(CALENDAR, DAY_TYPE, LAG))
         service = feature_service(p)
         assert service.name == "spot_price__p"
         projections = {

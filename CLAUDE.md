@@ -94,7 +94,9 @@
   backtest (strategies: `previous_day`, and the presets `lightgbm`, `lightgbm_occto`; areas =
   `dim_area.area_code`). Since 2026-09-11 a LightGBM strategy is a **preset**
   (`tasks/spot_price/presets.py`: a named list of `<view>:<column>` references into the
-  Feast feature views, plus its categorical columns); `build_strategy` retrieves the
+  Feast feature views; a feature is categorical when its view field carries the mart's
+  `categorical` tag — `features.presets.categorical_columns`, so an added feature is
+  treated as its mart declares it); `build_strategy` retrieves the
   preset's features once for the run's days through Feast (`features/retrieval.py`, each
   row as of its own 09:30 D-1 issue time) and builds a `PresetLightGbmStrategy`
   (`forecasting/preset_lgbm.py`) over that `FeatureFrame`; `time_code` is always the first

@@ -64,6 +64,7 @@ class TestBuildPreset:
         assert strategy.preset is PRESETS["lightgbm"]
         assert strategy.train_start_date == TRAIN_START
         assert strategy.feature_cols == ("time_code", "month", "day_of_week", "lag_1d_price")
+        assert strategy.categorical_feature_cols == ()
         frame = strategy._features_df
         assert len(frame) == len(DAYS) * 48
         assert frame["trade_date"].min() == DAYS[0] and frame["trade_date"].max() == DAYS[-1]
@@ -108,6 +109,21 @@ class TestBuildPreset:
         assert strategy.preset.name == "lightgbm_peak" and strategy.preset.base == "lightgbm"
         assert strategy.feature_cols == ("time_code", "month", "lag_1d_price", "max_demand_mw")
         assert strategy._extra_params()["feature_preset_base"] == "lightgbm"
+
+    def test_an_added_categorical_is_marked_categorical(self, feature_marts):
+        # The mart tags day_type categorical; the preset never said so.
+        strategy = build_strategy(
+            "lightgbm",
+            area_code="tokyo",
+            days=DAYS,
+            add=("ftr_day_calendar:day_type",),
+            label="lightgbm_daytype",
+        )
+        assert strategy.feature_cols[-1] == "day_type"
+        assert strategy.categorical_feature_cols == ("day_type",)
+        frame = strategy._features_df.set_index(["trade_date", "time_code"])
+        assert frame.loc[(pd.Timestamp("2024-04-05"), 1), "day_type"] == 0.0  # a Friday
+        assert frame.loc[(pd.Timestamp("2024-04-06"), 1), "day_type"] == 1.0  # a Saturday
 
     def test_a_label_alone_renames_the_run(self, feature_marts):
         strategy = build_strategy("lightgbm", area_code="tokyo", days=DAYS, label="lightgbm_again")
