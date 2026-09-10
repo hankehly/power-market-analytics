@@ -1,49 +1,67 @@
-"""Forecast strategy registry for the spot price task."""
+"""Forecast strategy registry for the spot price task.
+
+A strategy name is either the naive ``previous_day`` rule or a preset of
+``tasks.spot_price.presets``; a preset is built as a
+:class:`~power_market_analytics.forecasting.preset_lgbm.PresetLightGbmStrategy`
+over the features Feast retrieves for the run's days, each row as of its own
+issue time.
+"""
 
 from __future__ import annotations
 
-import pandas as pd
-from pyspark.sql import SparkSession
+from collections.abc import Sequence
 
+import pandas as pd
+
+from power_market_analytics.features.frame import feature_frame
+from power_market_analytics.features.presets import feature_dtypes
+from power_market_analytics.features.retrieval import entity_frame, historical_features
+from power_market_analytics.features.store import open_store
+from power_market_analytics.forecasting.preset_lgbm import PresetLightGbmStrategy
 from power_market_analytics.forecasting.strategy import ForecastStrategy
-from power_market_analytics.tasks.spot_price.datasets import load_occto_demand_forecast
-from power_market_analytics.tasks.spot_price.strategies.lgbm import (
-    LightGbmOcctoStrategy,
-    LightGbmStrategy,
-)
+from power_market_analytics.tasks.spot_price import TASK
+from power_market_analytics.tasks.spot_price.presets import PRESETS
 from power_market_analytics.tasks.spot_price.strategies.naive import PreviousDayStrategy
 
-STRATEGIES: dict[str, type[ForecastStrategy]] = {
+NAIVE_STRATEGIES: dict[str, type[ForecastStrategy]] = {
     PreviousDayStrategy.name: PreviousDayStrategy,
-    LightGbmStrategy.name: LightGbmStrategy,
-    LightGbmOcctoStrategy.name: LightGbmOcctoStrategy,
 }
+
+#: Every strategy name the backtest script accepts: the naive rule and the presets.
+STRATEGIES: tuple[str, ...] = (*NAIVE_STRATEGIES, *PRESETS)
 
 
 def build_strategy(
     name: str,
     *,
     area_code: str,
+    days: pd.DatetimeIndex | None = None,
     train_start_date: pd.Timestamp | None = None,
-    spark: SparkSession | None = None,
+    add: Sequence[str] = (),
+    drop: Sequence[str] = (),
+    label: str | None = None,
 ) -> ForecastStrategy:
     """Instantiate a registered strategy with the inputs it needs.
 
-    Strategies that fit a model accept ``train_start_date``; strategies that
-    consume exogenous data get it loaded from the warehouse here, so callers
-    only deal in registry names.
+    A preset's features are retrieved once here, for every delivery period
+    of ``days`` as of its issue time, so callers only deal in names.
 
     Parameters
     ----------
     name : str
-        Key in ``STRATEGIES``.
+        A naive strategy name or a preset name.
     area_code : str
-        dim_area.area_code value being forecast; scopes any exogenous data.
+        dim_area.area_code value being forecast.
+    days : pandas.DatetimeIndex, optional
+        The delivery days a preset strategy may train on or forecast; required
+        for a preset.
     train_start_date : pandas.Timestamp, optional
-        First delivery day eligible as a training row (model strategies
-        only).
-    spark : pyspark.sql.SparkSession, optional
-        Existing session to reuse for warehouse reads.
+        First delivery day eligible as a training row (presets only).
+    add, drop : sequence of str, optional
+        Feature references added to or dropped from the preset; need ``label``.
+    label : str, optional
+        The strategy label of the run when it differs from the preset's name;
+        required with ``add`` or ``drop``.
 
     Returns
     -------
@@ -54,15 +72,32 @@ def build_strategy(
     KeyError
         If ``name`` is not registered.
     ValueError
-        If ``train_start_date`` is given for a strategy without a training
-        step.
+        If ``train_start_date``, ``add``, ``drop`` or ``label`` is given for a
+        naive strategy, ``add`` / ``drop`` come without ``label``, or a preset
+        is built without ``days``.
     """
-    cls = STRATEGIES[name]
-    kwargs: dict[str, object] = {}
-    if issubclass(cls, LightGbmStrategy):
-        kwargs["train_start_date"] = train_start_date
-    elif train_start_date is not None:
-        raise ValueError(f"{name!r} has no training step; train_start_date does not apply")
-    if issubclass(cls, LightGbmOcctoStrategy):
-        kwargs["occto"] = load_occto_demand_forecast(area_code, spark=spark)
-    return cls(**kwargs)
+    if name in NAIVE_STRATEGIES:
+        if train_start_date is not None:
+            raise ValueError(f"{name!r} has no training step; train_start_date does not apply")
+        if add or drop or label:
+            raise ValueError(f"{name!r} has no features; add, drop and label do not apply")
+        return NAIVE_STRATEGIES[name]()
+    preset = PRESETS[name]
+    if add or drop:
+        if not label:
+            raise ValueError(f"{name!r} with features added or dropped needs a label")
+        preset = preset.with_changes(add=add, drop=drop, name=label)
+    if days is None:
+        raise ValueError(f"{name!r} needs the days to retrieve its features for")
+    store = open_store()
+    retrieved = historical_features(
+        store, entity_frame(area_code, days, TASK.issue_offset), preset.features
+    )
+    return PresetLightGbmStrategy(
+        TASK,
+        preset,
+        feature_frame(retrieved, preset.columns),
+        dtypes=feature_dtypes(preset),
+        name=label,
+        train_start_date=train_start_date,
+    )

@@ -17,6 +17,7 @@ import math
 import os
 import time
 from collections.abc import Iterator
+from pathlib import Path
 
 # The Spark fixture pins spark.sql.session.timeZone to Asia/Tokyo, but PySpark's
 # collect() renders TimestampType as a naive datetime in the *process's* local
@@ -712,3 +713,122 @@ def curated_warehouse(spark: SparkSession) -> CuratedWarehouse:
         dates=dates,
         hourly_load=hourly_load,
     )
+
+
+# --------------------------------------------------------------------------- feature marts
+
+
+def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> None:
+    """The three spot-price feature marts of ``pma_features``, from the fixture's data."""
+    calendar_rows = []
+    holidays = set(HOLIDAYS_2024_SPRING)
+    holiday_days = [day for day in CALENDAR_DAYS if day in holidays]
+    for area_code in ("tokyo", "kansai"):
+        for day in CALENDAR_DAYS:
+            counts = synthetic_calendar_counts(day)
+            before = [h for h in holiday_days if h <= day]
+            after = [h for h in holiday_days if h >= day]
+            calendar_rows.append(
+                {
+                    "area_code": area_code,
+                    "trade_date": day.date(),
+                    "month": day.month,
+                    "day_of_week": day.dayofweek,
+                    "day_type": 2 if day in holidays else 1 if day.dayofweek >= 5 else 0,
+                    "holiday_degree": synthetic_holiday_degree(day),
+                    **{
+                        k: counts[k]
+                        for k in (
+                            "half",
+                            "quarter",
+                            "day_of_month",
+                            "day_of_quarter",
+                            "day_of_year",
+                            "fiscal_quarter",
+                        )
+                    },
+                    "is_business_day": int(synthetic_is_business_day(day)),
+                    "days_since_holiday": (day - before[-1]).days if before else None,
+                    "days_until_holiday": (after[0] - day).days if after else None,
+                    "available_at": pd.Timestamp("1900-01-01"),
+                }
+            )
+    occto = warehouse.occto[warehouse.occto["area_key"] == TOKYO_AREA_KEY]
+    occto_rows = [
+        {
+            "area_code": "tokyo",
+            "trade_date": row["date_key"],
+            "max_demand_hour_ending": int(row["max_demand_hour_ending"]),
+            "max_demand_mw": int(row["max_demand_mw"]),
+            "max_supply_capacity_mw": int(row["max_supply_capacity_mw"]),
+            "available_at": pd.Timestamp(row["date_key"])
+            - pd.Timedelta(days=2)
+            + pd.Timedelta(hours=18),
+        }
+        for row in occto.to_dict("records")
+    ]
+    prices = warehouse.prices[warehouse.prices["area_key"] == TOKYO_AREA_KEY]
+    jepx_rows = [
+        {
+            "area_code": "tokyo",
+            "trade_date": (pd.Timestamp(row["date_key"]) + pd.Timedelta(days=1)).date(),
+            "time_code": int(row["time_code"]),
+            "lag_1d_price": float(row["area_price_jpy_kwh"]),
+            "available_at": pd.Timestamp(row["date_key"])
+            - pd.Timedelta(days=1)
+            + pd.Timedelta(hours=12),
+        }
+        for row in prices.to_dict("records")
+    ]
+    calendar = pd.DataFrame(calendar_rows)
+    for col in ("days_since_holiday", "days_until_holiday"):
+        # A missing distance is a SQL null, not the NaN pandas makes of a None.
+        calendar[col] = pd.Series(
+            [None if pd.isna(v) else int(v) for v in calendar[col]], dtype=object
+        )
+    spark.sql("create database if not exists pma_features")
+    spark.createDataFrame(
+        calendar,
+        "area_code string, trade_date date, month int, day_of_week int, day_type int, "
+        "holiday_degree double, half int, quarter int, day_of_month int, day_of_quarter int, "
+        "day_of_year int, is_business_day int, fiscal_quarter int, days_since_holiday int, "
+        "days_until_holiday int, available_at timestamp",
+    ).write.mode("overwrite").saveAsTable("pma_features.ftr_day_calendar")
+    spark.createDataFrame(
+        pd.DataFrame(occto_rows),
+        "area_code string, trade_date date, max_demand_hour_ending int, max_demand_mw int, "
+        "max_supply_capacity_mw int, available_at timestamp",
+    ).write.mode("overwrite").saveAsTable("pma_features.ftr_day_occto")
+    spark.createDataFrame(
+        pd.DataFrame(jepx_rows),
+        "area_code string, trade_date date, time_code int, lag_1d_price double, "
+        "available_at timestamp",
+    ).write.mode("overwrite").saveAsTable("pma_features.ftr_period_jepx")
+
+
+@pytest.fixture
+def feature_marts(
+    spark: SparkSession,
+    curated_warehouse: CuratedWarehouse,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> Iterator[None]:
+    """The spot-price feature marts under a UTC session, with the store in a temp registry.
+
+    Feast's Spark store needs a UTC session, so the session is switched for the
+    test and the marts are written under it (once per session). ``open_store()``
+    is pointed at a temp ``feature_store.yaml`` so no test touches
+    ``data/feast``.
+    """
+    from power_market_analytics.features import store as store_module
+    from tests.support import write_feature_store_yaml
+
+    zone = str(spark.conf.get("spark.sql.session.timeZone"))
+    spark.conf.set("spark.sql.session.timeZone", "UTC")
+    try:
+        if not spark.catalog.tableExists("pma_features.ftr_period_jepx"):
+            _write_feature_marts(spark, curated_warehouse)
+        monkeypatch.setattr(store_module, "FEATURE_STORE_DIR", write_feature_store_yaml(tmp_path))
+        yield
+    finally:
+        spark.conf.set("spark.sql.session.timeZone", zone)
