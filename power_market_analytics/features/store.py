@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from pathlib import Path
+from typing import cast
 
 import yaml
-from feast import FeatureStore
+from feast import DataSource, Entity, FeatureStore, FeatureView
 from feast.feast_object import FeastObject
+from feast.feature_view import DUMMY_ENTITY_NAME
 from pyspark.sql import SparkSession
 
 from power_market_analytics.features.entities import ENTITIES
@@ -21,10 +23,13 @@ def open_store(
 ) -> FeatureStore:
     """Open the store described by ``repo_path/feature_store.yaml`` and apply the definitions.
 
-    Applying is idempotent, so every caller gets a registry that matches the
-    package: the entities and the generated views by default, or the objects
-    given (a test's own view). A relative registry path in the config is
-    resolved against ``repo_path``; its directory is created.
+    The registry is reconciled to the definitions: they are applied, and every
+    feature view, entity and data source the registry holds that they no
+    longer name is deleted, so a renamed or removed mart does not linger in
+    ``data/feast/registry.db``. Every caller therefore gets a registry that
+    matches the package: the entities and the generated views by default, or
+    the objects given (a test's own view). A relative registry path in the
+    config is resolved against ``repo_path``; its directory is created.
 
     Parameters
     ----------
@@ -45,7 +50,23 @@ def open_store(
         from power_market_analytics.features.views import VIEWS
 
         definitions = (*ENTITIES, *VIEWS)
-    store.apply(list(definitions))
+    objects = list(definitions)
+    views = [obj for obj in objects if isinstance(obj, FeatureView)]
+    kept_views = {view.name for view in views}
+    kept_entities = {obj.name for obj in objects if isinstance(obj, Entity)}
+    # Every view over a mart has a batch source; the attribute is typed Optional.
+    kept_sources = {cast(DataSource, view.batch_source).name for view in views}
+    stale: list[FeastObject] = [
+        *(v for v in store.list_feature_views() if v.name not in kept_views),
+        *(
+            e
+            for e in store.list_entities()
+            if e.name not in kept_entities and e.name != DUMMY_ENTITY_NAME
+        ),
+        *(d for d in store.list_data_sources() if d.name not in kept_sources),
+    ]
+    # partial=False deletes exactly objects_to_delete; the rest is applied as usual.
+    store.apply(objects, objects_to_delete=stale, partial=False)
     return store
 
 
