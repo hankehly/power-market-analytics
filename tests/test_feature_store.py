@@ -42,6 +42,19 @@ class TestOpenStore:
         store = open_store(write_feature_store_yaml(tmp_path))
         assert sorted(view.name for view in store.list_feature_views()) == MART_NAMES
 
+    def test_a_definition_dropped_from_the_package_leaves_the_registry(self, tmp_path):
+        repo = write_feature_store_yaml(tmp_path)
+        open_store(repo, definitions=[*ENTITIES, day_view("ftr_old"), day_view("ftr_kept")])
+        store = open_store(repo, definitions=[*ENTITIES, day_view("ftr_kept")])
+        assert [view.name for view in store.list_feature_views()] == ["ftr_kept"]
+        assert [source.name for source in store.list_data_sources()] == ["ftr_kept"]
+
+    def test_an_entity_dropped_from_the_package_leaves_the_registry(self, tmp_path):
+        repo = write_feature_store_yaml(tmp_path)
+        open_store(repo, definitions=[*ENTITIES, day_view()])
+        store = open_store(repo, definitions=[*GRAIN_ENTITIES["day"], day_view()])
+        assert {entity.name for entity in store.list_entities()} == {"area_code", "trade_date_key"}
+
     def test_applying_twice_is_idempotent(self, tmp_path):
         repo = write_feature_store_yaml(tmp_path)
         open_store(repo, definitions=[*ENTITIES, day_view()])
