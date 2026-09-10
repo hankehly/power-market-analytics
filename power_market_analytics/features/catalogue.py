@@ -16,6 +16,11 @@ def feature_services() -> list[FeatureService]:
     """
     # Imported here, not at module level: the tasks import the features
     # package, so the package must not import them back when it loads.
+    from power_market_analytics.tasks.demand.presets import PRESETS as DEMAND_PRESETS
     from power_market_analytics.tasks.spot_price.presets import PRESETS as SPOT_PRESETS
 
-    return [feature_service(preset) for preset in SPOT_PRESETS.values()]
+    return [
+        feature_service(preset)
+        for presets in (DEMAND_PRESETS, SPOT_PRESETS)
+        for preset in presets.values()
+    ]

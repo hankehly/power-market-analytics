@@ -26,6 +26,15 @@ from tests.support import write_feature_store_yaml
 CALENDAR = "ftr_day_calendar:month"
 LAG = "ftr_period_jepx:lag_1d_price"
 DAY_TYPE = "ftr_day_calendar:day_type"
+#: Every registered preset's service, both tasks, sorted.
+REGISTERED_SERVICES = [
+    "demand__lightgbm",
+    "demand__lightgbm_msm",
+    "demand__lightgbm_msm_popw",
+    "demand__lightgbm_msm_popw_daytype",
+    "spot_price__lightgbm",
+    "spot_price__lightgbm_occto",
+]
 
 
 def preset(**overrides) -> Preset:
@@ -134,11 +143,8 @@ class TestFeatureService:
         }
         assert service.tags == {"task": "spot_price", "preset": "p", "categorical": "day_type"}
 
-    def test_the_catalogue_lists_the_spot_presets(self):
-        assert sorted(s.name for s in feature_services()) == [
-            "spot_price__lightgbm",
-            "spot_price__lightgbm_occto",
-        ]
+    def test_the_catalogue_lists_every_tasks_presets(self):
+        assert sorted(s.name for s in feature_services()) == REGISTERED_SERVICES
 
 
 class TestStoreServices:
@@ -153,7 +159,4 @@ class TestStoreServices:
             ).list_feature_services()
         ] == ["spot_price__stale"]
         store = open_store(repo)
-        assert sorted(s.name for s in store.list_feature_services()) == [
-            "spot_price__lightgbm",
-            "spot_price__lightgbm_occto",
-        ]
+        assert sorted(s.name for s in store.list_feature_services()) == REGISTERED_SERVICES
