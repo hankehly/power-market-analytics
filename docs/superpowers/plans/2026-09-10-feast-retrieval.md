@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - The spike (§9) passed on 2026-09-10 before this plan ran: 17,520 rows in 6.2 s, values equal to the loaders, the one-minute instant honoured, dbt unit tests run on thrift. The façade fallback is not built.
-- Time zone rule: the warehouse stores naive wall-clock JST under the session's time zone (UTC in the devcontainer, Asia/Tokyo in the test fixture). Entity timestamps are localised to `spark.conf.get("spark.sql.session.timeZone")`, never to a fixed zone.
+- Time zone rule (found while executing): Feast's Spark store renders the entity timestamps as UTC string literals in its SQL while comparing rows as instants, so the session must be UTC. The devcontainer's is; the entity frame stamps the naive JST issue time as UTC (`ENTITY_TIME_ZONE`); `historical_features` refuses another session zone or a frame stamped otherwise; the Feast tests switch the Asia/Tokyo fixture session to UTC.
 - Entities and join keys: `area_code` (string), `trade_date_key` (int `yyyymmdd`), `hour_ending` (int), `time_code` (int). A view's entities are the key columns of its mart's grain; `trade_date_key` is derived in the source query from `trade_date`.
 - The generated file is the only Feast definition of the marts; hand edits are forbidden, the CI check enforces it.
 - Feature view names are the mart names; feature references are `<mart>:<column>`.
@@ -86,7 +86,7 @@ entity_key_serialization_version: 3
 - Test: `tests/test_feature_retrieval.py`
 
 **Interfaces:**
-- `entity_frame(area_code: str, days: pd.DatetimeIndex, issue_offset: pd.Timedelta, time_zone: str) -> pd.DataFrame`: one row per day × time code 1..48 with `area_code`, `trade_date`, `time_code`, `trade_date_key`, `hour_ending`, `event_timestamp` = `trade_date + issue_offset` localised to `time_zone`.
+- `entity_frame(area_code: str, days: pd.DatetimeIndex, issue_offset: pd.Timedelta) -> pd.DataFrame`: one row per day × time code 1..48 with `area_code`, `trade_date`, `time_code`, `trade_date_key`, `hour_ending`, `event_timestamp` = `trade_date + issue_offset` stamped as UTC.
 - `historical_features(store, entity_df, features: Sequence[str]) -> pd.DataFrame`: `store.get_historical_features(...).to_df()`, with `event_timestamp` returned naive in the session zone and the rows in the entity frame's order.
 
 - [ ] **Step 1: Failing tests** on the `spark` fixture: a temp view with two vintages of one row (available 01:00 and 02:00) and one unrelated key; entity rows at 00:59, 01:00, 02:00, 09:30 expecting null, v1, v2, v2; day-grain broadcast: a day feature repeated over 48 periods; the row order and naive timestamps.
