@@ -26,7 +26,11 @@ from power_market_analytics.forecasting.task import TaskSpec
 
 
 def preset_eval_set_cls(
-    task: TaskSpec, preset: Preset, dtypes: dict[str, str]
+    task: TaskSpec,
+    preset: Preset,
+    dtypes: dict[str, str],
+    *,
+    extra_dtypes: dict[str, str] | None = None,
 ) -> type[LightGbmEvalSetBase]:
     """The design-matrix frame class of a preset strategy.
 
@@ -39,14 +43,20 @@ def preset_eval_set_cls(
     dtypes : dict of str to str
         The contract dtype of each feature column once rows are complete
         (``feature_dtypes``); ``time_code`` is the grain's int64.
+    extra_dtypes : dict of str to str, optional
+        Feature columns a strategy adds after the preset's, with their
+        contract dtypes, in feature order (the similar-day strategies).
 
     Returns
     -------
     type of LightGbmEvalSetBase
     """
+    extra = extra_dtypes or {}
+    feature_cols = (*preset.feature_cols, *extra)
     schema = {
         **GRAIN_SCHEMA,
         **{col: dtypes[col] for col in preset.columns},
+        **extra,
         task.actual_col: "float64",
         task.forecast_col: "float64",
     }
@@ -54,12 +64,12 @@ def preset_eval_set_cls(
         "PresetEvalSet",
         (LightGbmEvalSetBase,),
         {
-            "feature_cols": preset.feature_cols,
+            "feature_cols": feature_cols,
             "target_col": task.actual_col,
             "forecast_col": task.forecast_col,
             "schema": schema,
             "keys": list(GRAIN_COLS),
-            "non_null_cols": [*preset.feature_cols, task.actual_col, task.forecast_col],
+            "non_null_cols": [*feature_cols, task.actual_col, task.forecast_col],
             "__doc__": (
                 f"Design matrix of the {preset.name!r} preset of the {task.name} task: "
                 "one row per forecast point with the preset's features, the actual and "
