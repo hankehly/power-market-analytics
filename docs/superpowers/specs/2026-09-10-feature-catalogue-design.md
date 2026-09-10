@@ -221,7 +221,7 @@ in a different order when rows arrive in a different order.
 |---|---|---|---|---|
 | 0 | `feature/spot-price-issue-time-0930` | issue time 09:30 for both tasks | tests, lint, parse; PR #59 | none |
 | 1 | `feature/available-at-standardized` | this spec; `available_at` in the nine standardized models and the two forecast ones; the seven facts carry it through; the lags in §3 confirmed and documented | `dbt build` green; per source, the smallest and largest lag from event time to `available_at`; done 2026-09-10 | 0 |
-| 2 | `feature/feature-marts` | `models/features/` for today's features except similar day; column tags; the `available_at` macro and generic test; dbt unit tests | every mart column equals today's Python builder's output for Tokyo over one year | 1 |
+| 2 | `feature/feature-marts` | `models/features/` for today's features except similar day; column tags; the `available_at` macro and generic test; dbt unit tests | every mart column equals today's Python builder's output for Tokyo over one year; done 2026-09-10 | 1 |
 | 3 | `feature/feature-value-fact` | `fct_feature_value` and the two Superset datasets | `dbt build` green; one chart in Superset | 2 |
 | 4 | `feature/feast-retrieval` | the spike (§9), then the Feast repo, generated views, staleness test and dependency; the façade instead if the spike fails | the spike's pass criteria | 2 |
 | 5 | `feature/spot-price-presets` | presets, `FeatureFrame`, `build_strategy` through Feast, one spot strategy, `--add`, `--drop`, `--name`; delete `LightGbmOcctoStrategy` | the spot `lightgbm_occto` run reproduced | 4 |

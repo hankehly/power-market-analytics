@@ -1,0 +1,188 @@
+models:
+  - name: ftr_day_calendar
+    config:
+      contract:
+        enforced: true
+    description: >
+      Calendar features of every delivery day for every bidding zone: dim_date's
+      attributes as the demand strategies read them (research demand/R-003 and
+      R-005) plus the two distances in days to the nearest named holiday. Grain:
+      area_code x trade_date. The values do not depend on the area; the key is
+      there so every feature mart joins on the same keys. Feature columns carry
+      config.meta.feature; keys and available_at do not.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - area_code
+              - trade_date
+    columns:
+      - name: area_code
+        data_type: string
+        description: >
+          dim_area.area_code of a bidding zone; 'system' is excluded. The values do not depend on the area; the key is here so every feature mart joins on the same keys.
+        data_tests:
+          - not_null
+      - name: trade_date
+        data_type: date
+        description: >
+          The delivery day (dim_date.date_key).
+        data_tests:
+          - not_null
+      - name: month
+        data_type: int
+        description: >
+          Calendar month 1-12: the strategies' month feature.
+        config:
+          meta:
+            feature: true
+            categorical: false
+        data_tests:
+          - not_null
+      - name: day_of_week
+        data_type: int
+        description: >
+          Day of week with Monday = 0 and Sunday = 6, pandas dayofweek, as the strategies use it (dim_date.day_of_week_iso - 1).
+        config:
+          meta:
+            feature: true
+            categorical: false
+        data_tests:
+          - not_null
+      - name: day_type
+        data_type: int
+        description: >
+          0 Weekday, 1 Weekend, 2 Holiday; a holiday wins over the weekend flag (research demand/R-003). A LightGBM categorical.
+        config:
+          meta:
+            feature: true
+            categorical: true
+        data_tests:
+          - not_null
+      - name: holiday_degree
+        data_type: double
+        description: >
+          dim_date.holiday_degree, the graded 休日度合い from 0 to 1 (research demand/R-005).
+        config:
+          meta:
+            feature: true
+            categorical: false
+        data_tests:
+          - not_null
+      - name: half
+        data_type: int
+        description: >
+          dim_date.half: 1 before July, else 2.
+        config:
+          meta:
+            feature: true
+            categorical: false
+        data_tests:
+          - not_null
+      - name: quarter
+        data_type: int
+        description: >
+          dim_date.quarter, calendar quarter 1-4.
+        config:
+          meta:
+            feature: true
+            categorical: false
+        data_tests:
+          - not_null
+      - name: day_of_month
+        data_type: int
+        description: >
+          dim_date.day_of_month.
+        config:
+          meta:
+            feature: true
+            categorical: false
+        data_tests:
+          - not_null
+      - name: day_of_quarter
+        data_type: int
+        description: >
+          dim_date.day_of_quarter.
+        config:
+          meta:
+            feature: true
+            categorical: false
+        data_tests:
+          - not_null
+      - name: day_of_year
+        data_type: int
+        description: >
+          dim_date.day_of_year.
+        config:
+          meta:
+            feature: true
+            categorical: false
+        data_tests:
+          - not_null
+      - name: is_business_day
+        data_type: int
+        description: >
+          dim_date.is_business_day as 1 / 0: a working day, not a bank day.
+        config:
+          meta:
+            feature: true
+            categorical: false
+        data_tests:
+          - not_null
+      - name: fiscal_quarter
+        data_type: int
+        description: >
+          dim_date.fiscal_quarter, April = Q1.
+        config:
+          meta:
+            feature: true
+            categorical: false
+        data_tests:
+          - not_null
+      - name: days_since_holiday
+        data_type: int
+        description: >
+          Calendar days since the nearest earlier named holiday (dim_date.is_holiday), 0 on a holiday; null before the spine's first holiday.
+        config:
+          meta:
+            feature: true
+            categorical: false
+      - name: days_until_holiday
+        data_type: int
+        description: >
+          Calendar days until the nearest later named holiday, 0 on a holiday; null after the spine's last holiday.
+        config:
+          meta:
+            feature: true
+            categorical: false
+      - name: available_at
+        data_type: timestamp
+        description: >
+          When the row became public, naive JST: a constant far past, because the calendar is static (the holiday seed is published a year ahead).
+        data_tests:
+          - not_null
+
+unit_tests:
+  - name: ftr_day_calendar_distances_day_types_and_area_filter
+    description: >
+      Four January 2025 days around 成人の日 (Monday 2025-01-13): holiday distances
+      with null edges, day types with the holiday winning, pandas day of week,
+      the 1/0 working-day flag, and 'system' excluded.
+    model: ftr_day_calendar
+    given:
+      - input: ref('dim_area')
+        rows:
+          - {area_code: tokyo}
+          - {area_code: system}
+      - input: ref('dim_date')
+        rows:
+          - {date_key: 2025-01-11, month: 1, day_of_week_iso: 6, is_weekend: true, is_holiday: false, holiday_degree: 0.8, half: 1, quarter: 1, day_of_month: 11, day_of_quarter: 11, day_of_year: 11, is_business_day: false, fiscal_quarter: 4}
+          - {date_key: 2025-01-12, month: 1, day_of_week_iso: 7, is_weekend: true, is_holiday: false, holiday_degree: 1.0, half: 1, quarter: 1, day_of_month: 12, day_of_quarter: 12, day_of_year: 12, is_business_day: false, fiscal_quarter: 4}
+          - {date_key: 2025-01-13, month: 1, day_of_week_iso: 1, is_weekend: false, is_holiday: true, holiday_degree: 1.0, half: 1, quarter: 1, day_of_month: 13, day_of_quarter: 13, day_of_year: 13, is_business_day: false, fiscal_quarter: 4}
+          - {date_key: 2025-01-14, month: 1, day_of_week_iso: 2, is_weekend: false, is_holiday: false, holiday_degree: 0.0, half: 1, quarter: 1, day_of_month: 14, day_of_quarter: 14, day_of_year: 14, is_business_day: true, fiscal_quarter: 4}
+    expect:
+      rows:
+        - {area_code: tokyo, trade_date: 2025-01-11, month: 1, day_of_week: 5, day_type: 1, holiday_degree: 0.8, half: 1, quarter: 1, day_of_month: 11, day_of_quarter: 11, day_of_year: 11, is_business_day: 0, fiscal_quarter: 4, days_since_holiday: null, days_until_holiday: 2, available_at: "1900-01-01 00:00:00"}
+        - {area_code: tokyo, trade_date: 2025-01-12, month: 1, day_of_week: 6, day_type: 1, holiday_degree: 1.0, half: 1, quarter: 1, day_of_month: 12, day_of_quarter: 12, day_of_year: 12, is_business_day: 0, fiscal_quarter: 4, days_since_holiday: null, days_until_holiday: 1, available_at: "1900-01-01 00:00:00"}
+        - {area_code: tokyo, trade_date: 2025-01-13, month: 1, day_of_week: 0, day_type: 2, holiday_degree: 1.0, half: 1, quarter: 1, day_of_month: 13, day_of_quarter: 13, day_of_year: 13, is_business_day: 0, fiscal_quarter: 4, days_since_holiday: 0, days_until_holiday: 0, available_at: "1900-01-01 00:00:00"}
+        - {area_code: tokyo, trade_date: 2025-01-14, month: 1, day_of_week: 1, day_type: 0, holiday_degree: 0.0, half: 1, quarter: 1, day_of_month: 14, day_of_quarter: 14, day_of_year: 14, is_business_day: 1, fiscal_quarter: 4, days_since_holiday: 1, days_until_holiday: null, available_at: "1900-01-01 00:00:00"}

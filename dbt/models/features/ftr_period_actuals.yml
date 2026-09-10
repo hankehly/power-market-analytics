@@ -1,0 +1,71 @@
+models:
+  - name: ftr_period_actuals
+    config:
+      contract:
+        enforced: true
+    description: >
+      The area demand seven days before each delivery period, the demand strategies' lag_7d_demand_kwh, from fct_area_demand_generation_actual. Grain: area_code x trade_date x time_code. A period whose D-7 actual is a TSO hole has no row. available_at is the D-7 row's.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - area_code
+              - trade_date
+              - time_code
+    columns:
+      - name: area_code
+        data_type: string
+        description: >
+          dim_area.area_code of the bidding zone.
+        data_tests:
+          - not_null
+      - name: trade_date
+        data_type: date
+        description: >
+          The delivery day D (the actual's day + 7).
+        data_tests:
+          - not_null
+      - name: time_code
+        data_type: int
+        description: >
+          JEPX time code 1-48 of the delivery period.
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 1
+                max_value: 48
+      - name: lag_7d_demand_kwh
+        data_type: bigint
+        description: >
+          Area demand over the same period on D-7, kWh.
+        config:
+          meta:
+            feature: true
+            categorical: false
+        data_tests:
+          - not_null
+      - name: available_at
+        data_type: timestamp
+        description: >
+          When the row became public, naive JST: the D-7 actual's available_at.
+        data_tests:
+          - not_null
+
+unit_tests:
+  - name: ftr_period_actuals_shift_and_hole
+    description: >
+      A demand row moves seven days forward with its available_at; a null
+      demand row (a TSO hole) produces no lag row.
+    model: ftr_period_actuals
+    given:
+      - input: ref('dim_area')
+        rows:
+          - {area_key: 1, area_code: tokyo}
+      - input: ref('fct_area_demand_generation_actual')
+        rows:
+          - {date_key: 2025-03-01, time_code: 1, area_key: 1, demand_kwh: 100, available_at: "2025-03-02 00:05:00"}
+          - {date_key: 2025-03-01, time_code: 2, area_key: 1, demand_kwh: null, available_at: "2025-03-02 00:05:00"}
+    expect:
+      rows:
+        - {area_code: tokyo, trade_date: 2025-03-08, time_code: 1, lag_7d_demand_kwh: 100, available_at: "2025-03-02 00:05:00"}

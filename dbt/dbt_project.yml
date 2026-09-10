@@ -21,6 +21,8 @@ models:
       +schema: standardized
     curated:
       +schema: curated
+    features:
+      +schema: features
 seeds:
   # Globally quote all seed columns
   # https://docs.getdbt.com/reference/resource-configs/quote_columns
