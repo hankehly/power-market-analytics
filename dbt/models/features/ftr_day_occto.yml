@@ -1,0 +1,62 @@
+models:
+  - name: ftr_day_occto
+    config:
+      contract:
+        enforced: true
+    description: >
+      The OCCTO 翌々日 peak forecast of each delivery day per bidding zone, the three fields the spot-price lightgbm_occto strategy uses (research spot_price/R-001). Grain: area_code x trade_date, from 2024-04-01. available_at is the fact's: 18:00 on D-2.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - area_code
+              - trade_date
+    columns:
+      - name: area_code
+        data_type: string
+        description: >
+          dim_area.area_code of the bidding zone.
+        data_tests:
+          - not_null
+      - name: trade_date
+        data_type: date
+        description: >
+          The delivery day the forecast targets (fct_occto_demand_supply_forecast_daily.date_key).
+        data_tests:
+          - not_null
+      - name: max_demand_hour_ending
+        data_type: int
+        description: >
+          Hour ending 1-24 of the forecast peak demand.
+        config:
+          meta:
+            feature: true
+            categorical: false
+        data_tests:
+          - not_null
+      - name: max_demand_mw
+        data_type: int
+        description: >
+          Forecast peak demand, MW.
+        config:
+          meta:
+            feature: true
+            categorical: false
+        data_tests:
+          - not_null
+      - name: max_supply_capacity_mw
+        data_type: int
+        description: >
+          Forecast supply capacity at the peak, MW.
+        config:
+          meta:
+            feature: true
+            categorical: false
+        data_tests:
+          - not_null
+      - name: available_at
+        data_type: timestamp
+        description: >
+          When the row became public, naive JST: the fact's available_at, 18:00 on D-2.
+        data_tests:
+          - not_null
