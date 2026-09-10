@@ -378,7 +378,17 @@
   `VINTAGES` entry + fixtures + the singular dbt test's year list.
   Protocol + format: [docs/eStat-Census-Population-Mesh-Retrieval.md](docs/eStat-Census-Population-Mesh-Retrieval.md).
 - dbt (`dbt/`): sources in `models/raw/<source>.yml` → `staging` (as-is) → `standardized`
-  (typed time axis) → `curated` (Kimball star: `dim_*`, `fct_*`). Schemas: `pma_<layer>`.
+  (typed time axis) → `curated` (Kimball star: `dim_*`, `fct_*`) → `features` (feature marts
+  `ftr_<grain>_<family>`, since 2026-09-10: one model per source family at its grain — day
+  = `area_code × trade_date`, hour = `… × hour_ending`, period = `… × time_code` — every
+  feature column tagged `config.meta.feature` / `categorical`, plus `available_at` carried
+  from the facts through the `available_at()` macro; the singular test
+  `assert_feature_marts_declare_available_at` lists any feature model without the column.
+  Today's six: `ftr_day_calendar`, `ftr_day_occto`, `ftr_hour_jma_obs`, `ftr_hour_msm`,
+  `ftr_period_actuals`, `ftr_period_jepx`, each proven equal to the Python builder it
+  mirrors for Tokyo 2025; the strategies still build their own features until the feature
+  catalogue's later PRs, design `docs/superpowers/specs/2026-09-10-feature-catalogue-design.md`).
+  Schemas: `pma_<layer>`.
 - Japanese holidays: Cabinet Office CSV → `scripts/update_holidays_seed.py` → seed → `dim_date`
   (spine end derives from the seed's max year). `dim_date.is_holiday` is the seed's 国民の祝日
   **plus** the customary non-working days computed in SQL — 年末年始 12/30–1/3, ゴールデンウィーク
