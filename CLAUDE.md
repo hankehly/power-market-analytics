@@ -84,6 +84,12 @@
   `scripts/generate_feature_views.py`); run it after a mart or its tags change. The `dbt parse`
   CI job runs the generator with `--check` and fails on a stale file. The file is generated
   output: never edit it, and it is excluded from `ruff format`.
+- `just feast-ui` — serve the Feast UI, the browsable feature catalogue (feature views with
+  their fields, descriptions and tags, entities, data sources), host-side on
+  http://localhost:8888 after refreshing `data/feast/registry.db` from the package; Ctrl-C
+  stops it. `just open feast` opens it. Needs the `grpcio` extra of `feast` (in the
+  dependency since 2026-09-10: `feast[spark,grpcio]`) — without it `feast ui` dies on
+  `import grpc`. The UI reads the registry at start: restart it after a mart changes.
 - `just python scripts/spot_price_backtest.py --strategy lightgbm --area tokyo` — day-ahead
   backtest (strategies: `previous_day`, `lightgbm`, `lightgbm_occto`; areas =
   `dim_area.area_code`). Logs to MLflow (`just open mlflow`) and publishes forecasts to the
