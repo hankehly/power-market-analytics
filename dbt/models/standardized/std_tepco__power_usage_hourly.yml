@@ -44,6 +44,10 @@ models:
               (forecast_mankw is null) = (delivery_date < date '2022-04-01')
               and (usage_rate_pct is null) = (delivery_date < date '2022-04-01')
               and (supply_capacity_mankw is null) = (delivery_date < date '2022-04-01')
+      - dbt_utils.expression_is_true:
+          name: std_tepco_power_usage_available_at_after_hour_end
+          arguments:
+            expression: "available_at >= timestampadd(hour, hour_ending, cast(delivery_date as timestamp))"
     columns:
       - name: delivery_date
         data_type: date
@@ -119,5 +123,17 @@ models:
           - not_null
       - name: source_file
         data_type: string
+        data_tests:
+          - not_null
+      - name: available_at
+        data_type: timestamp
+        description: >
+          When the row became public, naive JST. Daily files (2022-04-01 on):
+          file_updated_at, never before the hour ends; the archive keeps the live
+          file's last update at 23:55, five minutes before the last hour ends
+          (median lag 11 h, max 23 h). Yearly juyo-YYYY.csv rows (2016-04-01 to
+          2022-03-31) carry the yearly file's update time, months to years later, so
+          they get the delivery day + 2 days at 00:00, above every daily lag
+          observed.
         data_tests:
           - not_null
