@@ -23,6 +23,10 @@ models:
               - target_date
               - time_code
               - area_code
+      - dbt_utils.expression_is_true:
+          name: std_occto_area_reserve_rate_dad_available_at_before_delivery
+          arguments:
+            expression: "available_at < delivery_datetime"
     columns:
       - name: target_date
         data_type: date
@@ -110,5 +114,14 @@ models:
       - name: area_reserve_mw
         data_type: double
         description: Area supply capacity minus area demand, MW; may be negative.
+        data_tests:
+          - not_null
+      - name: available_at
+        data_type: timestamp
+        description: >
+          When the forecast became public, naive JST: target_date - 2 days at 18:00.
+          The dataset is formulated on D-2 and published with the daily 翌々日 forecast
+          (rule 17時30分以降速やかに, Web公表 preamble e.g. 17:49; docs/OCCTO-Demand-Forecast-
+          Retrieval.md section 9); 18:00 is the bound.
         data_tests:
           - not_null
