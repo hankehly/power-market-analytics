@@ -2,9 +2,9 @@
 
 A concrete strategy sets ``task``, ``name``, ``feature_cols``,
 ``eval_set_cls`` and ``lookback_days`` (and ``categorical_feature_cols`` when
-some features are categories) and implements ``_add_features`` (lags,
-exogenous columns); everything else — the calendar features, periodic refits
-on a trailing window, TreeSHAP recording per forecast day and their melt into
+some features are categories) and implements ``_features``; everything else
+— periodic refits on a trailing window, TreeSHAP recording per forecast day
+and their melt into
 ``contributions()`` for the warehouse, the permutation importance over the
 kept refits, replaying the walk-forward forecasts
 through MLflow's static-dataset evaluation and the SHAP summary plots — lives
@@ -45,7 +45,6 @@ from power_market_analytics.forecasting.importance import (
 )
 from power_market_analytics.forecasting.strategy import ForecastStrategy, ForecastUnavailableError
 
-CALENDAR_FEATURE_COLS: tuple[str, ...] = ("time_code", "month", "day_of_week")
 #: Sliding training window length in calendar days (two years).
 DEFAULT_TRAIN_WINDOW_DAYS = 730
 
@@ -103,9 +102,7 @@ class SlidingWindowLightGbmStrategy(ForecastStrategy[HalfHourlySeries, LightGbmE
     model that forecast it.
 
     Training and prediction rows go through the same feature builder
-    (:meth:`_features`), so the two can never disagree: the base adds
-    ``month`` and ``day_of_week`` and the subclass's :meth:`_add_features`
-    adds its lags and exogenous columns.
+    (:meth:`_features`, the subclass's), so the two can never disagree.
 
     Evaluation replays the backtest's own forecasts through MLflow's
     static-dataset mode instead of re-scoring with any single model: with
@@ -120,8 +117,8 @@ class SlidingWindowLightGbmStrategy(ForecastStrategy[HalfHourlySeries, LightGbmE
     Class Attributes
     ----------------
     feature_cols : tuple of str
-        Model features, in order; must start with ``CALENDAR_FEATURE_COLS``
-        or otherwise include every column :meth:`_features` produces.
+        Model features, in order; every one a column :meth:`_features`
+        produces.
     eval_set_cls : type
         ``LightGbmEvalSetBase`` subclass for this strategy's design matrix.
     lookback_days : int
@@ -666,6 +663,7 @@ class SlidingWindowLightGbmStrategy(ForecastStrategy[HalfHourlySeries, LightGbmE
             history.rename(columns={self.task.value_col: self.target_col}), history
         )
 
+    @abstractmethod
     def _features(self, points: pd.DataFrame, history: pd.DataFrame) -> pd.DataFrame:
         """Attach every feature column to a set of (trade_date, time_code) points.
 
@@ -683,28 +681,4 @@ class SlidingWindowLightGbmStrategy(ForecastStrategy[HalfHourlySeries, LightGbmE
         -------
         pandas.DataFrame
             ``points`` plus ``feature_cols`` (NaN where unavailable).
-        """
-        featured = points.assign(
-            month=points["trade_date"].dt.month.astype("int64"),
-            day_of_week=points["trade_date"].dt.dayofweek.astype("int64"),
-        )
-        return self._add_features(featured, history)
-
-    @abstractmethod
-    def _add_features(self, featured: pd.DataFrame, history: pd.DataFrame) -> pd.DataFrame:
-        """Attach the strategy's own features (lags, exogenous columns).
-
-        Parameters
-        ----------
-        featured : pandas.DataFrame
-            Rows keyed on (trade_date, time_code) carrying the calendar
-            features.
-        history : pandas.DataFrame
-            History in the task's ``HalfHourlySeries`` layout.
-
-        Returns
-        -------
-        pandas.DataFrame
-            ``featured`` plus this strategy's remaining ``feature_cols``
-            (NaN where unavailable).
         """
