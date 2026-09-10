@@ -1,0 +1,14 @@
+# Feast store config; open it with power_market_analytics.features.store.open_store(),
+# which also applies the package's entities and generated views to the registry.
+project: pma
+provider: local
+# Rebuilt by open_store() from the package's definitions; data/ is gitignored.
+registry: ../../data/feast/registry.db
+offline_store:
+  # Reuses the active SparkSession (the project's, Hive-enabled): nothing to configure.
+  type: spark
+online_store:
+  # Never materialised: every view is online=False. Feast requires an entry.
+  type: sqlite
+  path: ../../data/feast/online_store.db
+entity_key_serialization_version: 3
