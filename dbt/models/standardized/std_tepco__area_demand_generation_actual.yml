@@ -24,6 +24,10 @@ models:
           name: std_tepco_area_actual_wind_solar_lte_generation
           arguments:
             expression: "wind_solar_generation_kwh <= generation_kwh"
+      - dbt_utils.expression_is_true:
+          name: std_tepco_area_actual_available_at_after_period_end
+          arguments:
+            expression: "available_at >= timestampadd(minute, 30, delivery_datetime)"
     columns:
       - name: delivery_date
         data_type: date
@@ -70,5 +74,15 @@ models:
                 min_value: 0
       - name: file_updated_at
         data_type: timestamp
+        data_tests:
+          - not_null
+      - name: available_at
+        data_type: timestamp
+        description: >
+          When the row became public, naive JST: the daily file's file_updated_at,
+          but never before the period ends. Files are written about 00:05 on the
+          next day (median lag 12 h, p99 24 h; re-issued days later). The frozen
+          2025-06-14 file carries 05:05 on the day itself, before its own periods,
+          hence the floor.
         data_tests:
           - not_null
