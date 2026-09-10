@@ -55,19 +55,19 @@ across joined inputs.
 
 | Source | `available_at` | Status |
 |---|---|---|
-| JMA hourly observations | `observed_at` + 1 h | lag to confirm |
-| MSM forecast | `forecast_reference_at` + 4 h (12 UTC run = 21:00 JST, so 01:00 D-1) | lag to confirm; anything under 12 h is safe |
-| TSO area actuals (A-1) | `file_updated_at` of the daily file, already in the `std_<tso>__…` models | the facts carry it through |
-| でんき予報 hourly | `file_updated_at` of the daily file, same | same |
-| OCCTO daily and 30-min forecasts | D-2 17:45 | rule, no column; to confirm |
-| JEPX spot prices for delivery day X | X-1 auction result publication | time to confirm |
-| `dim_date`, seeds, census | a constant far past (`1900-01-01`) | static |
-| `pma_ml.<task>_forecast` | `forecast_issued_ts` | already present |
+| JMA hourly observations | `observed_at` + 1 h | bound; JMA posts within about 10 to 30 min, no per-row record |
+| MSM forecast | `forecast_reference_at` + 4 h (12 UTC run = 21:00 JST, so 01:00 D-1) | bound; RISH distribution observed ~23:30 JST, 2.5 h after reference |
+| TSO area actuals (A-1) | `greatest(file_updated_at, period end)` | daily files ~00:05 on D+1; the frozen 2025-06-14 TEPCO file is stamped 05:05 that day, hence the floor |
+| でんき予報 hourly | `greatest(file_updated_at, hour end)`; TEPCO's yearly-file rows (2016-04 to 2022-03) get D+2 00:00 | daily files are last updated 23:55 on the day; the yearly files carry a much later update time |
+| OCCTO daily and 30-min forecasts | D-2 18:00 | rule 17:30以降速やかに, observed 17:45 to 17:49, OCCTO's timeline says 18時頃 |
+| JEPX spot prices for delivery day X | X-1 12:00 | bids close 10:00, results promptly after; 12:00 is the BG plan deadline that needs them |
+| `dim_date`, seeds, census | no column | static |
+| `pma_ml.<task>_forecast` | `forecast_issued_ts` | exposed as `available_at` by the `std_ml__*` models |
 | Fitted parameters (§5) | the fit window's end | new |
 
-Rules marked "to confirm" are checked once against the source's own publication record
-where one exists, and written into the standardized model's YAML. Models that compute the
-column: `std_jma__hourly`, `std_jma__msm_surface_forecast`,
+Each rule and its evidence are written in the standardized model's YAML;
+`docs/superpowers/plans/2026-09-10-available-at-standardized.md` lists them with the
+measured lags. Models that compute the column: `std_jma__hourly`, `std_jma__msm_surface_forecast`,
 `std_tepco__area_demand_generation_actual`, `std_kansai__area_demand_generation_actual`,
 `std_tepco__power_usage_hourly`, `std_kansai__power_usage_hourly`,
 `std_occto__demand_forecast_dad`, `std_occto__area_reserve_rate_dad`, `std_jepx__spot`;
@@ -220,7 +220,7 @@ in a different order when rows arrive in a different order.
 | PR | Branch | Delivers | Proof | Needs |
 |---|---|---|---|---|
 | 0 | `feature/spot-price-issue-time-0930` | issue time 09:30 for both tasks | tests, lint, parse; PR #59 | none |
-| 1 | `feature/available-at-standardized` | this spec; `available_at` in the nine standardized models and the two forecast ones; the seven facts carry it through; the lags in §3 confirmed and documented | `dbt build` green; per source, the smallest and largest lag from event time to `available_at` | 0 |
+| 1 | `feature/available-at-standardized` | this spec; `available_at` in the nine standardized models and the two forecast ones; the seven facts carry it through; the lags in §3 confirmed and documented | `dbt build` green; per source, the smallest and largest lag from event time to `available_at`; done 2026-09-10 | 0 |
 | 2 | `feature/feature-marts` | `models/features/` for today's features except similar day; column tags; the `available_at` macro and generic test; dbt unit tests | every mart column equals today's Python builder's output for Tokyo over one year | 1 |
 | 3 | `feature/feature-value-fact` | `fct_feature_value` and the two Superset datasets | `dbt build` green; one chart in Superset | 2 |
 | 4 | `feature/feast-retrieval` | the spike (§9), then the Feast repo, generated views, staleness test and dependency; the façade instead if the spike fails | the spike's pass criteria | 2 |
