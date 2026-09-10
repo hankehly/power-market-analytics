@@ -216,7 +216,7 @@ class LightGbmMsmStrategy(LightGbmStrategy):
     feature_cols = MSM_FEATURE_COLS
     # Declared at the demand eval-set base so a subclass may swap in a sibling
     # design matrix (the population-weighted one) rather than a subclass of this one.
-    eval_set_cls: ClassVar[type[DemandLightGbmEvalSet]] = DemandLightGbmMsmEvalSet
+    eval_set_cls: type[DemandLightGbmEvalSet] = DemandLightGbmMsmEvalSet
     #: Column the delivery-day forecast temperature is attached as.
     forecast_feature: ClassVar[str] = FORECAST_TEMPERATURE_FEATURE
 
