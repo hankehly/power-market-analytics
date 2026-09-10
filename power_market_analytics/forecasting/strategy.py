@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 from mlflow.models import EvaluationResult
@@ -42,14 +42,15 @@ class ForecastStrategy[HistoryT: HalfHourlySeries, EvalSetT: DomainFrame](ABC):
     Attributes
     ----------
     name : str
-        Registry key and MLflow tag for the strategy.
+        Registry key and MLflow tag for the strategy. A class attribute on
+        the fixed strategies, an instance attribute on preset-built ones.
     task : TaskSpec
         The task this strategy forecasts; fixes the frame classes, the
         history cutoff and the column names the engine reads.
     """
 
-    name: ClassVar[str]
-    task: ClassVar[TaskSpec]
+    name: str
+    task: TaskSpec
 
     @abstractmethod
     def predict(self, target_date: pd.Timestamp, history: HistoryT) -> DayAheadForecast:
