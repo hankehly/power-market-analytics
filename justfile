@@ -19,6 +19,11 @@ python *args:
 dbt *args:
     @docker compose exec --workdir /workspace/dbt devcontainer dbt "$@"
 
+[doc("Regenerate power_market_analytics/features/views.py from the dbt manifest (host-side parse first)")]
+feature-views:
+    cd dbt && DBT_THRIFT_HOST=localhost uv run dbt parse
+    uv run python scripts/generate_feature_views.py
+
 [doc("Open a shell inside the devcontainer")]
 shell:
     @docker compose exec -e PYTHONPATH=/workspace devcontainer bash

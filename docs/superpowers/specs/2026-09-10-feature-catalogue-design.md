@@ -124,9 +124,11 @@ and rain, |Δ days_since_holiday|, |Δ days_until_holiday|, |Δ holiday_degree|;
 
 ## 6. Feast
 
-- `feature_repo/` at the repo root: `feature_store.yaml` (project `pma`, file registry under
-  `data/feast/`, gitignored, rebuilt by `feast apply`; `offline_store: type: spark`, which
-  reuses the active SparkSession; feature views `online=False`, nothing materialised).
+- The definitions live in the package, `power_market_analytics/features/`, so tests and the
+  coverage gate see them; the store config is `conf/feast/feature_store.yaml` (project `pma`,
+  file registry `data/feast/registry.db`, gitignored, rebuilt by `open_store()`;
+  `offline_store: type: spark`, which reuses the active SparkSession; views `online=False`,
+  nothing materialised). No `feast` CLI is needed.
 - Entities and join keys: `area_code` (string), `trade_date_key` (int `yyyymmdd`),
   `hour_ending` (int), `time_code` (int). The entity frame carries all four;
   `hour_ending = (time_code + 1) // 2`. A view joins on the keys of its grain, so a day
@@ -134,20 +136,29 @@ and rain, |Δ days_since_holiday|, |Δ days_until_holiday|, |Δ holiday_degree|;
   without code. Only coarse to fine: a summary of period values into a day feature is its
   own column in a day mart, computed in dbt, then broadcast like any other.
 - `scripts/generate_feature_views.py` reads `dbt/target/manifest.json` and writes
-  `feature_repo/views.py`: one `SparkSource(table=…, timestamp_field="available_at")` and
-  one `FeatureView` per mart, the tagged columns as fields with their descriptions. The file
-  is checked in; a test fails when it is stale. Sources with re-publication (`forecasts`,
-  parameters) set `created_timestamp_column="published_at"`. No TTL by default.
+  `power_market_analytics/features/views.py`: one `SparkSource(query=…, timestamp_field="available_at")`
+  selecting the keys, `trade_date_key`, the tagged columns and `available_at` from the mart,
+  and one `FeatureView` per mart on its grain's entities, the tagged columns as fields with
+  their descriptions and a `categorical` tag. The file is checked in and never edited; the
+  `dbt parse` CI job runs the generator with `--check` (`just feature-views` regenerates).
+  A source with re-publication (forecasts, parameters) will set `created_timestamp_column="published_at"`
+  when its view is added. No TTL.
 - Presets live in `power_market_analytics/tasks/<task>/presets.py`: name → feature
   references and the categorical subset. The same dict produces the `FeatureService`
-  objects and the strategy's column list. Every current strategy name becomes a preset:
+  objects and the strategy's column list (PR 5). Every current strategy name becomes a preset:
   demand `lightgbm`, `lightgbm_msm`, `lightgbm_msm_popw`, `lightgbm_msm_popw_daytype`,
   `lightgbm_msm_popw_daytype_simday` and its four calendar variants; spot `lightgbm`,
   `lightgbm_occto`. `previous_day` stays a strategy with no features.
-- Retrieval: `store.get_historical_features(entity_df, features=service).to_df()`, the entity
-  frame stamped with each row's issue time. Warehouse timestamps are naive JST and Feast
-  coerces the entity timestamp to UTC; the entity frame is localised to `Asia/Tokyo` before
-  the call, and the spike checks the instant.
+- Retrieval: `retrieval.entity_frame(area_code, days, issue_offset)` builds one row per
+  delivery period stamped with its issue time; `retrieval.historical_features(store, entity_df,
+  features)` calls `get_historical_features` and returns the frame in its row order with the
+  features added.
+- Time zones: Feast's Spark store renders the entity timestamps as UTC string literals in the
+  SQL it generates while comparing rows as instants, so the Spark session must run in UTC.
+  The devcontainer's does, and the warehouse's naive-JST convention is wall-clock values
+  stored under it, so the entity frame stamps the naive JST issue time as UTC and retrieval
+  refuses a session or a frame in another zone. The test fixture's Asia/Tokyo session is
+  switched to UTC for the Feast tests.
 - Cross-task: a view over `fct_demand_forecast` filtered to the champion preset with
   `timestamp_field="forecast_issued_ts"`, `created_timestamp_column="published_at"`. The
   spot run logs the upstream run id as a parameter.
@@ -197,6 +208,10 @@ and rain, |Δ days_since_holiday|, |Δ days_until_holiday|, |Δ holiday_degree|;
   with the local Spark fixture; dbt unit tests run on the thrift connection.
 - Fail: `forecasting/features.py` gets `as_of_join(entity_df, marts)` built on
   `pandas.merge_asof` per view. Same `FeatureFrame` out, nothing else changes.
+- Result, 2026-09-10: passed. 17,520 rows in 6.2 s, every value equal to the loaders, the row
+  one minute before its `available_at` excluded and the row at the instant included, the
+  same checks under pytest on the local session, dbt unit tests on thrift (PR #61). One
+  finding: the local session had to be UTC, the rule in §6.
 
 ## 10. Tests and verification
 
@@ -223,7 +238,7 @@ in a different order when rows arrive in a different order.
 | 1 | `feature/available-at-standardized` | this spec; `available_at` in the nine standardized models and the two forecast ones; the seven facts carry it through; the lags in §3 confirmed and documented | `dbt build` green; per source, the smallest and largest lag from event time to `available_at`; done 2026-09-10 | 0 |
 | 2 | `feature/feature-marts` | `models/features/` for today's features except similar day; column tags; the `available_at` macro and generic test; dbt unit tests | every mart column equals today's Python builder's output for Tokyo over one year; done 2026-09-10 | 1 |
 | 3 | `feature/feature-value-fact` | `fct_feature_value` and the two Superset datasets | `dbt build` green; one chart in Superset | 2 |
-| 4 | `feature/feast-retrieval` | the spike (§9), then the Feast repo, generated views, staleness test and dependency; the façade instead if the spike fails | the spike's pass criteria | 2 |
+| 4 | `feature/feast-retrieval` | the spike (§9), then the Feast repo, generated views, staleness test and dependency; the façade instead if the spike fails | the spike's pass criteria; done 2026-09-10 | 2 |
 | 5 | `feature/spot-price-presets` | presets, `FeatureFrame`, `build_strategy` through Feast, one spot strategy, `--add`, `--drop`, `--name`; delete `LightGbmOcctoStrategy` | the spot `lightgbm_occto` run reproduced | 4 |
 | 6 | `feature/demand-presets` | the demand presets without similar day, one demand strategy; delete their classes | the kept R-003 Tokyo run reproduced | 5 |
 | 7 | `feature/similar-day-feature` | the fit script, `pma_ml.similar_day_parameters`, `ftr_period_similar_day`, the five similar-day presets; delete the last classes | run `008868fe…` reproduced | 6 |

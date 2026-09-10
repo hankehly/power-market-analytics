@@ -31,3 +31,34 @@ def import_script(name: str) -> ModuleType:
     sys.modules[name] = module
     spec.loader.exec_module(module)
     return module
+
+
+FEATURE_STORE_YAML = """project: pma_test
+provider: local
+registry: {registry}
+offline_store:
+  type: spark
+online_store:
+  type: sqlite
+  path: online.db
+entity_key_serialization_version: 3
+"""
+
+
+def write_feature_store_yaml(directory: Path, registry: str = "registry.db") -> Path:
+    """Write a test ``feature_store.yaml`` (Spark offline store, file registry) into ``directory``.
+
+    Parameters
+    ----------
+    directory : pathlib.Path
+        The store's repo directory, e.g. a ``tmp_path``.
+    registry : str, optional
+        Registry path relative to ``directory``.
+
+    Returns
+    -------
+    pathlib.Path
+        ``directory``, for :func:`power_market_analytics.features.store.open_store`.
+    """
+    (directory / "feature_store.yaml").write_text(FEATURE_STORE_YAML.format(registry=registry))
+    return directory

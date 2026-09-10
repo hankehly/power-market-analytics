@@ -79,6 +79,11 @@
   test-argument errors; the data tests (`dbt build`) still need the thriftserver and do not
   run in CI.
 - `just sql` — beeline shell on the thriftserver.
+- `just feature-views` — regenerate `power_market_analytics/features/views.py`, the Feast feature
+  views of the dbt feature marts, from the manifest (host-side `dbt parse`, then
+  `scripts/generate_feature_views.py`); run it after a mart or its tags change. The `dbt parse`
+  CI job runs the generator with `--check` and fails on a stale file. The file is generated
+  output: never edit it, and it is excluded from `ruff format`.
 - `just python scripts/spot_price_backtest.py --strategy lightgbm --area tokyo` — day-ahead
   backtest (strategies: `previous_day`, `lightgbm`, `lightgbm_occto`; areas =
   `dim_area.area_code`). Logs to MLflow (`just open mlflow`) and publishes forecasts to the
@@ -389,6 +394,20 @@
   mirrors for Tokyo 2025; the strategies still build their own features until the feature
   catalogue's later PRs, design `docs/superpowers/specs/2026-09-10-feature-catalogue-design.md`).
   Schemas: `pma_<layer>`.
+- Feature retrieval (Feast, since 2026-09-10; nothing reads it until the catalogue's PR 5):
+  `power_market_analytics/features/` — `entities.py` (join keys `area_code`, `trade_date_key`
+  = int yyyymmdd, `hour_ending`, `time_code`; `GRAIN_ENTITIES` per mart grain), `views.py`
+  (generated: one `SparkSource(query=…)` + `FeatureView` per mart, tagged columns as fields,
+  `timestamp_field = available_at`, `online=False`), `store.py` (`open_store()` reads
+  `conf/feast/feature_store.yaml` — Spark offline store on the active SparkSession, file
+  registry `data/feast/registry.db`, gitignored — and applies the entities and views, so
+  every caller's registry matches the package; `session_time_zone`) and `retrieval.py`
+  (`entity_frame(area_code, days, issue_offset)`: one row per delivery period stamped with
+  its issue time; `historical_features(store, entity_df, features)`: Feast's point-in-time
+  join, the newest row per key with `available_at <=` the row's issue time, in the frame's
+  row order). Proven on Tokyo 2025 against the marts inside the devcontainer. `feast[spark]`
+  is a dependency since 2026-09-10 (`docker compose build devcontainer` after pulling the
+  lock).
 - Japanese holidays: Cabinet Office CSV → `scripts/update_holidays_seed.py` → seed → `dim_date`
   (spine end derives from the seed's max year). `dim_date.is_holiday` is the seed's 国民の祝日
   **plus** the customary non-working days computed in SQL — 年末年始 12/30–1/3, ゴールデンウィーク
@@ -639,6 +658,13 @@
 - JMA hourly: 積雪の深さ carries 現象なし情報 at staffed stations and is blank (not 0) with
   quality 1 when snow is untracked off-season; `wind_direction_quality_flag` is the one
   nullable flag (阿蘇山 s47821 post-closure padding rows, 2017-12-12..31) — don't tighten either.
+- Feast's Spark offline store needs a **UTC** Spark session: the SQL it generates renders the
+  entity timestamps as UTC string literals (`where available_at <= '2025-03-09T00:30:00'`) while
+  comparing rows as instants, so any other session zone shifts the cutoff. The devcontainer's
+  session is UTC (the warehouse's naive-JST convention is wall-clock values stored under it);
+  `entity_frame` stamps the naive JST issue time as UTC and `historical_features` refuses a
+  session or a frame in another zone. The test fixture runs in Asia/Tokyo, so the Feast tests
+  switch the session to UTC for their duration (`utc_session`).
 - `scipy` is a declared dependency since 2026-09-05 (the similar-day weight fit uses
   `scipy.optimize.least_squares`); `scipy.*` is mypy-ignored like `shap.*`.
 - `scikit-learn` is a declared dependency since 2026-09-08 (`sklearn.inspection.permutation_importance`;
