@@ -1,0 +1,112 @@
+models:
+  - name: ftr_hour_msm
+    config:
+      contract:
+        enforced: true
+    description: >
+      The MSM forecast for each delivery-day hour per bidding zone, one row per forecast vintage: the representative station's temperature (the demand lightgbm_msm feature) and the population-weighted temperature, humidity and rain over the area's staffed stations with the latest census vintage's weights (lightgbm_msm_popw and the similar-day selector; tasks/demand/datasets.py). Grain: area_code x trade_date x hour_ending x forecast_reference_at. available_at is the vintage's: reference + 4 h.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - area_code
+              - trade_date
+              - hour_ending
+              - forecast_reference_at
+    columns:
+      - name: area_code
+        data_type: string
+        description: >
+          dim_area.area_code of the bidding zone.
+        data_tests:
+          - not_null
+      - name: trade_date
+        data_type: date
+        description: >
+          The delivery day D the forecast hour falls on (hour-start date).
+        data_tests:
+          - not_null
+      - name: hour_ending
+        data_type: int
+        description: >
+          Forecast hour 1-24, hour ending, the JMA observation convention.
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 1
+                max_value: 24
+      - name: forecast_reference_at
+        data_type: timestamp
+        description: >
+          The MSM run's reference time, naive JST (the vintage key).
+        data_tests:
+          - not_null
+      - name: census_year
+        data_type: int
+        description: >
+          Census vintage of the station weights applied (the latest loaded).
+      - name: forecast_temperature_c
+        data_type: double
+        description: >
+          Forecast temperature at the area's representative station, C.
+        config:
+          meta:
+            feature: true
+            categorical: false
+      - name: popw_forecast_temperature_c
+        data_type: double
+        description: >
+          Population-weighted forecast temperature over the area's stations, C.
+        config:
+          meta:
+            feature: true
+            categorical: false
+      - name: popw_forecast_relative_humidity_pct
+        data_type: double
+        description: >
+          Population-weighted forecast relative humidity, %.
+        config:
+          meta:
+            feature: true
+            categorical: false
+      - name: popw_forecast_precipitation_mm
+        data_type: double
+        description: >
+          Population-weighted forecast precipitation over the hour, mm.
+        config:
+          meta:
+            feature: true
+            categorical: false
+      - name: available_at
+        data_type: timestamp
+        description: >
+          When the row became public, naive JST: the vintage's available_at, reference + 4 h.
+        data_tests:
+          - not_null
+
+unit_tests:
+  - name: ftr_hour_msm_population_weights_latest_census_and_renormalisation
+    description: >
+      Two Tokyo stations with 2020 weights 0.75 / 0.25 and a 2015 vintage that
+      must be ignored; one forecast hour. The representative station's own
+      temperature, the weighted temperature and humidity, precipitation
+      renormalised over the one station that reports it, and the vintage's
+      available_at.
+    model: ftr_hour_msm
+    given:
+      - input: ref('dim_area')
+        rows:
+          - {area_key: 1, area_code: tokyo, representative_jma_station_id: s1}
+      - input: ref('fct_census_population_jma_station')
+        rows:
+          - {census_year: 2015, area_key: 1, station_id: s1, area_population_weight: 1.0}
+          - {census_year: 2020, area_key: 1, station_id: s1, area_population_weight: 0.75}
+          - {census_year: 2020, area_key: 1, station_id: s2, area_population_weight: 0.25}
+      - input: ref('fct_jma_msm_weather_forecast_hourly')
+        rows:
+          - {station_id: s1, date_key: 2025-03-10, forecast_hour_start_at: "2025-03-10 00:00:00", forecast_reference_at: "2025-03-08 21:00:00", temperature_c: 10.0, relative_humidity_pct: 40.0, precipitation_mm: 0.0, available_at: "2025-03-09 01:00:00"}
+          - {station_id: s2, date_key: 2025-03-10, forecast_hour_start_at: "2025-03-10 00:00:00", forecast_reference_at: "2025-03-08 21:00:00", temperature_c: 20.0, relative_humidity_pct: 80.0, precipitation_mm: null, available_at: "2025-03-09 01:00:00"}
+    expect:
+      rows:
+        - {area_code: tokyo, trade_date: 2025-03-10, hour_ending: 1, forecast_reference_at: "2025-03-08 21:00:00", census_year: 2020, forecast_temperature_c: 10.0, popw_forecast_temperature_c: 12.5, popw_forecast_relative_humidity_pct: 50.0, popw_forecast_precipitation_mm: 0.0, available_at: "2025-03-09 01:00:00"}
