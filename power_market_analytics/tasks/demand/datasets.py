@@ -1,7 +1,7 @@
 # power_market_analytics/tasks/demand/datasets.py
-"""Load demand history, observed and forecast temperature, the day-type
-calendar and, for the similar-day selector, the hourly load, the holiday
-calendar and the population-weighted weather profiles of the demand task."""
+"""Load the demand history and, for the similar-day selector, the hourly load,
+the holiday calendar and the population-weighted weather profiles of the demand
+task. The strategies' other features come from the feature marts through Feast."""
 
 from __future__ import annotations
 
@@ -15,15 +15,11 @@ from power_market_analytics.common.warehouse import query_pandas
 from power_market_analytics.forecasting.frames import GRAIN_COLS
 from power_market_analytics.tasks.demand.features import day_type_code
 from power_market_analytics.tasks.demand.frames import (
-    DAY_TYPE_LEVELS,
     AreaDemand,
     AreaHourlyLoad,
     AreaObservedWeather,
-    AreaTemperature,
-    AreaTemperatureForecast,
     AreaWeatherForecast,
     DayCalendar,
-    DayTypeCalendar,
 )
 
 # The areas whose TSO actuals feed fct_area_demand_generation_actual (one
@@ -87,116 +83,6 @@ def load_area_demand(area_code: str = "tokyo", spark: SparkSession | None = None
         .sort_values(GRAIN_COLS, ignore_index=True)
     )
     return AreaDemand.from_df(pdf)
-
-
-def load_area_temperature(
-    area_code: str = "tokyo", spark: SparkSession | None = None
-) -> AreaTemperature:
-    """Load hourly temperature at the area's representative JMA station.
-
-    Reads ``fct_jma_weather_hourly`` for the station named by
-    ``dim_area.representative_jma_station_id``; ``hour_ending`` is derived
-    from ``observed_hour_start_at`` so the 24:00 reading stays on its
-    observation day as hour 24.
-
-    Parameters
-    ----------
-    area_code : str, default "tokyo"
-        dim_area.area_code value, e.g. ``tokyo``.
-    spark : pyspark.sql.SparkSession, optional
-        Existing session to reuse.
-
-    Returns
-    -------
-    AreaTemperature
-
-    Raises
-    ------
-    ValueError
-        If the area has no representative station, the station has no
-        observations, or the result violates the AreaTemperature contract.
-    """
-    pdf = query_pandas(
-        f"""
-        select
-          w.date_key as obs_date,
-          hour(w.observed_hour_start_at) + 1 as hour_ending,
-          w.temperature_c
-        from pma_curated.fct_jma_weather_hourly w
-        join pma_curated.dim_area a on w.station_id = a.representative_jma_station_id
-        where a.area_code = '{area_code}'
-        """,
-        spark=spark,
-    )
-    if pdf.empty:
-        raise ValueError(
-            f"No temperature observations found for area_code={area_code!r} "
-            "(no representative station, or no weather rows for it)"
-        )
-    pdf = (
-        pdf.assign(obs_date=lambda d: pd.to_datetime(d["obs_date"]))
-        .astype({"hour_ending": "int64", "temperature_c": "float64"})
-        .sort_values(["obs_date", "hour_ending"], ignore_index=True)
-    )
-    return AreaTemperature.from_df(pdf)
-
-
-def load_area_temperature_forecast(
-    area_code: str = "tokyo", spark: SparkSession | None = None
-) -> AreaTemperatureForecast:
-    """Load the hourly MSM forecast temperature at the area's representative station.
-
-    Reads ``fct_jma_msm_weather_forecast_hourly`` for the station named by
-    ``dim_area.representative_jma_station_id``. The pipeline ingests one
-    vintage per delivery day — the 12 UTC run of D-2 (``forecast_reference_at``
-    = 21:00 JST D-2, leads 28-51), which JMA disseminates a few hours after
-    its reference time and is therefore available well before the task's
-    09:30 JST D-1 issue time; the frame's unique grain fails fast should a
-    second vintage ever be loaded. ``hour_ending`` is derived from
-    ``forecast_hour_start_at`` so the hour valid at next-day 00:00 stays on
-    its delivery day as hour 24, exactly like the observed series.
-
-    Parameters
-    ----------
-    area_code : str, default "tokyo"
-        dim_area.area_code value, e.g. ``tokyo``.
-    spark : pyspark.sql.SparkSession, optional
-        Existing session to reuse.
-
-    Returns
-    -------
-    AreaTemperatureForecast
-
-    Raises
-    ------
-    ValueError
-        If the area has no representative station, the station has no
-        forecast rows, or the result violates the AreaTemperatureForecast
-        contract (e.g. two vintages for one hour).
-    """
-    pdf = query_pandas(
-        f"""
-        select
-          m.date_key as trade_date,
-          hour(m.forecast_hour_start_at) + 1 as hour_ending,
-          m.temperature_c as forecast_temperature_c
-        from pma_curated.fct_jma_msm_weather_forecast_hourly m
-        join pma_curated.dim_area a on m.station_id = a.representative_jma_station_id
-        where a.area_code = '{area_code}'
-        """,
-        spark=spark,
-    )
-    if pdf.empty:
-        raise ValueError(
-            f"No temperature forecasts found for area_code={area_code!r} "
-            "(no representative station, or no MSM forecast rows for it)"
-        )
-    pdf = (
-        pdf.assign(trade_date=lambda d: pd.to_datetime(d["trade_date"]))
-        .astype({"hour_ending": "int64", "forecast_temperature_c": "float64"})
-        .sort_values(["trade_date", "hour_ending"], ignore_index=True)
-    )
-    return AreaTemperatureForecast.from_df(pdf)
 
 
 def _load_station_weights(
@@ -310,158 +196,6 @@ def _weighted_mean_sql(measure: str, alias: str) -> str:
         f"sum(w.area_population_weight * m.{measure}) "
         f"/ sum(case when m.{measure} is not null then w.area_population_weight end) as {alias}"
     )
-
-
-class PopulationWeightedTemperatureForecast(NamedTuple):
-    """A population-weighted area forecast temperature plus its weighting provenance.
-
-    Attributes
-    ----------
-    forecast : AreaTemperatureForecast
-        The weighted hourly forecast temperature by delivery day.
-    census_year : int
-        Census vintage of the station weights that were applied.
-    n_stations : int
-        Number of weighted stations in the area for that vintage.
-    """
-
-    forecast: AreaTemperatureForecast
-    census_year: int
-    n_stations: int
-
-
-def load_area_temperature_forecast_population_weighted(
-    area_code: str = "tokyo",
-    census_year: int | None = None,
-    spark: SparkSession | None = None,
-) -> PopulationWeightedTemperatureForecast:
-    """Load the population-weighted hourly MSM forecast temperature for an area.
-
-    Averages ``fct_jma_msm_weather_forecast_hourly`` over the area's staffed
-    stations with the census population weights of
-    ``fct_census_population_jma_station`` (each station weighted by the share
-    of the area's population living in the 500 m meshes nearest to it), per
-    delivery day and hour-ending. Hours at which some stations have no
-    forecast value are averaged over the stations that do (weights
-    renormalised), so an hour is absent only when no weighted station has a
-    value. One census vintage's weights are applied to the whole history: the
-    latest loaded vintage by default. The same forecast vintage and hour
-    convention as :func:`load_area_temperature_forecast` apply, and the
-    average is taken within a forecast vintage (``forecast_reference_at``):
-    should the fact ever hold two vintages for one delivery-day hour, this
-    raises rather than blending runs into a temperature no single forecast
-    ever gave.
-
-    Parameters
-    ----------
-    area_code : str, default "tokyo"
-        dim_area.area_code value, e.g. ``tokyo``.
-    census_year : int, optional
-        Census vintage whose weights to use; default: the latest loaded.
-    spark : pyspark.sql.SparkSession, optional
-        Existing session to reuse.
-
-    Returns
-    -------
-    PopulationWeightedTemperatureForecast
-        The weighted forecast with the census year and station count used.
-
-    Raises
-    ------
-    ValueError
-        If the area has no station population weights (for that census
-        year), none of its weighted stations has forecast rows, more than one
-        forecast vintage covers a delivery-day hour, or the result violates
-        the AreaTemperatureForecast contract.
-    """
-    year, used = _load_station_weights(
-        area_code, census_year, spark, "load_area_temperature_forecast_population_weighted"
-    )
-    pdf = query_pandas(
-        f"""
-        select
-          m.date_key as trade_date,
-          hour(m.forecast_hour_start_at) + 1 as hour_ending,
-          m.forecast_reference_at,
-          sum(w.area_population_weight * m.temperature_c)
-            / sum(case when m.temperature_c is not null then w.area_population_weight end)
-            as forecast_temperature_c
-        from pma_curated.fct_jma_msm_weather_forecast_hourly m
-        join pma_curated.fct_census_population_jma_station w
-          on w.station_id = m.station_id and w.census_year = {year}
-        join pma_curated.dim_area a on w.area_key = a.area_key
-        where a.area_code = '{area_code}'
-        group by 1, 2, 3
-        """,
-        spark=spark,
-    )
-    if pdf.empty:
-        raise ValueError(
-            f"No temperature forecasts found for the weighted stations of "
-            f"area_code={area_code!r} (census_year={year})"
-        )
-    pdf = (
-        pdf.assign(trade_date=lambda d: pd.to_datetime(d["trade_date"]))
-        .astype({"hour_ending": "int64", "forecast_temperature_c": "float64"})
-        .sort_values(["trade_date", "hour_ending", "forecast_reference_at"], ignore_index=True)
-    )
-    _reject_multiple_vintages(pdf, area_code)
-    pdf = pdf.drop(columns="forecast_reference_at")
-    return PopulationWeightedTemperatureForecast(
-        forecast=AreaTemperatureForecast.from_df(pdf), census_year=year, n_stations=len(used)
-    )
-
-
-def load_day_types(spark: SparkSession | None = None) -> DayTypeCalendar:
-    """Load the day type of every calendar day in ``dim_date``.
-
-    Codes each day with :func:`day_type_code` from the dimension's
-    ``is_weekend`` / ``is_holiday`` flags, so ``is_holiday``'s definition (the
-    国民の祝日 plus the customary 年末年始 / ゴールデンウィーク / お盆 days) is
-    the feature's. The whole spine is returned (2016 through the end of the
-    holiday seed's last year); a delivery day beyond it has no day type and is
-    unforecastable for a strategy that needs one.
-
-    Parameters
-    ----------
-    spark : pyspark.sql.SparkSession, optional
-        Existing session to reuse.
-
-    Returns
-    -------
-    DayTypeCalendar
-
-    Raises
-    ------
-    ValueError
-        If ``dim_date`` returns no rows or the result violates the
-        DayTypeCalendar contract.
-    """
-    pdf = query_pandas(
-        """
-        select
-          d.date_key as trade_date,
-          d.is_weekend,
-          d.is_holiday
-        from pma_curated.dim_date d
-        """,
-        spark=spark,
-    )
-    if pdf.empty:
-        raise ValueError("No calendar days found in dim_date")
-    pdf = pdf.assign(
-        trade_date=lambda d: pd.to_datetime(d["trade_date"]),
-        day_type=lambda d: day_type_code(d["is_weekend"], d["is_holiday"]),
-    ).sort_values("trade_date", ignore_index=True)
-    counts = pdf["day_type"].value_counts()
-    logger.info(
-        "load_day_types: {} days ({})",
-        len(pdf),
-        ", ".join(
-            f"{level}={int(counts.get(code, 0))}" for code, level in enumerate(DAY_TYPE_LEVELS)
-        ),
-    )
-    return DayTypeCalendar.from_df(pdf)
 
 
 def load_area_hourly_load(
