@@ -17,6 +17,7 @@ with
     demand_kwh,
     generation_kwh,
     wind_solar_generation_kwh,
+    available_at,
     'tokyo' as area_code
   from
     {{ ref('std_tepco__area_demand_generation_actual') }}
@@ -30,6 +31,7 @@ with
     demand_kwh,
     generation_kwh,
     wind_solar_generation_kwh,
+    available_at,
     'kansai' as area_code
   from
     {{ ref('std_kansai__area_demand_generation_actual') }}
@@ -49,7 +51,8 @@ with
     actuals.delivery_datetime,
     actuals.demand_kwh,
     actuals.generation_kwh,
-    actuals.wind_solar_generation_kwh
+    actuals.wind_solar_generation_kwh,
+    actuals.available_at
   from
     actuals
     inner join areas

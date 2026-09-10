@@ -26,7 +26,8 @@ with
     forecasts.max_demand_mw,
     forecasts.max_supply_capacity_mw,
     forecasts.usage_rate,
-    forecasts.reserve_rate
+    forecasts.reserve_rate,
+    forecasts.available_at
   from
     forecasts
     inner join {{ ref('dim_area') }} as dim_area
