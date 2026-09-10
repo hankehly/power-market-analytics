@@ -33,10 +33,11 @@ def test_the_four_presets_keep_the_old_feature_order():
     assert all(preset.task == "demand" for preset in PRESETS.values())
 
 
-def test_the_presets_record_what_they_started_from():
+def test_the_presets_record_what_they_were_changed_from():
     assert LIGHTGBM.base is None
     assert LIGHTGBM_MSM.base == "lightgbm"
-    assert LIGHTGBM_MSM_POPW_DAYTYPE.base == "lightgbm"
+    assert LIGHTGBM_MSM_POPW.base == "lightgbm"
+    assert LIGHTGBM_MSM_POPW_DAYTYPE.base == "lightgbm_msm_popw"
 
 
 def test_types_and_categoricals_come_from_the_views():

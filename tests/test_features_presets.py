@@ -73,6 +73,12 @@ class TestPreset:
         assert changed.features == (CALENDAR, LAG, "ftr_day_occto:max_demand_mw")
         assert p.features == (CALENDAR, DAY_TYPE, LAG)  # unchanged
 
+    def test_with_changes_records_the_preset_it_started_from(self):
+        first = preset().with_changes(add=(DAY_TYPE,), name="q")
+        assert first.base == "p"
+        second = first.with_changes(drop=(DAY_TYPE,), name="r")
+        assert second.base == "q"
+
     def test_with_changes_rejects_an_absent_drop_and_a_present_add(self):
         with pytest.raises(ValueError, match=r"cannot drop \['ftr_x:y'\]"):
             preset().with_changes(drop=("ftr_x:y",), name="q")
