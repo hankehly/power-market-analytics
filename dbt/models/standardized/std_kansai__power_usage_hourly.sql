@@ -22,7 +22,9 @@ with
     -- column does not exist before 2019-09-12.
     cast(round(supply_capacity_mankw) as int) as supply_capacity_mankw,
     file_updated_at,
-    source_file
+    source_file,
+    -- Public at the daily file's update time, never before the hour ends.
+    greatest(file_updated_at, timestampadd(hour, hour_start + 1, cast(target_date as timestamp))) as available_at
   from
     staging
   )

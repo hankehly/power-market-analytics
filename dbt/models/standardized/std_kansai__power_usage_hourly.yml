@@ -37,6 +37,10 @@ models:
           name: std_kansai_power_usage_supply_capacity_from_2019_09_12
           arguments:
             expression: "(supply_capacity_mankw is null) = (delivery_date < date '2019-09-12')"
+      - dbt_utils.expression_is_true:
+          name: std_kansai_power_usage_available_at_after_hour_end
+          arguments:
+            expression: "available_at >= timestampadd(hour, hour_ending, cast(delivery_date as timestamp))"
     columns:
       - name: delivery_date
         data_type: date
@@ -113,5 +117,13 @@ models:
           - not_null
       - name: source_file
         data_type: string
+        data_tests:
+          - not_null
+      - name: available_at
+        data_type: timestamp
+        description: >
+          When the row became public, naive JST: the daily file's file_updated_at,
+          never before the hour ends. Observed lag 0.7 h to 24.2 h, median 12 h,
+          daily files throughout.
         data_tests:
           - not_null
