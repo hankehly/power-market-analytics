@@ -29,7 +29,13 @@ with
     case when not is_unpublished then cast(round(demand_kwh) as bigint) end as demand_kwh,
     case when not is_unpublished then cast(round(generation_kwh) as bigint) end as generation_kwh,
     case when not is_unpublished then cast(round(wind_solar_generation_kwh) as bigint) end as wind_solar_generation_kwh,
-    file_updated_at
+    file_updated_at,
+    -- Public at the file's update time, never before the period ends (the
+    -- frozen 2025-06-14 file was written at 05:05 that day).
+    greatest(
+      file_updated_at,
+      timestampadd(minute, time_code * 30, cast(target_date as timestamp))
+    ) as available_at
   from
     flagged
   )
