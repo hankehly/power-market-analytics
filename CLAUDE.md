@@ -91,17 +91,28 @@
   dependency since 2026-09-10: `feast[spark,grpcio]`) — without it `feast ui` dies on
   `import grpc`. The UI reads the registry at start: restart it after a mart changes.
 - `just python scripts/spot_price_backtest.py --strategy lightgbm --area tokyo` — day-ahead
-  backtest (strategies: `previous_day`, `lightgbm`, `lightgbm_occto`; areas =
-  `dim_area.area_code`). Logs to MLflow (`just open mlflow`) and publishes forecasts to the
+  backtest (strategies: `previous_day`, and the presets `lightgbm`, `lightgbm_occto`; areas =
+  `dim_area.area_code`). Since 2026-09-11 a LightGBM strategy is a **preset**
+  (`tasks/spot_price/presets.py`: a named list of `<view>:<column>` references into the
+  Feast feature views, plus its categorical columns); `build_strategy` retrieves the
+  preset's features once for the run's days through Feast (`features/retrieval.py`, each
+  row as of its own 09:30 D-1 issue time) and builds a `PresetLightGbmStrategy`
+  (`forecasting/preset_lgbm.py`) over that `FeatureFrame`; `time_code` is always the first
+  feature. `--add VIEW:COLUMN …` / `--drop VIEW:COLUMN …` change the list for one run and
+  need `--name`, which becomes the run's strategy label (`strategy` column, MLflow tag;
+  params `feature_preset`, `feature_preset_base`, `feature_refs`, `lgbm_feature_cols`). A
+  new preset = an entry in `PRESETS`; new features come from the marts (`just feature-views`
+  after a mart changes). The spot `LightGbmStrategy` / `LightGbmOcctoStrategy` classes and
+  the OCCTO loader/frame were deleted with PR 5 of the feature catalogue (reproduced at
+  0 difference first). Logs to MLflow (`just open mlflow`) and publishes forecasts to the
   warehouse (and, for the LightGBM strategies, their TreeSHAP contributions to
   `pma_ml.spot_price_forecast_contribution` and their permutation feature importance to
   `pma_ml.spot_price_forecast_importance` (`--importance-repeats`, default 5) — build
   `+fct_spot_price_forecast_accuracy +fct_spot_price_forecast_contribution
   +fct_spot_price_forecast_importance` afterwards). `--start-date/--end-date` pin the
   first training row — set all three identically for a feature experiment and its matched
-  baseline. New strategies subclass `ForecastStrategy`, register in `STRATEGIES`, and get
-  their inputs wired in `build_strategy`
-  (`power_market_analytics/tasks/spot_price/strategies/__init__.py`).
+  baseline. Feast's retrieval needs a UTC Spark session (the devcontainer's), so the spot
+  LightGBM backtests run in the devcontainer only.
 - `just python scripts/compare_spot_price_runs.py --baseline <run_id> --candidate <run_id>` —
   matched two-run comparison (MAE overall / by day part / near the OCCTO peak hour / by
   month / high-price days, plus bias) as markdown; needs
@@ -400,7 +411,7 @@
   mirrors for Tokyo 2025; the strategies still build their own features until the feature
   catalogue's later PRs, design `docs/superpowers/specs/2026-09-10-feature-catalogue-design.md`).
   Schemas: `pma_<layer>`.
-- Feature retrieval (Feast, since 2026-09-10; nothing reads it until the catalogue's PR 5):
+- Feature retrieval (Feast, since 2026-09-10; the spot-price presets read it since 2026-09-11, the demand strategies until PR 6 do not):
   `power_market_analytics/features/` — `entities.py` (join keys `area_code`, `trade_date_key`
   = int yyyymmdd, `hour_ending`, `time_code`; `GRAIN_ENTITIES` per mart grain), `views.py`
   (generated: one `SparkSource(query=…)` + `FeatureView` per mart, tagged columns as fields,
@@ -483,10 +494,10 @@
   the guarded staging model is the only dbt node that reads an importance source — the source
   entries in `models/raw/ml.yml` carry no data tests (a source test queries the table directly);
   the staging contract and tests check every column instead.
-- Exogenous features: `LightGbmOcctoStrategy` joins `OcctoDemandForecast`
-  (`datasets.load_occto_demand_forecast`, from `fct_occto_demand_supply_forecast_daily`) to each
-  delivery day's rows via the `_join_daily_features` hook; its training set therefore
-  starts 2024-04-01, so a matched `lightgbm` baseline needs `--train-start 2024-04-01`.
+- Exogenous features (spot): the `lightgbm_occto` preset adds the three `ftr_day_occto`
+  columns (from `fct_occto_demand_supply_forecast_daily`, 2024-04-01 on); a row without
+  them is dropped from training, so a matched `lightgbm` baseline needs
+  `--train-start 2024-04-01`.
 - Modeling tasks live under `power_market_analytics/tasks/<task>/` (`spot_price`, `demand`),
   each a thin configuration of the shared framework `power_market_analytics/forecasting/`:
   a frozen `TaskSpec` in the task's `__init__.py` (name = MLflow experiment, unit,
@@ -499,7 +510,10 @@
   `forecasting.lgbm.SlidingWindowLightGbmStrategy` (subclass sets `task`, `feature_cols`,
   `eval_set_cls`, `lookback_days`, optionally
   `categorical_feature_cols` — passed to `LGBMRegressor.fit(categorical_feature=…)` and logged as
-  `lgbm_categorical_feature_cols` — implements `_add_features`), `forecasting.publish`
+  `lgbm_categorical_feature_cols` — implements `_add_features`; or, since 2026-09-11,
+  `forecasting.preset_lgbm.PresetLightGbmStrategy` sets them per instance from a `Preset`
+  and reads its features off a retrieved `FeatureFrame` — these attributes are plain
+  attributes on the base, not `ClassVar`s), `forecasting.publish`
   and `forecasting.plots`. Adding a task = TaskSpec + frames + datasets + strategies +
   script + `pma_ml.<task>_forecast` dbt models.
 - Demand task (`tasks/demand/`): at 09:30 JST on D-1 forecast the 48 half-hourly `demand_kwh`
