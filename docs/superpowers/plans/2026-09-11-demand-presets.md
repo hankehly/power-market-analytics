@@ -53,7 +53,7 @@ LIGHTGBM_MSM_POPW_DAYTYPE: Preset  # LIGHTGBM_MSM_POPW.with_changes(name="lightg
 PRESETS: dict[str, Preset]       # by name, in that order
 ```
 
-- [ ] **Step 1: Failing tests** — `tests/test_demand_presets.py`:
+- [x] **Step 1: Failing tests** — `tests/test_demand_presets.py`:
 ```python
 def test_the_four_presets_keep_the_old_feature_order():
     assert list(PRESETS) == ["lightgbm", "lightgbm_msm", "lightgbm_msm_popw", "lightgbm_msm_popw_daytype"]
@@ -68,10 +68,10 @@ def test_types_and_categoricals_come_from_the_views():
     assert all(categorical_columns(p) == () for n, p in PRESETS.items() if n != "lightgbm_msm_popw_daytype")
 ```
   and in `tests/test_features_presets.py` the catalogue / store lists become the six names (`demand__lightgbm`, `demand__lightgbm_msm`, `demand__lightgbm_msm_popw`, `demand__lightgbm_msm_popw_daytype`, `spot_price__lightgbm`, `spot_price__lightgbm_occto`).
-- [ ] **Step 2: Run them** — `uv run pytest tests/test_demand_presets.py tests/test_features_presets.py -q --no-cov`; expect ImportError / list mismatch.
-- [ ] **Step 3: Implement** — `presets.py` as in Interfaces (module docstring: the demand task's presets; a comment that the order is the old classes' feature order); `catalogue.feature_services()` imports `tasks.demand.presets` inside the function like the spot one and returns the services of both.
-- [ ] **Step 4: Run them again** — pass.
-- [ ] **Step 5: Commit** — `feat(demand): the four demand presets in the feature catalogue`.
+- [x] **Step 2: Run them** — `uv run pytest tests/test_demand_presets.py tests/test_features_presets.py -q --no-cov`; expect ImportError / list mismatch.
+- [x] **Step 3: Implement** — `presets.py` as in Interfaces (module docstring: the demand task's presets; a comment that the order is the old classes' feature order); `catalogue.feature_services()` imports `tasks.demand.presets` inside the function like the spot one and returns the services of both.
+- [x] **Step 4: Run them again** — pass.
+- [x] **Step 5: Commit** — `feat(demand): the four demand presets in the feature catalogue`.
 
 ### Task 2: Extra columns on a preset eval set
 
@@ -87,7 +87,7 @@ def preset_eval_set_cls(task: TaskSpec, preset: Preset, dtypes: dict[str, str], 
 # feature_cols = (*preset.feature_cols, *extra_dtypes); schema and non_null_cols include the extras, in that order
 ```
 
-- [ ] **Step 1: Failing test**:
+- [x] **Step 1: Failing test**:
 ```python
 def test_extra_columns_follow_the_presets(self):
     cls = preset_eval_set_cls(TASK, LIGHTGBM, DTYPES, extra_dtypes={"similar_day_demand_kwh": "float64", "half": "int64"})
@@ -95,10 +95,10 @@ def test_extra_columns_follow_the_presets(self):
     assert cls.schema["half"] == "int64" and cls.schema["similar_day_demand_kwh"] == "float64"
     assert cls.non_null_cols[-2:] == [TASK.actual_col, TASK.forecast_col] and "half" in cls.non_null_cols
 ```
-- [ ] **Step 2: Run** — fails on the unexpected keyword.
-- [ ] **Step 3: Implement** — build `feature_cols`, `schema` and `non_null_cols` from `(*preset.columns, *extra)`; docstring gains the parameter.
-- [ ] **Step 4: Run** — pass; the existing tests unchanged.
-- [ ] **Step 5: Commit** — `feat(forecasting): preset eval sets take extra columns`.
+- [x] **Step 2: Run** — fails on the unexpected keyword.
+- [x] **Step 3: Implement** — build `feature_cols`, `schema` and `non_null_cols` from `(*preset.columns, *extra)`; docstring gains the parameter.
+- [x] **Step 4: Run** — pass; the existing tests unchanged.
+- [x] **Step 5: Commit** — `feat(forecasting): preset eval sets take extra columns`.
 
 ### Task 3: Registry, `build_strategy` and the script for the four presets
 
@@ -127,11 +127,11 @@ Fixture marts (tokyo only, `CuratedWarehouse` data; `available_at` any instant b
 - `ftr_period_actuals`: every `(day + 7, time_code)` from `warehouse.demand` with a non-null `demand_kwh`, `lag_7d_demand_kwh` as int; `available_at = day + 1 day + 05:00`.
 Schemas: `area_code string, trade_date date, hour_ending int, wavg_temperature_c double, available_at timestamp`; `… hour_ending int, forecast_temperature_c double, popw_forecast_temperature_c double, popw_forecast_relative_humidity_pct double, popw_forecast_precipitation_mm double, available_at timestamp`; `… time_code int, lag_7d_demand_kwh bigint, available_at timestamp`.
 
-- [ ] **Step 1: Failing tests** — `tests/test_demand_strategies.py`: registry names (the nine, presets first); `build_strategy("lightgbm", area_code="tokyo", days=DAYS, train_start_date=…)` is a `PresetLightGbmStrategy` named `lightgbm` whose frame has `len(DAYS) * 48` rows with `wavg_temperature_c` equal to `_wavg_temperature` for one cell and `lag_7d_demand_kwh` equal to `synthetic_demand(day - 7, tc)`; `lightgbm_msm` carries `forecast_temperature_c` = `synthetic_forecast_temperature`, NaN on `FORECAST_MISSING_DAY`; `lightgbm_msm_popw_daytype` has `categorical_feature_cols == ("day_type",)` and `day_type` 2 on a `HOLIDAYS_2024_SPRING` day; a day after the hole has NaN lag at the hole's time codes; add/drop/label compose a named set; a preset needs `days`; changes need a label; a similar-day name rejects add/drop/label; the five similar-day builds keep today's assertions; unknown name → KeyError. `tests/test_demand_scripts.py`: the LightGBM tests take `feature_marts` and drop `temperature_lag_days`, `population_weight_census_year`, `day_type_levels`; `feature_preset` equals the strategy name; a test `--strategy lightgbm --add ftr_day_calendar:day_type --name lightgbm_daytype` publishes under `lightgbm_daytype` with `lgbm_categorical_feature_cols == "day_type"` and `feature_preset_base == "lightgbm"`; `--add` without `--name` is a `SystemExit` with the message.
-- [ ] **Step 2: Run** — `uv run pytest tests/test_demand_strategies.py tests/test_demand_scripts.py -q --no-cov`; fail.
-- [ ] **Step 3: Implement** — the fixture marts, the registry, the script.
-- [ ] **Step 4: Run** — pass.
-- [ ] **Step 5: Commit** — `feat(demand): the four presets run through Feast; --add, --drop and --name`.
+- [x] **Step 1: Failing tests** — `tests/test_demand_strategies.py`: registry names (the nine, presets first); `build_strategy("lightgbm", area_code="tokyo", days=DAYS, train_start_date=…)` is a `PresetLightGbmStrategy` named `lightgbm` whose frame has `len(DAYS) * 48` rows with `wavg_temperature_c` equal to `_wavg_temperature` for one cell and `lag_7d_demand_kwh` equal to `synthetic_demand(day - 7, tc)`; `lightgbm_msm` carries `forecast_temperature_c` = `synthetic_forecast_temperature`, NaN on `FORECAST_MISSING_DAY`; `lightgbm_msm_popw_daytype` has `categorical_feature_cols == ("day_type",)` and `day_type` 2 on a `HOLIDAYS_2024_SPRING` day; a day after the hole has NaN lag at the hole's time codes; add/drop/label compose a named set; a preset needs `days`; changes need a label; a similar-day name rejects add/drop/label; the five similar-day builds keep today's assertions; unknown name → KeyError. `tests/test_demand_scripts.py`: the LightGBM tests take `feature_marts` and drop `temperature_lag_days`, `population_weight_census_year`, `day_type_levels`; `feature_preset` equals the strategy name; a test `--strategy lightgbm --add ftr_day_calendar:day_type --name lightgbm_daytype` publishes under `lightgbm_daytype` with `lgbm_categorical_feature_cols == "day_type"` and `feature_preset_base == "lightgbm"`; `--add` without `--name` is a `SystemExit` with the message.
+- [x] **Step 2: Run** — `uv run pytest tests/test_demand_strategies.py tests/test_demand_scripts.py -q --no-cov`; fail.
+- [x] **Step 3: Implement** — the fixture marts, the registry, the script.
+- [x] **Step 4: Run** — pass.
+- [x] **Step 5: Commit** — `feat(demand): the four presets run through Feast; --add, --drop and --name`.
 
 ### Task 4: The similar-day family on `PresetLightGbmStrategy`; delete the four classes
 
@@ -141,6 +141,8 @@ Schemas: `area_code string, trade_date date, hour_ending int, wavg_temperature_c
 - Modify: `power_market_analytics/tasks/demand/features.py` (delete `TEMPERATURE_LAG_DAYS`, `TEMPERATURE_HALF_LIFE_DAYS`, `TEMPERATURE_FEATURE`, `FORECAST_TEMPERATURE_FEATURE`, `POPW_FORECAST_TEMPERATURE_FEATURE`, `DAY_TYPE_FEATURE`, `recency_weighted_temperature`, `join_forecast_temperature`, `join_day_type`; keep `hour_ending_of`, `DAY_TYPE_CODES`, `day_type_code`, the calendar column tuples, `join_day_calendar`)
 - Modify: `power_market_analytics/tasks/demand/frames.py` (delete `AreaTemperature`, `AreaTemperatureForecast`, `DayTypeCalendar`, `DayCalendar.day_types`, `AreaWeatherForecast.temperature_forecast`)
 - Modify: `power_market_analytics/tasks/demand/datasets.py` (delete `load_area_temperature`, `load_area_temperature_forecast`, `load_area_temperature_forecast_population_weighted`, `PopulationWeightedTemperatureForecast`, `load_day_types`)
+- Modify: `power_market_analytics/forecasting/lgbm.py` (found while executing: the base's `_features`, which computed `month` and `day_of_week`, is unreachable once the demand classes are gone — it becomes the abstract hook, `_add_features` is the preset strategy's own and `CALENDAR_FEATURE_COLS` is deleted; `tests/test_forecasting_lgbm.py` follows)
+- Modify: `power_market_analytics/features/presets.py` (found while executing: `with_changes` set `base` to the root preset, so a change from a derived preset logged the wrong `feature_preset_base`; it is now the preset the change started from)
 - Test: `tests/test_demand_lgbm.py` (rewrite: the family's tests over a synthetic `FeatureFrame`), `tests/test_demand_features.py`, `tests/test_demand_frames.py`, `tests/test_demand_datasets.py` (drop the deleted units' tests), `tests/test_demand_strategies.py` (the family's build)
 
 **Interfaces:**
@@ -164,11 +166,11 @@ class …CalendarCountStrategy: "…_calendarcounts"; CALENDAR_COUNT_FEATURE_COL
 ```
 `build_strategy` for a similar-day name: `preset = LIGHTGBM_MSM_POPW_DAYTYPE` (with_changes when add/drop, label required), the same retrieval as a preset, then `cls(preset, frame, weather.forecast, load_day_calendar(spark=spark), observed.weather, load_area_hourly_load(area_code, spark=spark), dtypes=…, categorical=…, census_year=weather.census_year, name=label, train_start_date=…)` with the weather and observed loaders as today.
 
-- [ ] **Step 1: Failing tests** — `tests/test_demand_lgbm.py` rewritten: `sim_inputs` gains a `FeatureFrame` of the `lightgbm_msm_popw_daytype` columns over `SIM_DEMAND_DAYS` built from the module's synthetic series (`expected_wavg`, `forecast_temperature_at`, `day_type_at`, the D-7 lag of `demand_at`); `make_sim_strategy(inputs, cls=…)` calls the new constructor; class-attribute tests assert `strategy_name`, `feature_cols` (preset's + `similar_day_demand_kwh` + the calendar subset), `categorical_feature_cols == ("day_type",)`, `lookback_days == 0`, the eval set's schema; the predict / backtest / evaluate / diagnostics tests port unchanged in intent (the first predict fits the selector, weights fitted once, a day without pairs, a day outside the calendar, eval set and contributions carry the feature, the selector params logged, `population_weight_census_year` logged, the calendar variants add exactly their columns). `tests/test_demand_strategies.py`: the family builds carry `feature_cols`, `categorical_feature_cols`, `census_year`, `hourly_load`, the selector and the calendar; add/drop/label on a family name compose a named set. Trim the other three test files to the surviving units.
-- [ ] **Step 2: Run** — `uv run pytest tests/test_demand_lgbm.py tests/test_demand_strategies.py tests/test_demand_features.py tests/test_demand_frames.py tests/test_demand_datasets.py -q --no-cov`; fail.
-- [ ] **Step 3: Implement** — the rewrite and the deletions.
-- [ ] **Step 4: Run** — pass; then `just test`, `just lint`, `just mypy`.
-- [ ] **Step 5: Commit** — `feat(demand): the similar-day family reads its base features from Feast; delete the four strategy classes`.
+- [x] **Step 1: Failing tests** — `tests/test_demand_lgbm.py` rewritten: `sim_inputs` gains a `FeatureFrame` of the `lightgbm_msm_popw_daytype` columns over `SIM_DEMAND_DAYS` built from the module's synthetic series (`expected_wavg`, `forecast_temperature_at`, `day_type_at`, the D-7 lag of `demand_at`); `make_sim_strategy(inputs, cls=…)` calls the new constructor; class-attribute tests assert `strategy_name`, `feature_cols` (preset's + `similar_day_demand_kwh` + the calendar subset), `categorical_feature_cols == ("day_type",)`, `lookback_days == 0`, the eval set's schema; the predict / backtest / evaluate / diagnostics tests port unchanged in intent (the first predict fits the selector, weights fitted once, a day without pairs, a day outside the calendar, eval set and contributions carry the feature, the selector params logged, `population_weight_census_year` logged, the calendar variants add exactly their columns). `tests/test_demand_strategies.py`: the family builds carry `feature_cols`, `categorical_feature_cols`, `census_year`, `hourly_load`, the selector and the calendar; add/drop/label on a family name compose a named set. Trim the other three test files to the surviving units.
+- [x] **Step 2: Run** — `uv run pytest tests/test_demand_lgbm.py tests/test_demand_strategies.py tests/test_demand_features.py tests/test_demand_frames.py tests/test_demand_datasets.py -q --no-cov`; fail.
+- [x] **Step 3: Implement** — the rewrite and the deletions.
+- [x] **Step 4: Run** — pass; then `just test`, `just lint`, `just mypy`.
+- [x] **Step 5: Commit** — `feat(demand): the similar-day family reads its base features from Feast; delete the four strategy classes`.
 
 ### Task 5: Reproduction, docs, PR
 
