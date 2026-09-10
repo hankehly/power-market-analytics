@@ -29,6 +29,7 @@ dependencies = [
     "certifi>=2026.6.17",
     "urllib3>=2.7.0",
     "scikit-learn>=1.9",
+    "feast[spark]==0.66.0",
 ]
 
 [build-system]
