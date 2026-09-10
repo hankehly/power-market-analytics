@@ -263,3 +263,10 @@ selection loop, its own topic.
 1. The availability lags marked "to confirm" in §3.
 2. Registry: a file under `data/` or the Postgres already in compose.
 3. How often the similar-day weights are refit.
+- Should the weighted-mean marts round their columns? `ftr_hour_jma_obs.wavg_temperature_c`
+  and the three `ftr_hour_msm.popw_*` columns are sums in whatever order Spark adds them, so
+  they match the old pandas builders only to 1.4e-14. LightGBM's histogram bins move on such
+  last-bit differences: in PR 6's reproduction every feature matched and every forecast
+  differed (MAE +0.14 % and +0.55 %); the same fit with both sides rounded to 9 decimals was
+  identical. Rounding in dbt (9 decimals) would make a mart rebuild unable to move a model.
+  Found 2026-09-11, the researcher's call.

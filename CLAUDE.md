@@ -683,6 +683,13 @@
   whose 730-day training window reaches December 2022 differs from it by those 96 training
   rows. The PR 6 reproduction therefore used `--train-start 2023-01-01`; no other row in the
   demand marts is published after its issue time (checked 2026-09-11).
+- LightGBM's histogram bins move on last-bit feature differences. The weighted-mean marts
+  (`wavg_temperature_c`, the `popw_*` forecast columns) equal the old pandas builders only to
+  1.4e-14 (a different summation order), and PR 6's reproduction of the demand strategies had
+  every feature value equal and every forecast different (MAE +0.14 % / +0.55 %); the same
+  refit with both sides rounded to 9 decimals was identical to the digit. So two runs whose
+  features differ at 1e-14 are not comparable period by period; rounding the marts is an
+  open question in the feature-catalogue spec (§13).
 - `scipy` is a declared dependency since 2026-09-05 (the similar-day weight fit uses
   `scipy.optimize.least_squares`); `scipy.*` is mypy-ignored like `shap.*`.
 - `scikit-learn` is a declared dependency since 2026-09-08 (`sklearn.inspection.permutation_importance`;
