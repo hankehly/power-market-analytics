@@ -1,8 +1,8 @@
 """Tests for the generic sliding-window LightGBM base (its own guards).
 
 The full behaviour — refits, TreeSHAP records, eval sets, MLflow logging — is
-exercised through the concrete spot_price and demand strategies in
-tests/test_spot_price_lgbm.py and tests/test_demand_lgbm.py.
+exercised through the preset strategy in tests/test_forecasting_preset_lgbm.py
+and the demand similar-day strategies in tests/test_demand_lgbm.py.
 """
 
 from __future__ import annotations
@@ -11,7 +11,6 @@ import pandas as pd
 import pytest
 
 from power_market_analytics.forecasting.lgbm import (
-    CALENDAR_FEATURE_COLS,
     LGBM_PARAMS,
     LightGbmEvalSetBase,
     SlidingWindowLightGbmStrategy,
@@ -20,9 +19,6 @@ from power_market_analytics.tasks.spot_price import TASK
 
 
 class TestConstants:
-    def test_calendar_features(self):
-        assert CALENDAR_FEATURE_COLS == ("time_code", "month", "day_of_week")
-
     def test_lgbm_params_are_fixed_and_deterministic(self):
         assert LGBM_PARAMS == {
             "n_estimators": 500,
@@ -66,11 +62,11 @@ class TestEvalSetBase:
 
 
 class TestSlidingWindowLightGbmStrategy:
-    def test_add_features_is_abstract(self):
+    def test_features_is_abstract(self):
         class NoFeatures(SlidingWindowLightGbmStrategy):
             name = "n"
             task = TASK
-            feature_cols = CALENDAR_FEATURE_COLS
+            feature_cols = ("time_code",)
             eval_set_cls = LightGbmEvalSetBase
             lookback_days = 0
 
@@ -81,12 +77,12 @@ class TestSlidingWindowLightGbmStrategy:
         class Minimal(SlidingWindowLightGbmStrategy):
             name = "m"
             task = TASK
-            feature_cols = CALENDAR_FEATURE_COLS
+            feature_cols = ("time_code",)
             eval_set_cls = LightGbmEvalSetBase
             lookback_days = 0
 
-            def _add_features(self, featured, history_df):
-                return featured
+            def _features(self, points, history_df):
+                return points
 
         assert Minimal()._extra_params() == {}
 
@@ -94,12 +90,12 @@ class TestSlidingWindowLightGbmStrategy:
         class Minimal(SlidingWindowLightGbmStrategy):
             name = "m"
             task = TASK
-            feature_cols = CALENDAR_FEATURE_COLS
+            feature_cols = ("time_code",)
             eval_set_cls = LightGbmEvalSetBase
             lookback_days = 0
 
-            def _add_features(self, featured, history_df):
-                return featured
+            def _features(self, points, history_df):
+                return points
 
         assert SlidingWindowLightGbmStrategy.categorical_feature_cols == ()
         assert Minimal().categorical_feature_cols == ()
@@ -108,12 +104,12 @@ class TestSlidingWindowLightGbmStrategy:
         class Minimal(SlidingWindowLightGbmStrategy):
             name = "m"
             task = TASK
-            feature_cols = CALENDAR_FEATURE_COLS
+            feature_cols = ("time_code",)
             eval_set_cls = LightGbmEvalSetBase
             lookback_days = 0
 
-            def _add_features(self, featured, history_df):
-                return featured
+            def _features(self, points, history_df):
+                return points
 
         with pytest.raises(
             RuntimeError, match="m: no recorded contributions; run the backtest first"
@@ -124,12 +120,12 @@ class TestSlidingWindowLightGbmStrategy:
         class Minimal(SlidingWindowLightGbmStrategy):
             name = "m"
             task = TASK
-            feature_cols = CALENDAR_FEATURE_COLS
+            feature_cols = ("time_code",)
             eval_set_cls = LightGbmEvalSetBase
             lookback_days = 0
 
-            def _add_features(self, featured, history_df):
-                return featured
+            def _features(self, points, history_df):
+                return points
 
         with pytest.raises(RuntimeError, match="m: no recorded forecasts; run the backtest first"):
             Minimal().permutation_importance(run=None)

@@ -53,8 +53,10 @@
   `[tool.coverage.*]`; gated at 100% via `fail_under`, so a partial suite fails locally and in
   CI — `.github/workflows/ci.yml` runs the same command on every push). Shared fixtures in
   `tests/conftest.py`: `spark` (local session, temp warehouse, no metastore),
-  `curated_warehouse` (synthetic `pma_curated` star for the spot-price task), an autouse temp
-  MLflow file store, and a session-wide single-thread LightGBM cap. HTTP is never real: the
+  `curated_warehouse` (synthetic `pma_curated` star for both tasks), `feature_marts` (the six
+  `pma_features` marts from it under a UTC session, with the Feast store in a temp registry —
+  every test that builds a preset strategy takes it), an autouse temp MLflow file store, and
+  a session-wide single-thread LightGBM cap. HTTP is never real: the
   downloaders take an injectable `session` (`session_factory` for OCCTO) and scripts are driven
   through `main(argv)` with their downloader/loader class swapped in the module namespace
   (`tests/support.import_script`).
@@ -120,51 +122,35 @@
   month / high-price days, plus bias) as markdown; needs
   `just dbt build --select +fct_spot_price_forecast_accuracy` after the runs.
 - `just python scripts/demand_backtest.py --strategy lightgbm_msm_popw_daytype --area tokyo` —
-  day-ahead area demand backtest (strategies: `lightgbm`, `lightgbm_msm`, `lightgbm_msm_popw`,
-  `lightgbm_msm_popw_daytype` = `lightgbm_msm_popw` + the `dim_date` day-type categorical, the
-  script default and the Kansai baseline (the kept demand baseline from demand/R-003,
-  2026-08-26, until R-004 E-002), and
-  `lightgbm_msm_popw_daytype_simday` = that + `similar_day_demand_kwh` (research `demand/R-004`
-  E-002, kept 2026-09-06 → the Tokyo demand baseline, reference run `008868fe…`; not the
-  script default because it needs the でんき予報 hourly load of `fct_area_power_usage_hourly`,
-  Tokyo-only until another TSO's series is loaded;
-  `dim_date.holiday_degree` and the population-weighted MSM forecast and JMA observations of
-  temperature, humidity and rain; its run also logs `similar_day_selection.csv` /
-  `similar_day_retrieval.csv` and four `similar_day_*` metrics through the `diagnostics`
-  hook), and `lightgbm_msm_popw_daytype_simday_calendar` = that + the ten `dim_date` calendar
-  attributes of `DAY_CALENDAR_FEATURE_COLS` (`half`, `quarter`, `day_of_month`, `day_of_quarter`,
-  `day_of_year`, `holiday_degree`, `is_business_day`, `fiscal_quarter`, `days_since_holiday`,
-  `days_until_holiday`) as plain numeric features (research `demand/R-005` E-001, run
-  2026-09-06: Tokyo MAE +7.3 % vs the baseline, holidays −10 % — rejected by the researcher
-  the same day, kept registered as a reference strategy; the same inputs as the similar-day
-  strategy), and its two one-part subsets, same inputs (research `demand/R-005` E-002 / E-003,
-  run 2026-09-06, both rejected by the researcher the same day, kept registered as references):
-  `lightgbm_msm_popw_daytype_simday_holidaydegree` = the
-  similar-day strategy + `holiday_degree` alone (Tokyo MAE +0.3 %, CI over days includes zero,
-  holidays +1.8 %) and `lightgbm_msm_popw_daytype_simday_holidaydistance` = the similar-day
-  strategy + `days_since_holiday` and `days_until_holiday` alone (MAE +6.5 %, CI excludes zero,
-  every day part / day type / season worse), and a third subset
-  `lightgbm_msm_popw_daytype_simday_calendarcounts` = the similar-day strategy + `half`,
-  `quarter`, `day_of_month`, `day_of_quarter`, `day_of_year`, `fiscal_quarter` alone (E-004, run
-  2026-09-06, rejected by the researcher the same day: MAE +4.2 %, CI excludes zero, holidays
-  −13.4 %, winter −6.3 %);
-  areas: `tokyo`,
-  `kansai` = the TSO feeds loaded into `fct_area_demand_generation_actual`); each area also needs its
-  representative JMA station's hourly weather loaded and current
+  day-ahead area demand backtest. Strategies: the presets `lightgbm`, `lightgbm_msm`,
+  `lightgbm_msm_popw` and `lightgbm_msm_popw_daytype` (the script default and the Kansai
+  baseline), and the similar-day strategies `lightgbm_msm_popw_daytype_simday` (the Tokyo
+  demand baseline, reference run `008868fe…`; Tokyo-only, because it needs the でんき予報
+  hourly load of `fct_area_power_usage_hourly`, `dim_date.holiday_degree` and the
+  population-weighted MSM forecast and JMA observations of temperature, humidity and rain;
+  its run also logs `similar_day_selection.csv` / `similar_day_retrieval.csv` and four
+  `similar_day_*` metrics through the `diagnostics` hook) and its four calendar variants
+  `…_simday_calendar`, `…_simday_holidaydegree`, `…_simday_holidaydistance` and
+  `…_simday_calendarcounts` (research `demand/R-005`, all rejected, kept registered as
+  references; their feature lists and numbers are in the Demand task bullet below). Areas:
+  `tokyo`, `kansai` = the TSO feeds loaded into `fct_area_demand_generation_actual`. An area's
+  feature marts need its representative JMA station's hourly weather loaded and current
   (`dim_area.representative_jma_station_id`: 東京 s47662, 大阪 s47772 — both loaded and current
   as of the 2026-08-20 re-scope backfill; keep them fresh with the JMA download + load scripts,
-  since a stale window's last days are skipped for lack of a temperature window), and
-  `lightgbm_msm` needs that station's MSM forecast in `fct_jma_msm_weather_forecast_hourly`
-  (the MSM download + load scripts; a delivery day without a forecast is skipped) and
-  `lightgbm_msm_popw` the MSM
-  forecasts of all the area's weighted stations plus `fct_census_population_jma_station`. Same
-  flags as the spot script
-  (`--days` defaults to 365); logs to the MLflow experiment `demand`, publishes to
+  since a stale window's last days are skipped for lack of a temperature window), the MSM
+  forecasts of its stations in `fct_jma_msm_weather_forecast_hourly` (a delivery day without a
+  forecast is skipped) and `fct_census_population_jma_station`. Same flags as the spot script:
+  `--add VIEW:COLUMN …` / `--drop VIEW:COLUMN …` with `--name` (a similar-day strategy takes
+  them too: they change the `lightgbm_msm_popw_daytype` preset under its similar-day feature),
+  `--days` (default 365), `--start-date` / `--end-date`, `--train-start`,
+  `--importance-repeats`. Logs to the MLflow experiment `demand`, publishes to
   `pma_ml.demand_forecast`, then `just dbt build --select +fct_demand_forecast_accuracy
   +fct_demand_forecast_contribution +fct_demand_forecast_importance` (the second selector
   materialises the run's TreeSHAP contributions for the dashboard's Explanation tab, the
   third its permutation feature importance for that tab's Feature importance section —
-  `--importance-repeats`, default 5; the first is what its Run filter reads).
+  `--importance-repeats`, default 5; the first is what its Run filter reads). Feast's retrieval
+  needs a UTC Spark session (the devcontainer's), so the demand backtests run in the
+  devcontainer only.
 - `just python scripts/compare_demand_runs.py --baseline <run_id> --candidate <run_id>` — the
   demand task's matched two-run comparison (`tasks/demand/compare.py`): MAE overall / MAPE /
   bias / by day part, day type, month, season, 2,000-MWh actual-demand band, top-10 % demand
@@ -410,10 +396,11 @@
   `assert_feature_marts_declare_available_at` lists any feature model without the column.
   Today's six: `ftr_day_calendar`, `ftr_day_occto`, `ftr_hour_jma_obs`, `ftr_hour_msm`,
   `ftr_period_actuals`, `ftr_period_jepx`, each proven equal to the Python builder it
-  mirrors for Tokyo 2025; the strategies still build their own features until the feature
-  catalogue's later PRs, design `docs/superpowers/specs/2026-09-10-feature-catalogue-design.md`).
+  mirrors for Tokyo 2025; every strategy reads them through Feast except the demand
+  similar-day feature, still built in Python until the feature catalogue's PR 7, design
+  `docs/superpowers/specs/2026-09-10-feature-catalogue-design.md`).
   Schemas: `pma_<layer>`.
-- Feature retrieval (Feast, since 2026-09-10; the spot-price presets read it since 2026-09-11, the demand strategies until PR 6 do not):
+- Feature retrieval (Feast, since 2026-09-10; both tasks' presets read it since 2026-09-11):
   `power_market_analytics/features/` — `entities.py` (join keys `area_code`, `trade_date_key`
   = int yyyymmdd, `hour_ending`, `time_code`; `GRAIN_ENTITIES` per mart grain), `views.py`
   (generated: one `SparkSource(query=…)` + `FeatureView` per mart, tagged columns as fields,
@@ -509,91 +496,93 @@
   `forecast_col` / `actual_col`), `forecasting.backtest.run_backtest` (history the strategy
   sees = days ≤ `task.history_cutoff(D)`; a `ForecastUnavailableError` skips the day and is
   reported on `BacktestRun.skipped_days`; forecast points without an actual are dropped),
-  `forecasting.lgbm.SlidingWindowLightGbmStrategy` (subclass sets `task`, `feature_cols`,
-  `eval_set_cls`, `lookback_days`, optionally
-  `categorical_feature_cols` — passed to `LGBMRegressor.fit(categorical_feature=…)` and logged as
-  `lgbm_categorical_feature_cols` — implements `_add_features`; or, since 2026-09-11,
-  `forecasting.preset_lgbm.PresetLightGbmStrategy` sets them per instance from a `Preset`
-  and reads its features off a retrieved `FeatureFrame` — these attributes are plain
-  attributes on the base, not `ClassVar`s), `forecasting.publish`
-  and `forecasting.plots`. Adding a task = TaskSpec + frames + datasets + strategies +
+  `forecasting.lgbm.SlidingWindowLightGbmStrategy` (the window, refit cadence, TreeSHAP,
+  importance and evaluation; a subclass sets `task`, `feature_cols`, `eval_set_cls`,
+  `lookback_days`, optionally `categorical_feature_cols` — passed to
+  `LGBMRegressor.fit(categorical_feature=…)` and logged as `lgbm_categorical_feature_cols` —
+  and implements the one hook `_features`, all plain attributes, not `ClassVar`s; since
+  2026-09-11 `forecasting.preset_lgbm.PresetLightGbmStrategy` is that subclass for every
+  preset: it sets them per instance from a `Preset`, reads its features off a retrieved
+  `FeatureFrame` in `_add_features`, the hook a strategy with a Python-built feature extends),
+  `forecasting.publish` and `forecasting.plots`. Adding a task = TaskSpec + frames + datasets + strategies +
   script + `pma_ml.<task>_forecast` dbt models.
 - Demand task (`tasks/demand/`): at 09:30 JST on D-1 forecast the 48 half-hourly `demand_kwh`
   of `fct_area_demand_generation_actual` for D; usable history = days ≤ D-2
-  (`history_lead_days = 2`, TSO files finalise after midnight). `lightgbm` features =
-  `time_code, month, day_of_week, wavg_temperature_c, lag_7d_demand_kwh`;
-  `wavg_temperature_c` = same-hour temperature at the area's representative JMA station
-  (`dim_area.representative_jma_station_id`, seed `jepx_areas`; hour containing the period =
-  `(time_code + 1) // 2`) over D-8..D-2, weights halving per day back (`demand/features.py`).
-  Null-demand rows (TSO holes) are dropped at load; a target day whose D-7 lag falls in a hole
-  is skipped. `lightgbm_msm` (`LightGbmMsmStrategy`, research `demand/R-001`) = `lightgbm` +
-  `forecast_temperature_c`: the MSM point forecast for D at the same station
-  (`fct_jma_msm_weather_forecast_hourly`, the D-2 12 UTC vintage, `AreaTemperatureForecast` frame
-  keyed `trade_date × hour_ending`, joined at the hour containing the period); training rows
-  without a forecast are dropped; MSM covers 2019-04-01 → (since the 2026-09-05 backfill),
-  earlier than the demand history's 2022-04-01 start, so the training set starts with the
-  demand history and a matched `lightgbm` baseline needs no `--train-start` today.
-  `lightgbm_msm_popw` (`LightGbmMsmPopWeightedStrategy`, research `demand/R-002`) swaps
-  that feature for `popw_forecast_temperature_c`: the same MSM forecast averaged over the area's
-  staffed stations with `fct_census_population_jma_station` weights (latest census vintage,
-  logged as `population_weight_census_year`; `load_area_temperature_forecast_population_weighted`
-  renormalises over the stations that have a value for the hour). The observed
-  `wavg_temperature_c` stays single-station in both.
-  `lightgbm_msm_popw_daytype` (`LightGbmMsmPopWeightedDayTypeStrategy`, research `demand/R-003`; the
-  demand baseline 2026-08-26 → 2026-09-06, still the script default and the Kansai baseline) =
-  `lightgbm_msm_popw` + `day_type`: 0 Weekday / 1 Weekend / 2 Holiday from `dim_date`
-  (`is_holiday` wins over `is_weekend`, the compare script's day-type precedence; `load_day_types` →
-  `DayTypeCalendar`, `join_day_type`), declared categorical via `categorical_feature_cols`; a delivery
-  day outside `dim_date` is skipped. A fifth strategy, `lightgbm_msm_popw_daytype_lag1y` = that +
-  `lag_1y_demand_kwh` (the でんき予報 hourly load of `fct_area_power_usage_hourly` on the
-  delivery day's `dim_date` prior-year reference date; research `demand/R-004`), was run on
-  2026-08-31 and removed with the column on 2026-09-05 — Not supported, the reasons in the
-  investigation.
+  (`history_lead_days = 2`, TSO files finalise after midnight). Null-demand rows (TSO holes)
+  are dropped at load; a target day whose D-7 lag falls in a hole is skipped. Since 2026-09-11
+  (feature catalogue PR 6) the four strategies without similar day are **presets**
+  (`tasks/demand/presets.py`, `<view>:<column>` references into the Feast views of the
+  feature marts, retrieved by `build_strategy` and run by `PresetLightGbmStrategy`; their
+  classes, eval sets, the temperature / forecast-temperature / day-type builders of
+  `demand/features.py`, the `AreaTemperature`, `AreaTemperatureForecast` and
+  `DayTypeCalendar` frames and their loaders were deleted, reproduced at 0 difference first —
+  the one known divergence from the class-based code is two December-2022 delivery days,
+  see Gotchas):
+  `lightgbm` = `ftr_day_calendar:month`, `ftr_day_calendar:day_of_week`,
+  `ftr_hour_jma_obs:wavg_temperature_c` (the same-hour temperature at the area's
+  representative JMA station — `dim_area.representative_jma_station_id`, seed `jepx_areas`;
+  hour containing the period = `(time_code + 1) // 2` — over D-8..D-2, weights halving per
+  day back) and `ftr_period_actuals:lag_7d_demand_kwh`. `lightgbm_msm` (research
+  `demand/R-001`) = that + `ftr_hour_msm:forecast_temperature_c`, the MSM point forecast for D
+  at the same station (the D-2 12 UTC vintage); a training row without it is dropped, and MSM
+  covers 2019-04-01 → (since the 2026-09-05 backfill), earlier than the demand history's
+  2022-04-01 start, so a matched `lightgbm` baseline needs no `--train-start` today.
+  `lightgbm_msm_popw` (research `demand/R-002`) = `lightgbm` +
+  `ftr_hour_msm:popw_forecast_temperature_c` instead: the same forecast averaged over the
+  area's staffed stations with `fct_census_population_jma_station` weights of the latest
+  census vintage, renormalised over the stations that have a value for the hour; the observed
+  `wavg_temperature_c` stays single-station. `lightgbm_msm_popw_daytype` (research
+  `demand/R-003`; the demand baseline 2026-08-26 → 2026-09-06, still the script default and
+  the Kansai baseline) = that + `ftr_day_calendar:day_type`: 0 Weekday / 1 Weekend / 2 Holiday
+  from `dim_date` (`is_holiday` wins over `is_weekend`, the compare script's day-type
+  precedence), categorical by the mart's tag; a delivery day outside `dim_date` is skipped.
+  A fifth strategy, `lightgbm_msm_popw_daytype_lag1y` = that + `lag_1y_demand_kwh` (the
+  でんき予報 hourly load of `fct_area_power_usage_hourly` on the delivery day's `dim_date`
+  prior-year reference date; research `demand/R-004`), was run on 2026-08-31 and removed with
+  the column on 2026-09-05 — Not supported, the reasons in the investigation.
   `lightgbm_msm_popw_daytype_simday` (`LightGbmMsmPopWeightedDayTypeSimilarDayStrategy`,
-  research `demand/R-004` E-002, kept 2026-09-06: the Tokyo demand baseline, reference run
-  `008868fe59274abfb49f128e29aa28fe`) = `lightgbm_msm_popw_daytype` + `similar_day_demand_kwh`:
-  `tasks/demand/similar_day.py`'s `SimilarDaySelector` scores the 61 days D − 364 ± 30 with a
-  softmax-weighted distance over seven parts (calendar days from D − 364; the 24-h RMSE of D's
-  population-weighted MSM forecast against the candidate's population-weighted observation
-  for temperature, humidity and rain; |Δ| of `dim_date`'s days since / until a named holiday
-  and of `holiday_degree`), fits the weights once per run by `scipy.optimize.least_squares` on
-  the pairs up to the first forecast day's cutoff (Park, Song and Kwon 2020 Eq. 1–3), picks
-  the nearest day and joins its hourly load ÷ 2 per period; a day whose window starts before
-  the hourly load and observations begin (2016-04-01), or that lacks a forecast profile, is
-  unscorable (first scorable day 2019-04-01). Inputs: `AreaWeatherForecast` (+ its
-  `temperature_forecast()` view for the parent), `AreaObservedWeather`, `DayCalendar` (+
-  `day_types()`), `AreaHourlyLoad`, loaded by `build_strategy`. The strategy's `diagnostics`
-  returns the selection and the retrieval check (selected vs D − 364 vs oracle load
-  difference).
-  `lightgbm_msm_popw_daytype_simday_calendar` (`LightGbmMsmPopWeightedDayTypeSimilarDayCalendarStrategy`,
-  research `demand/R-005` E-001, run 2026-09-06 `e3e3bd61…`: MAE +7.3 % on the matched window,
-  rejected by the researcher, Not supported; kept as a reference strategy) = that +
-  `DAY_CALENDAR_FEATURE_COLS`
-  (`tasks/demand/features.py`: `half`, `quarter`, `day_of_month`, `day_of_quarter`, `day_of_year`,
-  `holiday_degree`, `is_business_day` as 1/0, `fiscal_quarter`, `days_since_holiday`,
-  `days_until_holiday`), joined per delivery day by `join_day_calendar` from the same
-  `DayCalendar`, which since then carries the seven `dim_date` count/flag columns next to the
-  selector's three; no new categorical, no new inputs — `build_strategy` wires the subclass
-  through the similar-day branch. Its class attribute `calendar_feature_cols` (passed as
-  `join_day_calendar`'s `cols`) is what two subclasses narrow (research `demand/R-005` E-002 /
-  E-003, run 2026-09-06, both rejected by the researcher the same day, kept registered as
+  `tasks/demand/strategies/lgbm.py`; research `demand/R-004` E-002, kept 2026-09-06: the Tokyo
+  demand baseline, reference run `008868fe59274abfb49f128e29aa28fe`) = the
+  `lightgbm_msm_popw_daytype` preset + `similar_day_demand_kwh`, still built in Python until
+  the feature catalogue's PR 7: the class subclasses `PresetLightGbmStrategy`, merges the
+  retrieved frame and then joins the similar day's load. `tasks/demand/similar_day.py`'s
+  `SimilarDaySelector` scores the 61 days D − 364 ± 30 with a softmax-weighted distance over
+  seven parts (calendar days from D − 364; the 24-h RMSE of D's population-weighted MSM
+  forecast against the candidate's population-weighted observation for temperature, humidity
+  and rain; |Δ| of `dim_date`'s days since / until a named holiday and of `holiday_degree`),
+  fits the weights once per run by `scipy.optimize.least_squares` on the pairs up to the
+  first forecast day's cutoff (Park, Song and Kwon 2020 Eq. 1–3), picks the nearest day and
+  joins its hourly load ÷ 2 per period; a day whose window starts before the hourly load and
+  observations begin (2016-04-01), or that lacks a forecast profile, is unscorable (first
+  scorable day 2019-04-01). Inputs next to the preset's frame: `AreaWeatherForecast`,
+  `AreaObservedWeather`, `DayCalendar`, `AreaHourlyLoad`, loaded by `build_strategy`, which
+  also takes `--add` / `--drop` / `--name` for the preset underneath. The strategy's
+  `diagnostics` returns the selection and the retrieval check (selected vs D − 364 vs oracle
+  load difference); it logs `population_weight_census_year` next to the preset params.
+  `lightgbm_msm_popw_daytype_simday_calendar`
+  (`LightGbmMsmPopWeightedDayTypeSimilarDayCalendarStrategy`, research `demand/R-005` E-001,
+  run 2026-09-06 `e3e3bd61…`: MAE +7.3 % on the matched window, rejected by the researcher,
+  Not supported; kept as a reference strategy) = that + `DAY_CALENDAR_FEATURE_COLS`
+  (`tasks/demand/features.py`: `half`, `quarter`, `day_of_month`, `day_of_quarter`,
+  `day_of_year`, `holiday_degree`, `is_business_day` as 1/0, `fiscal_quarter`,
+  `days_since_holiday`, `days_until_holiday`), joined per delivery day by `join_day_calendar`
+  from the same `DayCalendar` after the similar day's load; no new categorical, no new inputs.
+  The class attribute `calendar_feature_cols` (empty on the similar-day base) is what its
+  three siblings narrow, the eval set following it (research `demand/R-005` E-002 / E-003 /
+  E-004, run 2026-09-06, all rejected by the researcher the same day, kept registered as
   references): `lightgbm_msm_popw_daytype_simday_holidaydegree`
   (`LightGbmMsmPopWeightedDayTypeSimilarDayHolidayDegreeStrategy`, `HOLIDAY_DEGREE_FEATURE_COLS`
   = `holiday_degree`; run `a8da46c5…`: MAE +0.3 %, CI over days includes zero, holidays +1.8 %,
-  4.8 % of the SHAP mass mostly from `day_type`) and
+  4.8 % of the SHAP mass mostly from `day_type`),
   `lightgbm_msm_popw_daytype_simday_holidaydistance`
   (`LightGbmMsmPopWeightedDayTypeSimilarDayHolidayDistanceStrategy`,
   `HOLIDAY_DISTANCE_FEATURE_COLS` = `days_since_holiday`, `days_until_holiday`; run
-  `f7153839…`: MAE +6.5 %, CI excludes zero, every day part / day type / season worse) — and a
-  third, `lightgbm_msm_popw_daytype_simday_calendarcounts`
+  `f7153839…`: MAE +6.5 %, CI excludes zero, every day part / day type / season worse) and
+  `lightgbm_msm_popw_daytype_simday_calendarcounts`
   (`LightGbmMsmPopWeightedDayTypeSimilarDayCalendarCountStrategy`, `CALENDAR_COUNT_FEATURE_COLS`
-  = `half`, `quarter`, `day_of_month`, `day_of_quarter`, `day_of_year`, `fiscal_quarter`; E-004,
-  run 2026-09-06 `9182d469…`, rejected by the researcher the same day: MAE +4.2 %, CI excludes
-  zero, weekdays +7.7 % but
-  holidays −13.4 % — E-001's holiday gain comes with this subset; `half` / `quarter` never split
-  on); each with its own eval-set class (`_calendar_subset_schema` drops the other calendar
-  columns from the ten-feature schema), the same constructor and inputs, wired through the same
-  branch.
+  = `half`, `quarter`, `day_of_month`, `day_of_quarter`, `day_of_year`, `fiscal_quarter`; run
+  `9182d469…`: MAE +4.2 %, CI excludes zero, weekdays +7.7 % but holidays −13.4 % — E-001's
+  holiday gain comes with this subset; `half` / `quarter` never split on).
   Write-back: `pma_ml.demand_forecast` →
   `stg/std_ml__demand_forecast` →
   `fct_demand_forecast` → `fct_demand_forecast_accuracy` → Superset **Demand Forecast Analysis**
@@ -687,6 +676,22 @@
   `entity_frame` stamps the naive JST issue time as UTC and `historical_features` refuses a
   session or a frame in another zone. The test fixture runs in Asia/Tokyo, so the Feast tests
   switch the session to UTC for their duration (`utc_session`).
+- Feast's as-of join hides a fact row published after the issue time, by design. In the
+  TEPCO actuals two delivery days, 2022-12-08 and 2022-12-09, have a D-7 file re-published
+  after 09:30 D-1 (the 2022-12-01 / 12-02 files, re-issued 2022-12-14), so `ftr_period_actuals`
+  gives them no lag while the deleted class-based demand code read the final value: a run
+  whose 730-day training window reaches December 2022 differs from it by those 96 training
+  rows. The PR 6 reproduction therefore used `--train-start 2023-01-01`; no other row in the
+  demand marts is published after its issue time (checked 2026-09-11).
+- LightGBM's histogram bins move on last-bit feature differences. The weighted-mean marts
+  (`wavg_temperature_c`, the `popw_*` forecast columns) equal the old pandas builders only to
+  1.4e-14 (a different summation order), and PR 6's reproduction of the demand strategies had
+  every feature value equal and every forecast different (MAE +0.14 % / +0.55 %); the same
+  refit with both sides rounded to 9 decimals was identical to the digit, to 12 decimals
+  not (a 1e-14 pair straddles a rounding boundary about once per 10^(d-14) values at d
+  decimals). So two runs whose features differ at 1e-14 are not comparable period by
+  period; a fixed summation order in the marts, with rounding on top, is an open question
+  in the feature-catalogue spec (§13).
 - `scipy` is a declared dependency since 2026-09-05 (the similar-day weight fit uses
   `scipy.optimize.least_squares`); `scipy.*` is mypy-ignored like `shap.*`.
 - `scikit-learn` is a declared dependency since 2026-09-08 (`sklearn.inspection.permutation_importance`;

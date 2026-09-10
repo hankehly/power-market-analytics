@@ -64,13 +64,14 @@ class Preset:
     features : tuple of str
         ``<view>:<column>`` references, in feature order.
     base : str or None
-        The registered preset a changed set started from (``with_changes``).
+        The preset this one was changed from (``with_changes``), by name;
+        None for one defined from scratch.
     """
 
     task: str
     name: str
     features: tuple[str, ...]
-    #: The registered preset a changed set started from; None on a registered one.
+    #: The preset this one was changed from, by name; None for one defined from scratch.
     base: str | None = None
 
     def __post_init__(self) -> None:
@@ -97,6 +98,9 @@ class Preset:
         self, *, add: Iterable[str] = (), drop: Iterable[str] = (), name: str
     ) -> Preset:
         """A copy with references dropped and added, under a new name.
+
+        The copy's ``base`` is this preset's name, whether this one is
+        registered or itself a changed set.
 
         Parameters
         ----------
@@ -126,7 +130,7 @@ class Preset:
         return dataclasses.replace(
             self,
             name=name,
-            base=self.base or self.name,
+            base=self.name,
             features=tuple(ref for ref in self.features if ref not in dropped) + added,
         )
 

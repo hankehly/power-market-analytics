@@ -1,35 +1,18 @@
-"""Temperature and calendar features for the demand forecasting task."""
+"""Calendar features and hour alignment for the demand forecasting task.
+
+The temperature and lag features live in the feature marts since the feature
+catalogue's PR 6; the similar-day strategies still join the ``DayCalendar``
+columns here."""
 
 from __future__ import annotations
 
 import numpy as np
 import pandas as pd
 
-from power_market_analytics.forecasting.frames import GRAIN_COLS
-from power_market_analytics.tasks.demand.frames import (
-    DAY_TYPE_LEVELS,
-    AreaTemperature,
-    AreaTemperatureForecast,
-    DayCalendar,
-    DayTypeCalendar,
-)
+from power_market_analytics.tasks.demand.frames import DAY_TYPE_LEVELS, DayCalendar
 
-#: Days before delivery day D whose same-hour temperature enters the feature:
-#: the seven most recent *complete* observation days at 09:30 D-1 (D-1 is
-#: still in progress, so it is excluded).
-TEMPERATURE_LAG_DAYS: tuple[int, ...] = (2, 3, 4, 5, 6, 7, 8)
-#: Weight halves for every ``half_life_days`` further back: D-2 -> 1, D-3 -> 1/2, ... D-8 -> 1/64.
-TEMPERATURE_HALF_LIFE_DAYS = 1.0
-TEMPERATURE_FEATURE = "wavg_temperature_c"
-#: The MSM forecast temperature for the delivery-day hour containing the period.
-FORECAST_TEMPERATURE_FEATURE = "forecast_temperature_c"
-#: The same, population-weighted over the area's staffed stations instead of
-#: taken at the representative station.
-POPW_FORECAST_TEMPERATURE_FEATURE = "popw_forecast_temperature_c"
-#: The delivery day's type as a LightGBM categorical: the code of its level in
-#: ``DAY_TYPE_LEVELS`` (0 = Weekday, 1 = Weekend, 2 = Holiday).
-DAY_TYPE_FEATURE = "day_type"
-#: Code of each day-type level (its index in ``DAY_TYPE_LEVELS``).
+#: Code of each day-type level (its index in ``DAY_TYPE_LEVELS``): the
+#: ``day_type`` feature, 0 = Weekday, 1 = Weekend, 2 = Holiday.
 DAY_TYPE_CODES: dict[str, int] = {level: code for code, level in enumerate(DAY_TYPE_LEVELS)}
 #: The delivery day's calendar attributes, read from ``dim_date`` through
 #: ``DayCalendar`` (research demand/R-005): the calendar counts, the graded
@@ -83,111 +66,6 @@ def hour_ending_of(time_code: pd.Series) -> pd.Series:
     return ((time_code + 1) // 2).astype("int64")
 
 
-def recency_weighted_temperature(
-    points: pd.DataFrame,
-    temperature: AreaTemperature,
-    *,
-    lag_days: tuple[int, ...] = TEMPERATURE_LAG_DAYS,
-    half_life_days: float = TEMPERATURE_HALF_LIFE_DAYS,
-    name: str = TEMPERATURE_FEATURE,
-) -> pd.DataFrame:
-    """Attach the recency-weighted mean of the same-hour temperature over past days.
-
-    For a point (D, time_code) the feature is the weighted mean of the
-    station's temperature at ``hour_ending_of(time_code)`` on days
-    ``D - k`` for ``k`` in ``lag_days``, with weight
-    ``0.5 ** ((k - min(lag_days)) / half_life_days)``. Weights are
-    renormalised over the lags that have a value, so a missing hour lowers
-    the effective sample rather than the result; the feature is NaN only when
-    every lag is missing.
-
-    Parameters
-    ----------
-    points : pandas.DataFrame
-        Rows keyed on (trade_date, time_code); other columns pass through.
-    temperature : AreaTemperature
-        Hourly temperature at the area's representative station.
-    lag_days : tuple of int, optional
-        Days before D to average over; must not be empty.
-    half_life_days : float, optional
-        Days over which a lag's weight halves.
-    name : str, optional
-        Name for the new column.
-
-    Returns
-    -------
-    pandas.DataFrame
-        ``points`` plus ``name``, in the original row order.
-
-    Raises
-    ------
-    ValueError
-        If ``lag_days`` is empty.
-    """
-    if not lag_days:
-        raise ValueError("lag_days must not be empty")
-    keyed = points[GRAIN_COLS].assign(hour_ending=hour_ending_of(points["time_code"]))
-    temp = temperature.df
-    first = min(lag_days)
-    columns = []
-    weights = []
-    for k in lag_days:
-        lagged = temp.assign(trade_date=temp["obs_date"] + pd.Timedelta(days=k))[
-            ["trade_date", "hour_ending", "temperature_c"]
-        ]
-        # Two periods share an hour, hence many_to_one; a left merge keeps
-        # the left row order.
-        joined = keyed.merge(
-            lagged, how="left", on=["trade_date", "hour_ending"], validate="many_to_one"
-        )
-        columns.append(joined["temperature_c"].to_numpy(dtype="float64"))
-        weights.append(0.5 ** ((k - first) / half_life_days))
-    values = np.column_stack(columns)
-    w = np.asarray(weights, dtype="float64")
-    present = ~np.isnan(values)
-    weighted_sum = np.nansum(values * w, axis=1)
-    weight_sum = (present * w).sum(axis=1)
-    with np.errstate(invalid="ignore", divide="ignore"):
-        feature = np.where(weight_sum > 0, weighted_sum / weight_sum, np.nan)
-    return points.assign(**{name: feature})
-
-
-def join_forecast_temperature(
-    points: pd.DataFrame,
-    forecast: AreaTemperatureForecast,
-    *,
-    name: str = FORECAST_TEMPERATURE_FEATURE,
-) -> pd.DataFrame:
-    """Attach the forecast temperature of the delivery-day hour containing each period.
-
-    For a point (D, time_code) the feature is the station's forecast
-    temperature for delivery day D at ``hour_ending_of(time_code)`` — the
-    same period-to-hour alignment as :func:`recency_weighted_temperature`.
-    It is NaN where the forecast has no row (or a null value) for that hour.
-
-    Parameters
-    ----------
-    points : pandas.DataFrame
-        Rows keyed on (trade_date, time_code); other columns pass through.
-    forecast : AreaTemperatureForecast
-        Hourly forecast temperature at the area's representative station.
-    name : str, optional
-        Name for the new column.
-
-    Returns
-    -------
-    pandas.DataFrame
-        ``points`` plus ``name``, in the original row order.
-    """
-    keyed = points[GRAIN_COLS].assign(hour_ending=hour_ending_of(points["time_code"]))
-    # Two periods share an hour, hence many_to_one; a left merge keeps the
-    # left row order.
-    joined = keyed.merge(
-        forecast.df, how="left", on=["trade_date", "hour_ending"], validate="many_to_one"
-    )
-    return points.assign(**{name: joined["forecast_temperature_c"].to_numpy(dtype="float64")})
-
-
 def day_type_code(is_weekend: pd.Series, is_holiday: pd.Series) -> pd.Series:
     """Code each day's type from ``dim_date``'s weekend and holiday flags.
 
@@ -213,37 +91,6 @@ def day_type_code(is_weekend: pd.Series, is_holiday: pd.Series) -> pd.Series:
         ),
     )
     return pd.Series(codes.astype("int64"), index=is_holiday.index)
-
-
-def join_day_type(
-    points: pd.DataFrame, calendar: DayTypeCalendar, *, name: str = DAY_TYPE_FEATURE
-) -> pd.DataFrame:
-    """Attach the delivery day's day-type code to each period.
-
-    The code is NaN where the calendar has no row for the day, so a target
-    day outside ``dim_date`` is unforecastable rather than silently a weekday.
-
-    Parameters
-    ----------
-    points : pandas.DataFrame
-        Rows keyed on (trade_date, time_code); other columns pass through.
-    calendar : DayTypeCalendar
-        Day type of every calendar day.
-    name : str, optional
-        Name for the new column.
-
-    Returns
-    -------
-    pandas.DataFrame
-        ``points`` plus ``name`` (float64: the code, NaN where unavailable),
-        in the original row order.
-    """
-    # The 48 periods of a day share its row, hence many_to_one; a left merge
-    # keeps the left row order.
-    joined = points[["trade_date"]].merge(
-        calendar.df, how="left", on="trade_date", validate="many_to_one"
-    )
-    return points.assign(**{name: joined["day_type"].to_numpy(dtype="float64")})
 
 
 def join_day_calendar(

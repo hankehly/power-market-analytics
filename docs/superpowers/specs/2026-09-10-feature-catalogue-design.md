@@ -171,7 +171,10 @@ and rain, |Δ days_since_holiday|, |Δ days_until_holiday|, |Δ holiday_degree|;
 - `SlidingWindowLightGbmStrategy` keeps the sliding window, refit cadence, TreeSHAP,
   permutation importance and evaluation. `feature_cols`, `categorical_feature_cols` and
   the eval-set schema become instance attributes read from the preset; `lookback_days` and
-  `_add_features` go away.
+  `_add_features` go away. Since PR 6 the base's one feature hook is `_features`; its
+  calendar computation went with the demand classes. Until PR 7 the similar-day strategies
+  subclass `PresetLightGbmStrategy` and extend its `_add_features` with their Python-built
+  feature.
 - `build_strategy(preset, area, …)` builds the entity frame once per run, every (area, D,
   time_code) from the first training day to the last target day, calls Feast once, wraps the
   result in a `FeatureFrame` (grain area × trade_date × time_code, the preset's columns,
@@ -243,7 +246,7 @@ in a different order when rows arrive in a different order.
 | 3 | `feature/feature-value-fact` | `fct_feature_value` and the two Superset datasets | `dbt build` green; one chart in Superset | 2 |
 | 4 | `feature/feast-retrieval` | the spike (§9), then the Feast repo, generated views, staleness test and dependency; the façade instead if the spike fails | the spike's pass criteria; done 2026-09-10 | 2 |
 | 5 | `feature/spot-price-presets` | presets, `FeatureFrame`, `build_strategy` through Feast, one spot strategy, `--add`, `--drop`, `--name`; delete `LightGbmOcctoStrategy` | the spot `lightgbm_occto` run reproduced; done 2026-09-11 | 4 |
-| 6 | `feature/demand-presets` | the demand presets without similar day, one demand strategy; delete their classes | the kept R-003 Tokyo run reproduced | 5 |
+| 6 | `feature/demand-presets` | the demand presets without similar day, one demand strategy; delete their classes | the kept R-003 Tokyo run reproduced; done 2026-09-11 | 5 |
 | 7 | `feature/similar-day-feature` | the fit script, `pma_ml.similar_day_parameters`, `ftr_period_similar_day`, the five similar-day presets; delete the last classes | run `008868fe…` reproduced | 6 |
 
 PR 3 can run beside 4 to 7. The live path, the selection loop and Form B for features made
@@ -260,3 +263,14 @@ selection loop, its own topic.
 1. The availability lags marked "to confirm" in §3.
 2. Registry: a file under `data/` or the Postgres already in compose.
 3. How often the similar-day weights are refit.
+- Should the weighted-mean marts sum in a fixed order? `ftr_hour_jma_obs.wavg_temperature_c`
+  and the three `ftr_hour_msm.popw_*` columns are sums in whatever order Spark adds them, so
+  they match the old pandas builders only to 1.4e-14, and a rebuild that adds in another
+  order could move them by as much. LightGBM's histogram bins move on such last-bit
+  differences: in PR 6's reproduction every feature matched and every forecast differed
+  (MAE +0.14 % and +0.55 %). Rounding only makes that unlikely: two values 1e-14 apart round
+  differently when a rounding boundary falls between them, about once per 10^(d-14) values
+  at d decimals, so over the 28,512 training values 12 decimals still left the fits apart,
+  9 made them identical and 8 or 6 would be safer still. A fixed summation order (sort the
+  lags, then fold) makes the mart the same on every build; rounding to 6 decimals on top
+  costs nothing at 0.1 °C inputs. Found 2026-09-11, the researcher's call.
