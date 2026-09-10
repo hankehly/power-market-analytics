@@ -10,10 +10,8 @@ from power_market_analytics.tasks.demand.frames import (
     HOLIDAY_DEGREE_LEVELS,
     AreaHourlyLoad,
     AreaObservedWeather,
-    AreaTemperatureForecast,
     AreaWeatherForecast,
     DayCalendar,
-    DayTypeCalendar,
 )
 
 DAY = pd.Timestamp("2024-04-10")
@@ -63,12 +61,6 @@ class TestAreaWeatherForecast:
         frame = AreaWeatherForecast.from_df(weather_forecast())
         assert frame.keys == ["trade_date", "hour_ending"]
         assert frame.df["forecast_relative_humidity_pct"].isna().tolist() == [False, True]
-
-    def test_temperature_forecast_view(self):
-        view = AreaWeatherForecast.from_df(weather_forecast()).temperature_forecast()
-        assert type(view) is AreaTemperatureForecast
-        assert list(view.df.columns) == ["trade_date", "hour_ending", "forecast_temperature_c"]
-        assert view.df["forecast_temperature_c"].tolist() == [10.0, 11.0]
 
     def test_hour_outside_1_24_is_rejected(self):
         with pytest.raises(ValueError, match="hour_ending outside 1..24"):
@@ -133,12 +125,10 @@ class TestDayCalendar:
     def test_levels(self):
         assert HOLIDAY_DEGREE_LEVELS == (0.0, 0.3, 0.5, 0.8, 1.0)
 
-    def test_keys_and_day_types_view(self):
+    def test_keys(self):
         frame = DayCalendar.from_df(calendar())
         assert frame.keys == ["trade_date"]
-        view = frame.day_types()
-        assert type(view) is DayTypeCalendar
-        assert view.df["day_type"].tolist() == [0, 2]
+        assert frame.df["day_type"].tolist() == [0, 2]
 
     def test_columns_in_schema_order(self):
         frame = DayCalendar.from_df(calendar())
@@ -187,11 +177,3 @@ class TestDayCalendar:
     def test_holiday_degree_outside_levels_is_rejected(self):
         with pytest.raises(ValueError, match=r"holiday_degree outside \(0.0, 0.3, 0.5, 0.8, 1.0\)"):
             DayCalendar.from_df(calendar(holiday_degree=[0.0, 0.9]))
-
-
-class TestDayTypeCalendar:
-    def test_code_outside_levels_is_rejected(self):
-        with pytest.raises(ValueError, match="day_type outside 0..2"):
-            DayTypeCalendar.from_df(
-                pd.DataFrame({"trade_date": [DAY], "day_type": np.array([3], dtype="int64")})
-            )

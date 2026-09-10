@@ -172,29 +172,40 @@ class TestBuildPreset:
 
 
 class TestBuildSimilarDay:
-    def test_similar_day_strategy_loads_its_five_inputs(
-        self, spark, curated_warehouse: CuratedWarehouse
+    def test_similar_day_strategy_retrieves_the_preset_and_loads_its_inputs(
+        self, spark, curated_warehouse: CuratedWarehouse, feature_marts
     ):
         strategy = build_strategy(
-            "lightgbm_msm_popw_daytype_simday", area_code="tokyo", spark=spark
+            "lightgbm_msm_popw_daytype_simday", area_code="tokyo", days=DAYS, spark=spark
         )
         assert type(strategy) is LightGbmMsmPopWeightedDayTypeSimilarDayStrategy
+        assert strategy.name == "lightgbm_msm_popw_daytype_simday"
+        assert strategy.preset is PRESETS["lightgbm_msm_popw_daytype"]
+        assert strategy.feature_cols == (
+            *BASE_FEATURE_COLS,
+            "popw_forecast_temperature_c",
+            "day_type",
+            "similar_day_demand_kwh",
+        )
+        assert strategy.categorical_feature_cols == ("day_type",)
+        assert len(strategy._features_df) == len(DAYS) * 48
         assert strategy.census_year == 2020
-        assert len(strategy.temperature) == len(curated_warehouse.weather)
         assert len(strategy.hourly_load) == len(curated_warehouse.hourly_load)
         assert strategy.selector.first_candidate_day == min(HOLIDAYS_2024_SPRING)
         assert strategy.selector.hourly_load_span == (HOURLY_LOAD_DAYS[0], HOURLY_LOAD_DAYS[-1])
-        assert strategy.day_types.df["day_type"].tolist() == [
-            expected_day_type(d) for d in strategy.day_types.df["trade_date"]
+        calendar = strategy.day_calendar.df
+        assert calendar["day_type"].tolist() == [
+            expected_day_type(d) for d in calendar["trade_date"]
         ]
 
-    def test_calendar_strategy_loads_the_similar_day_inputs_and_keeps_the_calendar(
-        self, spark, curated_warehouse: CuratedWarehouse
+    def test_calendar_strategy_keeps_the_whole_calendar(
+        self, spark, curated_warehouse: CuratedWarehouse, feature_marts
     ):
         strategy = build_strategy(
-            "lightgbm_msm_popw_daytype_simday_calendar", area_code="tokyo", spark=spark
+            "lightgbm_msm_popw_daytype_simday_calendar", area_code="tokyo", days=DAYS, spark=spark
         )
         assert type(strategy) is LightGbmMsmPopWeightedDayTypeSimilarDayCalendarStrategy
+        assert strategy.feature_cols[-10:] == strategy.calendar_feature_cols
         assert strategy.census_year == 2020
         assert len(strategy.hourly_load) == len(curated_warehouse.hourly_load)
         # The whole dim_date spine between its first and last holiday, with the counts.
@@ -221,17 +232,43 @@ class TestBuildSimilarDay:
         ],
     )
     def test_calendar_subset_strategies_load_the_similar_day_inputs(
-        self, spark, curated_warehouse: CuratedWarehouse, name, cls
+        self, spark, curated_warehouse: CuratedWarehouse, feature_marts, name, cls
     ):
-        strategy = build_strategy(name, area_code="tokyo", spark=spark)
+        strategy = build_strategy(name, area_code="tokyo", days=DAYS, spark=spark)
         assert type(strategy) is cls
+        assert strategy.name == name
         assert strategy.census_year == 2020
         assert len(strategy.hourly_load) == len(curated_warehouse.hourly_load)
         assert set(strategy.calendar_feature_cols) <= set(strategy.day_calendar.df.columns)
 
-    @pytest.mark.parametrize(
-        "kwargs", [{"add": ("ftr_day_calendar:half",)}, {"drop": ("x:y",)}, {"label": "n"}]
-    )
-    def test_similar_day_names_take_no_feature_changes(self, kwargs):
-        with pytest.raises(ValueError, match="takes no feature changes until it is a preset"):
-            build_strategy("lightgbm_msm_popw_daytype_simday", area_code="tokyo", **kwargs)
+    def test_add_drop_and_label_change_the_preset_under_the_similar_day(
+        self, spark, curated_warehouse, feature_marts
+    ):
+        strategy = build_strategy(
+            "lightgbm_msm_popw_daytype_simday",
+            area_code="tokyo",
+            days=DAYS,
+            add=("ftr_day_calendar:half",),
+            drop=("ftr_day_calendar:day_of_week",),
+            label="simday_half",
+            spark=spark,
+        )
+        assert type(strategy) is LightGbmMsmPopWeightedDayTypeSimilarDayStrategy
+        assert strategy.name == "simday_half"
+        assert strategy.preset.name == "simday_half"
+        assert strategy.preset.base == "lightgbm_msm_popw_daytype"
+        assert strategy.feature_cols == (
+            "time_code",
+            "month",
+            "wavg_temperature_c",
+            "lag_7d_demand_kwh",
+            "popw_forecast_temperature_c",
+            "day_type",
+            "half",
+            "similar_day_demand_kwh",
+        )
+        assert strategy.categorical_feature_cols == ("day_type",)
+
+    def test_a_similar_day_strategy_needs_its_days_too(self):
+        with pytest.raises(ValueError, match="'lightgbm_msm_popw_daytype_simday' needs the days"):
+            build_strategy("lightgbm_msm_popw_daytype_simday", area_code="tokyo")
