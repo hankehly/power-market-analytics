@@ -1,10 +1,13 @@
-"""Tests for the demand strategy registry and factory."""
+"""The demand registry: the presets built over Feast and the similar-day strategies."""
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 import pytest
 
+from power_market_analytics.forecasting.preset_lgbm import PresetLightGbmStrategy
+from power_market_analytics.tasks.demand.presets import PRESETS
 from power_market_analytics.tasks.demand.strategies import STRATEGIES, build_strategy
 from power_market_analytics.tasks.demand.strategies.lgbm import (
     LightGbmMsmPopWeightedDayTypeSimilarDayCalendarCountStrategy,
@@ -12,24 +15,35 @@ from power_market_analytics.tasks.demand.strategies.lgbm import (
     LightGbmMsmPopWeightedDayTypeSimilarDayHolidayDegreeStrategy,
     LightGbmMsmPopWeightedDayTypeSimilarDayHolidayDistanceStrategy,
     LightGbmMsmPopWeightedDayTypeSimilarDayStrategy,
-    LightGbmMsmPopWeightedDayTypeStrategy,
-    LightGbmMsmPopWeightedStrategy,
-    LightGbmMsmStrategy,
-    LightGbmStrategy,
 )
 from tests.conftest import (
     CALENDAR_DAYS,
+    DEMAND_HOLE_DAY,
+    DEMAND_HOLE_TIME_CODES,
+    FORECAST_MISSING_DAY,
     HOLIDAYS_2024_SPRING,
     HOURLY_LOAD_DAYS,
-    TOKYO_STATION_ID,
+    SECOND_STATION_FORECAST_OFFSET_C,
     CuratedWarehouse,
+    popw_forecast,
+    synthetic_demand,
+    synthetic_forecast_temperature,
+    wavg_temperature,
 )
 from tests.test_demand_datasets import expected_day_type
+
+DAYS = pd.date_range("2024-04-01", "2024-04-10", freq="D")
+TRAIN_START = pd.Timestamp("2024-04-01")
+BASE_FEATURE_COLS = ("time_code", "month", "day_of_week", "wavg_temperature_c", "lag_7d_demand_kwh")
+
+
+def frame_by_period(strategy) -> pd.DataFrame:
+    return strategy._features_df.set_index(["trade_date", "time_code"])
 
 
 class TestRegistry:
     def test_registered_names(self):
-        assert list(STRATEGIES) == [
+        assert STRATEGIES == (
             "lightgbm",
             "lightgbm_msm",
             "lightgbm_msm_popw",
@@ -39,131 +53,125 @@ class TestRegistry:
             "lightgbm_msm_popw_daytype_simday_calendarcounts",
             "lightgbm_msm_popw_daytype_simday_holidaydegree",
             "lightgbm_msm_popw_daytype_simday_holidaydistance",
-        ]
-        assert STRATEGIES["lightgbm"] is LightGbmStrategy
-        assert (
-            STRATEGIES["lightgbm_msm_popw_daytype_simday"]
-            is LightGbmMsmPopWeightedDayTypeSimilarDayStrategy
         )
-        assert (
-            STRATEGIES["lightgbm_msm_popw_daytype_simday_calendar"]
-            is LightGbmMsmPopWeightedDayTypeSimilarDayCalendarStrategy
-        )
-        assert (
-            STRATEGIES["lightgbm_msm_popw_daytype_simday_calendarcounts"]
-            is LightGbmMsmPopWeightedDayTypeSimilarDayCalendarCountStrategy
-        )
-        assert (
-            STRATEGIES["lightgbm_msm_popw_daytype_simday_holidaydegree"]
-            is LightGbmMsmPopWeightedDayTypeSimilarDayHolidayDegreeStrategy
-        )
-        assert (
-            STRATEGIES["lightgbm_msm_popw_daytype_simday_holidaydistance"]
-            is LightGbmMsmPopWeightedDayTypeSimilarDayHolidayDistanceStrategy
-        )
-        assert STRATEGIES["lightgbm_msm"] is LightGbmMsmStrategy
-        assert STRATEGIES["lightgbm_msm_popw"] is LightGbmMsmPopWeightedStrategy
-        assert STRATEGIES["lightgbm_msm_popw_daytype"] is LightGbmMsmPopWeightedDayTypeStrategy
-
-
-class TestBuildStrategy:
-    def test_lightgbm_loads_the_areas_temperature(self, spark, curated_warehouse: CuratedWarehouse):
-        strategy = build_strategy(
-            "lightgbm", area_code="tokyo", train_start_date=pd.Timestamp("2024-04-01"), spark=spark
-        )
-        assert type(strategy) is LightGbmStrategy
-        assert strategy.train_start_date == pd.Timestamp("2024-04-01")
-        assert len(strategy.temperature) == len(curated_warehouse.weather)
-
-    def test_without_train_start_date(self, spark, curated_warehouse):
-        assert build_strategy("lightgbm", area_code="tokyo", spark=spark).train_start_date is None
-
-    def test_lightgbm_does_not_carry_a_temperature_forecast(self, spark, curated_warehouse):
-        assert not hasattr(
-            build_strategy("lightgbm", area_code="tokyo", spark=spark), "temperature_forecast"
-        )
-
-    def test_lightgbm_msm_loads_the_areas_temperature_and_its_forecast(
-        self, spark, curated_warehouse: CuratedWarehouse
-    ):
-        strategy = build_strategy(
-            "lightgbm_msm",
-            area_code="tokyo",
-            train_start_date=pd.Timestamp("2024-04-01"),
-            spark=spark,
-        )
-        assert type(strategy) is LightGbmMsmStrategy
-        assert strategy.train_start_date == pd.Timestamp("2024-04-01")
-        assert len(strategy.temperature) == len(curated_warehouse.weather)
-        # The representative station's rows only, not the second station's.
-        forecast_rows = curated_warehouse.weather_forecast
-        assert (
-            len(strategy.temperature_forecast)
-            == (forecast_rows["station_id"] == TOKYO_STATION_ID).sum()
-        )
-
-    def test_lightgbm_msm_popw_loads_the_population_weighted_forecast(
-        self, spark, curated_warehouse: CuratedWarehouse
-    ):
-        strategy = build_strategy("lightgbm_msm_popw", area_code="tokyo", spark=spark)
-        assert type(strategy) is LightGbmMsmPopWeightedStrategy
-        assert strategy.census_year == 2020
-        assert len(strategy.temperature) == len(curated_warehouse.weather)
-        # One weighted value per (delivery day, hour): the two stations' rows collapse,
-        # and the value lies between the two stations' forecasts (equal to the single
-        # present one at the hour the second station lacks).
-        by_hour = curated_warehouse.weather_forecast.groupby(["date_key", "hour_ending"])[
-            "forecast_temperature_c"
-        ]
-        weighted = strategy.temperature_forecast.df["forecast_temperature_c"].to_numpy()
-        assert len(weighted) == by_hour.ngroups
-        assert (weighted >= by_hour.min().to_numpy() - 1e-9).all()
-        assert (weighted <= by_hour.max().to_numpy() + 1e-9).all()
-        assert (weighted > by_hour.min().to_numpy()).sum() == by_hour.ngroups - 1
-
-    def test_lightgbm_msm_popw_daytype_loads_the_day_type_calendar_too(
-        self, spark, curated_warehouse: CuratedWarehouse
-    ):
-        strategy = build_strategy(
-            "lightgbm_msm_popw_daytype",
-            area_code="tokyo",
-            train_start_date=pd.Timestamp("2024-04-01"),
-            spark=spark,
-        )
-        assert type(strategy) is LightGbmMsmPopWeightedDayTypeStrategy
-        assert strategy.train_start_date == pd.Timestamp("2024-04-01")
-        assert strategy.census_year == 2020
-        assert len(strategy.temperature) == len(curated_warehouse.weather)
-        by_hour = curated_warehouse.weather_forecast.groupby(["date_key", "hour_ending"])
-        assert len(strategy.temperature_forecast) == by_hour.ngroups
-        # One coded row per dim_date day.
-        assert len(strategy.day_types) == len(curated_warehouse.dates)
-        assert set(strategy.day_types.df["day_type"]) == {0, 1, 2}
-
-    def test_lightgbm_msm_popw_does_not_carry_a_day_type_calendar(self, spark, curated_warehouse):
-        assert not hasattr(
-            build_strategy("lightgbm_msm_popw", area_code="tokyo", spark=spark), "day_types"
-        )
-
-    def test_lightgbm_msm_area_without_weather_fails_on_the_observations_first(
-        self, spark, curated_warehouse
-    ):
-        # kansai has neither observations nor forecasts; the observations are loaded first.
-        with pytest.raises(
-            ValueError, match="No temperature observations found for area_code='kansai'"
-        ):
-            build_strategy("lightgbm_msm", area_code="kansai", spark=spark)
-
-    def test_area_without_temperature_raises(self, spark, curated_warehouse):
-        with pytest.raises(
-            ValueError, match="No temperature observations found for area_code='kansai'"
-        ):
-            build_strategy("lightgbm", area_code="kansai", spark=spark)
+        assert STRATEGIES[:4] == tuple(PRESETS)
 
     def test_unknown_name_raises_key_error(self):
         with pytest.raises(KeyError, match="arima"):
-            build_strategy("arima", area_code="tokyo")
+            build_strategy("arima", area_code="tokyo", days=DAYS)
 
+
+class TestBuildPreset:
+    def test_lightgbm_retrieves_its_features_as_of_each_day(self, feature_marts):
+        strategy = build_strategy(
+            "lightgbm", area_code="tokyo", days=DAYS, train_start_date=TRAIN_START
+        )
+        assert type(strategy) is PresetLightGbmStrategy
+        assert strategy.name == "lightgbm"
+        assert strategy.preset is PRESETS["lightgbm"]
+        assert strategy.train_start_date == TRAIN_START
+        assert strategy.feature_cols == BASE_FEATURE_COLS
+        assert strategy.categorical_feature_cols == ()
+        frame = strategy._features_df
+        assert len(frame) == len(DAYS) * 48
+        assert not frame.isna().any().any()
+        day = pd.Timestamp("2024-04-05")
+        row = frame_by_period(strategy).loc[(day, 10)]
+        assert row["month"] == 4.0 and row["day_of_week"] == 4.0  # a Friday
+        # Period 10 lies in hour-ending 5; the lag is the same period a week before.
+        assert row["wavg_temperature_c"] == pytest.approx(wavg_temperature(day, 5))
+        assert row["lag_7d_demand_kwh"] == synthetic_demand(day - pd.Timedelta(days=7), 10)
+
+    def test_lightgbm_msm_adds_the_representative_stations_forecast(self, feature_marts):
+        days = pd.date_range(
+            FORECAST_MISSING_DAY - pd.Timedelta(days=1), FORECAST_MISSING_DAY + pd.Timedelta(days=1)
+        )
+        strategy = build_strategy("lightgbm_msm", area_code="tokyo", days=days)
+        assert strategy.feature_cols == (*BASE_FEATURE_COLS, "forecast_temperature_c")
+        frame = frame_by_period(strategy)
+        day = FORECAST_MISSING_DAY + pd.Timedelta(days=1)
+        assert frame.loc[(day, 7), "forecast_temperature_c"] == synthetic_forecast_temperature(
+            day, 4
+        )
+        assert frame.loc[FORECAST_MISSING_DAY, "forecast_temperature_c"].isna().all()
+        assert frame.loc[day, "forecast_temperature_c"].notna().all()
+
+    def test_lightgbm_msm_popw_daytype_marks_the_day_type_categorical(self, feature_marts):
+        days = pd.date_range("2024-04-26", "2024-04-30", freq="D")  # 04-27 Sat, 04-29 holiday
+        strategy = build_strategy("lightgbm_msm_popw_daytype", area_code="tokyo", days=days)
+        assert strategy.feature_cols == (
+            *BASE_FEATURE_COLS,
+            "popw_forecast_temperature_c",
+            "day_type",
+        )
+        assert strategy.categorical_feature_cols == ("day_type",)
+        frame = frame_by_period(strategy)
+        assert frame.loc[(pd.Timestamp("2024-04-26"), 1), "day_type"] == 0.0
+        assert frame.loc[(pd.Timestamp("2024-04-27"), 1), "day_type"] == 1.0
+        assert pd.Timestamp("2024-04-29") in HOLIDAYS_2024_SPRING
+        assert frame.loc[(pd.Timestamp("2024-04-29"), 1), "day_type"] == 2.0
+        day = pd.Timestamp("2024-04-30")
+        assert frame.loc[(day, 1), "popw_forecast_temperature_c"] == pytest.approx(
+            popw_forecast(
+                day, 1, synthetic_forecast_temperature(day, 1), SECOND_STATION_FORECAST_OFFSET_C
+            )
+        )
+
+    def test_the_week_after_the_hole_lacks_its_lag(self, feature_marts):
+        after = DEMAND_HOLE_DAY + pd.Timedelta(days=7)
+        days = pd.date_range(after - pd.Timedelta(days=1), after, freq="D")
+        frame = frame_by_period(build_strategy("lightgbm", area_code="tokyo", days=days))
+        lag = frame.loc[after, "lag_7d_demand_kwh"]
+        assert lag.loc[list(DEMAND_HOLE_TIME_CODES)].isna().all()
+        assert lag.loc[1:10].notna().all()
+        assert frame.loc[after - pd.Timedelta(days=1), "lag_7d_demand_kwh"].notna().all()
+
+    def test_add_drop_and_label_compose_a_named_set(self, feature_marts):
+        strategy = build_strategy(
+            "lightgbm",
+            area_code="tokyo",
+            days=DAYS,
+            add=("ftr_day_calendar:day_type",),
+            drop=("ftr_day_calendar:day_of_week",),
+            label="lightgbm_daytype",
+        )
+        assert strategy.name == "lightgbm_daytype"
+        assert strategy.preset.name == "lightgbm_daytype" and strategy.preset.base == "lightgbm"
+        assert strategy.feature_cols == (
+            "time_code",
+            "month",
+            "wavg_temperature_c",
+            "lag_7d_demand_kwh",
+            "day_type",
+        )
+        assert strategy.categorical_feature_cols == ("day_type",)
+
+    def test_a_label_alone_renames_the_run(self, feature_marts):
+        strategy = build_strategy("lightgbm", area_code="tokyo", days=DAYS, label="lightgbm_again")
+        assert strategy.name == "lightgbm_again" and strategy.preset is PRESETS["lightgbm"]
+
+    def test_a_preset_needs_its_days(self):
+        with pytest.raises(ValueError, match="'lightgbm' needs the days"):
+            build_strategy("lightgbm", area_code="tokyo")
+
+    def test_changes_need_a_label(self):
+        with pytest.raises(
+            ValueError, match="'lightgbm' with features added or dropped needs a label"
+        ):
+            build_strategy(
+                "lightgbm", area_code="tokyo", days=DAYS, add=("ftr_day_calendar:day_type",)
+            )
+
+    def test_an_area_without_mart_rows_gets_nan_features(self, feature_marts):
+        strategy = build_strategy("lightgbm_msm", area_code="kansai", days=DAYS)
+        frame = strategy._features_df
+        # The calendar covers kansai; the tokyo-only facts do not.
+        assert frame["month"].eq(4.0).all()
+        for col in ("wavg_temperature_c", "lag_7d_demand_kwh", "forecast_temperature_c"):
+            assert np.isnan(frame[col]).all()
+
+
+class TestBuildSimilarDay:
     def test_similar_day_strategy_loads_its_five_inputs(
         self, spark, curated_warehouse: CuratedWarehouse
     ):
@@ -220,3 +228,10 @@ class TestBuildStrategy:
         assert strategy.census_year == 2020
         assert len(strategy.hourly_load) == len(curated_warehouse.hourly_load)
         assert set(strategy.calendar_feature_cols) <= set(strategy.day_calendar.df.columns)
+
+    @pytest.mark.parametrize(
+        "kwargs", [{"add": ("ftr_day_calendar:half",)}, {"drop": ("x:y",)}, {"label": "n"}]
+    )
+    def test_similar_day_names_take_no_feature_changes(self, kwargs):
+        with pytest.raises(ValueError, match="takes no feature changes until it is a preset"):
+            build_strategy("lightgbm_msm_popw_daytype_simday", area_code="tokyo", **kwargs)
