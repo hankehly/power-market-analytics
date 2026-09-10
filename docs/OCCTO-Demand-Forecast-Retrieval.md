@@ -427,7 +427,7 @@ contract in `conf/schemas/occto_demand_forecast_dad.yaml`. The contract sets
 | Model | Layer | What it adds |
 |---|---|---|
 | `stg_occto__demand_forecast_dad` | staging | As-is view of the raw table with an enforced contract and accepted-values test on the area names |
-| `std_occto__demand_forecast_dad` | standardized | `area_code` (snake-case, matching `dim_area`; `okinawa`, `total_9_areas`, `total_10_areas` for the rest), `is_area_total`, `forecast_horizon_days` (asserted = 2), the `HH:00` labels parsed to `*_hour_ending` ints 1–24, and the published percentages converted to fractions (`usage_rate`, `reserve_rate`: 92.4 → 0.924) |
+| `std_occto__demand_forecast_dad` | standardized | `area_code` (snake-case, matching `dim_area`; `okinawa`, `total_9_areas`, `total_10_areas` for the rest), `is_area_total`, `forecast_horizon_days` (asserted = 2), the `HH:00` labels parsed to `*_hour_ending` ints 1–24, and the published percentages converted to fractions (`usage_rate`, `reserve_rate`: 92.4 → 0.924); `available_at` = `formulated_date` at 18:00, the bound on the 「17時30分以降速やかに」 publication (§7.1) |
 | `fct_occto_demand_supply_forecast_daily` | curated | Periodic snapshot at (`date_key`, `area_key`) for the **9 JEPX areas only, from 2024-04-01** — the エリア計 roll-ups are excluded so the grain stays atomic (Kimball), Okinawa because it has no `dim_area` row, and the pre-FY2024 trial publication (2024-03-13..31, OCCTO's 試験データ) because the source disowns it. All of it remains queryable in the standardized model. |
 
 Grain check on the first load (2026-08-16): 10,656 raw rows → 7,821 fact rows =
@@ -533,7 +533,7 @@ two points/day — the dataset of [§4](#4-the-翌々日-csv-format)).
 |---|---|---|
 | `pma_raw.occto_area_reserve_rate_dad` | raw | Full reload via `CsvLoader`, contract `conf/schemas/occto_area_reserve_rate_dad.yaml`, grain (target_date, period_end_time, area_name_ja) enforced |
 | `stg_occto__area_reserve_rate_dad` | staging | As-is, contract + accepted area names |
-| `std_occto__area_reserve_rate_dad` | standardized | `time_code` 1–48 from the period-end label, `delivery_datetime` (period start), `area_code` (matching `dim_area`; `okinawa` has no row), rates as fractions, the constant 区分 dropped; block columns kept |
+| `std_occto__area_reserve_rate_dad` | standardized | `time_code` 1–48 from the period-end label, `delivery_datetime` (period start), `area_code` (matching `dim_area`; `okinawa` has no row), rates as fractions, the constant 区分 dropped; block columns kept; `available_at` = `target_date` − 2 days at 18:00, the same publication bound as the daily dataset |
 | `fct_occto_demand_supply_forecast_30m` | curated | Grain (date_key, time_code, area_key) — conformed with `fct_jepx_spot_area_price` / `fct_tepco_area_demand_generation_actual` (verified: every row in the price fact's date range joins 1:1). 9 JEPX areas, `demand_mw` + `supply_capacity_mw` only (MW for the period; × 0.5 h for MWh). Okinawa and the block / reserve columns stay in `std`. |
 
 First load (2026-08-16): 241,920 raw rows → 217,728 fact rows = 504 days × 48 × 9.
