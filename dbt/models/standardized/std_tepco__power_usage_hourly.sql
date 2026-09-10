@@ -22,7 +22,13 @@ with
     cast(round(usage_rate_pct) as int) as usage_rate_pct,
     cast(round(supply_capacity_mankw) as int) as supply_capacity_mankw,
     file_updated_at,
-    source_file
+    source_file,
+    -- Public at the daily file's update time, never before the hour ends;
+    -- yearly-file rows have no useful update time and get D+2 00:00.
+    case
+      when source_file like 'juyo-%' then timestampadd(day, 2, cast(target_date as timestamp))
+      else greatest(file_updated_at, timestampadd(hour, hour_start + 1, cast(target_date as timestamp)))
+    end as available_at
   from
     staging
   )

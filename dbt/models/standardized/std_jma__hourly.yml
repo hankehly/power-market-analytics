@@ -22,6 +22,10 @@ models:
             combination_of_columns:
               - station_id
               - observed_at
+      - dbt_utils.expression_is_true:
+          name: std_jma_hourly_available_at_after_observed
+          arguments:
+            expression: "available_at > observed_at"
     columns:
       - name: station_id
         data_type: string
@@ -119,3 +123,12 @@ models:
                 values: [0, 1, 2, 4, 5, 8]
       - name: solar_radiation_homogeneity_no
         data_type: int
+      - name: available_at
+        data_type: timestamp
+        description: >
+          When the observation became public, naive JST: observed_at + 1 h. JMA
+          posts an hour's values within about 10 to 30 minutes of the hour; there is
+          no per-row publication record, so one hour is the bound. The demand task
+          already relies on the 09:00 observation being public at 09:30.
+        data_tests:
+          - not_null

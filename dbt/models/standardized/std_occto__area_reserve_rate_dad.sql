@@ -48,7 +48,9 @@ with
     wide_area_usage_rate_pct / 100 as wide_area_usage_rate,
     area_demand_mw,
     area_supply_capacity_mw,
-    area_reserve_mw
+    area_reserve_mw,
+    -- Formulated on D-2 and public at 18:00 that day (rule: 17:30以降速やかに).
+    timestampadd(hour, 18, timestampadd(day, -2, cast(target_date as timestamp))) as available_at
     -- kubun is dropped: it is the placeholder "－" on every row of the series.
   from
     typed

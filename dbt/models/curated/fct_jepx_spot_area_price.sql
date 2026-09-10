@@ -11,6 +11,7 @@ with
     trade_date,
     time_code,
     trade_datetime,
+    available_at,
     stack(
       9,
       'hokkaido', area_price_hokkaido_jpy_kwh,
@@ -33,7 +34,8 @@ with
     unpivoted.time_code,
     dim_area.area_key,
     unpivoted.trade_datetime,
-    unpivoted.area_price_jpy_kwh
+    unpivoted.area_price_jpy_kwh,
+    unpivoted.available_at
   from
     unpivoted
     left join {{ ref('dim_area') }} as dim_area

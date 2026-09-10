@@ -15,6 +15,10 @@ models:
               - area_code
               - trade_date
               - time_code
+      - dbt_utils.expression_is_true:
+          name: std_ml_spot_price_forecast_available_at_is_issue_time
+          arguments:
+            expression: "available_at = forecast_issued_ts"
     columns:
       - name: run_id
         data_type: string
@@ -50,5 +54,13 @@ models:
           - not_null
       - name: published_at
         data_type: timestamp
+        data_tests:
+          - not_null
+      - name: available_at
+        data_type: timestamp
+        description: >
+          When the forecast became public, naive JST: forecast_issued_ts under the
+          name every standardized feature source uses. Simulated in a backtest, real
+          in production.
         data_tests:
           - not_null

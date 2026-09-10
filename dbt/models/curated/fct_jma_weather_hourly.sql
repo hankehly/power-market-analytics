@@ -41,7 +41,8 @@ with
     humidity_homogeneity_no,
     solar_radiation_mjm2,
     solar_radiation_quality_flag,
-    solar_radiation_homogeneity_no
+    solar_radiation_homogeneity_no,
+    available_at
   from
     standardized
   )

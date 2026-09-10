@@ -243,3 +243,11 @@ models:
         description: GRIB2 archive member the row's leads were decoded from, e.g. Z__C_RJTD_20260817120000_MSM_GPV_Rjp_Lsurf_FH16-33_grib2.bin.
         data_tests:
           - not_null
+      - name: available_at
+        data_type: timestamp
+        description: >
+          When the row became public, naive JST, from the standardized model (its
+          YAML states the rule). The as-of join of the feature layer reads it; a
+          feature model takes the greatest across its inputs.
+        data_tests:
+          - not_null

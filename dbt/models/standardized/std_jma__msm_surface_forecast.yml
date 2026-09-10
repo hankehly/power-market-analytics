@@ -28,6 +28,10 @@ models:
               - station_id
               - forecast_reference_at
               - forecast_valid_at
+      - dbt_utils.expression_is_true:
+          name: std_jma_msm_available_at_after_reference
+          arguments:
+            expression: "available_at > forecast_reference_at"
     columns:
       - name: station_id
         data_type: string
@@ -103,3 +107,12 @@ models:
         data_type: double
       - name: source_file_name
         data_type: string
+      - name: available_at
+        data_type: timestamp
+        description: >
+          When the run became public, naive JST: forecast_reference_at + 4 h. Only
+          the 12 UTC run (21:00 JST) is loaded; RISH distribution was observed at
+          about 23:30 JST, 2.5 h after reference (docs/JMA-MSM-GPV-Retrieval.md
+          section 3), so 4 h is the bound: 01:00 JST on D-1 for a delivery day D.
+        data_tests:
+          - not_null
