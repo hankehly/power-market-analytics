@@ -18,7 +18,12 @@ with
     demand_kwh,
     generation_kwh,
     wind_solar_generation_kwh,
-    file_updated_at
+    file_updated_at,
+    -- Public at the file's update time, never before the period ends.
+    greatest(
+      file_updated_at,
+      timestampadd(minute, time_code * 30, cast(target_date as timestamp))
+    ) as available_at
   from
     staging
   )

@@ -37,7 +37,9 @@ with
     max_supply_capacity_mw,
     -- Published as percentages (92.4); expose as fractions (0.924).
     usage_rate_pct / 100 as usage_rate,
-    reserve_rate_pct / 100 as reserve_rate
+    reserve_rate_pct / 100 as reserve_rate,
+    -- Public at 18:00 on the formulation day (rule: 17:30以降速やかに).
+    timestampadd(hour, 18, cast(formulated_date as timestamp)) as available_at
   from
     staging
   )

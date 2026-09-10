@@ -786,6 +786,13 @@
 - Every dbt model must have a uniqueness test on its primary key column(s):
   `unique` for a single column, `dbt_utils.unique_combination_of_columns` for
   composite keys.
+- Every standardized model of a source that feeds features carries `available_at`
+  (naive JST): when the row became public, computed there once from the source's
+  publication column or a documented bound (the rule and its evidence are in the
+  model's YAML; `docs/superpowers/plans/2026-09-10-available-at-standardized.md`
+  lists them with the measured lags). The curated facts built from those models pass
+  the column through, and a model that joins several inputs takes `greatest()`.
+  Forecast write-backs expose `forecast_issued_ts` under the same name.
 
 ## Writing style (specs, research docs, PR bodies, replies)
 

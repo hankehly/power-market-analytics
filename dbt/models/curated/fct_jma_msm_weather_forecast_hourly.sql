@@ -29,7 +29,8 @@ with
     high_cloud_cover_pct,
     middle_cloud_cover_pct,
     low_cloud_cover_pct,
-    source_file_name
+    source_file_name,
+    available_at
   from
     standardized
   )
