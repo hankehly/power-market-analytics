@@ -46,6 +46,8 @@ from power_market_analytics.forecasting.importance import (
 from power_market_analytics.forecasting.strategy import ForecastStrategy, ForecastUnavailableError
 
 CALENDAR_FEATURE_COLS: tuple[str, ...] = ("time_code", "month", "day_of_week")
+#: Sliding training window length in calendar days (two years).
+DEFAULT_TRAIN_WINDOW_DAYS = 730
 
 # Modest, fixed hyperparameters: a handful of low-cardinality features does
 # not warrant tuning machinery yet. Logged to the MLflow run in `evaluate`.
@@ -145,14 +147,14 @@ class SlidingWindowLightGbmStrategy(ForecastStrategy[HalfHourlySeries, LightGbmE
         can use.
     """
 
-    feature_cols: ClassVar[tuple[str, ...]]
-    eval_set_cls: ClassVar[type[LightGbmEvalSetBase]]
-    lookback_days: ClassVar[int]
-    categorical_feature_cols: ClassVar[tuple[str, ...]] = ()
+    feature_cols: tuple[str, ...]
+    eval_set_cls: type[LightGbmEvalSetBase]
+    lookback_days: int
+    categorical_feature_cols: tuple[str, ...] = ()
 
     def __init__(
         self,
-        train_window_days: int = 730,
+        train_window_days: int = DEFAULT_TRAIN_WINDOW_DAYS,
         refit_every_days: int = 7,
         train_start_date: pd.Timestamp | None = None,
     ) -> None:
