@@ -122,7 +122,11 @@ class PresetLightGbmStrategy(SlidingWindowLightGbmStrategy):
         self._features_df = features.df[[*GRAIN_COLS, *preset.columns]]
 
     def _features(self, points: pd.DataFrame, history: pd.DataFrame) -> pd.DataFrame:
-        """Attach the preset's features to the points from the retrieved frame.
+        """Attach the preset's features to the points: the frame's columns, nothing computed.
+
+        Overrides the base, which would first compute ``month`` and
+        ``day_of_week`` itself; a preset reads them from the frame like any
+        other feature.
 
         Parameters
         ----------
@@ -136,21 +140,24 @@ class PresetLightGbmStrategy(SlidingWindowLightGbmStrategy):
         pandas.DataFrame
             ``points`` plus the preset's columns (NaN where unavailable).
         """
-        return points.merge(self._features_df, how="left", on=GRAIN_COLS, validate="one_to_one")
+        return self._add_features(points, history)
 
     def _add_features(self, featured: pd.DataFrame, history: pd.DataFrame) -> pd.DataFrame:
-        """The base's hook; nothing to add, :meth:`_features` did it all.
+        """Merge the retrieved frame's columns onto the rows, on the grain.
 
         Parameters
         ----------
-        featured, history : pandas.DataFrame
+        featured : pandas.DataFrame
+            Rows keyed on (trade_date, time_code).
+        history : pandas.DataFrame
+            Unused.
 
         Returns
         -------
         pandas.DataFrame
-            ``featured`` unchanged.
+            ``featured`` plus the preset's columns (NaN where unavailable).
         """
-        return featured
+        return featured.merge(self._features_df, how="left", on=GRAIN_COLS, validate="one_to_one")
 
     def _extra_params(self) -> dict[str, object]:
         """The preset and its feature references, next to the ``lgbm_*`` params.

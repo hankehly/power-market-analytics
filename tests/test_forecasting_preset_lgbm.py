@@ -387,7 +387,52 @@ def backtested(prices: SpotPrices) -> tuple[PresetLightGbmStrategy, BacktestRun]
     return strategy, run
 
 
+def hand_backtest_run() -> BacktestRun:
+    """A minimal, valid BacktestRun for tests that only need *some* run."""
+    result = SpotPriceBacktestResult.from_df(
+        pd.DataFrame(
+            {
+                "trade_date": pd.to_datetime(["2024-04-01"]),
+                "time_code": [1],
+                "actual_price_jpy_kwh": [10.0],
+                "forecast_price_jpy_kwh": [10.5],
+            }
+        )
+    )
+    return BacktestRun(result=result, skipped_days=())
+
+
+def one_row_eval_set() -> LightGbmEvalSetBase:
+    return preset_eval_set_cls(TASK, LIGHTGBM, DTYPES).from_df(
+        pd.DataFrame(
+            {
+                "trade_date": pd.to_datetime(["2024-04-10"]),
+                "time_code": [1],
+                "month": [4],
+                "day_of_week": [2],
+                "lag_1d_price": [10.5],
+                "actual_price_jpy_kwh": [10.0],
+                "forecast_price_jpy_kwh": [10.25],
+            }
+        )
+    )
+
+
 class TestBuildEvalSet:
+    def test_requires_the_backtest_result(self, prices):
+        with pytest.raises(ValueError, match="lightgbm: build_eval_set requires the backtest run"):
+            strategy_for().build_eval_set(prices, WINDOW_START, WINDOW_END)
+
+    def test_window_with_only_incomplete_rows_raises(self, prices):
+        # The first history day has no D-1 lag in the frame.
+        with pytest.raises(
+            ValueError,
+            match="lightgbm: no complete feature rows between 2024-03-01 and 2024-03-01",
+        ):
+            strategy_for().build_eval_set(
+                prices, HISTORY_START, HISTORY_START, run=hand_backtest_run()
+            )
+
     def test_replays_the_backtest_forecasts_onto_the_feature_rows(self, backtested, prices):
         strategy, run = backtested
         eval_set = strategy.build_eval_set(prices, WINDOW_START, WINDOW_END, run=run)
@@ -422,6 +467,26 @@ class TestBuildEvalSet:
         )
         assert len(eval_set) == 2 * 48
 
+    def test_importance_needs_a_recorded_forecast_for_every_scored_period(self, backtested):
+        strategy, run = backtested
+        unscored = pd.DataFrame(
+            {
+                "trade_date": pd.to_datetime(["2024-03-20"]),
+                "time_code": [1],
+                "actual_price_jpy_kwh": [10.0],
+                "forecast_price_jpy_kwh": [10.5],
+            }
+        )
+        wider = BacktestRun(
+            result=SpotPriceBacktestResult.from_df(pd.concat([run.result.df, unscored])),
+            skipped_days=(),
+        )
+        with pytest.raises(
+            RuntimeError,
+            match=r"lightgbm: 1 scored period\(s\) have no recorded forecast, e.g. 2024-03-20",
+        ):
+            strategy.permutation_importance(wider, n_repeats=1)
+
     def test_contributions_and_importance_use_the_presets_feature_order(self, backtested):
         strategy, run = backtested
         contributions = strategy.contributions()
@@ -436,6 +501,27 @@ class TestBuildEvalSet:
 
 
 class TestEvaluate:
+    def test_before_any_backtest_raises(self):
+        with pytest.raises(RuntimeError, match="lightgbm: no fitted model or recorded"):
+            strategy_for().evaluate(one_row_eval_set())
+
+    def test_unknown_keyword_arguments_raise(self, fitted):
+        strategy, _ = fitted
+        with pytest.raises(
+            TypeError, match=r"lightgbm.evaluate got unexpected keyword arguments \['nsamples'\]"
+        ):
+            strategy.evaluate(one_row_eval_set(), nsamples=5)
+
+    def test_recorded_contributions_must_cover_the_eval_rows(self, backtested, fitted, prices):
+        backtested_strategy, run = backtested
+        eval_set = backtested_strategy.build_eval_set(prices, WINDOW_START, WINDOW_END, run=run)
+        one_day_strategy, _ = fitted
+        with (
+            mlflow.start_run(),
+            pytest.raises(RuntimeError, match="recorded contributions cover 48 of 672 eval rows"),
+        ):
+            one_day_strategy.evaluate(eval_set, explainability_nsamples=20)
+
     def test_logs_the_preset_params_and_evaluates(self, backtested, prices):
         strategy, run = backtested
         eval_set = strategy.build_eval_set(prices, WINDOW_START, WINDOW_END, run=run)
