@@ -80,9 +80,11 @@ class TestEntityFrame:
         assert (df["area_code"] == "tokyo").all()
 
 
-def test_is_utc_accepts_zero_offset_zones_only():
-    assert is_utc("UTC") and is_utc("Etc/UTC") and is_utc("GMT")
+def test_is_utc_accepts_fixed_utc_zone_names_only():
+    assert is_utc("UTC") and is_utc("Etc/UTC") and is_utc("GMT") and is_utc("+00:00")
     assert not is_utc("Asia/Tokyo") and not is_utc("Europe/London")
+    # UTC in the year 2000 but not today, or only in some seasons: never accepted.
+    assert not is_utc("Africa/Casablanca") and not is_utc("Antarctica/Troll")
 
 
 class TestHistoricalFeatures:
