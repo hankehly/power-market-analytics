@@ -1,18 +1,21 @@
 """Presets: the named feature lists a strategy is built from.
 
 A preset names its features as ``<view>:<column>`` references into the
-generated feature views, in feature order, and says which of them LightGBM
-treats as categorical. The preset's name is the strategy label the runs are
-published under. ``feature_service`` turns a preset into the Feast
-``FeatureService`` of the same features, so the registry and the UI list it.
+generated feature views, in feature order. Which of them LightGBM treats as
+categorical is not the preset's to say: a column is categorical when its
+view field carries the ``categorical`` tag the dbt mart declares, whether the
+preset is registered or changed with ``--add`` (``categorical_columns``). The
+preset's name is the strategy label the runs are published under.
+``feature_service`` turns a preset into the Feast ``FeatureService`` of the
+same features, so the registry and the UI list it.
 """
 
 from __future__ import annotations
 
 import dataclasses
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 
-from feast import FeatureService, FeatureView
+from feast import FeatureService, FeatureView, Field
 from feast.types import Float64, Int64
 
 from power_market_analytics.features import views as _views
@@ -22,6 +25,8 @@ NUMERIC_DTYPES: dict[object, str] = {Int64: "int64", Float64: "float64"}
 #: The entity column every preset strategy uses as its first feature, as the
 #: calendar prefix of every strategy did before presets.
 ENTITY_FEATURE = "time_code"
+#: The field tag the view generator writes from the mart's ``meta.categorical``.
+CATEGORICAL_TAG = "categorical"
 
 
 def feature_column(ref: str) -> str:
@@ -58,8 +63,6 @@ class Preset:
         The strategy label: the registry key and the ``strategy`` column.
     features : tuple of str
         ``<view>:<column>`` references, in feature order.
-    categorical : tuple of str
-        Column names among ``features`` LightGBM treats as categorical.
     base : str or None
         The registered preset a changed set started from (``with_changes``).
     """
@@ -67,7 +70,6 @@ class Preset:
     task: str
     name: str
     features: tuple[str, ...]
-    categorical: tuple[str, ...] = ()
     #: The registered preset a changed set started from; None on a registered one.
     base: str | None = None
 
@@ -80,9 +82,6 @@ class Preset:
             raise ValueError(
                 f"{self.name}: {ENTITY_FEATURE!r} is every preset's first feature already"
             )
-        unknown = [c for c in self.categorical if c not in columns]
-        if unknown:
-            raise ValueError(f"{self.name}: categorical columns {unknown} are not features")
 
     @property
     def columns(self) -> tuple[str, ...]:
@@ -104,7 +103,7 @@ class Preset:
         add : iterable of str, optional
             References appended, in order, after the kept ones.
         drop : iterable of str, optional
-            References removed; a dropped categorical leaves the categorical set.
+            References removed.
         name : str
             The new preset's name.
 
@@ -124,18 +123,36 @@ class Preset:
         present = [ref for ref in added if ref in self.features]
         if present:
             raise ValueError(f"{self.name}: cannot add {present}: already in the preset")
-        dropped_columns = {feature_column(ref) for ref in dropped}
         return dataclasses.replace(
             self,
             name=name,
             base=self.base or self.name,
             features=tuple(ref for ref in self.features if ref not in dropped) + added,
-            categorical=tuple(c for c in self.categorical if c not in dropped_columns),
         )
 
 
 def _views_by_name() -> dict[str, FeatureView]:
     return {view.name: view for view in _views.VIEWS}
+
+
+def _fields(preset: Preset) -> Iterator[tuple[str, str, Field]]:
+    """Each reference, its column name and its view field, in feature order.
+
+    Raises
+    ------
+    ValueError
+        If a reference names an unknown view or column, or a join key.
+    """
+    by_name = _views_by_name()
+    for ref in preset.features:
+        view_name, _, column = ref.partition(":")
+        view = by_name.get(view_name)
+        if view is None:
+            raise ValueError(f"{preset.name}: unknown feature view {view_name!r} in {ref!r}")
+        field = next((f for f in view.schema if f.name == column), None)
+        if field is None or column in view.join_keys:
+            raise ValueError(f"{preset.name}: {ref!r} is not a feature of {view_name}")
+        yield ref, column, field
 
 
 def feature_dtypes(preset: Preset) -> dict[str, str]:
@@ -156,21 +173,41 @@ def feature_dtypes(preset: Preset) -> dict[str, str]:
         If a reference names an unknown view or column, a join key, or a
         column whose Feast type is not numeric.
     """
-    by_name = _views_by_name()
     dtypes: dict[str, str] = {}
-    for ref in preset.features:
-        view_name, _, column = ref.partition(":")
-        view = by_name.get(view_name)
-        if view is None:
-            raise ValueError(f"{preset.name}: unknown feature view {view_name!r} in {ref!r}")
-        field = next((f for f in view.schema if f.name == column), None)
-        if field is None or column in view.join_keys:
-            raise ValueError(f"{preset.name}: {ref!r} is not a feature of {view_name}")
+    for ref, column, field in _fields(preset):
         dtype = NUMERIC_DTYPES.get(field.dtype)
         if dtype is None:
             raise ValueError(f"{preset.name}: {ref!r} has Feast type {field.dtype}, not a number")
         dtypes[column] = dtype
     return dtypes
+
+
+def categorical_columns(preset: Preset) -> tuple[str, ...]:
+    """The feature columns LightGBM treats as categorical, read off the views.
+
+    A column is categorical when its view field carries the ``categorical``
+    tag, i.e. when the mart's YAML declares ``meta: {categorical: true}``.
+    That rule holds on a registered preset and on one changed with ``add``.
+
+    Parameters
+    ----------
+    preset : Preset
+
+    Returns
+    -------
+    tuple of str
+        Column names, in feature order.
+
+    Raises
+    ------
+    ValueError
+        If a reference names an unknown view or column, or a join key.
+    """
+    return tuple(
+        column
+        for _, column, field in _fields(preset)
+        if (field.tags or {}).get(CATEGORICAL_TAG) == "true"
+    )
 
 
 def feature_service(preset: Preset) -> FeatureService:
@@ -197,6 +234,6 @@ def feature_service(preset: Preset) -> FeatureService:
         tags={
             "task": preset.task,
             "preset": preset.name,
-            "categorical": ",".join(preset.categorical),
+            CATEGORICAL_TAG: ",".join(categorical_columns(preset)),
         },
     )

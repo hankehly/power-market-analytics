@@ -14,7 +14,7 @@ from collections.abc import Sequence
 import pandas as pd
 
 from power_market_analytics.features.frame import feature_frame
-from power_market_analytics.features.presets import feature_dtypes
+from power_market_analytics.features.presets import categorical_columns, feature_dtypes
 from power_market_analytics.features.retrieval import entity_frame, historical_features
 from power_market_analytics.features.store import open_store
 from power_market_analytics.forecasting.preset_lgbm import PresetLightGbmStrategy
@@ -44,7 +44,9 @@ def build_strategy(
     """Instantiate a registered strategy with the inputs it needs.
 
     A preset's features are retrieved once here, for every delivery period
-    of ``days`` as of its issue time, so callers only deal in names.
+    of ``days`` as of its issue time, so callers only deal in names. Which
+    features are categorical is read off the views, so an added one is
+    treated as its mart declares it.
 
     Parameters
     ----------
@@ -98,6 +100,7 @@ def build_strategy(
         preset,
         feature_frame(retrieved, preset.columns),
         dtypes=feature_dtypes(preset),
+        categorical=categorical_columns(preset),
         name=label,
         train_start_date=train_start_date,
     )

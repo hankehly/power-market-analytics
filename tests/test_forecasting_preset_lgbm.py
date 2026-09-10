@@ -224,6 +224,18 @@ class TestInit:
             ),
         }
 
+    def test_categorical_columns_are_passed_through(self, prices):
+        strategy = strategy_for(train_window_days=30, categorical=("day_of_week",))
+        assert strategy.categorical_feature_cols == ("day_of_week",)
+        forecast = strategy.predict(D, history_before(prices, D))
+        assert np.isfinite(forecast.df["forecast_price_jpy_kwh"]).all()
+
+    def test_a_categorical_that_is_not_a_feature_is_rejected(self):
+        with pytest.raises(
+            ValueError, match=r"categorical columns \['day_type'\] are not features"
+        ):
+            strategy_for(categorical=("day_type",))
+
     def test_name_overrides_the_label_and_train_start_is_normalised(self):
         strategy = strategy_for(name="lightgbm_x", train_start_date="2024-04-01")
         assert strategy.name == "lightgbm_x"

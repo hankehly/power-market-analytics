@@ -144,7 +144,10 @@ and rain, |Δ days_since_holiday|, |Δ days_until_holiday|, |Δ holiday_degree|;
   A source with re-publication (forecasts, parameters) will set `created_timestamp_column="published_at"`
   when its view is added. No TTL.
 - Presets live in `power_market_analytics/tasks/<task>/presets.py`: name → feature
-  references and the categorical subset. The same dict produces the `FeatureService`
+  references. A preset does not say which features are categorical: a column is
+  categorical when its view field carries the mart's `categorical` tag, read off the
+  views at build time, so a feature added with `--add` is treated as its mart declares
+  it. The same dict produces the `FeatureService`
   objects and the strategy's column list (PR 5). Every current strategy name becomes a preset:
   demand `lightgbm`, `lightgbm_msm`, `lightgbm_msm_popw`, `lightgbm_msm_popw_daytype`,
   `lightgbm_msm_popw_daytype_simday` and its four calendar variants; spot `lightgbm`,

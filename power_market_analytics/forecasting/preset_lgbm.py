@@ -10,6 +10,8 @@ evaluation are the base class's.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 import pandas as pd
 
 from power_market_analytics.features.frame import FeatureFrame
@@ -80,6 +82,9 @@ class PresetLightGbmStrategy(SlidingWindowLightGbmStrategy):
         The preset's features for every day the run may train on or forecast.
     dtypes : dict of str to str
         Contract dtype per feature column (``feature_dtypes``).
+    categorical : sequence of str, optional
+        The feature columns LightGBM treats as categorical
+        (``categorical_columns``: the ones the views tag).
     name : str, optional
         The strategy label of an ad hoc feature set (``--name``).
     train_window_days, refit_every_days, train_start_date
@@ -88,7 +93,8 @@ class PresetLightGbmStrategy(SlidingWindowLightGbmStrategy):
     Raises
     ------
     ValueError
-        If ``features`` lacks a column of the preset.
+        If ``features`` lacks a column of the preset, or ``categorical`` names
+        a column that is not one of its features.
     """
 
     def __init__(
@@ -98,6 +104,7 @@ class PresetLightGbmStrategy(SlidingWindowLightGbmStrategy):
         features: FeatureFrame,
         *,
         dtypes: dict[str, str],
+        categorical: Sequence[str] = (),
         name: str | None = None,
         train_window_days: int = DEFAULT_TRAIN_WINDOW_DAYS,
         refit_every_days: int = 7,
@@ -111,11 +118,14 @@ class PresetLightGbmStrategy(SlidingWindowLightGbmStrategy):
         missing = [col for col in preset.columns if col not in features.df.columns]
         if missing:
             raise ValueError(f"{preset.name}: the feature frame lacks columns {missing}")
+        unknown = [col for col in categorical if col not in preset.columns]
+        if unknown:
+            raise ValueError(f"{preset.name}: categorical columns {unknown} are not features")
         self.task = task
         self.name = name or preset.name
         self.preset = preset
         self.feature_cols = preset.feature_cols
-        self.categorical_feature_cols = preset.categorical
+        self.categorical_feature_cols = tuple(categorical)
         # Every feature is retrieved as of its own row: no lag window to reach back for.
         self.lookback_days = 0
         self.eval_set_cls = preset_eval_set_cls(task, preset, dtypes)

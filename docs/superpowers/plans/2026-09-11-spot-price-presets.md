@@ -21,10 +21,15 @@
 
 ## Presets
 
-| Preset | Features (`view:column`) | Categorical |
-|---|---|---|
-| `lightgbm` | `ftr_day_calendar:month`, `ftr_day_calendar:day_of_week`, `ftr_period_jepx:lag_1d_price` | none |
-| `lightgbm_occto` | the above + `ftr_day_occto:max_demand_hour_ending`, `ftr_day_occto:max_demand_mw`, `ftr_day_occto:max_supply_capacity_mw` | none |
+| Preset | Features (`view:column`) |
+|---|---|
+| `lightgbm` | `ftr_day_calendar:month`, `ftr_day_calendar:day_of_week`, `ftr_period_jepx:lag_1d_price` |
+| `lightgbm_occto` | the above + `ftr_day_occto:max_demand_hour_ending`, `ftr_day_occto:max_demand_mw`, `ftr_day_occto:max_supply_capacity_mw` |
+
+Neither preset has a categorical feature. A preset does not declare them: a column is
+categorical when its view field carries the mart's `categorical` tag
+(`categorical_columns`), so `--add ftr_day_calendar:day_type` is categorical too
+(review finding on PR #64).
 
 `previous_day` stays a strategy without features.
 
@@ -44,7 +49,6 @@ class Preset:
     task: str                      # "spot_price"
     name: str                      # the strategy label, e.g. "lightgbm_occto"
     features: tuple[str, ...]      # "view:column" references, in feature order
-    categorical: tuple[str, ...] = ()   # column names among features
     @property
     def columns(self) -> tuple[str, ...]      # the column names, in order
     @property
@@ -52,9 +56,10 @@ class Preset:
     def with_changes(self, *, add=(), drop=(), name: str) -> Preset
 def feature_column(ref: str) -> str           # "view:column" -> "column"
 def feature_dtypes(preset: Preset) -> dict[str, str]   # column -> pandas dtype off the views (Int64 -> int64, Float64 -> float64; else ValueError)
+def categorical_columns(preset: Preset) -> tuple[str, ...]  # the columns whose view field is tagged categorical, in feature order
 def feature_service(preset: Preset) -> feast.FeatureService  # name f"{task}__{name}", one projection per view
 ```
-`Preset.__post_init__` rejects a duplicate column, a categorical that is not a feature, and a reference without a colon. `with_changes` rejects dropping an absent reference and adding a present one. `store.open_store()` applies `ENTITIES + VIEWS + feature_services()` by default, where `features/catalogue.py` collects the services of every task's presets (importing `tasks.spot_price.presets` inside the function to keep the package layering one-way), and deletes stale services like stale views.
+`Preset.__post_init__` rejects a duplicate column and a reference without a colon. `with_changes` rejects dropping an absent reference and adding a present one. `store.open_store()` applies `ENTITIES + VIEWS + feature_services()` by default, where `features/catalogue.py` collects the services of every task's presets (importing `tasks.spot_price.presets` inside the function to keep the package layering one-way), and deletes stale services like stale views.
 
 - [ ] Steps: failing tests for the dataclass rules, `feature_dtypes` on the real views (`lag_1d_price` float64, `month` int64, an unknown reference, a `String` feature rejected), `feature_service` shape, `open_store` listing the services and dropping a stale one; implement; commit `feat(features): presets and feature services`.
 
@@ -83,8 +88,8 @@ def feature_frame(retrieved: pd.DataFrame, columns: Sequence[str]) -> FeatureFra
 **Interfaces:**
 ```python
 class PresetLightGbmStrategy(SlidingWindowLightGbmStrategy):
-    def __init__(self, task: TaskSpec, preset: Preset, features: FeatureFrame, *, dtypes: dict[str, str], name: str | None = None, train_window_days=DEFAULT_TRAIN_WINDOW_DAYS, refit_every_days=7, train_start_date=None)
-    # sets self.task, self.name (= name or preset.name), self.preset, self.feature_cols, self.categorical_feature_cols, self.lookback_days = 0, self.eval_set_cls = preset_eval_set_cls(task, preset, dtypes)
+    def __init__(self, task: TaskSpec, preset: Preset, features: FeatureFrame, *, dtypes: dict[str, str], categorical: Sequence[str] = (), name: str | None = None, train_window_days=DEFAULT_TRAIN_WINDOW_DAYS, refit_every_days=7, train_start_date=None)
+    # sets self.task, self.name (= name or preset.name), self.preset, self.feature_cols, self.categorical_feature_cols = tuple(categorical), self.lookback_days = 0, self.eval_set_cls = preset_eval_set_cls(task, preset, dtypes)
     def _features(self, points, history): points.merge(self._features_df, how="left", on=GRAIN_COLS, validate="one_to_one")
     def _add_features(self, featured, history): return featured   # the base's hook, unused
     def _extra_params(self): {"feature_preset": preset.name, "feature_refs": ",".join(preset.features)}
