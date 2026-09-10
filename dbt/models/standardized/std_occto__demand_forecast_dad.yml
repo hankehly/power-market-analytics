@@ -23,6 +23,10 @@ models:
             combination_of_columns:
               - target_date
               - area_code
+      - dbt_utils.expression_is_true:
+          name: std_occto_demand_forecast_dad_available_at_before_target_day
+          arguments:
+            expression: "available_at < cast(target_date as timestamp)"
     columns:
       - name: target_date
         data_type: date
@@ -101,5 +105,14 @@ models:
       - name: reserve_rate
         data_type: double
         description: Forecast reserve margin as a fraction (0.083 = 8.3%); can be negative.
+        data_tests:
+          - not_null
+      - name: available_at
+        data_type: timestamp
+        description: >
+          When the forecast became public, naive JST: formulated_date at 18:00.
+          OCCTO's rule is 翌々日：毎日17時30分以降速やかに, portal notices show 17:45 to 17:48 and
+          OCCTO's own timeline says 18時頃 (docs/OCCTO-Demand-Forecast-Retrieval.md
+          section 7.1); 18:00 is the bound.
         data_tests:
           - not_null
