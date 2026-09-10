@@ -1,0 +1,54 @@
+with
+  areas as (
+  select area_code, representative_jma_station_id as station_id
+  from {{ ref('dim_area') }}
+  where representative_jma_station_id is not null
+  ),
+
+  observations as (
+  select
+    areas.area_code,
+    weather.date_key as obs_date,
+    hour(weather.observed_hour_start_at) + 1 as hour_ending,
+    weather.temperature_c
+  from
+    {{ ref('fct_jma_weather_hourly') }} as weather
+    inner join areas on areas.station_id = weather.station_id
+  ),
+
+  -- D-2 .. D-8: the seven complete observation days before 09:30 on D-1.
+  lags as (
+  select explode(sequence(2, 8)) as lag_days
+  ),
+
+  contributions as (
+  select
+    observations.area_code,
+    date_add(observations.obs_date, lags.lag_days) as trade_date,
+    observations.hour_ending,
+    -- Weight halves for every day further back: D-2 -> 1, D-3 -> 1/2, ... D-8 -> 1/64.
+    pow(0.5, lags.lag_days - 2) as weight,
+    observations.temperature_c
+  from
+    observations
+    cross join lags
+  ),
+
+  final as (
+  select
+    area_code,
+    trade_date,
+    hour_ending,
+    -- Renormalised over the lags that have a value; null only when none has.
+    sum(weight * temperature_c)
+      / sum(case when temperature_c is not null then weight end) as wavg_temperature_c,
+    -- Public once the newest observation the window can hold, D-2's, is:
+    -- its hour end + 1 h.
+    timestampadd(hour, hour_ending + 1, cast(date_sub(trade_date, 2) as timestamp)) as available_at
+  from
+    contributions
+  group by
+    area_code, trade_date, hour_ending
+  )
+
+select * from final
