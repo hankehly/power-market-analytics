@@ -34,7 +34,12 @@ with
     high_cloud_cover_pct,
     middle_cloud_cover_pct,
     low_cloud_cover_pct,
-    source_file_name
+    source_file_name,
+    -- When the run became public: a four-hour bound on dissemination
+    -- (RISH distribution observed ~2.5 h after reference).
+    timestampadd(
+      hour, 4, timestampadd(hour, 9, to_timestamp(forecast_reference_at_utc, "yyyy-MM-dd'T'HH:mm:ss'Z'"))
+    ) as available_at
   from
     source
   )

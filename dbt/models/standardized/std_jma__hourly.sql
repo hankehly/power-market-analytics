@@ -39,7 +39,10 @@ with
     humidity_homogeneity_no,
     solar_radiation_mjm2,
     solar_radiation_quality_flag,
-    solar_radiation_homogeneity_no
+    solar_radiation_homogeneity_no,
+    -- When the hour's values became public: a one-hour bound on JMA's
+    -- posting delay (no per-row record exists).
+    timestampadd(hour, 1, observed_at) as available_at
   from
     source
   )
