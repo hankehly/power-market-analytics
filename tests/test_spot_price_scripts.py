@@ -249,7 +249,9 @@ class TestBacktestScript:
         assert first["forecast_price_jpy_kwh"] == 12.4
         assert first["forecast_issued_ts"] == pd.Timestamp("2024-04-30 09:30")
 
-    def test_lightgbm_publishes_its_permutation_importance(self, spark, curated_warehouse):
+    def test_lightgbm_publishes_its_permutation_importance(
+        self, spark, curated_warehouse, feature_marts
+    ):
         script = import_script("spot_price_backtest")
         script.main(
             [
@@ -312,7 +314,7 @@ class TestBacktestScript:
         assert run.data.params["n_predictions"] == "96"
         assert len(published_rows(spark, run.info.run_id)) == 96
 
-    def test_lightgbm_receives_train_start(self, spark, curated_warehouse):
+    def test_lightgbm_receives_train_start(self, spark, curated_warehouse, feature_marts):
         script = import_script("spot_price_backtest")
         script.main(
             [
@@ -348,6 +350,52 @@ class TestBacktestScript:
         assert contributions.groupby(["trade_date", "time_code"]).ngroups == 96
         assert {"base", "time_code", "month", "day_of_week"} <= set(contributions["component"])
         assert set(contributions["strategy"]) == {"lightgbm"}
+        assert run.data.params["feature_preset"] == "lightgbm"
+        assert run.data.params["feature_preset_base"] == "none"
+
+    def test_add_and_drop_compose_a_named_feature_set(
+        self, spark, curated_warehouse, feature_marts
+    ):
+        script = import_script("spot_price_backtest")
+        script.main(
+            [
+                "--strategy",
+                "lightgbm",
+                "--add",
+                "ftr_day_occto:max_demand_mw",
+                "--drop",
+                "ftr_day_calendar:day_of_week",
+                "--name",
+                "lightgbm_peak",
+                "--days",
+                "2",
+                "--train-start",
+                "2024-04-01",
+                "--shap-nsamples",
+                "20",
+                "--importance-repeats",
+                "1",
+            ]
+        )
+        run = last_run()
+        assert run.info.status == "FINISHED"
+        assert run.info.run_name == "lightgbm_peak-tokyo"
+        assert run.data.tags["strategy"] == "lightgbm_peak"
+        assert run.data.params["strategy"] == "lightgbm_peak"
+        assert run.data.params["feature_preset"] == "lightgbm_peak"
+        assert run.data.params["feature_preset_base"] == "lightgbm"
+        assert run.data.params["lgbm_feature_cols"] == "time_code,month,lag_1d_price,max_demand_mw"
+        assert set(published_rows(spark, run.info.run_id)["strategy"]) == {"lightgbm_peak"}
+        contributions = published_contribution_rows(spark, run.info.run_id)
+        assert "max_demand_mw" in set(contributions["component"])
+        assert "day_of_week" not in set(contributions["component"])
+
+    def test_add_or_drop_without_a_name_is_rejected(self, capsys):
+        script = import_script("spot_price_backtest")
+        with pytest.raises(SystemExit) as exc:
+            script.main(["--strategy", "lightgbm", "--add", "ftr_day_occto:max_demand_mw"])
+        assert exc.value.code == 2
+        assert "give the run a --name" in capsys.readouterr().err
 
     def test_importance_repeats_below_one_is_rejected_before_the_run(self, capsys):
         # Checked at parse time: no backtest runs and nothing is published for a bad count.

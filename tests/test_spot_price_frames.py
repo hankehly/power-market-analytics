@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
-import re
-
 import numpy as np
 import pandas as pd
 import pytest
 
 from power_market_analytics.forecasting.frames import N_PERIODS
 from power_market_analytics.tasks.spot_price.frames import (
-    OcctoDemandForecast,
     SpotPriceBacktestResult,
     SpotPriceForecast,
     SpotPriceForecastRecords,
@@ -57,57 +54,6 @@ class TestSpotPrices:
         df = prices_df().astype({"price_jpy_kwh": "int64"})
         with pytest.raises(ValueError, match="dtype mismatch"):
             SpotPrices.from_df(df)
-
-
-# --------------------------------------------------------------------------- OcctoDemandForecast
-def occto_df(hours: list[int]) -> pd.DataFrame:
-    n = len(hours)
-    return pd.DataFrame(
-        {
-            "trade_date": pd.date_range(D1, periods=n, freq="D"),
-            "max_demand_hour_ending": np.array(hours, dtype="int64"),
-            "max_demand_mw": np.array([40_000] * n, dtype="int64"),
-            "max_supply_capacity_mw": np.array([46_000] * n, dtype="int64"),
-        }
-    )
-
-
-class TestOcctoDemandForecast:
-    def test_hour_ending_bounds_1_and_24_accepted(self):
-        frame = OcctoDemandForecast.from_df(occto_df([1, 24]))
-        assert frame.grain == ("trade_date",)
-        assert len(frame) == 2
-
-    @pytest.mark.parametrize("hour", [0, 25])
-    def test_hour_ending_outside_1_24_rejected(self, hour):
-        # The offending value is listed (numpy scalar repr aside); the valid
-        # hour 12 in the same frame is not.
-        with pytest.raises(
-            ValueError,
-            match=rf"max_demand_hour_ending outside 1\.\.24: \[[^\]]*\b{hour}\b[^\]]*\]$",
-        ) as excinfo:
-            OcctoDemandForecast.from_df(occto_df([hour, 12]))
-        assert "12" not in str(excinfo.value).split(": [", 1)[1]
-
-    def test_all_offending_hours_listed_sorted_unique(self):
-        with pytest.raises(ValueError, match=r"outside 1\.\.24: \[") as excinfo:
-            OcctoDemandForecast.from_df(occto_df([25, 0, 25]))
-        listed = str(excinfo.value).split(": [", 1)[1]
-        # Sorted and de-duplicated: 0 before 25, and 25 only once. The values
-        # may be rendered as numpy scalars (``np.int64(0)``), hence the loose parse.
-        assert [v for v in re.findall(r"\d+", listed) if v != "64"] == ["0", "25"]
-
-    def test_duplicate_trade_date_rejected(self):
-        df = occto_df([12, 13])
-        df.loc[1, "trade_date"] = D1
-        with pytest.raises(ValueError, match="grain \\['trade_date'\\] not unique"):
-            OcctoDemandForecast.from_df(df)
-
-    def test_missing_measure_column_rejected(self):
-        with pytest.raises(
-            ValueError, match="missing required columns \\['max_supply_capacity_mw'\\]"
-        ):
-            OcctoDemandForecast.from_df(occto_df([12]).drop(columns=["max_supply_capacity_mw"]))
 
 
 # --------------------------------------------------------------------------- SpotPriceForecast
