@@ -143,3 +143,8 @@ jobs:
       - name: Run dbt parse
         run: uv run --no-sync dbt parse
         working-directory: dbt
+
+      # power_market_analytics/features/views.py is generated from the manifest
+      # dbt parse just wrote; a stale checked-in copy fails here (`just feature-views`).
+      - name: Check the generated feature views are current
+        run: uv run --no-sync python scripts/generate_feature_views.py --check
