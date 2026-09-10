@@ -53,7 +53,9 @@ with
     fip_reference_price_kansai_jpy_kwh,
     fip_reference_price_chugoku_jpy_kwh,
     fip_reference_price_shikoku_jpy_kwh,
-    fip_reference_price_kyushu_jpy_kwh
+    fip_reference_price_kyushu_jpy_kwh,
+    -- Results are public soon after the 10:00 D-1 gate closure; 12:00 is the bound.
+    timestampadd(hour, 12, timestampadd(day, -1, cast(trade_date as timestamp))) as available_at
   from
     staging
   )
