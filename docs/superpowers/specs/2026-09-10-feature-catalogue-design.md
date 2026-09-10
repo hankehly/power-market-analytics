@@ -263,10 +263,14 @@ selection loop, its own topic.
 1. The availability lags marked "to confirm" in §3.
 2. Registry: a file under `data/` or the Postgres already in compose.
 3. How often the similar-day weights are refit.
-- Should the weighted-mean marts round their columns? `ftr_hour_jma_obs.wavg_temperature_c`
+- Should the weighted-mean marts sum in a fixed order? `ftr_hour_jma_obs.wavg_temperature_c`
   and the three `ftr_hour_msm.popw_*` columns are sums in whatever order Spark adds them, so
-  they match the old pandas builders only to 1.4e-14. LightGBM's histogram bins move on such
-  last-bit differences: in PR 6's reproduction every feature matched and every forecast
-  differed (MAE +0.14 % and +0.55 %); the same fit with both sides rounded to 9 decimals was
-  identical. Rounding in dbt (9 decimals) would make a mart rebuild unable to move a model.
-  Found 2026-09-11, the researcher's call.
+  they match the old pandas builders only to 1.4e-14, and a rebuild that adds in another
+  order could move them by as much. LightGBM's histogram bins move on such last-bit
+  differences: in PR 6's reproduction every feature matched and every forecast differed
+  (MAE +0.14 % and +0.55 %). Rounding only makes that unlikely: two values 1e-14 apart round
+  differently when a rounding boundary falls between them, about once per 10^(d-14) values
+  at d decimals, so over the 28,512 training values 12 decimals still left the fits apart,
+  9 made them identical and 8 or 6 would be safer still. A fixed summation order (sort the
+  lags, then fold) makes the mart the same on every build; rounding to 6 decimals on top
+  costs nothing at 0.1 °C inputs. Found 2026-09-11, the researcher's call.

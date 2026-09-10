@@ -687,9 +687,11 @@
   (`wavg_temperature_c`, the `popw_*` forecast columns) equal the old pandas builders only to
   1.4e-14 (a different summation order), and PR 6's reproduction of the demand strategies had
   every feature value equal and every forecast different (MAE +0.14 % / +0.55 %); the same
-  refit with both sides rounded to 9 decimals was identical to the digit. So two runs whose
-  features differ at 1e-14 are not comparable period by period; rounding the marts is an
-  open question in the feature-catalogue spec (§13).
+  refit with both sides rounded to 9 decimals was identical to the digit, to 12 decimals
+  not (a 1e-14 pair straddles a rounding boundary about once per 10^(d-14) values at d
+  decimals). So two runs whose features differ at 1e-14 are not comparable period by
+  period; a fixed summation order in the marts, with rounding on top, is an open question
+  in the feature-catalogue spec (§13).
 - `scipy` is a declared dependency since 2026-09-05 (the similar-day weight fit uses
   `scipy.optimize.least_squares`); `scipy.*` is mypy-ignored like `shap.*`.
 - `scikit-learn` is a declared dependency since 2026-09-08 (`sklearn.inspection.permutation_importance`;
