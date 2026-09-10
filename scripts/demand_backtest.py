@@ -7,7 +7,9 @@ server):
 
 Pin ``--start-date``/``--end-date`` (and ``--train-start``) when two runs
 must be compared on identical delivery days and training rows, e.g. a
-feature experiment against its matched baseline.
+feature experiment against its matched baseline. ``--add`` / ``--drop`` change
+a preset's feature references for one run and ``--name`` labels the result
+(the ``strategy`` column of the published rows and the MLflow tag).
 
 Strategies that explain their forecasts (the LightGBM ones) also publish
 their TreeSHAP contributions to ``pma_ml.demand_forecast_contribution`` and
@@ -24,6 +26,7 @@ from loguru import logger
 from power_market_analytics.common.tracking import MAPE_METRIC_NAME, log_dataframe, task_run
 from power_market_analytics.forecasting.backtest import daily_metrics, run_backtest
 from power_market_analytics.forecasting.importance import DEFAULT_N_REPEATS, DEFAULT_SEED
+from power_market_analytics.forecasting.lgbm import DEFAULT_TRAIN_WINDOW_DAYS
 from power_market_analytics.forecasting.plots import error_heatmaps, permutation_importance_plot
 from power_market_analytics.forecasting.publish import (
     build_contribution_records,
@@ -86,14 +89,36 @@ def main(argv: list[str] | None = None) -> None:
         default=DEFAULT_N_REPEATS,
         help="Shuffles per feature for the permutation feature importance.",
     )
+    parser.add_argument(
+        "--add",
+        nargs="+",
+        default=(),
+        metavar="VIEW:COLUMN",
+        help="Feature references added to the preset for this run (needs --name).",
+    )
+    parser.add_argument(
+        "--drop",
+        nargs="+",
+        default=(),
+        metavar="VIEW:COLUMN",
+        help="Feature references removed from the preset for this run (needs --name).",
+    )
+    parser.add_argument(
+        "--name",
+        default=None,
+        help="Strategy label of the run when the feature set differs from the preset's.",
+    )
     args = parser.parse_args(argv)
     if args.importance_repeats < 1:
         parser.error(f"--importance-repeats must be >= 1, got {args.importance_repeats}")
+    if (args.add or args.drop) and not args.name:
+        parser.error("--add / --drop change the preset's feature set: give the run a --name")
+    label = args.name or args.strategy
 
     with task_run(
         MLFLOW_EXPERIMENT,
-        run_name=f"{args.strategy}-{args.area}",
-        tags={"strategy": args.strategy, "area": args.area},
+        run_name=f"{label}-{args.area}",
+        tags={"strategy": label, "area": args.area},
     ) as mlflow_run:
         demand = load_area_demand(area_code=args.area)
         last_day = demand.df["trade_date"].max()
@@ -108,8 +133,20 @@ def main(argv: list[str] | None = None) -> None:
         if start_date > end_date:
             parser.error(f"start date {start_date.date()} is after end date {end_date.date()}")
 
+        # Every delivery day a model may train on or forecast: the sliding window
+        # before the first target day, then the target window.
+        first_day = max(
+            demand.df["trade_date"].min(),
+            start_date - pd.Timedelta(days=DEFAULT_TRAIN_WINDOW_DAYS + 1),
+        )
         strategy = build_strategy(
-            args.strategy, area_code=args.area, train_start_date=args.train_start
+            args.strategy,
+            area_code=args.area,
+            days=pd.date_range(first_day, end_date, freq="D"),
+            train_start_date=args.train_start,
+            add=args.add,
+            drop=args.drop,
+            label=args.name,
         )
         run = run_backtest(strategy, demand, start_date=start_date, end_date=end_date)
         result = run.result
@@ -118,7 +155,7 @@ def main(argv: list[str] | None = None) -> None:
 
         mlflow.log_params(
             {
-                "strategy": args.strategy,
+                "strategy": label,
                 "area": args.area,
                 "start_date": str(start_date.date()),
                 "end_date": str(end_date.date()),
@@ -130,20 +167,20 @@ def main(argv: list[str] | None = None) -> None:
         log_dataframe(per_day, "daily_errors.csv")
         log_dataframe(result.df, "predictions.csv")
         records = build_forecast_records(
-            TASK, result, run_id=mlflow_run.info.run_id, strategy=args.strategy, area_code=args.area
+            TASK, result, run_id=mlflow_run.info.run_id, strategy=label, area_code=args.area
         )
         publish_forecast_records(TASK, records)
         mlflow.set_tag("warehouse_table", TASK.forecast_table)
         contributions = strategy.contributions()
         if contributions is None:
-            logger.info("{}: strategy produces no contributions; nothing to publish", args.strategy)
+            logger.info("{}: strategy produces no contributions; nothing to publish", label)
         else:
             contribution_records = build_contribution_records(
                 TASK,
                 contributions,
                 result,
                 run_id=mlflow_run.info.run_id,
-                strategy=args.strategy,
+                strategy=label,
                 area_code=args.area,
                 published_at=records.df["published_at"].iloc[0],
             )
@@ -153,9 +190,7 @@ def main(argv: list[str] | None = None) -> None:
             run, n_repeats=args.importance_repeats, seed=DEFAULT_SEED
         )
         if importance is None:
-            logger.info(
-                "{}: strategy has no permutation importance; nothing to publish", args.strategy
-            )
+            logger.info("{}: strategy has no permutation importance; nothing to publish", label)
         else:
             publish_importance_records(
                 TASK,
@@ -163,7 +198,7 @@ def main(argv: list[str] | None = None) -> None:
                     TASK,
                     importance,
                     run_id=mlflow_run.info.run_id,
-                    strategy=args.strategy,
+                    strategy=label,
                     area_code=args.area,
                     published_at=records.df["published_at"].iloc[0],
                 ),
@@ -176,14 +211,14 @@ def main(argv: list[str] | None = None) -> None:
             log_dataframe(summary.df, "permutation_importance.csv")
             log_dataframe(importance.df, "permutation_importance_repeats.csv")
             figure = permutation_importance_plot(
-                TASK, summary, title=f"Permutation importance — {args.strategy}, {args.area}"
+                TASK, summary, title=f"Permutation importance — {label}, {args.area}"
             )
             mlflow.log_figure(figure, "permutation_importance_plot.png")
             plt.close(figure)
         for stem, frame in strategy.diagnostics(demand, run).items():
             log_dataframe(frame, f"{stem}.csv")
         heatmaps = error_heatmaps(
-            TASK, result, title=f"Error by year and time code — {args.strategy}, {args.area}"
+            TASK, result, title=f"Error by year and time code — {label}, {args.area}"
         )
         mlflow.log_figure(heatmaps, "error_heatmaps_year_time_code.html")
 
@@ -196,7 +231,7 @@ def main(argv: list[str] | None = None) -> None:
 
     logger.info(
         "strategy={} area={} window={}..{} days={} predictions={} skipped={}",
-        args.strategy,
+        label,
         args.area,
         start_date.date(),
         end_date.date(),

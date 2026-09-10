@@ -311,6 +311,40 @@ def synthetic_forecast_temperature(day: pd.Timestamp, hour_ending: int) -> float
     return round(synthetic_temperature(day, hour_ending) + 0.3 * math.cos(hour_ending / 3.0), 2)
 
 
+#: Days before delivery day D whose same-hour temperature enters ``wavg_temperature_c``.
+WAVG_TEMPERATURE_LAG_DAYS = (2, 3, 4, 5, 6, 7, 8)
+
+
+def wavg_temperature(day: pd.Timestamp, hour_ending: int) -> float:
+    """``ftr_hour_jma_obs.wavg_temperature_c`` of the fixture for a delivery-day hour.
+
+    The same-hour ``synthetic_temperature`` over D-2..D-8, the weight halving
+    per day back, renormalised over the lags observed (``DEMAND_DAYS`` minus
+    ``TEMPERATURE_MISSING_HOURS``); NaN when none is.
+    """
+    total = weight_sum = 0.0
+    for k in WAVG_TEMPERATURE_LAG_DAYS:
+        obs_day = day - pd.Timedelta(days=k)
+        if obs_day not in DEMAND_DAYS or (obs_day, hour_ending) in TEMPERATURE_MISSING_HOURS:
+            continue
+        weight = 0.5 ** (k - WAVG_TEMPERATURE_LAG_DAYS[0])
+        total += weight * synthetic_temperature(obs_day, hour_ending)
+        weight_sum += weight
+    return total / weight_sum if weight_sum else math.nan
+
+
+def popw_forecast(day: pd.Timestamp, hour_ending: int, value: float, offset: float) -> float:
+    """A ``ftr_hour_msm`` population-weighted column of the fixture for a delivery-day hour.
+
+    The two tokyo stations weighted by the 2020 census shares: the first
+    station's ``value`` plus the second station's ``offset`` times its share;
+    the first station alone at ``SECOND_STATION_MISSING_HOUR``.
+    """
+    if (day, hour_ending) == SECOND_STATION_MISSING_HOUR:
+        return value
+    return value + STATION_POPULATION_WEIGHTS[2020][TOKYO_SECOND_STATION_ID] * offset
+
+
 @dataclasses.dataclass(frozen=True)
 class CuratedWarehouse:
     """What ``curated_warehouse`` created, as the pandas frames it wrote.
@@ -719,7 +753,11 @@ def curated_warehouse(spark: SparkSession) -> CuratedWarehouse:
 
 
 def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> None:
-    """The three spot-price feature marts of ``pma_features``, from the fixture's data."""
+    """The six feature marts of ``pma_features``, from the fixture's data (tokyo facts).
+
+    ``available_at`` is any instant before the 09:30 D-1 issue time, except the
+    calendar's, which is the mart's constant.
+    """
     calendar_rows = []
     holidays = set(HOLIDAYS_2024_SPRING)
     holiday_days = [day for day in CALENDAR_DAYS if day in holidays]
@@ -780,6 +818,63 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
         }
         for row in prices.to_dict("records")
     ]
+    jma_rows = []
+    for day in DEMAND_DAYS:
+        for hour in range(1, 25):
+            value = wavg_temperature(day, hour)
+            if math.isnan(value):
+                continue
+            jma_rows.append(
+                {
+                    "area_code": "tokyo",
+                    "trade_date": day.date(),
+                    "hour_ending": hour,
+                    "wavg_temperature_c": value,
+                    "available_at": day - pd.Timedelta(days=1) + pd.Timedelta(hours=1),
+                }
+            )
+    msm_rows = [
+        {
+            "area_code": "tokyo",
+            "trade_date": day.date(),
+            "hour_ending": hour,
+            "forecast_temperature_c": synthetic_forecast_temperature(day, hour),
+            "popw_forecast_temperature_c": popw_forecast(
+                day,
+                hour,
+                synthetic_forecast_temperature(day, hour),
+                SECOND_STATION_FORECAST_OFFSET_C,
+            ),
+            "popw_forecast_relative_humidity_pct": popw_forecast(
+                day,
+                hour,
+                synthetic_forecast_humidity(day, hour),
+                SECOND_STATION_FORECAST_HUMIDITY_OFFSET_PCT,
+            ),
+            "popw_forecast_precipitation_mm": popw_forecast(
+                day,
+                hour,
+                synthetic_forecast_precipitation(day, hour),
+                SECOND_STATION_FORECAST_RAIN_OFFSET_MM,
+            ),
+            # The D-2 12 UTC vintage, reference 21:00 JST, public four hours later.
+            "available_at": day - pd.Timedelta(days=1) + pd.Timedelta(hours=1),
+        }
+        for day in DEMAND_DAYS
+        if day != FORECAST_MISSING_DAY
+        for hour in range(1, 25)
+    ]
+    actuals = warehouse.demand.dropna(subset=["demand_kwh"])
+    actuals_rows = [
+        {
+            "area_code": "tokyo",
+            "trade_date": (pd.Timestamp(row["date_key"]) + pd.Timedelta(days=7)).date(),
+            "time_code": int(row["time_code"]),
+            "lag_7d_demand_kwh": int(row["demand_kwh"]),
+            "available_at": pd.Timestamp(row["date_key"]) + pd.Timedelta(days=1, hours=5),
+        }
+        for row in actuals.to_dict("records")
+    ]
     calendar = pd.DataFrame(calendar_rows)
     for col in ("days_since_holiday", "days_until_holiday"):
         # A missing distance is a SQL null, not the NaN pandas makes of a None.
@@ -804,6 +899,22 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
         "area_code string, trade_date date, time_code int, lag_1d_price double, "
         "available_at timestamp",
     ).write.mode("overwrite").saveAsTable("pma_features.ftr_period_jepx")
+    spark.createDataFrame(
+        pd.DataFrame(jma_rows),
+        "area_code string, trade_date date, hour_ending int, wavg_temperature_c double, "
+        "available_at timestamp",
+    ).write.mode("overwrite").saveAsTable("pma_features.ftr_hour_jma_obs")
+    spark.createDataFrame(
+        pd.DataFrame(msm_rows),
+        "area_code string, trade_date date, hour_ending int, forecast_temperature_c double, "
+        "popw_forecast_temperature_c double, popw_forecast_relative_humidity_pct double, "
+        "popw_forecast_precipitation_mm double, available_at timestamp",
+    ).write.mode("overwrite").saveAsTable("pma_features.ftr_hour_msm")
+    spark.createDataFrame(
+        pd.DataFrame(actuals_rows),
+        "area_code string, trade_date date, time_code int, lag_7d_demand_kwh bigint, "
+        "available_at timestamp",
+    ).write.mode("overwrite").saveAsTable("pma_features.ftr_period_actuals")
 
 
 @pytest.fixture
@@ -813,7 +924,7 @@ def feature_marts(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> Iterator[None]:
-    """The spot-price feature marts under a UTC session, with the store in a temp registry.
+    """The feature marts under a UTC session, with the store in a temp registry.
 
     Feast's Spark store needs a UTC session, so the session is switched for the
     test and the marts are written under it (once per session). ``open_store()``
