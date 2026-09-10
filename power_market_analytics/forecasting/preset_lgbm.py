@@ -144,9 +144,9 @@ class PresetLightGbmStrategy(SlidingWindowLightGbmStrategy):
     def _features(self, points: pd.DataFrame, history: pd.DataFrame) -> pd.DataFrame:
         """Attach the preset's features to the points: the frame's columns, nothing computed.
 
-        Overrides the base, which would first compute ``month`` and
-        ``day_of_week`` itself; a preset reads them from the frame like any
-        other feature.
+        The base's feature hook. ``month`` and ``day_of_week`` come from the
+        calendar mart like any other feature; :meth:`_add_features` does the
+        merge, so a subclass can extend it with columns it builds itself.
 
         Parameters
         ----------
@@ -164,6 +164,9 @@ class PresetLightGbmStrategy(SlidingWindowLightGbmStrategy):
 
     def _add_features(self, featured: pd.DataFrame, history: pd.DataFrame) -> pd.DataFrame:
         """Merge the retrieved frame's columns onto the rows, on the grain.
+
+        The hook a subclass extends to add columns it builds itself (the
+        demand similar-day strategies, until their feature is a mart column).
 
         Parameters
         ----------
