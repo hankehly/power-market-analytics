@@ -108,3 +108,11 @@ models:
         description: Forecast reserve margin as a fraction (0.083 = 8.3%); non-additive, may be negative.
         data_tests:
           - not_null
+      - name: available_at
+        data_type: timestamp
+        description: >
+          When the row became public, naive JST, from the standardized model (its
+          YAML states the rule). The as-of join of the feature layer reads it; a
+          feature model takes the greatest across its inputs.
+        data_tests:
+          - not_null

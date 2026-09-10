@@ -17,7 +17,8 @@ with
     dim_area.area_key,
     forecasts.delivery_datetime,
     forecasts.area_demand_mw as demand_mw,
-    forecasts.area_supply_capacity_mw as supply_capacity_mw
+    forecasts.area_supply_capacity_mw as supply_capacity_mw,
+    forecasts.available_at
   from
     forecasts
     inner join {{ ref('dim_area') }} as dim_area
