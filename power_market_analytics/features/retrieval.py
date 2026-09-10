@@ -12,7 +12,6 @@ zone rather than silently shifting the cutoff by nine hours.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from datetime import timedelta
 
 import numpy as np
 import pandas as pd
@@ -35,21 +34,46 @@ ENTITY_COLS: list[str] = [
 ]
 
 
+#: Zone names that are UTC at every instant: the IANA aliases and the zero offset.
+#: A regional zone is never accepted, even one that is UTC today, because the
+#: check must hold for every timestamp Feast renders, past and future.
+UTC_ZONE_NAMES: frozenset[str] = frozenset(
+    {
+        "UTC",
+        "Etc/UTC",
+        "Etc/UCT",
+        "UCT",
+        "GMT",
+        "GMT0",
+        "Etc/GMT",
+        "Etc/GMT0",
+        "Etc/GMT+0",
+        "Etc/GMT-0",
+        "Greenwich",
+        "Etc/Greenwich",
+        "Universal",
+        "Etc/Universal",
+        "Zulu",
+        "Etc/Zulu",
+        "Z",
+        "+00:00",
+    }
+)
+
+
 def is_utc(time_zone: str) -> bool:
-    """Whether a zone name never departs from UTC (``UTC``, ``Etc/UTC``, ``GMT``, ...).
+    """Whether a zone name is UTC at every instant (``UTC``, ``Etc/UTC``, ``GMT``, ...).
 
     Parameters
     ----------
     time_zone : str
+        A zone name as ``spark.sql.session.timeZone`` or a pandas ``tz`` gives it.
 
     Returns
     -------
     bool
     """
-    return all(
-        pd.Timestamp(day, tz=time_zone).utcoffset() == timedelta(0)
-        for day in ("2000-01-01", "2000-07-01")
-    )
+    return time_zone in UTC_ZONE_NAMES
 
 
 def entity_frame(
