@@ -5,10 +5,15 @@ For a delivery day D the selector scores every day in a window one year back
 D − 364, the 24-hour RMSE of D's MSM forecast against the candidate's
 observation for temperature, humidity and rain, and the absolute differences
 of three ``dim_date`` holiday attributes — and picks the nearest. The weights
-are fitted once per run on past pairs (Park, Song and Kwon 2020, §2.2). The
-chosen day's でんき予報 hourly load, halved per period, is the feature
-``similar_day_demand_kwh``. Design:
-docs/superpowers/specs/2026-09-05-demand-similar-day-reference-design.md.
+are fitted once on past pairs (Park, Song and Kwon 2020, §2.2) by
+``scripts/fit_similar_day.py``, which publishes them to
+``pma_ml.similar_day_parameters``; the ``ftr_period_similar_day`` mart then
+scores every delivery day in SQL the way :class:`SimilarDaySelector` does
+here, and the chosen day's でんき予報 hourly load, halved per period, is the
+feature ``similar_day_demand_kwh``. This module holds the fit, the selection
+and the retrieval check the fit script logs. Design:
+docs/superpowers/specs/2026-09-05-demand-similar-day-reference-design.md;
+the mart: docs/superpowers/specs/2026-09-10-feature-catalogue-design.md §5.
 """
 
 from __future__ import annotations
@@ -22,8 +27,6 @@ from loguru import logger
 from scipy.optimize import least_squares
 
 from power_market_analytics.common.frames import DomainFrame
-from power_market_analytics.forecasting.frames import GRAIN_COLS
-from power_market_analytics.tasks.demand.features import hour_ending_of
 from power_market_analytics.tasks.demand.frames import (
     AreaHourlyLoad,
     AreaObservedWeather,
@@ -33,7 +36,6 @@ from power_market_analytics.tasks.demand.frames import (
 
 SIMILAR_DAY_CENTER_LAG_DAYS = 364
 SIMILAR_DAY_WINDOW_HALF_WIDTH_DAYS = 30
-SIMILAR_DAY_FEATURE = "similar_day_demand_kwh"
 #: An hour's energy is spread evenly over its two delivery periods.
 PERIODS_PER_HOUR = 2
 HOURS_PER_DAY = 24
@@ -778,50 +780,6 @@ class SimilarDaySelector:
             }
         )
         return SimilarDayRetrieval.from_df(out)
-
-
-def join_similar_day_load(
-    points: pd.DataFrame,
-    selection: SimilarDaySelection,
-    hourly_load: AreaHourlyLoad,
-    *,
-    name: str = SIMILAR_DAY_FEATURE,
-) -> pd.DataFrame:
-    """Attach the selected similar day's hourly load, halved per period.
-
-    For a point (D, time_code) the feature is the hourly load on D's
-    ``reference_date`` at ``hour_ending_of(time_code)`` divided by
-    ``PERIODS_PER_HOUR`` (kWh per 30-minute period, the target's scale); NaN
-    where D has no selection or the reference hour has no load.
-
-    Parameters
-    ----------
-    points : pandas.DataFrame
-        Rows keyed on (trade_date, time_code); other columns pass through.
-    selection : SimilarDaySelection
-    hourly_load : AreaHourlyLoad
-    name : str, optional
-        Name for the new column.
-
-    Returns
-    -------
-    pandas.DataFrame
-        ``points`` plus ``name`` (float64), in the original row order.
-    """
-    keyed = points[GRAIN_COLS].merge(
-        selection.df[["trade_date", "reference_date"]],
-        how="left",
-        on="trade_date",
-        validate="many_to_one",
-    )
-    keyed = keyed.assign(hour_ending=hour_ending_of(keyed["time_code"]))
-    load = hourly_load.df.rename(columns={"load_date": "reference_date"})
-    joined = keyed.merge(
-        load, how="left", on=["reference_date", "hour_ending"], validate="many_to_one"
-    )
-    return points.assign(
-        **{name: joined["demand_kwh"].to_numpy(dtype="float64") / PERIODS_PER_HOUR}
-    )
 
 
 def retrieval_metrics(retrieval: SimilarDayRetrieval) -> dict[str, float]:

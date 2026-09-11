@@ -37,11 +37,10 @@ RETRIEVAL_METRICS = (
 
 
 def last_run() -> mlflow.entities.Run:
-    experiment = mlflow.get_experiment_by_name("similar_day")
-    assert experiment is not None
-    return mlflow.search_runs(
-        [experiment.experiment_id], order_by=["start_time DESC"], output_format="list"
-    )[0]
+    run = mlflow.last_active_run()
+    assert run is not None
+    assert mlflow.get_experiment(run.info.experiment_id).name == "similar_day"
+    return mlflow.get_run(run.info.run_id)
 
 
 def artifact(run_id: str, name: str) -> pd.DataFrame:

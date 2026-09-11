@@ -32,6 +32,11 @@ REGISTERED_SERVICES = [
     "demand__lightgbm_msm",
     "demand__lightgbm_msm_popw",
     "demand__lightgbm_msm_popw_daytype",
+    "demand__lightgbm_msm_popw_daytype_simday",
+    "demand__lightgbm_msm_popw_daytype_simday_calendar",
+    "demand__lightgbm_msm_popw_daytype_simday_calendarcounts",
+    "demand__lightgbm_msm_popw_daytype_simday_holidaydegree",
+    "demand__lightgbm_msm_popw_daytype_simday_holidaydistance",
     "spot_price__lightgbm",
     "spot_price__lightgbm_occto",
 ]

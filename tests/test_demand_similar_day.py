@@ -21,7 +21,6 @@ from power_market_analytics.tasks.demand.similar_day import (
     PERIODS_PER_HOUR,
     SIMILAR_DAY_CENTER_LAG_DAYS,
     SIMILAR_DAY_COMPONENTS,
-    SIMILAR_DAY_FEATURE,
     SIMILAR_DAY_WINDOW_HALF_WIDTH_DAYS,
     DayPairDifferences,
     SimilarDayRetrieval,
@@ -30,11 +29,9 @@ from power_market_analytics.tasks.demand.similar_day import (
     SimilarDayTrainingPairs,
     SimilarDayWeights,
     fit_similar_day_weights,
-    join_similar_day_load,
     load_difference,
     retrieval_metrics,
 )
-from tests.conftest import synthetic_calendar_counts
 
 #: Calendar, observations and hourly load: 2023-01-01 .. 2024-04-30.
 HISTORY_DAYS = pd.date_range("2023-01-01", "2024-04-30", freq="D")
@@ -96,24 +93,13 @@ def make_calendar(days=HISTORY_DAYS) -> DayCalendar:
         rows.append(
             {
                 "trade_date": day,
-                "day_type": 2 if day in HOLIDAYS else (1 if day.dayofweek >= 5 else 0),
                 "days_since_holiday": (day - before[-1]).days,
                 "days_until_holiday": (after[0] - day).days,
                 "holiday_degree": holiday_degree_at(day),
-                **synthetic_calendar_counts(day),
-                "is_business_day": day.dayofweek < 5 and day not in HOLIDAYS,
             }
         )
-    counts = ("half", "quarter", "day_of_month", "day_of_quarter", "day_of_year", "fiscal_quarter")
     return DayCalendar.from_df(
-        pd.DataFrame(rows).astype(
-            {
-                "day_type": "int64",
-                "days_since_holiday": "int64",
-                "days_until_holiday": "int64",
-                **{col: "int64" for col in counts},
-            }
-        )
+        pd.DataFrame(rows).astype({"days_since_holiday": "int64", "days_until_holiday": "int64"})
     )
 
 
@@ -170,7 +156,6 @@ class TestConstants:
     def test_values(self):
         assert SIMILAR_DAY_CENTER_LAG_DAYS == 364
         assert SIMILAR_DAY_WINDOW_HALF_WIDTH_DAYS == 30
-        assert SIMILAR_DAY_FEATURE == "similar_day_demand_kwh"
         assert PERIODS_PER_HOUR == 2
         assert HOURS_PER_DAY == 24
         assert MIN_FIT_PAIRS == 8
@@ -571,31 +556,6 @@ class TestSelect:
             fresh.select([D])
 
 
-class TestJoinSimilarDayLoad:
-    def test_hourly_load_of_the_reference_halved_per_period(self, fitted):
-        selection = fitted.select([D])
-        reference = selection.df.iloc[0]["reference_date"]
-        points = pd.DataFrame(
-            {
-                "trade_date": [D] * 48 + [pd.Timestamp("2023-12-31")] * 2,
-                "time_code": list(range(1, 49)) + [1, 2],
-            }
-        )
-        points["time_code"] = points["time_code"].astype("int64")
-        joined = join_similar_day_load(points, selection, make_hourly_load())
-        assert list(joined.columns) == ["trade_date", "time_code", SIMILAR_DAY_FEATURE]
-        expected = [load_at(reference, (tc + 1) // 2) / PERIODS_PER_HOUR for tc in range(1, 49)]
-        assert joined[SIMILAR_DAY_FEATURE].head(48).tolist() == pytest.approx(expected)
-        assert joined[SIMILAR_DAY_FEATURE].tail(2).isna().all()
-
-    def test_custom_name(self, fitted):
-        selection = fitted.select([D])
-        points = pd.DataFrame({"trade_date": [D], "time_code": np.array([1], dtype="int64")})
-        assert "ref_kwh" in join_similar_day_load(
-            points, selection, make_hourly_load(), name="ref_kwh"
-        )
-
-
 class TestRetrieval:
     def test_outcomes_per_forecast_day(self, fitted):
         days = [D, D + pd.Timedelta(days=1), pd.Timestamp("2024-04-30")]  # 04-30: no calendar row
@@ -665,3 +625,32 @@ class TestRetrievalMetrics:
             "similar_day_load_difference_oracle": pytest.approx(0.02),
             "similar_day_share_better_than_lag_364": pytest.approx(0.5),
         }
+
+
+class TestSelectorParams:
+    def test_the_window_the_parts_the_weights_and_the_span(self, fitted):
+        params = fitted.as_params()
+        assert params["similar_day_center_lag_days"] == SIMILAR_DAY_CENTER_LAG_DAYS
+        assert params["similar_day_window_half_width_days"] == SIMILAR_DAY_WINDOW_HALF_WIDTH_DAYS
+        assert params["similar_day_components"] == ",".join(SIMILAR_DAY_COMPONENTS)
+        assert params["similar_day_weights"] == fitted.weights.as_params()["similar_day_weights"]
+        assert params["similar_day_first_selectable_day"] == "2024-02-07"
+        assert params["similar_day_hourly_load_span"] == "2023-01-01..2024-04-30"
+        assert params["similar_day_periods_per_hour"] == PERIODS_PER_HOUR
+
+    def test_before_a_fit_raises(self):
+        fresh = SimilarDaySelector(
+            make_calendar(), make_forecast(), make_observed(), make_hourly_load()
+        )
+        with pytest.raises(RuntimeError, match="not fitted"):
+            fresh.as_params()
+
+    def test_a_selector_without_a_scorable_day_reports_none(self):
+        none = SimilarDaySelector(
+            make_calendar(),
+            make_forecast(pd.date_range("2024-01-01", "2024-01-05")),
+            make_observed(),
+            make_hourly_load(),
+        )
+        none._weights = fit_similar_day_weights(planted_pairs()[0])
+        assert none.as_params()["similar_day_first_selectable_day"] == "none"

@@ -144,7 +144,7 @@ FTR_HOUR_JMA_OBS_SOURCE = SparkSource(
     name="ftr_hour_jma_obs",
     query="select area_code, cast(date_format(trade_date, 'yyyyMMdd') as int) as trade_date_key, hour_ending, wavg_temperature_c, available_at from pma_features.ftr_hour_jma_obs",
     timestamp_field="available_at",
-    description="The recency-weighted same-hour temperature at each bidding zone's representative JMA station (dim_area.representative_jma_station_id) over D-8..D-2, the demand strategies' wavg_temperature_c (tasks/demand/features.py). Grain: area_code x trade_date x hour_ending (1-24, hour ending). A row exists for every delivery day that at least one lag observation reaches; the value is null only when every lag is missing.",
+    description="The recency-weighted same-hour temperature at each bidding zone's representative JMA station (dim_area.representative_jma_station_id) over D-8..D-2, the demand presets' wavg_temperature_c. Grain: area_code x trade_date x hour_ending (1-24, hour ending). A row exists for every delivery day that at least one lag observation reaches; the value is null only when every lag is missing.",
 )
 FTR_HOUR_JMA_OBS = FeatureView(
     name="ftr_hour_jma_obs",
@@ -159,7 +159,7 @@ FTR_HOUR_JMA_OBS = FeatureView(
     ],
     source=FTR_HOUR_JMA_OBS_SOURCE,
     online=False,
-    description="The recency-weighted same-hour temperature at each bidding zone's representative JMA station (dim_area.representative_jma_station_id) over D-8..D-2, the demand strategies' wavg_temperature_c (tasks/demand/features.py). Grain: area_code x trade_date x hour_ending (1-24, hour ending). A row exists for every delivery day that at least one lag observation reaches; the value is null only when every lag is missing.",
+    description="The recency-weighted same-hour temperature at each bidding zone's representative JMA station (dim_area.representative_jma_station_id) over D-8..D-2, the demand presets' wavg_temperature_c. Grain: area_code x trade_date x hour_ending (1-24, hour ending). A row exists for every delivery day that at least one lag observation reaches; the value is null only when every lag is missing.",
     tags={"grain": "hour"},
 )
 
