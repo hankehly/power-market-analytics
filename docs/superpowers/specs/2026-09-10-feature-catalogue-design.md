@@ -138,8 +138,9 @@ with it the days whose issue time follows the cutoff until the next one. Nothing
 was published after the issue time of a day it scores. It writes 48 rows per day to
 `pma_ml.similar_day`: the chosen day's hourly load over the period's hour ÷ 2 as
 `similar_day_demand_kwh`, the chosen day, its lag, its distance, the candidate count, the
-fit's cutoff, and `available_at` = the later of the day's MSM forecast vintage's and that
-cutoff (every candidate is at least 334 days older). The first run backfills every day from
+fit's cutoff, and `available_at` = the latest of the day's MSM forecast vintage's, that
+cutoff and the chosen day's load availability (under the default window every candidate is
+at least 334 days older, so the first two decide). The first run backfills every day from
 2019 (the first fit runs when eight pairs are public, with the first scorable day's load
 for a 61-day window); a later
 run scores only new days, in the live-path spec. The run also logs every fit's weights,

@@ -581,8 +581,9 @@
   with its load, so scoring starts 2019-04-04) — and writes the chosen day's hourly load over the period's
   hour ÷ 2 to `pma_ml.similar_day` (`tasks/demand/similar_day_feature.py`: 48 rows per day
   with the chosen day, lag, distance, candidate count and the fit's cutoff next to the
-  feature; `available_at` = the later of the day's MSM forecast vintage's, from
-  `AreaWeatherForecast`, and the fit's cutoff; every candidate is at least 334 days older).
+  feature; `available_at` = the latest of the day's MSM forecast vintage's, from
+  `AreaWeatherForecast`, the fit's cutoff and the chosen day's load availability; under
+  the default window every candidate is at least 334 days older, so the first two decide).
   A fit at cutoff C uses only the pairs whose target load was public by C (`AreaHourlyLoad`
   carries the fact's `available_at`; `SimilarDaySelector.fit(available_by)`), and a day is
   scored by the latest fit whose cutoff is on or before its issue time, so no day is scored
@@ -905,8 +906,8 @@
   so a rebuild gives the same value to the bit (since 2026-09-11; `ftr_hour_jma_obs` in lag
   order, `ftr_hour_msm` in station order).
 - A feature a Python job fits and scores (spec §5 Form B; the similar day) is written
-  back to `pma_ml.<feature>` (partitioned by `run_id`, with `available_at` = the later of
-  the row's newest input and the cutoff of the fit that scored it, and `published_at`),
+  back to `pma_ml.<feature>` (partitioned by `run_id`, with `available_at` = the latest of
+  every input of the row and the cutoff of the fit that scored it, and `published_at`),
   read by a guarded staging model, and passed through by a mart with one row per scoring
   run and `published_at` next to `available_at` (the view generator turns that column into
   Feast's `created_timestamp_column`, so the newest published run wins among rows tied on

@@ -189,9 +189,10 @@ class SimilarDayFeatureRecords(DomainFrame):
     Per delivery period: the chosen day's hourly load over the period's hour
     halved (``similar_day_demand_kwh``), the chosen day, its lag in days, its
     distance, the candidate count, the cutoff of the fit that chose it (on or
-    before the day's issue time) and ``available_at``: the later of the day's
-    forecast availability and that cutoff. The candidates are at least 334
-    days older.
+    before the day's issue time) and ``available_at``: the latest of the day's
+    forecast availability, that cutoff and the chosen day's load availability
+    (its observations are public before its load). Under the default window
+    the chosen day is at least 334 days old, so the first two decide.
 
     Grain: (area_code, trade_date, time_code); one run per frame.
     """
@@ -252,8 +253,8 @@ def build_feature_records(
     hourly_load : AreaHourlyLoad
         The でんき予報 hourly load the chosen days' loads come from.
     forecast : AreaWeatherForecast
-        The forecast profiles the days were scored with; their ``available_at``
-        and the fit's cutoff give the rows' availability.
+        The forecast profiles the days were scored with; their ``available_at``,
+        the fit's cutoff and the chosen day's load availability give the rows'.
     run_id : str
         The job's MLflow run id.
     area_code : str
@@ -299,6 +300,8 @@ def build_feature_records(
         )
         raise ValueError(f"{len(unknown)} day(s) have no forecast availability, e.g. {unknown[0]}")
     fit_cutoff = rows["trade_date"].map(scoring.fit_cutoff)
+    # The chosen day's load over the period's hour: public before the row can be.
+    load_available_at = rows["available_at"]
     df = (
         pd.DataFrame(
             {
@@ -312,7 +315,9 @@ def build_feature_records(
                 "similar_day_distance": rows["distance"],
                 "similar_day_n_candidates": rows["n_candidates"],
                 "similar_day_fit_cutoff": fit_cutoff,
-                "available_at": np.maximum(forecast_available_at, fit_cutoff),
+                "available_at": np.maximum(
+                    np.maximum(forecast_available_at, fit_cutoff), load_available_at
+                ),
                 "published_at": pd.Timestamp(published_at),
                 "run_id": run_id,
             }
