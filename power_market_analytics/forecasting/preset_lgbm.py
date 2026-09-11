@@ -26,11 +26,7 @@ from power_market_analytics.forecasting.task import TaskSpec
 
 
 def preset_eval_set_cls(
-    task: TaskSpec,
-    preset: Preset,
-    dtypes: dict[str, str],
-    *,
-    extra_dtypes: dict[str, str] | None = None,
+    task: TaskSpec, preset: Preset, dtypes: dict[str, str]
 ) -> type[LightGbmEvalSetBase]:
     """The design-matrix frame class of a preset strategy.
 
@@ -43,20 +39,15 @@ def preset_eval_set_cls(
     dtypes : dict of str to str
         The contract dtype of each feature column once rows are complete
         (``feature_dtypes``); ``time_code`` is the grain's int64.
-    extra_dtypes : dict of str to str, optional
-        Feature columns a strategy adds after the preset's, with their
-        contract dtypes, in feature order (the similar-day strategies).
 
     Returns
     -------
     type of LightGbmEvalSetBase
     """
-    extra = extra_dtypes or {}
-    feature_cols = (*preset.feature_cols, *extra)
+    feature_cols = preset.feature_cols
     schema = {
         **GRAIN_SCHEMA,
         **{col: dtypes[col] for col in preset.columns},
-        **extra,
         task.actual_col: "float64",
         task.forecast_col: "float64",
     }
@@ -145,8 +136,7 @@ class PresetLightGbmStrategy(SlidingWindowLightGbmStrategy):
         """Attach the preset's features to the points: the frame's columns, nothing computed.
 
         The base's feature hook. ``month`` and ``day_of_week`` come from the
-        calendar mart like any other feature; :meth:`_add_features` does the
-        merge, so a subclass can extend it with columns it builds itself.
+        calendar mart like any other feature.
 
         Parameters
         ----------
@@ -160,27 +150,7 @@ class PresetLightGbmStrategy(SlidingWindowLightGbmStrategy):
         pandas.DataFrame
             ``points`` plus the preset's columns (NaN where unavailable).
         """
-        return self._add_features(points, history)
-
-    def _add_features(self, featured: pd.DataFrame, history: pd.DataFrame) -> pd.DataFrame:
-        """Merge the retrieved frame's columns onto the rows, on the grain.
-
-        The hook a subclass extends to add columns it builds itself (the
-        demand similar-day strategies, until their feature is a mart column).
-
-        Parameters
-        ----------
-        featured : pandas.DataFrame
-            Rows keyed on (trade_date, time_code).
-        history : pandas.DataFrame
-            Unused.
-
-        Returns
-        -------
-        pandas.DataFrame
-            ``featured`` plus the preset's columns (NaN where unavailable).
-        """
-        return featured.merge(self._features_df, how="left", on=GRAIN_COLS, validate="one_to_one")
+        return points.merge(self._features_df, how="left", on=GRAIN_COLS, validate="one_to_one")
 
     def _extra_params(self) -> dict[str, object]:
         """The preset and its feature references, next to the ``lgbm_*`` params.

@@ -187,6 +187,18 @@ def synthetic_hourly_load(day: pd.Timestamp, hour_of_day: int) -> int:
     return int(round((shape + weekend + 10_000 * day_index) / 10_000) * 10_000)
 
 
+#: The parameter vintage every ``ftr_period_similar_day`` fixture row was scored with.
+SIMILAR_DAY_PARAMETERS_RUN_ID = "similar-day-fit"
+
+
+def similar_day_load(day: pd.Timestamp, time_code: int) -> float:
+    """``ftr_period_similar_day.similar_day_demand_kwh`` of the fixture: the fixture's
+    similar day is always the window's centre, D - 364, so the feature is that day's
+    hourly load over the hour containing the period, halved."""
+    hour_of_day = (time_code + 1) // 2 - 1
+    return synthetic_hourly_load(day - pd.Timedelta(days=364), hour_of_day) / 2
+
+
 def synthetic_holiday_degree(day: pd.Timestamp) -> float:
     """dim_date.holiday_degree in the fixture: 1.0 on a holiday or Sunday, 0.8 on a
     Saturday, 0.5 on a working day squeezed between two off days, else 0."""
@@ -753,10 +765,11 @@ def curated_warehouse(spark: SparkSession) -> CuratedWarehouse:
 
 
 def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> None:
-    """The six feature marts of ``pma_features``, from the fixture's data (tokyo facts).
+    """The seven feature marts of ``pma_features``, from the fixture's data (tokyo facts).
 
     ``available_at`` is any instant before the 09:30 D-1 issue time, except the
-    calendar's, which is the mart's constant.
+    calendar's, which is the mart's constant. The similar-day mart picks D - 364
+    for every day with a forecast under one parameter vintage.
     """
     calendar_rows = []
     holidays = set(HOLIDAYS_2024_SPRING)
@@ -875,6 +888,25 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
         }
         for row in actuals.to_dict("records")
     ]
+    similar_day_rows = [
+        {
+            "area_code": "tokyo",
+            "trade_date": day.date(),
+            "time_code": tc,
+            "forecast_reference_at": day - pd.Timedelta(days=2) + pd.Timedelta(hours=21),
+            "parameters_run_id": SIMILAR_DAY_PARAMETERS_RUN_ID,
+            "similar_day_demand_kwh": similar_day_load(day, tc),
+            "similar_day_reference_date": (day - pd.Timedelta(days=364)).date(),
+            "similar_day_reference_lag_days": 364,
+            "similar_day_distance": 0.0,
+            "similar_day_n_candidates": 61,
+            "available_at": day - pd.Timedelta(days=1) + pd.Timedelta(hours=1),
+            "published_at": pd.Timestamp("2026-09-11 09:00:00"),
+        }
+        for day in DEMAND_DAYS
+        if day != FORECAST_MISSING_DAY
+        for tc in range(1, 49)
+    ]
     calendar = pd.DataFrame(calendar_rows)
     for col in ("days_since_holiday", "days_until_holiday"):
         # A missing distance is a SQL null, not the NaN pandas makes of a None.
@@ -915,6 +947,14 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
         "area_code string, trade_date date, time_code int, lag_7d_demand_kwh bigint, "
         "available_at timestamp",
     ).write.mode("overwrite").saveAsTable("pma_features.ftr_period_actuals")
+    spark.createDataFrame(
+        pd.DataFrame(similar_day_rows),
+        "area_code string, trade_date date, time_code int, forecast_reference_at timestamp, "
+        "parameters_run_id string, similar_day_demand_kwh double, "
+        "similar_day_reference_date date, similar_day_reference_lag_days int, "
+        "similar_day_distance double, similar_day_n_candidates int, available_at timestamp, "
+        "published_at timestamp",
+    ).write.mode("overwrite").saveAsTable("pma_features.ftr_period_similar_day")
 
 
 @pytest.fixture

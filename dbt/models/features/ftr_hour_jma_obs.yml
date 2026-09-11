@@ -4,7 +4,7 @@ models:
       contract:
         enforced: true
     description: >
-      The recency-weighted same-hour temperature at each bidding zone's representative JMA station (dim_area.representative_jma_station_id) over D-8..D-2, the demand strategies' wavg_temperature_c (tasks/demand/features.py). Grain: area_code x trade_date x hour_ending (1-24, hour ending). A row exists for every delivery day that at least one lag observation reaches; the value is null only when every lag is missing.
+      The recency-weighted same-hour temperature at each bidding zone's representative JMA station (dim_area.representative_jma_station_id) over D-8..D-2, the demand presets' wavg_temperature_c. Grain: area_code x trade_date x hour_ending (1-24, hour ending). A row exists for every delivery day that at least one lag observation reaches; the value is null only when every lag is missing.
     data_tests:
       - dbt_utils.unique_combination_of_columns:
           arguments:

@@ -149,29 +149,6 @@ class TestPresetEvalSetCls:
         assert cls.non_null_cols == [*cls.feature_cols, cls.target_col, cls.forecast_col]
         assert "lightgbm" in (cls.__doc__ or "")
 
-    def test_extra_columns_follow_the_presets(self):
-        cls = preset_eval_set_cls(
-            TASK,
-            LIGHTGBM,
-            DTYPES,
-            extra_dtypes={"similar_day_demand_kwh": "float64", "half": "int64"},
-        )
-        assert cls.feature_cols == (*LIGHTGBM.feature_cols, "similar_day_demand_kwh", "half")
-        assert list(cls.schema) == [
-            "trade_date",
-            "time_code",
-            "month",
-            "day_of_week",
-            "lag_1d_price",
-            "similar_day_demand_kwh",
-            "half",
-            "actual_price_jpy_kwh",
-            "forecast_price_jpy_kwh",
-        ]
-        assert cls.schema["half"] == "int64"
-        assert cls.schema["similar_day_demand_kwh"] == "float64"
-        assert cls.non_null_cols == [*cls.feature_cols, cls.target_col, cls.forecast_col]
-
     def test_to_eval_frame_drops_trade_date_and_casts_to_float(self):
         eval_set = preset_eval_set_cls(TASK, LIGHTGBM, DTYPES).from_df(
             pd.DataFrame(
