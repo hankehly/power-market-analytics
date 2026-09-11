@@ -343,7 +343,7 @@ sources:
               When the fit whose weights chose the day ran, naive JST, on or before D's issue time: the job refits every few days as it walks forward, each fit on the pairs whose target load was public by its cutoff, and scores each day with the latest fit before its issue time.
           - name: available_at
             description: >
-              When the row became usable, naive JST: the later of D's MSM forecast vintage (reference + 4 h, 01:00 on D-1) and similar_day_fit_cutoff; every candidate is at least 334 days older.
+              When the row became usable, naive JST: the latest of D's MSM forecast vintage (reference + 4 h, 01:00 on D-1), similar_day_fit_cutoff and the chosen day's load availability; under the default window every candidate is at least 334 days older, so the first two decide.
           - name: published_at
             description: >
               When the run's rows were written to the warehouse (naive JST); the newest published run wins among rows tied on available_at.

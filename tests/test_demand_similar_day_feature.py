@@ -291,6 +291,18 @@ class TestBuildFeatureRecords:
         records = make_records(make_scoring(days=(D,), fit_cutoff=cutoff))
         assert records.df["available_at"].eq(cutoff).all()
 
+    def test_a_chosen_day_whose_load_is_public_late_sets_the_availability(self):
+        # A window reaching recent days could choose a day whose load is not yet
+        # public at the issue time: the row waits for the load. Here the chosen day's
+        # load (a "late" yearly-file day) is public two days after it, later than
+        # both the forecast and the fit.
+        reference = D - pd.Timedelta(days=1)
+        scoring = make_scoring(days=(D,), lag=1, fit_cutoff=D - pd.Timedelta(days=3))
+        hourly_load = make_hourly_load(late={reference})
+        records = make_records(scoring, hourly_load=hourly_load)
+        assert records.df["available_at"].eq(reference + pd.Timedelta(days=2)).all()
+        assert records.df["available_at"].gt(forecast_available_at(D)).all()
+
     def test_an_empty_scoring_is_rejected(self):
         with pytest.raises(ValueError, match="no scored day to publish"):
             make_records(make_scoring(days=()))

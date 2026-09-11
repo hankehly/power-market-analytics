@@ -15,7 +15,8 @@ models:
       load over the hour containing the period halved. No day is scored with weights that saw
       a load that was not yet public: each fit runs at a cutoff on the pairs whose target load
       was public by then, a day is scored by the latest fit whose cutoff is on or before its
-      issue time, and available_at is the later of D's MSM forecast vintage's and that cutoff.
+      issue time, and available_at is the latest of D's MSM forecast vintage's, that cutoff and the
+      chosen day's load availability.
       The chosen day, its lag, its distance, the candidate count and the fit's cutoff sit next
       to the feature,
       untagged. One row per scoring run: the as-of join takes the newest run usable at the
@@ -102,7 +103,7 @@ models:
       - name: available_at
         data_type: timestamp
         description: >
-          When the row became usable, naive JST: the later of D's MSM forecast vintage (reference + 4 h, 01:00 on D-1) and similar_day_fit_cutoff.
+          When the row became usable, naive JST: the latest of D's MSM forecast vintage (reference + 4 h, 01:00 on D-1), similar_day_fit_cutoff and the chosen day's load availability.
         data_tests:
           - not_null
       - name: published_at
