@@ -276,7 +276,7 @@ in a different order when rows arrive in a different order.
 | 4 | `feature/feast-retrieval` | the spike (§9), then the Feast repo, generated views, staleness test and dependency; the façade instead if the spike fails | the spike's pass criteria; done 2026-09-10 | 2 |
 | 5 | `feature/spot-price-presets` | presets, `FeatureFrame`, `build_strategy` through Feast, one spot strategy, `--add`, `--drop`, `--name`; delete `LightGbmOcctoStrategy` | the spot `lightgbm_occto` run reproduced; done 2026-09-11 | 4 |
 | 6 | `feature/demand-presets` | the demand presets without similar day, one demand strategy; delete their classes | the kept R-003 Tokyo run reproduced; done 2026-09-11 | 5 |
-| 7 | `feature/similar-day-feature` | the fit script, `pma_ml.similar_day_parameters`, `ftr_period_similar_day`, the five similar-day presets; delete the last classes | run `008868fe…` reproduced | 6 |
+| 7 | `feature/similar-day-feature` | the fit script, `pma_ml.similar_day_parameters`, `ftr_period_similar_day`, the five similar-day presets; delete the last classes | run `008868fe…`'s fit and selection reproduced, the old and new code identical period by period; done 2026-09-11 | 6 |
 
 PR 3 can run beside 4 to 7. The live path, the selection loop and Form B for features made
 by other ML models each get their own spec later.
