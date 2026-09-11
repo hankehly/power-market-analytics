@@ -3,9 +3,7 @@
 A strategy name is a preset of ``tasks.demand.presets``, built as a
 :class:`~power_market_analytics.forecasting.preset_lgbm.PresetLightGbmStrategy`
 over the features Feast retrieves for the run's days, each row as of its own
-issue time; or one of the similar-day strategies, built the same way over the
-``lightgbm_msm_popw_daytype`` preset plus the inputs of their Python-built
-feature, until the similar day is a mart column of its own.
+issue time.
 """
 
 from __future__ import annotations
@@ -13,7 +11,6 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 import pandas as pd
-from pyspark.sql import SparkSession
 
 from power_market_analytics.features.frame import feature_frame
 from power_market_analytics.features.presets import categorical_columns, feature_dtypes
@@ -22,35 +19,10 @@ from power_market_analytics.features.store import open_store
 from power_market_analytics.forecasting.preset_lgbm import PresetLightGbmStrategy
 from power_market_analytics.forecasting.strategy import ForecastStrategy
 from power_market_analytics.tasks.demand import TASK
-from power_market_analytics.tasks.demand.datasets import (
-    load_area_hourly_load,
-    load_area_observed_weather_population_weighted,
-    load_area_weather_forecast_population_weighted,
-    load_day_calendar,
-)
-from power_market_analytics.tasks.demand.presets import LIGHTGBM_MSM_POPW_DAYTYPE, PRESETS
-from power_market_analytics.tasks.demand.strategies.lgbm import (
-    LightGbmMsmPopWeightedDayTypeSimilarDayCalendarCountStrategy,
-    LightGbmMsmPopWeightedDayTypeSimilarDayCalendarStrategy,
-    LightGbmMsmPopWeightedDayTypeSimilarDayHolidayDegreeStrategy,
-    LightGbmMsmPopWeightedDayTypeSimilarDayHolidayDistanceStrategy,
-    LightGbmMsmPopWeightedDayTypeSimilarDayStrategy,
-)
+from power_market_analytics.tasks.demand.presets import PRESETS
 
-#: The similar-day strategies by name: the Tokyo baseline and its four calendar variants.
-SIMILAR_DAY_STRATEGIES: dict[str, type[LightGbmMsmPopWeightedDayTypeSimilarDayStrategy]] = {
-    cls.strategy_name: cls
-    for cls in (
-        LightGbmMsmPopWeightedDayTypeSimilarDayStrategy,
-        LightGbmMsmPopWeightedDayTypeSimilarDayCalendarStrategy,
-        LightGbmMsmPopWeightedDayTypeSimilarDayCalendarCountStrategy,
-        LightGbmMsmPopWeightedDayTypeSimilarDayHolidayDegreeStrategy,
-        LightGbmMsmPopWeightedDayTypeSimilarDayHolidayDistanceStrategy,
-    )
-}
-
-#: Every strategy name the backtest script accepts: the presets, then the similar-day ones.
-STRATEGIES: tuple[str, ...] = (*PRESETS, *SIMILAR_DAY_STRATEGIES)
+#: Every strategy name the backtest script accepts: the presets.
+STRATEGIES: tuple[str, ...] = tuple(PRESETS)
 
 
 def build_strategy(
@@ -62,21 +34,18 @@ def build_strategy(
     add: Sequence[str] = (),
     drop: Sequence[str] = (),
     label: str | None = None,
-    spark: SparkSession | None = None,
 ) -> ForecastStrategy:
     """Instantiate a registered strategy with the inputs it needs.
 
     A preset's features are retrieved once here, for every delivery period
     of ``days`` as of its issue time, so callers only deal in names. Which
-    features are categorical is read off the views. A similar-day strategy
-    retrieves the ``lightgbm_msm_popw_daytype`` preset (changed by ``add`` /
-    ``drop`` like any other) and loads its selector's inputs from the
-    warehouse.
+    features are categorical is read off the views, so an added one is
+    treated as its mart declares it.
 
     Parameters
     ----------
     name : str
-        A preset name or a similar-day strategy name.
+        A preset name.
     area_code : str
         dim_area.area_code value being forecast.
     days : pandas.DatetimeIndex, optional
@@ -88,8 +57,6 @@ def build_strategy(
     label : str, optional
         The strategy label of the run when it differs from the preset's name;
         required with ``add`` or ``drop``.
-    spark : pyspark.sql.SparkSession, optional
-        Existing session to reuse for the similar-day strategies' warehouse reads.
 
     Returns
     -------
@@ -100,12 +67,9 @@ def build_strategy(
     KeyError
         If ``name`` is not registered.
     ValueError
-        If ``add`` / ``drop`` come without ``label``, or ``days`` is missing;
-        for a similar-day strategy, also if the area has no weather forecasts
-        or observations.
+        If ``add`` / ``drop`` come without ``label``, or ``days`` is missing.
     """
-    similar_day_cls = SIMILAR_DAY_STRATEGIES.get(name)
-    preset = PRESETS[name] if similar_day_cls is None else LIGHTGBM_MSM_POPW_DAYTYPE
+    preset = PRESETS[name]
     if add or drop:
         if not label:
             raise ValueError(f"{name!r} with features added or dropped needs a label")
@@ -116,33 +80,12 @@ def build_strategy(
     retrieved = historical_features(
         store, entity_frame(area_code, days, TASK.issue_offset), preset.features
     )
-    frame = feature_frame(retrieved, preset.columns)
-    dtypes = feature_dtypes(preset)
-    categorical = categorical_columns(preset)
-    if similar_day_cls is None:
-        return PresetLightGbmStrategy(
-            TASK,
-            preset,
-            frame,
-            dtypes=dtypes,
-            categorical=categorical,
-            name=label,
-            train_start_date=train_start_date,
-        )
-    weather = load_area_weather_forecast_population_weighted(area_code, spark=spark)
-    observed = load_area_observed_weather_population_weighted(
-        area_code, census_year=weather.census_year, spark=spark
-    )
-    return similar_day_cls(
+    return PresetLightGbmStrategy(
+        TASK,
         preset,
-        frame,
-        weather.forecast,
-        load_day_calendar(spark=spark),
-        observed.weather,
-        load_area_hourly_load(area_code, spark=spark),
-        dtypes=dtypes,
-        categorical=categorical,
-        census_year=weather.census_year,
+        feature_frame(retrieved, preset.columns),
+        dtypes=feature_dtypes(preset),
+        categorical=categorical_columns(preset),
         name=label,
         train_start_date=train_start_date,
     )

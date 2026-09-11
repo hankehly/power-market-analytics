@@ -21,6 +21,7 @@ from tests.conftest import (
     DEMAND_HOLE_DAY,
     DEMAND_HOLE_TIME_CODES,
     FORECAST_MISSING_DAY,
+    similar_day_load,
 )
 from tests.support import import_script
 
@@ -525,6 +526,40 @@ class TestBacktestScript:
         published = published_rows(spark, run.info.run_id)
         assert len(published) == 192
         assert set(published["strategy"]) == {"lightgbm_msm_popw_daytype"}
+
+    def test_similar_day_preset_reads_the_mart(self, spark, curated_warehouse, feature_marts):
+        script = import_script("demand_backtest")
+        script.main(
+            [
+                "--strategy",
+                "lightgbm_msm_popw_daytype_simday",
+                "--start-date",
+                "2024-05-10",
+                "--end-date",
+                "2024-05-11",
+                "--shap-nsamples",
+                "20",
+            ]
+        )
+        run = last_run()
+        assert run.info.status == "FINISHED"
+        assert run.info.run_name == "lightgbm_msm_popw_daytype_simday-tokyo"
+        params = run.data.params
+        assert params["feature_preset"] == "lightgbm_msm_popw_daytype_simday"
+        assert params["feature_preset_base"] == "lightgbm_msm_popw_daytype"
+        assert params["feature_refs"].endswith(",ftr_period_similar_day:similar_day_demand_kwh")
+        assert params["lgbm_feature_cols"] == (
+            "time_code,month,day_of_week,wavg_temperature_c,lag_7d_demand_kwh,"
+            "popw_forecast_temperature_c,day_type,similar_day_demand_kwh"
+        )
+        assert params["lgbm_categorical_feature_cols"] == "day_type"
+        assert params["n_predictions"] == "96"
+        contributions = published_contribution_rows(spark, run.info.run_id)
+        assert len(contributions) == 96 * 9  # base + eight features per period
+        similar = contributions[contributions["component"] == "similar_day_demand_kwh"]
+        assert similar["component_order"].unique().tolist() == [8]
+        first = similar.sort_values(["trade_date", "time_code"]).iloc[0]
+        assert first["feature_value"] == similar_day_load(pd.Timestamp("2024-05-10"), 1)
 
     def test_days_window_ends_at_the_last_day_in_the_data(
         self, spark, curated_warehouse, feature_marts

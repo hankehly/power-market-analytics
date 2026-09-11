@@ -1,4 +1,4 @@
-"""The demand registry: the presets built over Feast and the similar-day strategies."""
+"""The demand registry: every strategy is a preset built over Feast."""
 
 from __future__ import annotations
 
@@ -9,32 +9,28 @@ import pytest
 from power_market_analytics.forecasting.preset_lgbm import PresetLightGbmStrategy
 from power_market_analytics.tasks.demand.presets import PRESETS
 from power_market_analytics.tasks.demand.strategies import STRATEGIES, build_strategy
-from power_market_analytics.tasks.demand.strategies.lgbm import (
-    LightGbmMsmPopWeightedDayTypeSimilarDayCalendarCountStrategy,
-    LightGbmMsmPopWeightedDayTypeSimilarDayCalendarStrategy,
-    LightGbmMsmPopWeightedDayTypeSimilarDayHolidayDegreeStrategy,
-    LightGbmMsmPopWeightedDayTypeSimilarDayHolidayDistanceStrategy,
-    LightGbmMsmPopWeightedDayTypeSimilarDayStrategy,
-)
 from tests.conftest import (
-    CALENDAR_DAYS,
     DEMAND_HOLE_DAY,
     DEMAND_HOLE_TIME_CODES,
     FORECAST_MISSING_DAY,
     HOLIDAYS_2024_SPRING,
-    HOURLY_LOAD_DAYS,
     SECOND_STATION_FORECAST_OFFSET_C,
-    CuratedWarehouse,
     popw_forecast,
+    similar_day_load,
     synthetic_demand,
     synthetic_forecast_temperature,
     wavg_temperature,
 )
-from tests.test_demand_datasets import expected_day_type
 
 DAYS = pd.date_range("2024-04-01", "2024-04-10", freq="D")
 TRAIN_START = pd.Timestamp("2024-04-01")
 BASE_FEATURE_COLS = ("time_code", "month", "day_of_week", "wavg_temperature_c", "lag_7d_demand_kwh")
+SIMDAY_FEATURE_COLS = (
+    *BASE_FEATURE_COLS,
+    "popw_forecast_temperature_c",
+    "day_type",
+    "similar_day_demand_kwh",
+)
 
 
 def frame_by_period(strategy) -> pd.DataFrame:
@@ -42,7 +38,7 @@ def frame_by_period(strategy) -> pd.DataFrame:
 
 
 class TestRegistry:
-    def test_registered_names(self):
+    def test_registered_names_are_the_presets(self):
         assert STRATEGIES == (
             "lightgbm",
             "lightgbm_msm",
@@ -54,7 +50,7 @@ class TestRegistry:
             "lightgbm_msm_popw_daytype_simday_holidaydegree",
             "lightgbm_msm_popw_daytype_simday_holidaydistance",
         )
-        assert STRATEGIES[:4] == tuple(PRESETS)
+        assert STRATEGIES == tuple(PRESETS)
 
     def test_unknown_name_raises_key_error(self):
         with pytest.raises(KeyError, match="arima"):
@@ -171,79 +167,76 @@ class TestBuildPreset:
             assert np.isnan(frame[col]).all()
 
 
-class TestBuildSimilarDay:
-    def test_similar_day_strategy_retrieves_the_preset_and_loads_its_inputs(
-        self, spark, curated_warehouse: CuratedWarehouse, feature_marts
-    ):
-        strategy = build_strategy(
-            "lightgbm_msm_popw_daytype_simday", area_code="tokyo", days=DAYS, spark=spark
+class TestBuildSimilarDayPresets:
+    def test_similar_day_preset_reads_the_marts_selection(self, feature_marts):
+        days = pd.date_range(
+            FORECAST_MISSING_DAY - pd.Timedelta(days=1), FORECAST_MISSING_DAY + pd.Timedelta(days=1)
         )
-        assert type(strategy) is LightGbmMsmPopWeightedDayTypeSimilarDayStrategy
+        strategy = build_strategy("lightgbm_msm_popw_daytype_simday", area_code="tokyo", days=days)
+        assert type(strategy) is PresetLightGbmStrategy
         assert strategy.name == "lightgbm_msm_popw_daytype_simday"
-        assert strategy.preset is PRESETS["lightgbm_msm_popw_daytype"]
-        assert strategy.feature_cols == (
-            *BASE_FEATURE_COLS,
-            "popw_forecast_temperature_c",
-            "day_type",
-            "similar_day_demand_kwh",
-        )
+        assert strategy.preset is PRESETS["lightgbm_msm_popw_daytype_simday"]
+        assert strategy.feature_cols == SIMDAY_FEATURE_COLS
         assert strategy.categorical_feature_cols == ("day_type",)
-        assert len(strategy._features_df) == len(DAYS) * 48
-        assert strategy.census_year == 2020
-        assert len(strategy.hourly_load) == len(curated_warehouse.hourly_load)
-        assert strategy.selector.first_candidate_day == min(HOLIDAYS_2024_SPRING)
-        assert strategy.selector.hourly_load_span == (HOURLY_LOAD_DAYS[0], HOURLY_LOAD_DAYS[-1])
-        calendar = strategy.day_calendar.df
-        assert calendar["day_type"].tolist() == [
-            expected_day_type(d) for d in calendar["trade_date"]
-        ]
-
-    def test_calendar_strategy_keeps_the_whole_calendar(
-        self, spark, curated_warehouse: CuratedWarehouse, feature_marts
-    ):
-        strategy = build_strategy(
-            "lightgbm_msm_popw_daytype_simday_calendar", area_code="tokyo", days=DAYS, spark=spark
-        )
-        assert type(strategy) is LightGbmMsmPopWeightedDayTypeSimilarDayCalendarStrategy
-        assert strategy.feature_cols[-10:] == strategy.calendar_feature_cols
-        assert strategy.census_year == 2020
-        assert len(strategy.hourly_load) == len(curated_warehouse.hourly_load)
-        # The whole dim_date spine between its first and last holiday, with the counts.
-        first, last = min(HOLIDAYS_2024_SPRING), max(HOLIDAYS_2024_SPRING)
-        assert len(strategy.day_calendar) == (last - first).days + 1
-        assert len(strategy.day_calendar) < len(CALENDAR_DAYS)
-        assert "day_of_quarter" in strategy.day_calendar.df.columns
+        frame = frame_by_period(strategy)
+        assert len(frame) == len(days) * 48
+        day = FORECAST_MISSING_DAY + pd.Timedelta(days=1)
+        assert frame.loc[(day, 1), "similar_day_demand_kwh"] == similar_day_load(day, 1)
+        assert frame.loc[(day, 48), "similar_day_demand_kwh"] == similar_day_load(day, 48)
+        # No forecast, no similar day: the mart has no row for the day.
+        assert frame.loc[FORECAST_MISSING_DAY, "similar_day_demand_kwh"].isna().all()
+        assert frame.loc[day, "similar_day_demand_kwh"].notna().all()
 
     @pytest.mark.parametrize(
-        ("name", "cls"),
+        ("name", "calendar_cols"),
         [
             (
-                "lightgbm_msm_popw_daytype_simday_holidaydegree",
-                LightGbmMsmPopWeightedDayTypeSimilarDayHolidayDegreeStrategy,
-            ),
-            (
-                "lightgbm_msm_popw_daytype_simday_holidaydistance",
-                LightGbmMsmPopWeightedDayTypeSimilarDayHolidayDistanceStrategy,
+                "lightgbm_msm_popw_daytype_simday_calendar",
+                (
+                    "half",
+                    "quarter",
+                    "day_of_month",
+                    "day_of_quarter",
+                    "day_of_year",
+                    "holiday_degree",
+                    "is_business_day",
+                    "fiscal_quarter",
+                    "days_since_holiday",
+                    "days_until_holiday",
+                ),
             ),
             (
                 "lightgbm_msm_popw_daytype_simday_calendarcounts",
-                LightGbmMsmPopWeightedDayTypeSimilarDayCalendarCountStrategy,
+                (
+                    "half",
+                    "quarter",
+                    "day_of_month",
+                    "day_of_quarter",
+                    "day_of_year",
+                    "fiscal_quarter",
+                ),
+            ),
+            ("lightgbm_msm_popw_daytype_simday_holidaydegree", ("holiday_degree",)),
+            (
+                "lightgbm_msm_popw_daytype_simday_holidaydistance",
+                ("days_since_holiday", "days_until_holiday"),
             ),
         ],
     )
-    def test_calendar_subset_strategies_load_the_similar_day_inputs(
-        self, spark, curated_warehouse: CuratedWarehouse, feature_marts, name, cls
-    ):
-        strategy = build_strategy(name, area_code="tokyo", days=DAYS, spark=spark)
-        assert type(strategy) is cls
+    def test_calendar_variants_append_their_columns(self, feature_marts, name, calendar_cols):
+        strategy = build_strategy(name, area_code="tokyo", days=DAYS)
+        assert type(strategy) is PresetLightGbmStrategy
         assert strategy.name == name
-        assert strategy.census_year == 2020
-        assert len(strategy.hourly_load) == len(curated_warehouse.hourly_load)
-        assert set(strategy.calendar_feature_cols) <= set(strategy.day_calendar.df.columns)
+        assert strategy.feature_cols == (*SIMDAY_FEATURE_COLS, *calendar_cols)
+        assert strategy.categorical_feature_cols == ("day_type",)
+        row = frame_by_period(strategy).loc[(pd.Timestamp("2024-04-05"), 1)]
+        assert row["similar_day_demand_kwh"] == similar_day_load(pd.Timestamp("2024-04-05"), 1)
+        if "holiday_degree" in calendar_cols:
+            assert row["holiday_degree"] == 0.0
+        if "day_of_month" in calendar_cols:
+            assert row["day_of_month"] == 5.0
 
-    def test_add_drop_and_label_change_the_preset_under_the_similar_day(
-        self, spark, curated_warehouse, feature_marts
-    ):
+    def test_add_drop_and_label_change_the_preset_under_the_similar_day(self, feature_marts):
         strategy = build_strategy(
             "lightgbm_msm_popw_daytype_simday",
             area_code="tokyo",
@@ -251,12 +244,10 @@ class TestBuildSimilarDay:
             add=("ftr_day_calendar:half",),
             drop=("ftr_day_calendar:day_of_week",),
             label="simday_half",
-            spark=spark,
         )
-        assert type(strategy) is LightGbmMsmPopWeightedDayTypeSimilarDayStrategy
         assert strategy.name == "simday_half"
         assert strategy.preset.name == "simday_half"
-        assert strategy.preset.base == "lightgbm_msm_popw_daytype"
+        assert strategy.preset.base == "lightgbm_msm_popw_daytype_simday"
         assert strategy.feature_cols == (
             "time_code",
             "month",
@@ -264,24 +255,7 @@ class TestBuildSimilarDay:
             "lag_7d_demand_kwh",
             "popw_forecast_temperature_c",
             "day_type",
-            "half",
             "similar_day_demand_kwh",
+            "half",
         )
         assert strategy.categorical_feature_cols == ("day_type",)
-
-    def test_adding_a_calendar_column_a_variant_joins_itself_is_rejected(
-        self, spark, curated_warehouse, feature_marts
-    ):
-        with pytest.raises(ValueError, match=r"\['holiday_degree'\] are this strategy's own"):
-            build_strategy(
-                "lightgbm_msm_popw_daytype_simday_holidaydegree",
-                area_code="tokyo",
-                days=DAYS,
-                add=("ftr_day_calendar:holiday_degree",),
-                label="twice",
-                spark=spark,
-            )
-
-    def test_a_similar_day_strategy_needs_its_days_too(self):
-        with pytest.raises(ValueError, match="'lightgbm_msm_popw_daytype_simday' needs the days"):
-            build_strategy("lightgbm_msm_popw_daytype_simday", area_code="tokyo")

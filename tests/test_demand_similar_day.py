@@ -21,7 +21,6 @@ from power_market_analytics.tasks.demand.similar_day import (
     PERIODS_PER_HOUR,
     SIMILAR_DAY_CENTER_LAG_DAYS,
     SIMILAR_DAY_COMPONENTS,
-    SIMILAR_DAY_FEATURE,
     SIMILAR_DAY_WINDOW_HALF_WIDTH_DAYS,
     DayPairDifferences,
     SimilarDayRetrieval,
@@ -30,11 +29,9 @@ from power_market_analytics.tasks.demand.similar_day import (
     SimilarDayTrainingPairs,
     SimilarDayWeights,
     fit_similar_day_weights,
-    join_similar_day_load,
     load_difference,
     retrieval_metrics,
 )
-from tests.conftest import synthetic_calendar_counts
 
 #: Calendar, observations and hourly load: 2023-01-01 .. 2024-04-30.
 HISTORY_DAYS = pd.date_range("2023-01-01", "2024-04-30", freq="D")
@@ -96,24 +93,13 @@ def make_calendar(days=HISTORY_DAYS) -> DayCalendar:
         rows.append(
             {
                 "trade_date": day,
-                "day_type": 2 if day in HOLIDAYS else (1 if day.dayofweek >= 5 else 0),
                 "days_since_holiday": (day - before[-1]).days,
                 "days_until_holiday": (after[0] - day).days,
                 "holiday_degree": holiday_degree_at(day),
-                **synthetic_calendar_counts(day),
-                "is_business_day": day.dayofweek < 5 and day not in HOLIDAYS,
             }
         )
-    counts = ("half", "quarter", "day_of_month", "day_of_quarter", "day_of_year", "fiscal_quarter")
     return DayCalendar.from_df(
-        pd.DataFrame(rows).astype(
-            {
-                "day_type": "int64",
-                "days_since_holiday": "int64",
-                "days_until_holiday": "int64",
-                **{col: "int64" for col in counts},
-            }
-        )
+        pd.DataFrame(rows).astype({"days_since_holiday": "int64", "days_until_holiday": "int64"})
     )
 
 
@@ -127,12 +113,18 @@ def make_forecast(
             "forecast_temperature_c": temperature_at(day, h) + 0.5,
             "forecast_relative_humidity_pct": humidity_at(day, h) - 2.0,
             "forecast_precipitation_mm": 0.8 * rain_at(day, h),
+            "available_at": forecast_available_at(day),
         }
         for day in days
         for h in range(1, 25)
         if (day, h) not in drop
     ]
     return AreaWeatherForecast.from_df(pd.DataFrame(rows).astype({"hour_ending": "int64"}))
+
+
+def forecast_available_at(day: pd.Timestamp) -> pd.Timestamp:
+    """When D's forecast vintage is public: 01:00 on D-1 (the D-2 12 UTC run + 4 h)."""
+    return day - pd.Timedelta(days=1) + pd.Timedelta(hours=1)
 
 
 def make_observed(
@@ -152,9 +144,16 @@ def make_observed(
     return AreaObservedWeather.from_df(pd.DataFrame(rows).astype({"hour_ending": "int64"}))
 
 
-def make_hourly_load(days=HISTORY_DAYS) -> AreaHourlyLoad:
+def make_hourly_load(days=HISTORY_DAYS, *, late: Collection[pd.Timestamp] = ()) -> AreaHourlyLoad:
+    """Loads public at midnight after the day (a daily file); two days after for ``late``
+    days (the yearly files before 2022-04)."""
     rows = [
-        {"load_date": day, "hour_ending": h, "demand_kwh": load_at(day, h)}
+        {
+            "load_date": day,
+            "hour_ending": h,
+            "demand_kwh": load_at(day, h),
+            "available_at": day + pd.Timedelta(days=2 if day in late else 1),
+        }
         for day in days
         for h in range(1, 25)
     ]
@@ -170,7 +169,6 @@ class TestConstants:
     def test_values(self):
         assert SIMILAR_DAY_CENTER_LAG_DAYS == 364
         assert SIMILAR_DAY_WINDOW_HALF_WIDTH_DAYS == 30
-        assert SIMILAR_DAY_FEATURE == "similar_day_demand_kwh"
         assert PERIODS_PER_HOUR == 2
         assert HOURS_PER_DAY == 24
         assert MIN_FIT_PAIRS == 8
@@ -367,9 +365,10 @@ class TestLoadDifference:
 
 
 class TestTrainingPairs:
-    def test_targets_up_to_through_with_a_known_load(self, selector):
+    def test_targets_whose_load_was_public_by_the_instant(self, selector):
+        # Loads are public at midnight after the day: a fit on 04-01 sees targets to 03-31.
         through = pd.Timestamp("2024-03-31")
-        pairs = selector.training_pairs(through)
+        pairs = selector.training_pairs(through + pd.Timedelta(days=1))
         assert type(pairs) is SimilarDayTrainingPairs
         # The first scorable forecast day: its window must start on the first candidate.
         first = HOLIDAYS[0] + pd.Timedelta(days=394)
@@ -377,6 +376,9 @@ class TestTrainingPairs:
         assert targets.min() == first
         assert targets.max() == through
         assert len(pairs) == len(pd.date_range(first, through)) * 61
+        # A minute earlier, 03-31's load is not public yet.
+        earlier = selector.training_pairs(through + pd.Timedelta(days=1) - pd.Timedelta(minutes=1))
+        assert earlier.df["target_date"].max() == through - pd.Timedelta(days=1)
         t, c = D - pd.Timedelta(days=14), D_MINUS_364 - pd.Timedelta(days=14)
         row = pairs.df.set_index(["target_date", "candidate_date"]).loc[(t, c)]
         expected = np.mean(
@@ -384,8 +386,63 @@ class TestTrainingPairs:
         )
         assert row["load_difference"] == pytest.approx(expected)
 
+    def test_the_pairs_are_computed_once_and_sliced_by_availability(self, selector):
+        everything = selector.training_pairs(HISTORY_DAYS[-1] + pd.Timedelta(days=1))
+        early = selector.training_pairs(pd.Timestamp("2024-03-01"))
+        assert len(early) < len(everything)
+        assert early.df["target_date"].max() == pd.Timestamp("2024-02-29")
+        # The first fit can run once the first scorable day's load is public.
+        assert selector.first_fit_cutoff == HOLIDAYS[0] + pd.Timedelta(days=395)
+        # The same frame object serves every call.
+        assert selector._all_training_pairs() is selector._all_training_pairs()
+
+    def test_a_late_load_joins_the_pairs_later(self):
+        first = HOLIDAYS[0] + pd.Timedelta(days=394)
+        selector = SimilarDaySelector(
+            make_calendar(), make_forecast(), make_observed(), make_hourly_load(late={first})
+        )
+        assert selector.first_fit_cutoff == first + pd.Timedelta(days=2)
+        assert len(selector.training_pairs(first + pd.Timedelta(days=1))) == 0
+        # Two days on, the late first day and the (timely) next day are both public.
+        assert len(selector.training_pairs(first + pd.Timedelta(days=2))) == 2 * 61
+
     def test_no_pairs_before_the_first_scorable_day(self, selector):
         assert len(selector.training_pairs(pd.Timestamp("2024-01-31"))) == 0
+
+    def test_first_fit_cutoff_is_none_without_pairs(self):
+        selector = SimilarDaySelector(
+            make_calendar(),
+            make_forecast(),
+            make_observed(),
+            make_hourly_load(pd.date_range("2023-01-01", "2024-01-31")),
+        )
+        assert selector.first_fit_cutoff is None
+
+    def test_first_fit_cutoff_waits_for_enough_pairs(self):
+        # A window of three days: the first scorable days give too few pairs for a
+        # fit, so the cutoff is the eighth public pair's, not the first day's.
+        narrow = SimilarDaySelector(
+            make_calendar(),
+            make_forecast(),
+            make_observed(),
+            make_hourly_load(),
+            half_width_days=1,
+        )
+        first_day = narrow.scorable_days(FORECAST_DAYS)[0]
+        cutoff = narrow.first_fit_cutoff
+        assert cutoff > first_day + pd.Timedelta(days=1)
+        assert len(narrow.training_pairs(cutoff)) >= MIN_FIT_PAIRS
+        assert len(narrow.training_pairs(cutoff - pd.Timedelta(minutes=1))) < MIN_FIT_PAIRS
+        # Fewer than eight pairs in total: no fit, ever.
+        tiny = SimilarDaySelector(
+            make_calendar(),
+            make_forecast(),
+            make_observed(),
+            make_hourly_load(pd.date_range("2023-01-01", first_day)),
+            half_width_days=1,
+        )
+        assert len(tiny.training_pairs(HISTORY_DAYS[-1])) < MIN_FIT_PAIRS
+        assert tiny.first_fit_cutoff is None
 
 
 def planted_pairs(
@@ -488,22 +545,20 @@ class TestSelectorFit:
         fresh = SimilarDaySelector(
             make_calendar(), make_forecast(), make_observed(), make_hourly_load()
         )
-        first = fresh.ensure_fitted(pd.Timestamp("2024-03-31"))
+        first = fresh.ensure_fitted(pd.Timestamp("2024-04-01"))
         assert fresh.weights is first
-        assert fresh.ensure_fitted(pd.Timestamp("2024-04-15")) is first
+        assert fresh.ensure_fitted(pd.Timestamp("2024-04-16")) is first
         assert first.fit_through == pd.Timestamp("2024-03-31")
-        assert first.n_pairs == len(fresh.training_pairs(pd.Timestamp("2024-03-31")))
+        assert first.n_pairs == len(fresh.training_pairs(pd.Timestamp("2024-04-01")))
 
     def test_fit_without_pairs_raises(self, selector):
-        with pytest.raises(
-            ValueError, match="no training pairs with a target day on or before 2024-01-31"
-        ):
+        with pytest.raises(ValueError, match="no training pairs public by 2024-01-31 00:00:00"):
             selector.fit(pd.Timestamp("2024-01-31"))
 
 
 @pytest.fixture(scope="module")
 def fitted(selector) -> SimilarDaySelector:
-    selector.ensure_fitted(pd.Timestamp("2024-03-31"))
+    selector.ensure_fitted(pd.Timestamp("2024-04-01"))
     return selector
 
 
@@ -571,31 +626,6 @@ class TestSelect:
             fresh.select([D])
 
 
-class TestJoinSimilarDayLoad:
-    def test_hourly_load_of_the_reference_halved_per_period(self, fitted):
-        selection = fitted.select([D])
-        reference = selection.df.iloc[0]["reference_date"]
-        points = pd.DataFrame(
-            {
-                "trade_date": [D] * 48 + [pd.Timestamp("2023-12-31")] * 2,
-                "time_code": list(range(1, 49)) + [1, 2],
-            }
-        )
-        points["time_code"] = points["time_code"].astype("int64")
-        joined = join_similar_day_load(points, selection, make_hourly_load())
-        assert list(joined.columns) == ["trade_date", "time_code", SIMILAR_DAY_FEATURE]
-        expected = [load_at(reference, (tc + 1) // 2) / PERIODS_PER_HOUR for tc in range(1, 49)]
-        assert joined[SIMILAR_DAY_FEATURE].head(48).tolist() == pytest.approx(expected)
-        assert joined[SIMILAR_DAY_FEATURE].tail(2).isna().all()
-
-    def test_custom_name(self, fitted):
-        selection = fitted.select([D])
-        points = pd.DataFrame({"trade_date": [D], "time_code": np.array([1], dtype="int64")})
-        assert "ref_kwh" in join_similar_day_load(
-            points, selection, make_hourly_load(), name="ref_kwh"
-        )
-
-
 class TestRetrieval:
     def test_outcomes_per_forecast_day(self, fitted):
         days = [D, D + pd.Timedelta(days=1), pd.Timestamp("2024-04-30")]  # 04-30: no calendar row
@@ -626,7 +656,7 @@ class TestRetrieval:
             make_observed(null_hours={(D_MINUS_364, 1)}),
             make_hourly_load(),
         )
-        selector.ensure_fitted(pd.Timestamp("2024-03-31"))
+        selector.ensure_fitted(pd.Timestamp("2024-04-01"))
         retrieval = selector.retrieval(selector.select([D]))
         assert np.isnan(retrieval.df.iloc[0]["lag_364_load_difference"])
 
@@ -638,7 +668,7 @@ class TestRetrieval:
             make_observed(),
             make_hourly_load(pd.date_range("2023-01-01", "2024-04-09")),
         )
-        beyond.ensure_fitted(pd.Timestamp("2024-03-31"))
+        beyond.ensure_fitted(pd.Timestamp("2024-04-01"))
         retrieval = beyond.retrieval(beyond.select([D]))
         assert len(retrieval) == 0
         assert list(retrieval.df.columns) == list(SimilarDayRetrieval.schema)
@@ -665,3 +695,32 @@ class TestRetrievalMetrics:
             "similar_day_load_difference_oracle": pytest.approx(0.02),
             "similar_day_share_better_than_lag_364": pytest.approx(0.5),
         }
+
+
+class TestSelectorParams:
+    def test_the_window_the_parts_the_weights_and_the_span(self, fitted):
+        params = fitted.as_params()
+        assert params["similar_day_center_lag_days"] == SIMILAR_DAY_CENTER_LAG_DAYS
+        assert params["similar_day_window_half_width_days"] == SIMILAR_DAY_WINDOW_HALF_WIDTH_DAYS
+        assert params["similar_day_components"] == ",".join(SIMILAR_DAY_COMPONENTS)
+        assert params["similar_day_weights"] == fitted.weights.as_params()["similar_day_weights"]
+        assert params["similar_day_first_selectable_day"] == "2024-02-07"
+        assert params["similar_day_hourly_load_span"] == "2023-01-01..2024-04-30"
+        assert params["similar_day_periods_per_hour"] == PERIODS_PER_HOUR
+
+    def test_before_a_fit_raises(self):
+        fresh = SimilarDaySelector(
+            make_calendar(), make_forecast(), make_observed(), make_hourly_load()
+        )
+        with pytest.raises(RuntimeError, match="not fitted"):
+            fresh.as_params()
+
+    def test_a_selector_without_a_scorable_day_reports_none(self):
+        none = SimilarDaySelector(
+            make_calendar(),
+            make_forecast(pd.date_range("2024-01-01", "2024-01-05")),
+            make_observed(),
+            make_hourly_load(),
+        )
+        none._weights = fit_similar_day_weights(planted_pairs()[0])
+        assert none.as_params()["similar_day_first_selectable_day"] == "none"

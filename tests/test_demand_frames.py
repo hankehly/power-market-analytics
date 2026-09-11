@@ -23,6 +23,7 @@ def hourly(**overrides) -> pd.DataFrame:
             "load_date": [DAY, DAY],
             "hour_ending": np.array([1, 2], dtype="int64"),
             "demand_kwh": [30_000_000.0, 29_000_000.0],
+            "available_at": pd.to_datetime([DAY + pd.Timedelta(days=1)] * 2),
         }
     )
     return df.assign(**overrides)
@@ -32,7 +33,11 @@ class TestAreaHourlyLoad:
     def test_keys_and_columns(self):
         frame = AreaHourlyLoad.from_df(hourly())
         assert frame.keys == ["load_date", "hour_ending"]
-        assert list(frame.df.columns) == ["load_date", "hour_ending", "demand_kwh"]
+        assert list(frame.df.columns) == ["load_date", "hour_ending", "demand_kwh", "available_at"]
+
+    def test_availability_is_required(self):
+        with pytest.raises(ValueError, match="'available_at' has 1 null"):
+            AreaHourlyLoad.from_df(hourly(available_at=pd.to_datetime([DAY, pd.NaT])))
 
     def test_hour_outside_1_24_is_rejected(self):
         with pytest.raises(ValueError, match="hour_ending outside 1..24"):
@@ -51,6 +56,7 @@ def weather_forecast(**overrides) -> pd.DataFrame:
             "forecast_temperature_c": [10.0, 11.0],
             "forecast_relative_humidity_pct": [60.0, np.nan],
             "forecast_precipitation_mm": [0.0, 0.5],
+            "available_at": pd.to_datetime([DAY - pd.Timedelta(hours=23)] * 2),
         }
     )
     return df.assign(**overrides)
@@ -61,6 +67,12 @@ class TestAreaWeatherForecast:
         frame = AreaWeatherForecast.from_df(weather_forecast())
         assert frame.keys == ["trade_date", "hour_ending"]
         assert frame.df["forecast_relative_humidity_pct"].isna().tolist() == [False, True]
+
+    def test_availability_is_required(self):
+        with pytest.raises(ValueError, match="'available_at' has 1 null"):
+            AreaWeatherForecast.from_df(
+                weather_forecast(available_at=pd.to_datetime([DAY, pd.NaT]))
+            )
 
     def test_hour_outside_1_24_is_rejected(self):
         with pytest.raises(ValueError, match="hour_ending outside 1..24"):
@@ -105,17 +117,9 @@ def calendar(**overrides) -> pd.DataFrame:
     df = pd.DataFrame(
         {
             "trade_date": [DAY, DAY + pd.Timedelta(days=1)],
-            "day_type": np.array([0, 2], dtype="int64"),
             "days_since_holiday": np.array([3, 0], dtype="int64"),
             "days_until_holiday": np.array([1, 0], dtype="int64"),
             "holiday_degree": [0.0, 1.0],
-            "half": np.array([1, 1], dtype="int64"),
-            "quarter": np.array([2, 2], dtype="int64"),
-            "day_of_month": np.array([10, 11], dtype="int64"),
-            "day_of_quarter": np.array([10, 11], dtype="int64"),
-            "day_of_year": np.array([101, 102], dtype="int64"),
-            "is_business_day": [True, False],
-            "fiscal_quarter": np.array([1, 1], dtype="int64"),
         }
     )
     return df.assign(**overrides)
@@ -125,48 +129,20 @@ class TestDayCalendar:
     def test_levels(self):
         assert HOLIDAY_DEGREE_LEVELS == (0.0, 0.3, 0.5, 0.8, 1.0)
 
-    def test_keys(self):
+    def test_keys_and_columns_in_schema_order(self):
         frame = DayCalendar.from_df(calendar())
         assert frame.keys == ["trade_date"]
-        assert frame.df["day_type"].tolist() == [0, 2]
-
-    def test_columns_in_schema_order(self):
-        frame = DayCalendar.from_df(calendar())
         assert list(frame.df.columns) == [
             "trade_date",
-            "day_type",
             "days_since_holiday",
             "days_until_holiday",
             "holiday_degree",
-            "half",
-            "quarter",
-            "day_of_month",
-            "day_of_quarter",
-            "day_of_year",
-            "is_business_day",
-            "fiscal_quarter",
         ]
-        assert frame.df["is_business_day"].tolist() == [True, False]
-        assert frame.df["day_of_year"].dtype == "int64"
+        assert frame.df["days_since_holiday"].tolist() == [3, 0]
 
-    @pytest.mark.parametrize(
-        ("column", "bad", "message"),
-        [
-            ("half", 3, "half outside 1..2"),
-            ("quarter", 0, "quarter outside 1..4"),
-            ("day_of_month", 32, "day_of_month outside 1..31"),
-            ("day_of_quarter", 93, "day_of_quarter outside 1..92"),
-            ("day_of_year", 0, "day_of_year outside 1..366"),
-            ("fiscal_quarter", 5, "fiscal_quarter outside 1..4"),
-        ],
-    )
-    def test_calendar_count_outside_its_range_is_rejected(self, column, bad, message):
-        with pytest.raises(ValueError, match=message):
-            DayCalendar.from_df(calendar(**{column: np.array([1, bad], dtype="int64")}))
-
-    def test_day_type_outside_levels_is_rejected(self):
-        with pytest.raises(ValueError, match="day_type outside 0..2"):
-            DayCalendar.from_df(calendar(day_type=np.array([0, 3], dtype="int64")))
+    def test_a_null_attribute_is_rejected(self):
+        with pytest.raises(ValueError, match="'holiday_degree' has 1 null"):
+            DayCalendar.from_df(calendar(holiday_degree=[0.0, np.nan]))
 
     def test_negative_holiday_distance_is_rejected(self):
         with pytest.raises(ValueError, match="days_since_holiday must be >= 0"):

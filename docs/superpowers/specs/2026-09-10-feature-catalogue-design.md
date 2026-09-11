@@ -63,7 +63,7 @@ across joined inputs.
 | JEPX spot prices for delivery day X | X-1 12:00 | bids close 10:00, results promptly after; 12:00 is the BG plan deadline that needs them |
 | `dim_date`, seeds, census | no column | static |
 | `pma_ml.<task>_forecast` | `forecast_issued_ts` | exposed as `available_at` by the `std_ml__*` models |
-| Fitted parameters (§5) | the fit window's end | new |
+| Similar day (§5, written back by the fit-and-score job) | the day's MSM forecast vintage's; every candidate is at least 334 days older | `pma_ml.similar_day`, PR 7 |
 
 Each rule and its evidence are written in the standardized model's YAML;
 `docs/superpowers/plans/2026-09-10-available-at-standardized.md` lists them with the
@@ -112,20 +112,48 @@ through: `fct_jma_weather_hourly`, `fct_jma_msm_weather_forecast_hourly`,
 
 ## 5. Fitted features
 
-A script `scripts/fit_<feature>.py` fits the parameters on data with `available_at` up to a
-fit window end, logs the fit to MLflow, and writes one row to `pma_ml.<feature>_parameters`:
-the parameters, `fit_window_end`, `available_at = fit_window_end`, `run_id`, `published_at`.
-The feature model scores in SQL and emits one row per parameter vintage, so the join picks
-the newest parameters available at the issue time. A refit is a new row, on the researcher's
-decision.
+Two forms. **Form A**: a script fits parameters in Python, a mart scores in SQL from them.
+**Form B**: a job fits, scores and writes the feature values back to `pma_ml.<feature>`
+with `available_at` and `published_at`, partitioned by its MLflow run like the forecast
+tables; a guarded staging model reads the table, as the importance tables are read, and
+the mart passes the rows through. The Feast join takes the newest run available at the
+issue time and, among rows tied on `available_at`, the newest published (the view's
+`created_timestamp_column`), so a refit-and-rescore replaces the feature wherever it
+scored and the runs before it stay in the table. A refit is a new run, on the
+researcher's decision.
 
-Similar day is the first case. Parameters: the seven softmax weights. SQL scoring: candidates
-D − 364 ± 30; parts: |days from D − 364|, the 24-h RMSE of D's population-weighted MSM
-forecast against the candidate's population-weighted observation for temperature, humidity
-and rain, |Δ days_since_holiday|, |Δ days_until_holiday|, |Δ holiday_degree|; distance =
-Σ wᵢ × partᵢ; the nearest candidate's hourly load ÷ 2 per period. The fit stays
-`scipy.optimize.least_squares` (Park, Song and Kwon 2020 Eq. 1–3) in
-`tasks/demand/similar_day.py`, now run by the fit script instead of once per backtest.
+Similar day is Form B, decided 2026-09-11 in PR 7's review. Form A was built first: a
+SQL twin of the selector, 600 lines of model and contract, and a parameters table with
+its own staging model. The researcher chose the write-back for the smaller change and the
+single definition of the selector; that dbt does not score this feature was not a
+concern. The job walks forward (decided the same day, on Codex's finding that a fit
+through today would score every past day with weights that had seen its own load, and a
+backtest over the fit window would then evaluate on those rows, and, in a third round,
+that the yearly-file loads before 2022-04 are public only two days after their day): every
+7 days, the LightGBM strategies' refit cadence, `scripts/fit_similar_day.py` runs a fit of
+the seven softmax weights (`scipy.optimize.least_squares`, Park, Song and Kwon 2020 Eq.
+1–3, in `tasks/demand/similar_day.py`) at a cutoff instant, on the pairs whose target load
+was public by then (the loads' `available_at`, which `AreaHourlyLoad` carries), and scores
+with it the days whose issue time follows the cutoff until the next one. Nothing a fit saw
+was published after the issue time of a day it scores. It writes 48 rows per day to
+`pma_ml.similar_day`: the chosen day's hourly load over the period's hour ÷ 2 as
+`similar_day_demand_kwh`, the chosen day, its lag, its distance, the candidate count, the
+fit's cutoff, and `available_at` = the latest of the day's MSM forecast vintage's, that
+cutoff and the chosen day's load availability (under the default window every candidate is
+at least 334 days older, so the first two decide). The first run backfills every day from
+2019 (the first fit runs when eight pairs are public, with the first scorable day's load
+for a 61-day window); a later
+run scores only new days, in the live-path spec. The run also logs every fit's weights,
+the selection of every scored day and the retrieval check (selected vs D − 364 vs oracle)
+with the four `similar_day_*` metrics. This is the similar-day spec's deferred follow-up
+(refit as the backtest steps forward) made the job's rule; run `008868fe…`, whose one fit
+served its whole training window, is therefore no longer reproducible to the digit, and the
+proof is the fit through 2024-08-16 reproduced exactly plus a matched comparison.
+
+A Form A feature, should one come, keeps this section's original rule: parameters in
+`pma_ml.<feature>_parameters` with `available_at` = the fit window's end, one mart row per
+parameter vintage. Its open point, that a backtest's training rows lie before the fit
+that serves its forecasts, is then to be settled.
 
 ## 6. Feast
 
@@ -177,9 +205,8 @@ and rain, |Δ days_since_holiday|, |Δ days_until_holiday|, |Δ holiday_degree|;
   permutation importance and evaluation. `feature_cols`, `categorical_feature_cols` and
   the eval-set schema become instance attributes read from the preset; `lookback_days` and
   `_add_features` go away. Since PR 6 the base's one feature hook is `_features`; its
-  calendar computation went with the demand classes. Until PR 7 the similar-day strategies
-  subclass `PresetLightGbmStrategy` and extend its `_add_features` with their Python-built
-  feature.
+  calendar computation went with the demand classes. Since PR 7 every demand strategy is a
+  preset: the similar-day classes and the Python feature join are gone.
 - `build_strategy(preset, area, …)` builds the entity frame once per run, every (area, D,
   time_code) from the first training day to the last target day, calls Feast once, wraps the
   result in a `FeatureFrame` (grain area × trade_date × time_code, the preset's columns,
@@ -252,7 +279,7 @@ in a different order when rows arrive in a different order.
 | 4 | `feature/feast-retrieval` | the spike (§9), then the Feast repo, generated views, staleness test and dependency; the façade instead if the spike fails | the spike's pass criteria; done 2026-09-10 | 2 |
 | 5 | `feature/spot-price-presets` | presets, `FeatureFrame`, `build_strategy` through Feast, one spot strategy, `--add`, `--drop`, `--name`; delete `LightGbmOcctoStrategy` | the spot `lightgbm_occto` run reproduced; done 2026-09-11 | 4 |
 | 6 | `feature/demand-presets` | the demand presets without similar day, one demand strategy; delete their classes | the kept R-003 Tokyo run reproduced; done 2026-09-11 | 5 |
-| 7 | `feature/similar-day-feature` | the fit script, `pma_ml.similar_day_parameters`, `ftr_period_similar_day`, the five similar-day presets; delete the last classes | run `008868fe…` reproduced | 6 |
+| 7 | `feature/similar-day-feature` | the fit-and-score script, `pma_ml.similar_day`, `ftr_period_similar_day` (a pass-through), the five similar-day presets; delete the last classes | run `008868fe…`'s fit and selection reproduced, the old and new code identical period by period; done 2026-09-11 | 6 |
 
 PR 3 can run beside 4 to 7. The live path, the selection loop and Form B for features made
 by other ML models each get their own spec later.
@@ -267,7 +294,9 @@ selection loop, its own topic.
 
 1. The availability lags marked "to confirm" in §3.
 2. Registry: a file under `data/` or the Postgres already in compose.
-3. How often the similar-day weights are refit.
+3. How often the similar-day weights are refit. Since PR 7 a refit is one run of
+   `scripts/fit_similar_day.py`, which re-scores every day it can and wins wherever it
+   scored (§5). The cadence is still the researcher's call.
 - Resolved 2026-09-11: the weighted-mean marts sum in a fixed order (§4). Rounding was the
   alternative; it only makes a binning flip unlikely (two values 1e-14 apart round differently
   about once per 10^(d-14) values at d decimals), so the researcher chose the fixed order.

@@ -144,7 +144,7 @@ FTR_HOUR_JMA_OBS_SOURCE = SparkSource(
     name="ftr_hour_jma_obs",
     query="select area_code, cast(date_format(trade_date, 'yyyyMMdd') as int) as trade_date_key, hour_ending, wavg_temperature_c, available_at from pma_features.ftr_hour_jma_obs",
     timestamp_field="available_at",
-    description="The recency-weighted same-hour temperature at each bidding zone's representative JMA station (dim_area.representative_jma_station_id) over D-8..D-2, the demand strategies' wavg_temperature_c (tasks/demand/features.py). Grain: area_code x trade_date x hour_ending (1-24, hour ending). A row exists for every delivery day that at least one lag observation reaches; the value is null only when every lag is missing.",
+    description="The recency-weighted same-hour temperature at each bidding zone's representative JMA station (dim_area.representative_jma_station_id) over D-8..D-2, the demand presets' wavg_temperature_c. Grain: area_code x trade_date x hour_ending (1-24, hour ending). A row exists for every delivery day that at least one lag observation reaches; the value is null only when every lag is missing.",
 )
 FTR_HOUR_JMA_OBS = FeatureView(
     name="ftr_hour_jma_obs",
@@ -159,7 +159,7 @@ FTR_HOUR_JMA_OBS = FeatureView(
     ],
     source=FTR_HOUR_JMA_OBS_SOURCE,
     online=False,
-    description="The recency-weighted same-hour temperature at each bidding zone's representative JMA station (dim_area.representative_jma_station_id) over D-8..D-2, the demand strategies' wavg_temperature_c (tasks/demand/features.py). Grain: area_code x trade_date x hour_ending (1-24, hour ending). A row exists for every delivery day that at least one lag observation reaches; the value is null only when every lag is missing.",
+    description="The recency-weighted same-hour temperature at each bidding zone's representative JMA station (dim_area.representative_jma_station_id) over D-8..D-2, the demand presets' wavg_temperature_c. Grain: area_code x trade_date x hour_ending (1-24, hour ending). A row exists for every delivery day that at least one lag observation reaches; the value is null only when every lag is missing.",
     tags={"grain": "hour"},
 )
 
@@ -250,6 +250,30 @@ FTR_PERIOD_JEPX = FeatureView(
     tags={"grain": "period"},
 )
 
+FTR_PERIOD_SIMILAR_DAY_SOURCE = SparkSource(
+    name="ftr_period_similar_day",
+    query="select area_code, cast(date_format(trade_date, 'yyyyMMdd') as int) as trade_date_key, time_code, similar_day_demand_kwh, available_at, published_at from pma_features.ftr_period_similar_day",
+    timestamp_field="available_at",
+    created_timestamp_column="published_at",
+    description="The load of a learned similar day one year earlier for every delivery period, the demand similar-day feature (research demand/R-004 E-002), as scripts/fit_similar_day.py scored it walking forward and wrote it to pma_ml.similar_day. Every few days the job refits the seven weights of tasks/demand/similar_day.py's distance on the days before that step and scores the days that follow with them: for a delivery day D the nearest day in D - 364 +- 30 (days from D - 364, the 24-hour RMSE of D's population-weighted MSM forecast against the candidate's population-weighted observation for temperature, humidity and rain, the differences in days since and until a named holiday and in holiday degree), its hourly load over the hour containing the period halved. No day is scored with weights that saw a load that was not yet public: each fit runs at a cutoff on the pairs whose target load was public by then, a day is scored by the latest fit whose cutoff is on or before its issue time, and available_at is the latest of D's MSM forecast vintage's, that cutoff and the chosen day's load availability. The chosen day, its lag, its distance, the candidate count and the fit's cutoff sit next to the feature, untagged. One row per scoring run: the as-of join takes the newest run usable at the issue time, and among rows tied on available_at the newest published wins, so a re-run replaces the feature wherever it scored. Grain: area_code x trade_date x time_code x similar_day_run_id.",
+)
+FTR_PERIOD_SIMILAR_DAY = FeatureView(
+    name="ftr_period_similar_day",
+    entities=list(GRAIN_ENTITIES["period"]),
+    schema=[
+        Field(
+            name="similar_day_demand_kwh",
+            dtype=Float64,
+            description="The chosen similar day's hourly load (fct_area_power_usage_hourly, kWh over the hour containing the period) halved, kWh per 30-minute period.",
+            tags={"categorical": "false"},
+        ),
+    ],
+    source=FTR_PERIOD_SIMILAR_DAY_SOURCE,
+    online=False,
+    description="The load of a learned similar day one year earlier for every delivery period, the demand similar-day feature (research demand/R-004 E-002), as scripts/fit_similar_day.py scored it walking forward and wrote it to pma_ml.similar_day. Every few days the job refits the seven weights of tasks/demand/similar_day.py's distance on the days before that step and scores the days that follow with them: for a delivery day D the nearest day in D - 364 +- 30 (days from D - 364, the 24-hour RMSE of D's population-weighted MSM forecast against the candidate's population-weighted observation for temperature, humidity and rain, the differences in days since and until a named holiday and in holiday degree), its hourly load over the hour containing the period halved. No day is scored with weights that saw a load that was not yet public: each fit runs at a cutoff on the pairs whose target load was public by then, a day is scored by the latest fit whose cutoff is on or before its issue time, and available_at is the latest of D's MSM forecast vintage's, that cutoff and the chosen day's load availability. The chosen day, its lag, its distance, the candidate count and the fit's cutoff sit next to the feature, untagged. One row per scoring run: the as-of join takes the newest run usable at the issue time, and among rows tied on available_at the newest published wins, so a re-run replaces the feature wherever it scored. Grain: area_code x trade_date x time_code x similar_day_run_id.",
+    tags={"grain": "period"},
+)
+
 #: Every feature view, by mart name.
 VIEWS = (
     FTR_DAY_CALENDAR,
@@ -258,4 +282,5 @@ VIEWS = (
     FTR_HOUR_MSM,
     FTR_PERIOD_ACTUALS,
     FTR_PERIOD_JEPX,
+    FTR_PERIOD_SIMILAR_DAY,
 )
