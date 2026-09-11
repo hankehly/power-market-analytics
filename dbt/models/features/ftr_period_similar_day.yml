@@ -13,9 +13,11 @@ models:
       the candidate's population-weighted observation for temperature, humidity and rain, the
       differences in days since and until a named holiday and in holiday degree), its hourly
       load over the hour containing the period halved. No day is scored with weights that saw
-      its own load: the fit's last target day is at least two days before D, and available_at
-      is the later of D's MSM forecast vintage's and the fit's cutoff. The chosen day, its lag,
-      its distance, the candidate count and the fit's last day sit next to the feature,
+      a load that was not yet public: each fit runs at a cutoff on the pairs whose target load
+      was public by then, a day is scored by the latest fit whose cutoff is on or before its
+      issue time, and available_at is the later of D's MSM forecast vintage's and that cutoff.
+      The chosen day, its lag, its distance, the candidate count and the fit's cutoff sit next
+      to the feature,
       untagged. One row per scoring run: the as-of join takes the newest run usable at the
       issue time, and among rows tied on available_at the newest published wins, so a re-run
       replaces the feature wherever it scored. Grain: area_code x trade_date x time_code x
@@ -91,16 +93,16 @@ models:
           Window days that could be scored for D.
         data_tests:
           - not_null
-      - name: similar_day_fit_through
-        data_type: date
+      - name: similar_day_fit_cutoff
+        data_type: timestamp
         description: >
-          Last target day of the fit whose weights chose the day, at least two days before D.
+          When the fit whose weights chose the day ran, naive JST: on or before D's issue time, and every pair it used was public by then.
         data_tests:
           - not_null
       - name: available_at
         data_type: timestamp
         description: >
-          When the row became usable, naive JST: the later of D's MSM forecast vintage (reference + 4 h, 01:00 on D-1) and the fit's cutoff, the midnight after similar_day_fit_through.
+          When the row became usable, naive JST: the later of D's MSM forecast vintage (reference + 4 h, 01:00 on D-1) and similar_day_fit_cutoff.
         data_tests:
           - not_null
       - name: published_at
@@ -124,7 +126,7 @@ unit_tests:
             'score-1' as run_id, 'tokyo' as area_code, date '2025-03-10' as trade_date, 1 as time_code,
             cast(505000 as double) as similar_day_demand_kwh, date '2024-03-11' as similar_day_reference_date,
             364 as similar_day_reference_lag_days, cast(0.25 as double) as similar_day_distance,
-            61 as similar_day_n_candidates, date '2025-03-01' as similar_day_fit_through,
+            61 as similar_day_n_candidates, timestamp '2025-03-02 00:00:00' as similar_day_fit_cutoff,
             timestamp '2025-03-09 01:00:00' as available_at,
             timestamp '2025-01-02 10:00:00' as published_at
           union all
@@ -132,7 +134,7 @@ unit_tests:
             'score-2', 'tokyo', date '2025-03-10', 1,
             cast(1005000 as double), date '2024-03-12',
             363, cast(0.5 as double),
-            61, date '2025-03-08', timestamp '2025-03-09 01:00:00',
+            61, timestamp '2025-03-09 00:00:00', timestamp '2025-03-09 01:00:00',
             timestamp '2025-06-02 10:00:00'
     expect:
       format: sql
@@ -141,7 +143,7 @@ unit_tests:
           'tokyo' as area_code, date '2025-03-10' as trade_date, 1 as time_code, 'score-1' as similar_day_run_id,
           cast(505000 as double) as similar_day_demand_kwh, date '2024-03-11' as similar_day_reference_date,
           364 as similar_day_reference_lag_days, cast(0.25 as double) as similar_day_distance,
-          61 as similar_day_n_candidates, date '2025-03-01' as similar_day_fit_through,
+          61 as similar_day_n_candidates, timestamp '2025-03-02 00:00:00' as similar_day_fit_cutoff,
             timestamp '2025-03-09 01:00:00' as available_at,
           timestamp '2025-01-02 10:00:00' as published_at
         union all
@@ -149,5 +151,5 @@ unit_tests:
           'tokyo', date '2025-03-10', 1, 'score-2',
           cast(1005000 as double), date '2024-03-12',
           363, cast(0.5 as double),
-          61, date '2025-03-08', timestamp '2025-03-09 01:00:00',
+          61, timestamp '2025-03-09 00:00:00', timestamp '2025-03-09 01:00:00',
           timestamp '2025-06-02 10:00:00'

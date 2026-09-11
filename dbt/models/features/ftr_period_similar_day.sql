@@ -15,7 +15,7 @@ with
     similar_day_reference_lag_days,
     similar_day_distance,
     similar_day_n_candidates,
-    similar_day_fit_through,
+    similar_day_fit_cutoff,
     available_at,
     published_at
   from

@@ -209,7 +209,8 @@ def load_area_hourly_load(
     is the only public area demand before the A-1 series begins (2022-04) and,
     by research decision (demand/R-004), the single source for the whole
     history rather than a stitch with the A-1 fact. ``hour_ending`` is the
-    fact's ``hour_of_day`` + 1, the hour convention of the temperature frames.
+    fact's ``hour_of_day`` + 1, the hour convention of the temperature frames;
+    ``available_at`` is the fact's, when the hour's load became public.
 
     Parameters
     ----------
@@ -233,7 +234,8 @@ def load_area_hourly_load(
         select
           f.date_key as load_date,
           f.hour_of_day + 1 as hour_ending,
-          f.demand_kwh
+          f.demand_kwh,
+          f.available_at
         from pma_curated.fct_area_power_usage_hourly f
         join pma_curated.dim_area a on f.area_key = a.area_key
         where a.area_code = '{area_code}'
@@ -244,7 +246,7 @@ def load_area_hourly_load(
         raise ValueError(f"No hourly load history found for area_code={area_code!r}")
     pdf = (
         pdf.assign(load_date=lambda d: pd.to_datetime(d["load_date"]))
-        .astype({"hour_ending": "int64", "demand_kwh": "float64"})
+        .astype({"hour_ending": "int64", "demand_kwh": "float64", "available_at": "datetime64[ns]"})
         .sort_values(["load_date", "hour_ending"], ignore_index=True)
     )
     logger.info(

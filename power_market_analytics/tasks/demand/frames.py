@@ -82,7 +82,10 @@ class AreaHourlyLoad(DomainFrame):
     ``hour_of_day`` + 1; 24 = the reading at 24:00), so a delivery period maps
     to its hour through ``hour_ending = (time_code + 1) // 2``.
     Loads are positive: the fact never carries TEPCO's not-yet-final zero, so
-    a zero here would be a load error, not a reading.
+    a zero here would be a load error, not a reading. ``available_at`` is when
+    the hour's load became public (the fact's, naive JST): the daily files'
+    update time from 2022-04, two days after the day for the yearly files
+    before.
 
     Grain: (load_date, hour_ending).
     """
@@ -91,9 +94,10 @@ class AreaHourlyLoad(DomainFrame):
         "load_date": "datetime64[ns]",
         "hour_ending": "int64",
         "demand_kwh": "float64",
+        "available_at": "datetime64[ns]",
     }
     keys = ["load_date", "hour_ending"]
-    non_null_cols = ["demand_kwh"]
+    non_null_cols = ["demand_kwh", "available_at"]
 
     @classmethod
     def _validate_extra(cls, df: pd.DataFrame) -> None:

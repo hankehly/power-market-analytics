@@ -14,11 +14,11 @@ from power_market_analytics.tasks.demand.similar_day import (
 from power_market_analytics.tasks.demand.similar_day_feature import (
     DEFAULT_REFIT_EVERY_DAYS,
     FEATURE_TABLE,
-    FIT_LEAD_DAYS,
     MLFLOW_EXPERIMENT,
     SimilarDayFeatureRecords,
     WalkForwardScoring,
     build_feature_records,
+    issue_times,
     publish_feature_records,
     score_walk_forward,
 )
@@ -35,20 +35,23 @@ from tests.test_demand_similar_day import (
 
 PUBLISHED_AT = pd.Timestamp("2026-09-11 10:00:00")
 OTHER = pd.Timestamp("2024-04-11")
-#: The first day a fit can run through in the synthetic frames: the first
-#: scorable forecast day (window from the first holiday) with a known load.
-FIRST_FIT = pd.Timestamp("2024-02-07")
+#: The first instant a fit can run in the synthetic frames: when the first scorable
+#: forecast day's load (2024-02-07, a daily file) became public.
+FIRST_CUTOFF = pd.Timestamp("2024-02-08")
 #: The last scorable day: the calendar ends at its last holiday.
 LAST_SCORABLE = HOLIDAYS[-1]
+#: A fit before every synthetic day's issue time.
+CUTOFF = pd.Timestamp("2024-04-01")
 
 
-def make_selector() -> SimilarDaySelector:
-    return SimilarDaySelector(make_calendar(), make_forecast(), make_observed(), make_hourly_load())
+def make_selector(**load_kwargs) -> SimilarDaySelector:
+    return SimilarDaySelector(
+        make_calendar(), make_forecast(), make_observed(), make_hourly_load(**load_kwargs)
+    )
 
 
-def make_scoring(days=(D, OTHER), lag: int = 364, fit_through=None) -> WalkForwardScoring:
+def make_scoring(days=(D, OTHER), lag: int = 364, fit_cutoff=CUTOFF) -> WalkForwardScoring:
     days = list(days)
-    fit_through = pd.Timestamp("2024-04-01") if fit_through is None else fit_through
     selection = SimilarDaySelection.from_df(
         pd.DataFrame(
             {
@@ -63,8 +66,8 @@ def make_scoring(days=(D, OTHER), lag: int = 364, fit_through=None) -> WalkForwa
     )
     return WalkForwardScoring(
         selection=selection,
-        fit_through=pd.Series([fit_through] * len(days), index=pd.to_datetime(days)),
-        fits=pd.DataFrame({"fit_through": [fit_through]}),
+        fit_cutoff=pd.Series([fit_cutoff] * len(days), index=pd.to_datetime(days)),
+        fits=pd.DataFrame({"fit_cutoff": [fit_cutoff]}),
     )
 
 
@@ -88,35 +91,40 @@ class TestConstants:
         assert MLFLOW_EXPERIMENT == "similar_day"
         assert FEATURE_TABLE == "pma_ml.similar_day"
         assert DEFAULT_REFIT_EVERY_DAYS == 7
-        assert FIT_LEAD_DAYS == 2
+
+    def test_issue_times_are_the_demand_tasks(self):
+        assert issue_times(pd.DatetimeIndex([D])).tolist() == [
+            D - pd.Timedelta(days=1) + pd.Timedelta(hours=9, minutes=30)
+        ]
 
 
 class TestScoreWalkForward:
     @pytest.fixture(scope="class")
     def weekly(self) -> WalkForwardScoring:
-        selector = make_selector()
-        return score_walk_forward(selector, make_forecast().df["trade_date"].unique())
+        return score_walk_forward(make_selector(), make_forecast().df["trade_date"].unique())
 
-    def test_every_day_is_scored_by_the_latest_fit_before_it(self, weekly):
+    def test_every_day_is_scored_by_the_latest_fit_before_its_issue_time(self, weekly):
         scored = weekly.selection.df["trade_date"]
-        # The first fit runs through the first fittable day; the first scored day
-        # follows it by the lead; the last scorable day is scored too.
-        assert scored.min() == FIRST_FIT + pd.Timedelta(days=FIT_LEAD_DAYS)
+        # The first fit runs when the first scorable day's load is public (02-08 00:00);
+        # the first day it can serve is issued after that: 02-09.
+        assert scored.min() == pd.Timestamp("2024-02-09")
         assert scored.max() == LAST_SCORABLE
         assert scored.is_monotonic_increasing and scored.is_unique
-        assert list(weekly.fit_through.index) == scored.tolist()
-        gap = (scored.to_numpy() - weekly.fit_through.to_numpy()) / pd.Timedelta(days=1)
-        assert gap.min() == FIT_LEAD_DAYS
-        assert gap.max() == FIT_LEAD_DAYS + DEFAULT_REFIT_EVERY_DAYS - 1
+        assert list(weekly.fit_cutoff.index) == scored.tolist()
+        issued = issue_times(pd.DatetimeIndex(scored))
+        gap = issued - pd.DatetimeIndex(weekly.fit_cutoff)
+        assert gap.min() == pd.Timedelta(hours=9, minutes=30)
+        assert gap.max() < pd.Timedelta(days=DEFAULT_REFIT_EVERY_DAYS)
         fits = weekly.fits
-        assert fits["fit_through"].tolist() == list(
-            pd.date_range(FIRST_FIT, LAST_SCORABLE - pd.Timedelta(days=FIT_LEAD_DAYS), freq="7D")
+        assert fits["fit_cutoff"].tolist() == list(
+            pd.date_range(FIRST_CUTOFF, issued.max(), freq="7D")
         )
-        assert set(weekly.fit_through) == set(fits["fit_through"])
+        assert set(weekly.fit_cutoff) == set(fits["fit_cutoff"])
         assert fits["n_days_scored"].sum() == len(scored)
         assert list(fits.columns) == [
-            "fit_through",
+            "fit_cutoff",
             "fit_from",
+            "fit_through",
             "n_pairs",
             "n_targets",
             "alpha",
@@ -126,42 +134,54 @@ class TestScoreWalkForward:
             *[f"weight_{p}" for p in SIMILAR_DAY_COMPONENTS],
             *[f"scale_{p}" for p in SIMILAR_DAY_COMPONENTS],
         ]
-        # Each fit sees only the days up to its own date, so the pairs grow.
-        assert fits["fit_from"].eq(FIRST_FIT).all()
+        # Each fit sees the targets whose load was public by its cutoff, so the pairs grow.
+        assert fits["fit_from"].eq(pd.Timestamp("2024-02-07")).all()
+        assert (fits["fit_through"] == fits["fit_cutoff"] - pd.Timedelta(days=1)).all()
         assert (
             fits["n_pairs"].is_monotonic_increasing
             and fits["n_pairs"].iloc[0] < fits["n_pairs"].iloc[-1]
         )
 
     def test_a_days_choice_is_the_fits_own(self, weekly):
-        # Re-fit through the day's fit date and select the day again: the same choice.
-        day = D
-        fit_through = weekly.fit_through[day]
+        # Re-fit at the day's cutoff and select the day again: the same choice.
+        cutoff = weekly.fit_cutoff[D]
         selector = make_selector()
-        selector.fit(fit_through)
-        again = selector.select([day]).df.iloc[0]
-        chosen = weekly.selection.df.set_index("trade_date").loc[day]
+        selector.fit(cutoff)
+        again = selector.select([D]).df.iloc[0]
+        chosen = weekly.selection.df.set_index("trade_date").loc[D]
         assert again["reference_date"] == chosen["reference_date"]
         assert again["distance"] == chosen["distance"]
+
+    def test_a_late_load_holds_a_fit_back(self):
+        # The loads of 03-01..03-06 are public two days after their day (the yearly files):
+        # the fit on 03-07 00:00 sees 03-05 (public 03-07 00:00) but not 03-06.
+        late = set(pd.date_range("2024-03-01", "2024-03-06"))
+        scoring = score_walk_forward(
+            make_selector(late=late), make_forecast().df["trade_date"].unique()
+        )
+        fits = scoring.fits.set_index("fit_cutoff")
+        assert fits.loc[pd.Timestamp("2024-03-07"), "fit_through"] == pd.Timestamp("2024-03-05")
+        assert fits.loc[pd.Timestamp("2024-03-14"), "fit_through"] == pd.Timestamp("2024-03-13")
+        # A late first day pushes the first cutoff, and so the first scored day, out.
+        first = score_walk_forward(
+            make_selector(late={pd.Timestamp("2024-02-07")}),
+            make_forecast().df["trade_date"].unique(),
+        )
+        assert first.fits["fit_cutoff"].iloc[0] == pd.Timestamp("2024-02-09")
+        assert first.selection.df["trade_date"].min() == pd.Timestamp("2024-02-10")
 
     def test_a_coarser_cadence_makes_fewer_fits(self):
         monthly = score_walk_forward(
             make_selector(), make_forecast().df["trade_date"].unique(), refit_every_days=30
         )
         assert len(monthly.fits) == 3
-        assert monthly.fits["fit_through"].tolist() == [
-            FIRST_FIT,
-            FIRST_FIT + pd.Timedelta(days=30),
-            FIRST_FIT + pd.Timedelta(days=60),
+        assert monthly.fits["fit_cutoff"].tolist() == [
+            FIRST_CUTOFF,
+            FIRST_CUTOFF + pd.Timedelta(days=30),
+            FIRST_CUTOFF + pd.Timedelta(days=60),
         ]
-        assert len(monthly.selection) == len(
-            score_walk_forward(make_selector(), make_forecast().df["trade_date"].unique()).selection
-        )
-
-    def test_days_before_the_first_fit_can_score_are_left_out(self, weekly):
-        # 2024-02-07 and 02-08 are scorable but no fit precedes their issue time.
-        assert pd.Timestamp("2024-02-08") not in set(weekly.selection.df["trade_date"])
-        assert pd.Timestamp("2024-02-09") in set(weekly.selection.df["trade_date"])
+        weekly = score_walk_forward(make_selector(), make_forecast().df["trade_date"].unique())
+        assert len(monthly.selection) == len(weekly.selection)
 
     def test_a_gap_in_the_forecasts_leaves_a_fit_without_days(self):
         # No forecast from 03-01 to 03-20: the fits of those weeks score nothing and
@@ -179,24 +199,26 @@ class TestScoreWalkForward:
         assert scoring.fits["n_days_scored"].sum() == len(scoring.selection)
         assert pd.Timestamp("2024-03-21") in set(scoring.selection.df["trade_date"])
 
+    def test_days_issued_before_the_first_fit_are_left_out(self, weekly):
+        # 02-07 and 02-08 are scorable, but their issue times precede the first cutoff.
+        assert pd.Timestamp("2024-02-08") not in set(weekly.selection.df["trade_date"])
+        assert pd.Timestamp("2024-02-09") in set(weekly.selection.df["trade_date"])
+
     def test_cadence_below_one_is_rejected(self):
         with pytest.raises(ValueError, match="refit_every_days must be >= 1"):
             score_walk_forward(make_selector(), [D], refit_every_days=0)
 
     def test_no_fit_possible_is_rejected(self):
         # Loads end before any scorable day, so no pair exists.
-        selector = SimilarDaySelector(
-            make_calendar(),
-            make_forecast(),
-            make_observed(),
-            make_hourly_load(pd.date_range("2023-01-01", "2024-01-31")),
-        )
+        selector = make_selector(days=pd.date_range("2023-01-01", "2024-01-31"))
         with pytest.raises(ValueError, match="no training pairs"):
             score_walk_forward(selector, [D])
 
-    def test_no_day_after_the_first_fit_is_rejected(self):
+    def test_no_day_issued_after_the_first_fit_is_rejected(self):
         with pytest.raises(ValueError, match="no day can be scored"):
-            score_walk_forward(make_selector(), [FIRST_FIT, FIRST_FIT + pd.Timedelta(days=1)])
+            score_walk_forward(
+                make_selector(), [pd.Timestamp("2024-02-07"), pd.Timestamp("2024-02-08")]
+            )
 
 
 class TestBuildFeatureRecords:
@@ -213,7 +235,7 @@ class TestBuildFeatureRecords:
             "similar_day_reference_lag_days",
             "similar_day_distance",
             "similar_day_n_candidates",
-            "similar_day_fit_through",
+            "similar_day_fit_cutoff",
             "available_at",
             "published_at",
             "run_id",
@@ -231,7 +253,7 @@ class TestBuildFeatureRecords:
             assert row["similar_day_reference_lag_days"] == 364
             assert row["similar_day_distance"] == 0.5
             assert row["similar_day_n_candidates"] == 61
-            assert row["similar_day_fit_through"] == pd.Timestamp("2024-04-01")
+            assert row["similar_day_fit_cutoff"] == CUTOFF
             # Usable once D's forecast vintage is (01:00 on D-1), the fit being older.
             assert row["available_at"] == forecast_available_at(D)
             assert row["published_at"] == PUBLISHED_AT
@@ -242,18 +264,11 @@ class TestBuildFeatureRecords:
         assert records.df["similar_day_reference_lag_days"].dtype == "int64"
         assert records.df["available_at"].dtype == "datetime64[ns]"
 
-    def test_a_fit_just_before_the_day_sets_the_availability(self):
-        # Fit through D-2: its cutoff, 00:00 on D-1, is earlier than the forecast's
-        # 01:00 on D-1, so the forecast still rules; a day scored 2 days after a fit
-        # is the closest allowed.
-        fit_through = D - pd.Timedelta(days=FIT_LEAD_DAYS)
-        records = make_records(make_scoring(days=(D,), fit_through=fit_through))
-        assert records.df["available_at"].eq(forecast_available_at(D)).all()
-        # A forecast published before the fit's cutoff: the cutoff rules.
-        early = make_forecast().df.assign(available_at=D - pd.Timedelta(days=3))
-        forecast = type(make_forecast()).from_df(early)
-        records = make_records(make_scoring(days=(D,), fit_through=fit_through), forecast=forecast)
-        assert records.df["available_at"].eq(fit_through + pd.Timedelta(days=1)).all()
+    def test_a_fit_after_the_forecast_sets_the_availability(self):
+        # A fit at 08:00 on D-1, after the forecast's 01:00 and before the 09:30 issue.
+        cutoff = D - pd.Timedelta(days=1) + pd.Timedelta(hours=8)
+        records = make_records(make_scoring(days=(D,), fit_cutoff=cutoff))
+        assert records.df["available_at"].eq(cutoff).all()
 
     def test_an_empty_scoring_is_rejected(self):
         with pytest.raises(ValueError, match="no scored day to publish"):
@@ -262,7 +277,7 @@ class TestBuildFeatureRecords:
     def test_a_similar_day_without_a_load_is_rejected(self):
         # 2023-01-01 is the first load day: a lag reaching before it has no load.
         scoring = make_scoring(
-            days=(pd.Timestamp("2023-12-31"),), lag=365, fit_through=pd.Timestamp("2023-12-01")
+            days=(pd.Timestamp("2023-12-31"),), lag=365, fit_cutoff=pd.Timestamp("2023-12-01")
         )
         with pytest.raises(ValueError, match=r"48 period\(s\) have no load on their similar day"):
             make_records(scoring)
@@ -284,9 +299,11 @@ class TestBuildFeatureRecords:
             SimilarDayFeatureRecords.from_df(df.assign(similar_day_demand_kwh=0.0))
         with pytest.raises(ValueError, match="time_code outside 1..48"):
             SimilarDayFeatureRecords.from_df(df.assign(time_code=df["time_code"] + 48))
-        with pytest.raises(ValueError, match="at least 2 days before trade_date"):
+        with pytest.raises(ValueError, match="must not follow the issue time"):
             SimilarDayFeatureRecords.from_df(
-                df.assign(similar_day_fit_through=df["trade_date"] - pd.Timedelta(days=1))
+                df.assign(
+                    similar_day_fit_cutoff=issue_times(df["trade_date"]) + pd.Timedelta(minutes=1)
+                )
             )
         with pytest.raises(ValueError, match="must not precede the fit's cutoff"):
             SimilarDayFeatureRecords.from_df(
@@ -304,7 +321,7 @@ class TestPublishFeatureRecords:
         assert [name for name, c in columns.items() if c.isPartition] == ["run_id"]
         assert list(columns) == list(make_records().df.columns)
         assert columns["trade_date"].dataType == "date"
-        assert columns["similar_day_fit_through"].dataType == "date"
+        assert columns["similar_day_fit_cutoff"].dataType == "timestamp"
         assert columns["similar_day_reference_lag_days"].dataType == "int"
         assert columns["similar_day_demand_kwh"].dataType == "double"
         assert columns["available_at"].dataType == "timestamp"
@@ -315,7 +332,7 @@ class TestPublishFeatureRecords:
         assert first["time_code"] == 1
         assert first["similar_day_reference_date"] == (D - pd.Timedelta(days=364)).date()
         assert first["similar_day_demand_kwh"] == load_at(D - pd.Timedelta(days=364), 1) / 2
-        assert first["similar_day_fit_through"] == pd.Timestamp("2024-04-01").date()
+        assert first["similar_day_fit_cutoff"] == CUTOFF
         assert first["available_at"] == forecast_available_at(D)
         assert first["published_at"] == PUBLISHED_AT
 

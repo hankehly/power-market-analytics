@@ -71,8 +71,8 @@ models:
           - dbt_utils.accepted_range:
               arguments:
                 min_value: 1
-      - name: similar_day_fit_through
-        data_type: date
+      - name: similar_day_fit_cutoff
+        data_type: timestamp
         data_tests:
           - not_null
       - name: available_at
