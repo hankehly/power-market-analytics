@@ -125,6 +125,7 @@ def main(argv: list[str] | None = None) -> None:
                 "area": args.area,
                 "refit_every_days": args.refit_every_days,
                 "n_fits": len(scoring.fits),
+                "n_cutoffs_without_fit": len(scoring.cutoffs_without_fit),
                 "first_fit_cutoff": str(scoring.fits["fit_cutoff"].iloc[0]),
                 "last_fit_cutoff": str(scoring.fits["fit_cutoff"].iloc[-1]),
                 "n_days_scored": len(selection),

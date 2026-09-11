@@ -160,11 +160,13 @@
   `AreaHourlyLoad` carries: the daily files' update time from 2022-04, two days after the
   day for the yearly files before) and scores the days whose 09:30 D-1 issue time follows the
   cutoff until the next one, so no day is scored with weights that saw a load that was not
-  yet public — and writes the feature to `pma_ml.similar_day`
+  yet public (a cutoff whose window holds fewer than eight public pairs — a gap in the
+  targets longer than the window — makes no fit, and the previous fit serves on;
+  `n_cutoffs_without_fit`) — and writes the feature to `pma_ml.similar_day`
   (`tasks/demand/similar_day_feature.py`; 48 rows per day, partitioned by `run_id` like the
   forecast tables); `--window-half-width-days` (default 30). Logs to the MLflow experiment
-  `similar_day` (`refit_every_days`, `n_fits`, `first_fit_cutoff`, `last_fit_cutoff`,
-  `n_days_scored`, the last fit's `similar_day_*` params; every fit's weights as
+  `similar_day` (`refit_every_days`, `n_fits`, `n_cutoffs_without_fit`, `first_fit_cutoff`,
+  `last_fit_cutoff`, `n_days_scored`, the last fit's `similar_day_*` params; every fit's weights as
   `similar_day_fits.csv`, the selection of every scored day as `similar_day_selection.csv`,
   the retrieval check of every scored day with a known load as `similar_day_retrieval.csv`
   and the four `similar_day_*` metrics over them; tag `feature_table`). Then
