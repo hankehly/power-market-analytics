@@ -140,7 +140,8 @@ was published after the issue time of a day it scores. It writes 48 rows per day
 `similar_day_demand_kwh`, the chosen day, its lag, its distance, the candidate count, the
 fit's cutoff, and `available_at` = the later of the day's MSM forecast vintage's and that
 cutoff (every candidate is at least 334 days older). The first run backfills every day from
-2019 (the first fit runs when the first scorable day's load is public); a later
+2019 (the first fit runs when eight pairs are public, with the first scorable day's load
+for a 61-day window); a later
 run scores only new days, in the live-path spec. The run also logs every fit's weights,
 the selection of every scored day and the retrieval check (selected vs D − 364 vs oracle)
 with the four `similar_day_*` metrics. This is the similar-day spec's deferred follow-up
