@@ -92,6 +92,11 @@ through: `fct_jma_weather_hourly`, `fct_jma_msm_weather_forecast_hourly`,
   description. Keys and `available_at` are not tagged. The tagged columns are the master list.
 - A source with several vintages gives several rows per key, one per vintage (the MSM view
   keeps one row per `forecast_reference_at`). The join picks the vintage.
+- A weighted mean in a mart is added in a fixed order (the `ordered_weighted_mean` macro:
+  the terms collected, sorted by their key and folded), never with a plain `sum()`, which
+  adds in read order and can move a value by ~1e-14 between builds — enough to move
+  LightGBM's histogram bins. Decided 2026-09-11 after PR 6's reproduction; the researcher
+  chose the fixed order over rounding.
 - Today's features move as follows.
 
 | Feature | Mart | Grain |
@@ -263,14 +268,6 @@ selection loop, its own topic.
 1. The availability lags marked "to confirm" in §3.
 2. Registry: a file under `data/` or the Postgres already in compose.
 3. How often the similar-day weights are refit.
-- Should the weighted-mean marts sum in a fixed order? `ftr_hour_jma_obs.wavg_temperature_c`
-  and the three `ftr_hour_msm.popw_*` columns are sums in whatever order Spark adds them, so
-  they match the old pandas builders only to 1.4e-14, and a rebuild that adds in another
-  order could move them by as much. LightGBM's histogram bins move on such last-bit
-  differences: in PR 6's reproduction every feature matched and every forecast differed
-  (MAE +0.14 % and +0.55 %). Rounding only makes that unlikely: two values 1e-14 apart round
-  differently when a rounding boundary falls between them, about once per 10^(d-14) values
-  at d decimals, so over the 28,512 training values 12 decimals still left the fits apart,
-  9 made them identical and 8 or 6 would be safer still. A fixed summation order (sort the
-  lags, then fold) makes the mart the same on every build; rounding to 6 decimals on top
-  costs nothing at 0.1 °C inputs. Found 2026-09-11, the researcher's call.
+- Resolved 2026-09-11: the weighted-mean marts sum in a fixed order (§4). Rounding was the
+  alternative; it only makes a binning flip unlikely (two values 1e-14 apart round differently
+  about once per 10^(d-14) values at d decimals), so the researcher chose the fixed order.

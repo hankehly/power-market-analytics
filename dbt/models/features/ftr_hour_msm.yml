@@ -57,7 +57,7 @@ models:
       - name: popw_forecast_temperature_c
         data_type: double
         description: >
-          Population-weighted forecast temperature over the area's stations, C.
+          Population-weighted forecast temperature over the area's stations, C, renormalised over the stations that have a value; the terms are added in station order, so the value is the same on every build (the ordered_weighted_mean macro).
         config:
           meta:
             feature: true
@@ -65,7 +65,7 @@ models:
       - name: popw_forecast_relative_humidity_pct
         data_type: double
         description: >
-          Population-weighted forecast relative humidity, %.
+          Population-weighted forecast relative humidity, %, renormalised over the stations that have a value and added in station order.
         config:
           meta:
             feature: true
@@ -73,7 +73,7 @@ models:
       - name: popw_forecast_precipitation_mm
         data_type: double
         description: >
-          Population-weighted forecast precipitation over the hour, mm.
+          Population-weighted forecast precipitation over the hour, mm, renormalised over the stations that have a value and added in station order.
         config:
           meta:
             feature: true
