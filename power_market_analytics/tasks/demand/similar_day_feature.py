@@ -33,6 +33,7 @@ from power_market_analytics.spark import get_spark_session
 from power_market_analytics.tasks.demand import TASK
 from power_market_analytics.tasks.demand.frames import AreaHourlyLoad, AreaWeatherForecast
 from power_market_analytics.tasks.demand.similar_day import (
+    MIN_FIT_PAIRS,
     PERIODS_PER_HOUR,
     SIMILAR_DAY_COMPONENTS,
     SimilarDaySelection,
@@ -111,8 +112,8 @@ def score_walk_forward(
 ) -> WalkForwardScoring:
     """Score the scorable days among ``days``, refitting the weights as time passes.
 
-    The first fit runs at the first instant a fit is possible (when the first
-    scorable day's own load became public) and every ``refit_every_days`` after
+    The first fit runs at the first instant a fit is possible (when
+    ``MIN_FIT_PAIRS`` pairs were public) and every ``refit_every_days`` after
     it; a fit at cutoff C uses the pairs whose target load was public by C
     (``SimilarDaySelector.training_pairs``). A day is scored by the latest fit
     whose cutoff is on or before the day's issue time, so nothing the fit saw
@@ -143,7 +144,9 @@ def score_walk_forward(
         raise ValueError(f"refit_every_days must be >= 1, got {refit_every_days}")
     first = selector.first_fit_cutoff
     if first is None:
-        raise ValueError("no training pairs: no scorable day has a known load")
+        raise ValueError(
+            f"fewer than {MIN_FIT_PAIRS} training pairs: too few scorable days have a known load"
+        )
     scorable = selector.scorable_days(days)
     issued = issue_times(scorable)
     if scorable.empty or issued.max() < first:

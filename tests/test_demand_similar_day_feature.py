@@ -211,8 +211,29 @@ class TestScoreWalkForward:
     def test_no_fit_possible_is_rejected(self):
         # Loads end before any scorable day, so no pair exists.
         selector = make_selector(days=pd.date_range("2023-01-01", "2024-01-31"))
-        with pytest.raises(ValueError, match="no training pairs"):
+        with pytest.raises(ValueError, match="fewer than 8 training pairs"):
             score_walk_forward(selector, [D])
+
+    def test_a_narrow_window_waits_for_eight_public_pairs(self):
+        # A window of three days: the first fit runs once eight pairs are public, and
+        # the first day it serves is issued after that.
+        selector = SimilarDaySelector(
+            make_calendar(),
+            make_forecast(),
+            make_observed(),
+            make_hourly_load(),
+            half_width_days=1,
+        )
+        days = make_forecast().df["trade_date"].unique()
+        first_day = selector.scorable_days(days)[0]
+        scoring = score_walk_forward(selector, days)
+        cutoff = scoring.fits["fit_cutoff"].iloc[0]
+        assert cutoff == selector.first_fit_cutoff
+        assert cutoff > first_day + pd.Timedelta(days=1)
+        assert scoring.fits["n_pairs"].iloc[0] >= 8
+        assert (
+            issue_times(pd.DatetimeIndex([scoring.selection.df["trade_date"].min()]))[0] >= cutoff
+        )
 
     def test_no_day_issued_after_the_first_fit_is_rejected(self):
         with pytest.raises(ValueError, match="no day can be scored"):

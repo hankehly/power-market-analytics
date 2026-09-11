@@ -608,10 +608,13 @@ class SimilarDaySelector:
 
     @property
     def first_fit_cutoff(self) -> pd.Timestamp | None:
-        """The earliest instant a fit can run: when the first scorable forecast day's
-        own load became public, if any day has one."""
+        """The earliest instant a fit can run: when ``MIN_FIT_PAIRS`` pairs were public,
+        counting the pairs in the order their target loads became public; None when
+        fewer pairs exist at all."""
         pairs = self._all_training_pairs()
-        return None if pairs.empty else pd.Timestamp(pairs["available_at"].min())
+        if len(pairs) < MIN_FIT_PAIRS:
+            return None
+        return pd.Timestamp(pairs["available_at"].sort_values().iloc[MIN_FIT_PAIRS - 1])
 
     def fit(self, available_by: pd.Timestamp) -> SimilarDayWeights:
         """Fit and store the weights on the pairs public by ``available_by``.

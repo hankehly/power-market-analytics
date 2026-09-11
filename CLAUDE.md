@@ -167,9 +167,9 @@
   and the four `similar_day_*` metrics over them; tag `feature_table`). Then
   `just dbt build --select stg_ml__similar_day ftr_period_similar_day` passes the rows to
   Feast; a re-run is a new run whose rows win wherever they overlap. The first run backfills
-  every day from 2019 (the first fit runs when the first scorable day's load is public, so
-  scoring starts 2019-04-04); scoring only new days is the live-path spec's. Needs the
-  devcontainer.
+  every day from 2019 (the first fit runs when eight pairs are public — with 61 candidates a
+  day, when the first scorable day's load is — so scoring starts 2019-04-04); scoring only
+  new days is the live-path spec's. Needs the devcontainer.
 - `just python scripts/compare_demand_runs.py --baseline <run_id> --candidate <run_id>` — the
   demand task's matched two-run comparison (`tasks/demand/compare.py`): MAE overall / MAPE /
   bias / by day part, day type, month, season, 2,000-MWh actual-demand band, top-10 % demand
@@ -577,8 +577,8 @@
   days since / until a named holiday and of `holiday_degree`; a candidate needs all 24
   hourly loads of `fct_area_power_usage_hourly`, a full observed profile and a calendar
   row, D a full forecast profile and a window on or after the first candidate day (first
-  scorable day 2019-04-01, the MSM start; the first fit runs when its load is public, so
-  scoring starts 2019-04-04) — and writes the chosen day's hourly load over the period's
+  scorable day 2019-04-01, the MSM start; the first fit runs when eight pairs are public,
+  with its load, so scoring starts 2019-04-04) — and writes the chosen day's hourly load over the period's
   hour ÷ 2 to `pma_ml.similar_day` (`tasks/demand/similar_day_feature.py`: 48 rows per day
   with the chosen day, lag, distance, candidate count and the fit's cutoff next to the
   feature; `available_at` = the later of the day's MSM forecast vintage's, from

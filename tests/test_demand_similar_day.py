@@ -418,6 +418,32 @@ class TestTrainingPairs:
         )
         assert selector.first_fit_cutoff is None
 
+    def test_first_fit_cutoff_waits_for_enough_pairs(self):
+        # A window of three days: the first scorable days give too few pairs for a
+        # fit, so the cutoff is the eighth public pair's, not the first day's.
+        narrow = SimilarDaySelector(
+            make_calendar(),
+            make_forecast(),
+            make_observed(),
+            make_hourly_load(),
+            half_width_days=1,
+        )
+        first_day = narrow.scorable_days(FORECAST_DAYS)[0]
+        cutoff = narrow.first_fit_cutoff
+        assert cutoff > first_day + pd.Timedelta(days=1)
+        assert len(narrow.training_pairs(cutoff)) >= MIN_FIT_PAIRS
+        assert len(narrow.training_pairs(cutoff - pd.Timedelta(minutes=1))) < MIN_FIT_PAIRS
+        # Fewer than eight pairs in total: no fit, ever.
+        tiny = SimilarDaySelector(
+            make_calendar(),
+            make_forecast(),
+            make_observed(),
+            make_hourly_load(pd.date_range("2023-01-01", first_day)),
+            half_width_days=1,
+        )
+        assert len(tiny.training_pairs(HISTORY_DAYS[-1])) < MIN_FIT_PAIRS
+        assert tiny.first_fit_cutoff is None
+
 
 def planted_pairs(
     n: int = 400, seed: int = 0
