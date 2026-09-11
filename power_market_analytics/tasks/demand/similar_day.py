@@ -7,8 +7,9 @@ observation for temperature, humidity and rain, and the absolute differences
 of three ``dim_date`` holiday attributes — and picks the nearest. The weights
 are fitted on past pairs (Park, Song and Kwon 2020, §2.2). Since the feature
 catalogue's PR 7 ``scripts/fit_similar_day.py`` walks forward through history,
-refitting every few days on the days before each step and scoring the days
-that follow with that fit (``similar_day_feature.score_walk_forward``), and
+refitting every few days on the targets of the 730 days before each step (the
+LightGBM strategies' training window) and scoring the days that follow with
+that fit (``similar_day_feature.score_walk_forward``), and
 writes the chosen day's でんき予報 hourly load, halved per period, to
 ``pma_ml.similar_day`` as the feature ``similar_day_demand_kwh``. This module
 holds the fit, the selection and the retrieval check. Design:
@@ -27,6 +28,7 @@ from loguru import logger
 from scipy.optimize import least_squares
 
 from power_market_analytics.common.frames import DomainFrame
+from power_market_analytics.forecasting.lgbm import DEFAULT_TRAIN_WINDOW_DAYS
 from power_market_analytics.tasks.demand.frames import (
     AreaHourlyLoad,
     AreaObservedWeather,
@@ -36,6 +38,9 @@ from power_market_analytics.tasks.demand.frames import (
 
 SIMILAR_DAY_CENTER_LAG_DAYS = 364
 SIMILAR_DAY_WINDOW_HALF_WIDTH_DAYS = 30
+#: Days of target days before its cutoff a fit sees: the LightGBM strategies'
+#: training window, so the feature and the model rest on the same span of history.
+SIMILAR_DAY_FIT_WINDOW_DAYS = DEFAULT_TRAIN_WINDOW_DAYS
 #: An hour's energy is spread evenly over its two delivery periods.
 PERIODS_PER_HOUR = 2
 HOURS_PER_DAY = 24
@@ -421,12 +426,15 @@ class SimilarDaySelector:
         Window centre, the same weekday one year back.
     half_width_days : int, optional
         Window half width in days.
+    fit_window_days : int, optional
+        How many days of target days before its cutoff a fit sees.
 
     Raises
     ------
     ValueError
-        If the window is empty or reaches the target day, or no day has an
-        observed profile, a load profile and a calendar row.
+        If the window is empty or reaches the target day, the fit window is
+        shorter than a day, or no day has an observed profile, a load profile
+        and a calendar row.
     """
 
     def __init__(
@@ -438,13 +446,17 @@ class SimilarDaySelector:
         *,
         center_lag_days: int = SIMILAR_DAY_CENTER_LAG_DAYS,
         half_width_days: int = SIMILAR_DAY_WINDOW_HALF_WIDTH_DAYS,
+        fit_window_days: int = SIMILAR_DAY_FIT_WINDOW_DAYS,
     ) -> None:
         if half_width_days < 0 or center_lag_days - half_width_days < 1:
             raise ValueError(
                 f"window {center_lag_days} ± {half_width_days} days must lie strictly in the past"
             )
+        if fit_window_days < 1:
+            raise ValueError(f"fit window must be at least one day, got {fit_window_days}")
         self.center_lag_days = center_lag_days
         self.half_width_days = half_width_days
+        self.fit_window_days = fit_window_days
         self._calendar = calendar.df.set_index("trade_date").sort_index()
         self._forecast = _complete_profiles(
             weather_forecast.df, "trade_date", {name: col for name, col, _ in _WEATHER_MEASURES}
@@ -472,13 +484,15 @@ class SimilarDaySelector:
             self._load.days[-1],
         )
         logger.info(
-            "SimilarDaySelector: {} candidate days ({}..{}), {} forecast days, window {} ± {}",
+            "SimilarDaySelector: {} candidate days ({}..{}), {} forecast days, window {} ± {}, "
+            "fit window {} days",
             len(self._candidates),
             self.first_candidate_day.date(),
             self._candidates[-1].date(),
             len(self._forecast.days),
             center_lag_days,
             half_width_days,
+            fit_window_days,
         )
 
     @property
@@ -571,7 +585,7 @@ class SimilarDaySelector:
     def _all_training_pairs(self) -> pd.DataFrame:
         """Every window pair of every scorable forecast day whose own load is known,
         with the realised load difference and ``available_at``, when the target's
-        load was public; computed once, as a walk-forward job fits on a prefix
+        load was public; computed once, as a walk-forward job fits on a slice
         of it every few days."""
         if self._pairs_cache is None:
             targets = self._forecast.days[self._forecast.days.isin(self._load.days)]
@@ -587,9 +601,15 @@ class SimilarDaySelector:
             )
         return self._pairs_cache
 
+    def _fit_window_start(self, cutoff: pd.Timestamp) -> pd.Timestamp:
+        """The first target day a fit at ``cutoff`` sees: ``fit_window_days`` calendar
+        days before the cutoff's day, whatever the cutoff's hour."""
+        return pd.Timestamp(cutoff).normalize() - pd.Timedelta(days=self.fit_window_days)
+
     def training_pairs(self, available_by: pd.Timestamp) -> SimilarDayTrainingPairs:
-        """Every window pair whose target day's own load was public by ``available_by``,
-        with the realised load difference: what a fit run at that instant may see.
+        """The pairs a fit run at ``available_by`` may see, with the realised load
+        difference: every window pair whose target day lies in the ``fit_window_days``
+        days before the cutoff's day and whose own load was public by ``available_by``.
 
         Parameters
         ----------
@@ -601,29 +621,46 @@ class SimilarDaySelector:
         SimilarDayTrainingPairs
         """
         pairs = self._all_training_pairs()
-        kept = pairs[pairs["available_at"] <= pd.Timestamp(available_by)]
+        available_by = pd.Timestamp(available_by)
+        kept = pairs[
+            (pairs["available_at"] <= available_by)
+            & (pairs["target_date"] >= self._fit_window_start(available_by))
+        ]
         return SimilarDayTrainingPairs.from_df(
             kept.drop(columns="available_at").reset_index(drop=True)
         )
 
     @property
     def first_fit_cutoff(self) -> pd.Timestamp | None:
-        """The earliest instant a fit can run: when ``MIN_FIT_PAIRS`` pairs were public,
-        counting the pairs in the order their target loads became public; None when
-        fewer pairs exist at all."""
+        """The earliest instant a fit can run: the first instant at which
+        ``MIN_FIT_PAIRS`` public pairs lie inside the fit window; None when no
+        instant has that many."""
         pairs = self._all_training_pairs()
         if len(pairs) < MIN_FIT_PAIRS:
             return None
-        return pd.Timestamp(pairs["available_at"].sort_values().iloc[MIN_FIT_PAIRS - 1])
+        # Per target day, when its load was public and how many pairs it holds; at
+        # each such instant, count the public pairs whose target is inside the window.
+        per_target = pairs.groupby("target_date").agg(
+            available_at=("available_at", "first"), n_pairs=("candidate_date", "size")
+        )
+        instants = np.sort(per_target["available_at"].unique())
+        starts = (
+            pd.DatetimeIndex(instants).normalize() - pd.Timedelta(days=self.fit_window_days)
+        ).to_numpy()
+        public = per_target["available_at"].to_numpy()[None, :] <= instants[:, None]
+        inside = per_target.index.to_numpy()[None, :] >= starts[:, None]
+        counts = (public & inside) @ per_target["n_pairs"].to_numpy()
+        enough = np.flatnonzero(counts >= MIN_FIT_PAIRS)
+        return None if enough.size == 0 else pd.Timestamp(instants[enough[0]])
 
     def fit(self, available_by: pd.Timestamp) -> SimilarDayWeights:
-        """Fit and store the weights on the pairs public by ``available_by``.
+        """Fit and store the weights on the fit window's pairs public by ``available_by``.
 
         Parameters
         ----------
         available_by : pandas.Timestamp
-            The instant the fit runs; only pairs whose target load was public by
-            then are used.
+            The instant the fit runs; only pairs of the ``fit_window_days`` days
+            before it whose target load was public by then are used.
 
         Returns
         -------
@@ -632,13 +669,16 @@ class SimilarDaySelector:
         Raises
         ------
         ValueError
-            No pair was public by ``available_by`` (or too few).
+            No pair of the fit window was public by ``available_by`` (or too few).
         RuntimeError
             The solver did not converge.
         """
         pairs = self.training_pairs(available_by)
         if len(pairs) == 0:
-            raise ValueError(f"no training pairs public by {pd.Timestamp(available_by)}")
+            raise ValueError(
+                f"no training pairs public by {pd.Timestamp(available_by)} from the "
+                f"{self.fit_window_days} days before it"
+            )
         self._weights = fit_similar_day_weights(pairs)
         logger.info("SimilarDaySelector: fitted on {}", self._weights.as_params())
         return self._weights
@@ -686,6 +726,7 @@ class SimilarDaySelector:
         return {
             "similar_day_center_lag_days": self.center_lag_days,
             "similar_day_window_half_width_days": self.half_width_days,
+            "similar_day_fit_window_days": self.fit_window_days,
             "similar_day_components": ",".join(SIMILAR_DAY_COMPONENTS),
             **self.weights.as_params(),
             "similar_day_first_selectable_day": "none" if first is None else str(first.date()),

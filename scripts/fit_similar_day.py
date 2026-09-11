@@ -8,13 +8,14 @@ server):
 The job walks through every delivery day that can be scored. Every
 ``--refit-every-days`` (default 7, the LightGBM strategies' refit cadence) a
 fit of the seven weights of the similar-day distance runs at a cutoff
-instant on the (target, candidate) pairs whose target load was public by
-then (``tasks/demand/similar_day.py``; Park, Song and Kwon 2020), and scores
-the days whose 09:30 D-1 issue time follows the cutoff until the next one,
-so no day is scored with weights that saw a load that was not yet public
-when the forecast would have been made. The chosen day's hourly load halved
-per period is written to
-``pma_ml.similar_day`` (``tasks/demand/similar_day_feature.py``) with
+instant on the (target, candidate) pairs of the ``--fit-window-days`` days
+before it (default 730, the LightGBM strategies' training window) whose
+target load was public by then (``tasks/demand/similar_day.py``; Park, Song
+and Kwon 2020), and scores the days whose 09:30 D-1 issue time follows the
+cutoff until the next one, so no day is scored with weights that saw a load
+that was not yet public when the forecast would have been made. The chosen
+day's hourly load halved per period is written to ``pma_ml.similar_day``
+(``tasks/demand/similar_day_feature.py``) with
 ``available_at`` = the later of the day's forecast availability and its
 fit's cutoff. The ``ftr_period_similar_day`` mart passes the rows to Feast
 after ``dbt build``; the ``lightgbm_msm_popw_daytype_simday`` preset reads
@@ -43,6 +44,7 @@ from power_market_analytics.tasks.demand.datasets import (
     load_day_calendar,
 )
 from power_market_analytics.tasks.demand.similar_day import (
+    SIMILAR_DAY_FIT_WINDOW_DAYS,
     SIMILAR_DAY_WINDOW_HALF_WIDTH_DAYS,
     SimilarDaySelector,
     retrieval_metrics,
@@ -69,6 +71,12 @@ def main(argv: list[str] | None = None) -> None:
         help="Days between two fits of the weights as the job walks forward.",
     )
     parser.add_argument(
+        "--fit-window-days",
+        type=int,
+        default=SIMILAR_DAY_FIT_WINDOW_DAYS,
+        help="Days of target days before its cutoff a fit sees.",
+    )
+    parser.add_argument(
         "--window-half-width-days",
         type=int,
         default=SIMILAR_DAY_WINDOW_HALF_WIDTH_DAYS,
@@ -77,6 +85,8 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
     if args.refit_every_days < 1:
         parser.error(f"--refit-every-days must be >= 1, got {args.refit_every_days}")
+    if args.fit_window_days < 1:
+        parser.error(f"--fit-window-days must be >= 1, got {args.fit_window_days}")
 
     with task_run(
         MLFLOW_EXPERIMENT, run_name=f"{MLFLOW_EXPERIMENT}-{args.area}", tags={"area": args.area}
@@ -92,6 +102,7 @@ def main(argv: list[str] | None = None) -> None:
             observed.weather,
             hourly_load,
             half_width_days=args.window_half_width_days,
+            fit_window_days=args.fit_window_days,
         )
         scoring = score_walk_forward(
             selector,
@@ -114,6 +125,7 @@ def main(argv: list[str] | None = None) -> None:
                 "area": args.area,
                 "refit_every_days": args.refit_every_days,
                 "n_fits": len(scoring.fits),
+                "n_cutoffs_without_fit": len(scoring.cutoffs_without_fit),
                 "first_fit_cutoff": str(scoring.fits["fit_cutoff"].iloc[0]),
                 "last_fit_cutoff": str(scoring.fits["fit_cutoff"].iloc[-1]),
                 "n_days_scored": len(selection),
