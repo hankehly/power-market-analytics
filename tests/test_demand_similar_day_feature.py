@@ -183,6 +183,34 @@ class TestScoreWalkForward:
         weekly = score_walk_forward(make_selector(), make_forecast().df["trade_date"].unique())
         assert len(monthly.selection) == len(weekly.selection)
 
+    def test_a_fit_window_bounds_what_each_fit_sees(self, weekly):
+        # A window of 14 days: a fit sees the targets of the 14 days before its
+        # cutoff's day, so the pairs stop growing once the window is full (from the
+        # third fit, 02-22, on); until then the fits are the unbounded ones.
+        selector = SimilarDaySelector(
+            make_calendar(),
+            make_forecast(),
+            make_observed(),
+            make_hourly_load(),
+            fit_window_days=14,
+        )
+        scoring = score_walk_forward(selector, make_forecast().df["trade_date"].unique())
+        fits = scoring.fits
+        assert fits["fit_cutoff"].tolist() == weekly.fits["fit_cutoff"].tolist()
+        window_start = fits["fit_cutoff"] - pd.Timedelta(days=14)
+        first_scorable = FIRST_CUTOFF - pd.Timedelta(days=1)
+        assert fits["fit_from"].tolist() == window_start.clip(lower=first_scorable).tolist()
+        assert (fits["fit_through"] == fits["fit_cutoff"] - pd.Timedelta(days=1)).all()
+        assert fits["n_targets"].iloc[2:].eq(14).all()
+        assert fits["n_pairs"].iloc[2:].eq(14 * 61).all()
+        assert (fits["n_targets"] < weekly.fits["n_targets"]).iloc[2:].all()
+        pd.testing.assert_frame_equal(fits.iloc[:2], weekly.fits.iloc[:2])
+        # The same days are scored, each by the fit of its own block.
+        assert scoring.selection.df["trade_date"].tolist() == (
+            weekly.selection.df["trade_date"].tolist()
+        )
+        assert scoring.fit_cutoff.tolist() == weekly.fit_cutoff.tolist()
+
     def test_a_gap_in_the_forecasts_leaves_a_fit_without_days(self):
         # No forecast from 03-01 to 03-20: the fits of those weeks score nothing and
         # the days after the gap are scored by the fits that follow.

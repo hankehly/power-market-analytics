@@ -99,6 +99,7 @@ class TestFitScript:
         assert params["n_stations"] == "2"
         assert params["similar_day_center_lag_days"] == "364"
         assert params["similar_day_window_half_width_days"] == "30"
+        assert params["similar_day_fit_window_days"] == "730"
         assert params["similar_day_components"].startswith("calendar_days,temperature,")
         # The last fit's params.
         assert params["similar_day_fit_through"] == "2024-04-24"
@@ -162,6 +163,19 @@ class TestFitScript:
         assert rows["similar_day_reference_lag_days"].between(354, 374).all()
         assert rows["similar_day_n_candidates"].max() <= 21
 
+    def test_fit_window_reaches_the_selector(self, spark, script):
+        script.main(["--fit-window-days", "14"])
+        run = last_run()
+        assert run.data.params["similar_day_fit_window_days"] == "14"
+        # The last fit, on 04-25, saw the targets of the 14 days before it.
+        assert run.data.params["similar_day_fit_from"] == "2024-04-11"
+        assert run.data.params["similar_day_fit_through"] == "2024-04-24"
+        fits = artifact(run.info.run_id, "similar_day_fits.csv")
+        assert fits["n_targets"].max() == 14
+        assert len(published_rows(spark, run.info.run_id)) == 48 * int(
+            run.data.params["n_days_scored"]
+        )
+
     def test_scored_days_without_a_load_yet_log_no_metrics(self, spark, script, monkeypatch):
         # Loads end on the first fittable day: every scored day is still unknown.
         monkeypatch.setattr(
@@ -184,3 +198,8 @@ class TestFitScript:
         with pytest.raises(SystemExit):
             script.main(["--refit-every-days", "0"])
         assert "--refit-every-days must be >= 1" in capsys.readouterr().err
+
+    def test_fit_window_below_one_is_rejected(self, script, capsys):
+        with pytest.raises(SystemExit):
+            script.main(["--fit-window-days", "0"])
+        assert "--fit-window-days must be >= 1" in capsys.readouterr().err

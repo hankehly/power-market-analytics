@@ -2,9 +2,11 @@
 
 ``scripts/fit_similar_day.py`` walks through history with the selector of
 ``tasks/demand/similar_day.py``: every ``refit_every_days`` a fit runs at a
-cutoff instant on the pairs whose target load was public by then, and scores
-the days whose issue time follows the cutoff until the next one, so no day is
-scored with weights that saw a load that was not yet public. The chosen
+cutoff instant on the pairs of the selector's fit window (the 730 days before
+it by default, the LightGBM strategies' training window) whose target load was
+public by then, and scores the days whose issue time follows the cutoff until
+the next one, so no day is scored with weights that saw a load that was not
+yet public. The chosen
 day's hourly load halved per period is written to ``pma_ml.similar_day``,
 partitioned by the job's MLflow run like the forecast tables, each row
 usable from the later of its forecast's availability and its fit's cutoff.
@@ -114,7 +116,8 @@ def score_walk_forward(
 
     The first fit runs at the first instant a fit is possible (when
     ``MIN_FIT_PAIRS`` pairs were public) and every ``refit_every_days`` after
-    it; a fit at cutoff C uses the pairs whose target load was public by C
+    it; a fit at cutoff C uses the pairs of the selector's fit window (its
+    ``fit_window_days`` before C) whose target load was public by C
     (``SimilarDaySelector.training_pairs``). A day is scored by the latest fit
     whose cutoff is on or before the day's issue time, so nothing the fit saw
     was published after the forecast would have been made. Days whose issue
@@ -145,7 +148,7 @@ def score_walk_forward(
     first = selector.first_fit_cutoff
     if first is None:
         raise ValueError(
-            f"fewer than {MIN_FIT_PAIRS} training pairs: too few scorable days have a known load"
+            f"fewer than {MIN_FIT_PAIRS} training pairs are ever public inside the fit window"
         )
     scorable = selector.scorable_days(days)
     issued = issue_times(scorable)

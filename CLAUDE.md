@@ -152,8 +152,11 @@
 - `just python scripts/fit_similar_day.py --area tokyo` — score the demand similar day walking
   forward (since 2026-09-11, feature catalogue PR 7): every `--refit-every-days` (default 7,
   the LightGBM strategies' refit cadence) a fit of the seven weights of the similar-day
-  distance runs at a cutoff instant on the (target, candidate) pairs whose target load was
-  public by then (`tasks/demand/similar_day.py`'s selector; the loads' `available_at`, which
+  distance runs at a cutoff instant on the (target, candidate) pairs of the
+  `--fit-window-days` days before it (default 730, the LightGBM strategies' training window;
+  a sliding window since 2026-09-12 — the first version took every pair back to 2019, so
+  the fit grew without bound) whose target load was public by then
+  (`tasks/demand/similar_day.py`'s selector; the loads' `available_at`, which
   `AreaHourlyLoad` carries: the daily files' update time from 2022-04, two days after the
   day for the yearly files before) and scores the days whose 09:30 D-1 issue time follows the
   cutoff until the next one, so no day is scored with weights that saw a load that was not
@@ -569,7 +572,8 @@
   load of a learned similar day one year earlier, halved per period. Since 2026-09-11
   (feature catalogue PR 7) a walk-forward job builds it: `scripts/fit_similar_day.py` refits
   the seven softmax weights of `tasks/demand/similar_day.py`'s distance every 7 days
-  (`scipy.optimize.least_squares` on the pairs whose target load was public by the fit's
+  (`scipy.optimize.least_squares` on the pairs of the 730 days before the fit's cutoff —
+  the LightGBM training window, `--fit-window-days` — whose target load was public by the
   cutoff, Park, Song and Kwon 2020 Eq. 1–3) and scores the days that follow with them — for a
   delivery day D the nearest day in D − 364 ± 30 under seven parts: days from D − 364; the
   24-h RMSE of D's population-weighted MSM forecast against the candidate's
@@ -584,13 +588,17 @@
   feature; `available_at` = the latest of the day's MSM forecast vintage's, from
   `AreaWeatherForecast`, the fit's cutoff and the chosen day's load availability; under
   the default window every candidate is at least 334 days older, so the first two decide).
-  A fit at cutoff C uses only the pairs whose target load was public by C (`AreaHourlyLoad`
-  carries the fact's `available_at`; `SimilarDaySelector.fit(available_by)`), and a day is
+  A fit at cutoff C uses only the pairs of the 730 days before C whose target load was
+  public by C (`AreaHourlyLoad` carries the fact's `available_at`;
+  `SimilarDaySelector.fit(available_by)`, `fit_window_days`), and a day is
   scored by the latest fit whose cutoff is on or before its issue time, so no day is scored
   with weights that saw a load that was not yet public — the similar-day spec's decision 7
   (one fit per backtest, frozen) replaced by its deferred follow-up, on Codex's findings in
   PR #67 that a separate fit through today would otherwise score the history in sample and
-  that the yearly-file loads are public only two days after their day.
+  that the yearly-file loads are public only two days after their day. The window slides
+  since 2026-09-12 (the researcher's call on the first run's fits table: every pair back to
+  2019 made the fit grow without bound, and weights that settle by averaging say nothing
+  about drift); the matched comparison is in the plan's follow-up section.
   `stg_ml__similar_day` (guarded like the importance tables) and
   `ftr_period_similar_day` pass the rows to Feast, one row per scoring run
   (`similar_day_run_id`): the join takes the newest run usable at the issue time and, among
@@ -911,7 +919,8 @@
   read by a guarded staging model, and passed through by a mart with one row per scoring
   run and `published_at` next to `available_at` (the view generator turns that column into
   Feast's `created_timestamp_column`, so the newest published run wins among rows tied on
-  `available_at`). The job walks forward, each fit at a cutoff on the data public by then,
+  `available_at`). The job walks forward, each fit at a cutoff on a trailing window of the
+  data public by then,
   so no row is scored with a fit that saw anything published after the row's issue time; a
   backtest can then start anywhere.
 
