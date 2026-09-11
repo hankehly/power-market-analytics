@@ -723,6 +723,12 @@
   period. Since 2026-09-11 the two marts add their terms in a fixed order (the
   `ordered_weighted_mean` macro, the dbt rule below), so a rebuild cannot move a model; the
   values still differ from the deleted pandas builders at 1e-14, which no longer matters.
+- The `pma_ml` write-back tables (`forecasting.publish.create_run_partitioned_table`: the
+  forecast, contribution, importance and similar-day tables) are created if absent and
+  never altered, so a job that gains a column fails on an existing table with
+  `INSERT_COLUMN_ARITY_MISMATCH`; drop the table (its rows are re-published by the next
+  run) before the first run with the new column. Hit on 2026-09-11 when
+  `pma_ml.similar_day` gained `similar_day_fit_through`.
 - `scipy` is a declared dependency since 2026-09-05 (the similar-day weight fit uses
   `scipy.optimize.least_squares`); `scipy.*` is mypy-ignored like `shap.*`.
 - `scikit-learn` is a declared dependency since 2026-09-08 (`sklearn.inspection.permutation_importance`;
