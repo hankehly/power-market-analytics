@@ -1,4 +1,4 @@
-"""scripts/fit_similar_day.py: fit the similar-day weights and publish them.
+"""scripts/fit_similar_day.py: fit the similar-day weights, score every day, publish.
 
 The warehouse loaders are swapped for the synthetic frames of
 ``tests.test_demand_similar_day`` in the script's namespace; the fit, the
@@ -15,13 +15,15 @@ from power_market_analytics.tasks.demand.datasets import (
     PopulationWeightedObservedWeather,
     PopulationWeightedWeatherForecast,
 )
-from power_market_analytics.tasks.demand.similar_day import SIMILAR_DAY_COMPONENTS
-from power_market_analytics.tasks.demand.similar_day_parameters import PARAMETERS_TABLE
+from power_market_analytics.tasks.demand.similar_day import PERIODS_PER_HOUR
+from power_market_analytics.tasks.demand.similar_day_feature import FEATURE_TABLE
 from tests.support import import_script
 from tests.test_demand_similar_day import (
     FORECAST_DAYS,
     HISTORY_DAYS,
     HOLIDAYS,
+    forecast_available_at,
+    load_at,
     make_calendar,
     make_forecast,
     make_hourly_load,
@@ -48,7 +50,7 @@ def artifact(run_id: str, name: str) -> pd.DataFrame:
 
 
 def published_rows(spark, run_id: str) -> pd.DataFrame:
-    return spark.table(PARAMETERS_TABLE).where(f"run_id = '{run_id}'").toPandas()
+    return spark.table(FEATURE_TABLE).where(f"run_id = '{run_id}'").toPandas()
 
 
 @pytest.fixture
@@ -81,7 +83,7 @@ class TestFitScript:
         assert run.info.status == "FINISHED"
         assert run.info.run_name == "similar_day-tokyo"
         assert run.data.tags["area"] == "tokyo"
-        assert run.data.tags["parameters_table"] == PARAMETERS_TABLE
+        assert run.data.tags["feature_table"] == FEATURE_TABLE
         assert script.calls["observed"] == {"area_code": "tokyo", "census_year": 2020}
 
         params = run.data.params
@@ -91,7 +93,7 @@ class TestFitScript:
         assert params["n_stations"] == "2"
         assert params["similar_day_center_lag_days"] == "364"
         assert params["similar_day_window_half_width_days"] == "30"
-        assert params["similar_day_components"] == ",".join(SIMILAR_DAY_COMPONENTS)
+        assert params["similar_day_components"].startswith("calendar_days,temperature,")
         assert params["similar_day_fit_through"] == "2024-03-31"
         assert params["similar_day_fit_from"] == "2024-02-07"
         assert params["similar_day_first_selectable_day"] == "2024-02-07"
@@ -99,22 +101,27 @@ class TestFitScript:
         assert params["similar_day_periods_per_hour"] == "2"
         assert params["similar_day_weights"].startswith("calendar_days=")
 
-        row = published_rows(spark, run.info.run_id).iloc[0]
-        assert row["area_code"] == "tokyo"
-        assert row["fit_through"] == pd.Timestamp("2024-03-31").date()
-        assert row["available_at"] == pd.Timestamp("2024-04-01 00:00:00")
-        assert row["center_lag_days"] == 364
-        assert row["window_half_width_days"] == 30
-        assert row["census_year"] == 2020
-        assert row["n_targets"] == int(params["similar_day_fit_n_targets"])
-        assert row["n_pairs"] == int(params["similar_day_fit_n_pairs"])
-        assert abs(sum(row[f"weight_{part}"] for part in SIMILAR_DAY_COMPONENTS) - 1) < 1e-9
-
-        # Every scorable day is selected; the days with a known load are checked,
-        # in and out of the fit.
+        # Every scorable day is selected and written: 48 periods of its similar
+        # day's load halved, available once its forecast is.
         scorable = [d for d in FORECAST_DAYS if pd.Timestamp("2024-02-07") <= d <= HOLIDAYS[-1]]
+        assert params["n_days_scored"] == str(len(scorable))
+        assert params["first_day_scored"] == "2024-02-07"
+        assert params["last_day_scored"] == str(HOLIDAYS[-1].date())
         selection = artifact(run.info.run_id, "similar_day_selection.csv")
         assert selection["trade_date"].tolist() == [str(d.date()) for d in scorable]
+        rows = published_rows(spark, run.info.run_id)
+        assert len(rows) == 48 * len(scorable)
+        assert set(rows["area_code"]) == {"tokyo"}
+        chosen = selection.set_index("trade_date")["reference_date"]
+        by_period = rows.set_index(["trade_date", "time_code"]).sort_index()
+        day = pd.Timestamp("2024-04-10")
+        reference = pd.Timestamp(chosen[str(day.date())])
+        row = by_period.loc[(day.date(), 7)]
+        assert row["similar_day_reference_date"] == reference.date()
+        assert row["similar_day_demand_kwh"] == load_at(reference, 4) / PERIODS_PER_HOUR
+        assert row["similar_day_reference_lag_days"] == (day - reference).days
+        assert row["available_at"] == forecast_available_at(day)
+        assert rows["published_at"].nunique() == 1
         retrieval = artifact(run.info.run_id, "similar_day_retrieval.csv")
         assert retrieval["trade_date"].tolist() == [
             str(d.date()) for d in scorable if d in HISTORY_DAYS
@@ -140,15 +147,15 @@ class TestFitScript:
         assert not set(RETRIEVAL_METRICS) & set(run.data.metrics)
         retrieval = artifact(run.info.run_id, "similar_day_retrieval.csv")
         assert retrieval["in_fit"].all()
-        assert published_rows(spark, run.info.run_id)["fit_through"].tolist() == [
-            pd.Timestamp("2024-04-29").date()
-        ]
+        assert len(published_rows(spark, run.info.run_id)) == 48 * 83
 
     def test_window_half_width_reaches_the_selector_and_the_row(self, spark, script):
         script.main(["--fit-through", "2024-03-31", "--window-half-width-days", "10"])
         run = last_run()
         assert run.data.params["similar_day_window_half_width_days"] == "10"
-        assert published_rows(spark, run.info.run_id)["window_half_width_days"].tolist() == [10]
+        rows = published_rows(spark, run.info.run_id)
+        assert rows["similar_day_reference_lag_days"].between(354, 374).all()
+        assert rows["similar_day_n_candidates"].max() <= 21
 
     def test_a_fit_without_pairs_fails_before_publishing(self, spark, script):
         with pytest.raises(ValueError, match="no training pairs"):

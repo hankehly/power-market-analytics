@@ -360,7 +360,8 @@ def load_area_weather_forecast_population_weighted(
     :func:`load_area_temperature_forecast_population_weighted`'s;
     ``relative_humidity_pct`` and ``precipitation_mm`` are weighted the same
     way, each renormalised over the stations that have a value for the hour.
-    One vintage per delivery-day hour, as there.
+    One vintage per delivery-day hour, as there; ``available_at`` is the
+    vintage's, the newest over the hour's stations.
 
     Parameters
     ----------
@@ -399,7 +400,8 @@ def load_area_weather_forecast_population_weighted(
           m.date_key as trade_date,
           hour(m.forecast_hour_start_at) + 1 as hour_ending,
           m.forecast_reference_at,
-          {measures}
+          {measures},
+          max(m.available_at) as available_at
         from pma_curated.fct_jma_msm_weather_forecast_hourly m
         join pma_curated.fct_census_population_jma_station w
           on w.station_id = m.station_id and w.census_year = {year}
@@ -422,6 +424,7 @@ def load_area_weather_forecast_population_weighted(
                 "forecast_temperature_c": "float64",
                 "forecast_relative_humidity_pct": "float64",
                 "forecast_precipitation_mm": "float64",
+                "available_at": "datetime64[ns]",
             }
         )
         .sort_values(["trade_date", "hour_ending", "forecast_reference_at"], ignore_index=True)

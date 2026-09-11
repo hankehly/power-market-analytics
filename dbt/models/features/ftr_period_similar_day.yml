@@ -5,24 +5,19 @@ models:
         enforced: true
     description: >
       The load of a learned similar day one year earlier for every delivery period, the demand
-      similar-day feature (research demand/R-004 E-002), scored in SQL with the weights a fit
-      published to pma_ml.similar_day_parameters (scripts/fit_similar_day.py). For a delivery
-      day D every day in D - 364 +- 30 with a full population-weighted observed weather
-      profile, a full hourly load and both holiday distances is a candidate; D needs a full
-      population-weighted MSM forecast profile of one vintage (ftr_hour_msm), a calendar row
-      and a window that starts on or after the area's first candidate day. Distance =
-      sqrt(sum of weight * (part / scale)^2) over seven parts: days away from D - 364, the
-      24-hour RMSE of D's forecast against the candidate's observation for temperature,
-      humidity and rain, and the absolute differences in days since and until a named
-      holiday and in holiday degree. The nearest candidate wins, ties to the day nearest
-      D - 364 then the earlier date; its hourly load over the hour containing the period,
-      halved, is the feature. One row per parameter vintage: the oldest vintage's rows carry
-      the data's available_at (the vintage scores the history before its fit, as a backtest's
-      training rows lie before the fit serving its forecasts), a later vintage's the greater
-      of the data's and the fit's; among rows tied on available_at the newest published_at
-      wins, so a refit re-scores every row from its fit-window end on. Grain: area_code x
-      trade_date x time_code x forecast_reference_at x parameters_run_id. Sums run in a
-      fixed order (hours, stations), so a rebuild gives the same values to the bit.
+      similar-day feature (research demand/R-004 E-002), as scripts/fit_similar_day.py scored
+      and wrote it to pma_ml.similar_day: the script fits the seven weights of
+      tasks/demand/similar_day.py's distance, picks for every delivery day D the nearest day in
+      D - 364 +- 30 (days from D - 364, the 24-hour RMSE of D's population-weighted MSM forecast
+      against the candidate's population-weighted observation for temperature, humidity and
+      rain, the differences in days since and until a named holiday and in holiday degree), and
+      halves the chosen day's hourly load over the hour containing the period. The chosen day,
+      its lag, its distance and the candidate count sit next to the feature, untagged. One row
+      per scoring run: the as-of join takes the newest run available at the issue time, and
+      among rows tied on available_at the newest published wins, so a refit-and-rescore
+      replaces the feature wherever it scored. available_at is the day's MSM forecast vintage's;
+      every candidate is at least 334 days older. Grain: area_code x trade_date x time_code x
+      similar_day_run_id.
     data_tests:
       - dbt_utils.unique_combination_of_columns:
           arguments:
@@ -30,8 +25,7 @@ models:
               - area_code
               - trade_date
               - time_code
-              - forecast_reference_at
-              - parameters_run_id
+              - similar_day_run_id
     columns:
       - name: area_code
         data_type: string
@@ -55,16 +49,10 @@ models:
               arguments:
                 min_value: 1
                 max_value: 48
-      - name: forecast_reference_at
-        data_type: timestamp
-        description: >
-          Reference time of the MSM forecast vintage D was scored with, naive JST (ftr_hour_msm's vintage key).
-        data_tests:
-          - not_null
-      - name: parameters_run_id
+      - name: similar_day_run_id
         data_type: string
         description: >
-          The parameter vintage: the run_id of the fit in pma_ml.similar_day_parameters.
+          The scoring run: the MLflow run id (experiment similar_day) whose fitted weights chose the day.
         data_tests:
           - not_null
       - name: similar_day_demand_kwh
@@ -92,185 +80,64 @@ models:
       - name: similar_day_distance
         data_type: double
         description: >
-          The chosen day's distance from D under the vintage's weights.
+          The chosen day's distance from D under the run's weights.
         data_tests:
           - not_null
-          - dbt_utils.accepted_range:
-              arguments:
-                min_value: 0
       - name: similar_day_n_candidates
         data_type: int
         description: >
           Window days that could be scored for D.
         data_tests:
           - not_null
-          - dbt_utils.accepted_range:
-              arguments:
-                min_value: 1
       - name: available_at
         data_type: timestamp
         description: >
-          When the row became public, naive JST: the greatest of the forecast vintage's and the window's candidates' available_at and, for every vintage but the area's oldest, the fit's (the midnight after its last target day).
+          When the row's newest input became public, naive JST: D's MSM forecast vintage (reference + 4 h, 01:00 on D-1).
         data_tests:
           - not_null
       - name: published_at
         data_type: timestamp
         description: >
-          When the parameter vintage was written (naive JST); breaks ties on available_at, newest wins.
+          When the scoring run wrote the row (naive JST); breaks ties on available_at, newest wins.
         data_tests:
           - not_null
 
 unit_tests:
-  - name: ftr_period_similar_day_scores_the_window_per_vintage
+  - name: ftr_period_similar_day_passes_every_run_through
     description: >
-      One Tokyo delivery day, 2025-03-10, a window of half width 1 (lags 363-365) and two
-      parameter vintages. Of the three window days 2024-03-12 lacks an observed humidity
-      hour and is no candidate. Temperature-only weights (fit-1) pick 2024-03-10, whose
-      population-weighted observation (0.75 x 11 + 0.25 x 15 = 12) is 0.25 C from the
-      forecast (12.25) at every hour: lag 365, distance 0.25. Calendar-only weights (fit-2)
-      pick D - 364, 2024-03-11: distance 0. Each vintage gives 48 periods of the chosen
-      day's hourly load halved. The oldest vintage's rows carry the data's available_at
-      (the forecast's, 2025-03-09 01:00), the later vintage's its own (2025-06-01 00:00).
+      Two scoring runs of the same period pass through as two rows, the run id
+      renamed; nothing is computed here.
     model: ftr_period_similar_day
     given:
-      - input: ref('stg_ml__similar_day_parameters')
+      - input: ref('stg_ml__similar_day')
         format: sql
         rows: |
           select
-            vintages.run_id,
-            'tokyo' as area_code,
-            date '2024-01-01' as fit_from,
-            vintages.fit_through,
-            364 as center_lag_days,
-            1 as window_half_width_days,
-            2020 as census_year,
-            vintages.weight_calendar_days,
-            vintages.weight_temperature,
-            cast(0 as double) as weight_humidity,
-            cast(0 as double) as weight_rain,
-            cast(0 as double) as weight_days_since_holiday,
-            cast(0 as double) as weight_days_until_holiday,
-            cast(0 as double) as weight_holiday_degree,
-            cast(1 as double) as scale_calendar_days,
-            cast(1 as double) as scale_temperature,
-            cast(1 as double) as scale_humidity,
-            cast(1 as double) as scale_rain,
-            cast(1 as double) as scale_days_since_holiday,
-            cast(1 as double) as scale_days_until_holiday,
-            cast(1 as double) as scale_holiday_degree,
-            cast(0.1 as double) as alpha,
-            cast(0 as double) as beta,
-            cast(100 as bigint) as n_pairs,
-            10 as n_targets,
-            cast(0.05 as double) as fit_rmse,
-            vintages.available_at,
-            vintages.published_at
-          from (
-            select
-              'fit-1' as run_id, date '2024-12-31' as fit_through,
-              cast(0 as double) as weight_calendar_days, cast(1 as double) as weight_temperature,
-              timestamp '2025-01-01 00:00:00' as available_at, timestamp '2025-01-02 10:00:00' as published_at
-            union all
-            select
-              'fit-2', date '2025-05-31',
-              cast(1 as double), cast(0 as double),
-              timestamp '2025-06-01 00:00:00', timestamp '2025-06-02 10:00:00'
-          ) as vintages
-      - input: ref('dim_area')
-        rows:
-          - {area_key: 1, area_code: tokyo}
-          - {area_key: 2, area_code: kansai}
-      - input: ref('fct_census_population_jma_station')
-        rows:
-          - {census_year: 2015, area_key: 1, station_id: s1, area_population_weight: 1.0}
-          - {census_year: 2020, area_key: 1, station_id: s1, area_population_weight: 0.75}
-          - {census_year: 2020, area_key: 1, station_id: s2, area_population_weight: 0.25}
-      - input: ref('ftr_day_calendar')
-        rows:
-          - {area_code: tokyo, trade_date: 2024-03-10, holiday_degree: 1.0, days_since_holiday: 20, days_until_holiday: 10}
-          - {area_code: tokyo, trade_date: 2024-03-11, holiday_degree: 0.0, days_since_holiday: 21, days_until_holiday: 9}
-          - {area_code: tokyo, trade_date: 2024-03-12, holiday_degree: 0.0, days_since_holiday: 22, days_until_holiday: 8}
-          - {area_code: tokyo, trade_date: 2025-03-10, holiday_degree: 0.0, days_since_holiday: 27, days_until_holiday: 10}
-      - input: ref('fct_jma_weather_hourly')
-        format: sql
-        rows: |
+            'score-1' as run_id, 'tokyo' as area_code, date '2025-03-10' as trade_date, 1 as time_code,
+            cast(505000 as double) as similar_day_demand_kwh, date '2024-03-11' as similar_day_reference_date,
+            364 as similar_day_reference_lag_days, cast(0.25 as double) as similar_day_distance,
+            61 as similar_day_n_candidates, timestamp '2025-03-09 01:00:00' as available_at,
+            timestamp '2025-01-02 10:00:00' as published_at
+          union all
           select
-            stations.station_id,
-            days.date_key,
-            timestampadd(hour, hours.hour_ending - 1, cast(days.date_key as timestamp)) as observed_hour_start_at,
-            days.base_temperature_c + stations.offset_c as temperature_c,
-            case when days.date_key = date '2024-03-12' and hours.hour_ending = 24 then null else cast(50 as double) end as humidity_pct,
-            cast(0 as double) as precipitation_mm,
-            timestampadd(hour, hours.hour_ending + 1, cast(days.date_key as timestamp)) as available_at
-          from
-            (
-              select date '2024-03-10' as date_key, cast(11 as double) as base_temperature_c
-              union all select date '2024-03-11', cast(12 as double)
-              union all select date '2024-03-12', cast(13 as double)
-            ) as days
-            cross join (select explode(sequence(1, 24)) as hour_ending) as hours
-            cross join (
-              select 's1' as station_id, cast(0 as double) as offset_c
-              union all select 's2', cast(4 as double)
-            ) as stations
-      - input: ref('fct_area_power_usage_hourly')
-        format: sql
-        rows: |
-          select
-            days.date_key,
-            hours.hour_of_day,
-            1 as area_key,
-            cast(days.day_index * 1000000 + (hours.hour_of_day + 1) * 10000 as bigint) as demand_kwh,
-            timestampadd(minute, 5, cast(date_add(days.date_key, 1) as timestamp)) as available_at
-          from
-            (
-              select date '2024-03-10' as date_key, 1 as day_index
-              union all select date '2024-03-11', 2
-              union all select date '2024-03-12', 3
-            ) as days
-            cross join (select explode(sequence(0, 23)) as hour_of_day) as hours
-      - input: ref('ftr_hour_msm')
-        format: sql
-        rows: |
-          select
-            'tokyo' as area_code,
-            date '2025-03-10' as trade_date,
-            hours.hour_ending,
-            timestamp '2025-03-08 21:00:00' as forecast_reference_at,
-            2020 as census_year,
-            cast(12 as double) as forecast_temperature_c,
-            cast(12.25 as double) as popw_forecast_temperature_c,
-            cast(50 as double) as popw_forecast_relative_humidity_pct,
-            cast(0 as double) as popw_forecast_precipitation_mm,
-            timestamp '2025-03-09 01:00:00' as available_at
-          from
-            (select explode(sequence(1, 24)) as hour_ending) as hours
+            'score-2', 'tokyo', date '2025-03-10', 1,
+            cast(1005000 as double), date '2024-03-12',
+            363, cast(0.5 as double),
+            61, timestamp '2025-03-09 01:00:00',
+            timestamp '2025-06-02 10:00:00'
     expect:
       format: sql
       rows: |
         select
-          'tokyo' as area_code,
-          date '2025-03-10' as trade_date,
-          periods.time_code,
-          timestamp '2025-03-08 21:00:00' as forecast_reference_at,
-          vintages.parameters_run_id,
-          vintages.load_base + cast(5000 as double) * ((periods.time_code + 1) div 2) as similar_day_demand_kwh,
-          vintages.reference_date as similar_day_reference_date,
-          vintages.lag_days as similar_day_reference_lag_days,
-          vintages.distance as similar_day_distance,
-          2 as similar_day_n_candidates,
-          vintages.available_at,
-          vintages.published_at
-        from
-          (select explode(sequence(1, 48)) as time_code) as periods
-          cross join (
-            select
-              'fit-1' as parameters_run_id, cast(500000 as double) as load_base,
-              date '2024-03-10' as reference_date, 365 as lag_days, cast(0.25 as double) as distance,
-              timestamp '2025-03-09 01:00:00' as available_at, timestamp '2025-01-02 10:00:00' as published_at
-            union all
-            select
-              'fit-2', cast(1000000 as double),
-              date '2024-03-11', 364, cast(0 as double),
-              timestamp '2025-06-01 00:00:00', timestamp '2025-06-02 10:00:00'
-          ) as vintages
+          'tokyo' as area_code, date '2025-03-10' as trade_date, 1 as time_code, 'score-1' as similar_day_run_id,
+          cast(505000 as double) as similar_day_demand_kwh, date '2024-03-11' as similar_day_reference_date,
+          364 as similar_day_reference_lag_days, cast(0.25 as double) as similar_day_distance,
+          61 as similar_day_n_candidates, timestamp '2025-03-09 01:00:00' as available_at,
+          timestamp '2025-01-02 10:00:00' as published_at
+        union all
+        select
+          'tokyo', date '2025-03-10', 1, 'score-2',
+          cast(1005000 as double), date '2024-03-12',
+          363, cast(0.5 as double),
+          61, timestamp '2025-03-09 01:00:00',
+          timestamp '2025-06-02 10:00:00'

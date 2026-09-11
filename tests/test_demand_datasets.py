@@ -191,6 +191,8 @@ class TestLoadAreaWeatherForecastPopulationWeighted:
         assert row["forecast_relative_humidity_pct"] == pytest.approx(
             weighted(h, h + SECOND_STATION_FORECAST_HUMIDITY_OFFSET_PCT, w1, w2)
         )
+        # The vintage's availability: its reference time plus four hours.
+        assert row["available_at"] == day - pd.Timedelta(days=1) + pd.Timedelta(hours=1)
         assert row["forecast_precipitation_mm"] == pytest.approx(
             weighted(r, r + SECOND_STATION_FORECAST_RAIN_OFFSET_MM, w1, w2)
         )

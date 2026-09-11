@@ -113,12 +113,18 @@ def make_forecast(
             "forecast_temperature_c": temperature_at(day, h) + 0.5,
             "forecast_relative_humidity_pct": humidity_at(day, h) - 2.0,
             "forecast_precipitation_mm": 0.8 * rain_at(day, h),
+            "available_at": forecast_available_at(day),
         }
         for day in days
         for h in range(1, 25)
         if (day, h) not in drop
     ]
     return AreaWeatherForecast.from_df(pd.DataFrame(rows).astype({"hour_ending": "int64"}))
+
+
+def forecast_available_at(day: pd.Timestamp) -> pd.Timestamp:
+    """When D's forecast vintage is public: 01:00 on D-1 (the D-2 12 UTC run + 4 h)."""
+    return day - pd.Timedelta(days=1) + pd.Timedelta(hours=1)
 
 
 def make_observed(
