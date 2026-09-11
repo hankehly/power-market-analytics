@@ -23,6 +23,18 @@ design (the oldest vintage backfilling history) is not needed: a run scores ever
 can, and the newest published run wins wherever it scored. Task 3 is unchanged. The
 reproduction of Task 4 was rerun on the write-back; its results are under Task 4.
 
+## Rework 2, 2026-09-11: walk forward
+
+Codex's second round found that a fit through day T scores every day up to T with weights
+that saw those days' loads, and a re-run wins everywhere by `published_at`, so a backtest over
+the fit window would evaluate on in-sample rows; the old strategy avoided this by fitting at
+the backtest's start. The researcher chose walk-forward scoring: `score_walk_forward` refits
+every 7 days on the days before each step and scores the days that follow, each row usable
+from the later of its forecast's availability and its fit's cutoff (`similar_day_fit_through`
+on the row). The selector caches its training pairs so the ~380 weekly fits over seven years
+stay fast. Run `008868fe…` is no longer reproducible to the digit (its one fit served its
+whole training window); the proof is the fit reproduced exactly plus a matched comparison.
+
 ## Global Constraints
 
 - The scoring in SQL reproduces `tasks/demand/similar_day.py`: window D − 364 ± 30 from the parameters row; a candidate needs all 24 hours of population-weighted observed temperature, humidity and rain (the latest census vintage's station weights, added in station order), all 24 hourly loads and a calendar row with both holiday distances; a target needs all 24 hours of the `ftr_hour_msm` population-weighted forecast of one vintage and a calendar row, and a window that starts on or after the area's first candidate day; parts: `abs(lag − 364)`, the three 24-hour RMSEs (target forecast against candidate observation), `abs(Δ days_since_holiday)`, `abs(Δ days_until_holiday)`, `abs(Δ holiday_degree)`; distance `sqrt(Σ w_j (part_j / s_j)²)`; the smallest distance wins, ties to the candidate nearest D − 364, then the earlier date; the feature is the chosen day's hourly load at `(time_code + 1) div 2` ÷ 2.

@@ -902,6 +902,7 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
             "similar_day_reference_lag_days": 364,
             "similar_day_distance": 0.0,
             "similar_day_n_candidates": 61,
+            "similar_day_fit_through": (day - pd.Timedelta(days=2)).date(),
             "available_at": day - pd.Timedelta(days=1) + pd.Timedelta(hours=1),
             "published_at": pd.Timestamp("2026-09-11 09:00:00"),
         }
@@ -954,8 +955,8 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
         "area_code string, trade_date date, time_code int, similar_day_run_id string, "
         "similar_day_demand_kwh double, "
         "similar_day_reference_date date, similar_day_reference_lag_days int, "
-        "similar_day_distance double, similar_day_n_candidates int, available_at timestamp, "
-        "published_at timestamp",
+        "similar_day_distance double, similar_day_n_candidates int, "
+        "similar_day_fit_through date, available_at timestamp, published_at timestamp",
     ).write.mode("overwrite").saveAsTable("pma_features.ftr_period_similar_day")
 
 

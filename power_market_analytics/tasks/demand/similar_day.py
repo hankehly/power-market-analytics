@@ -5,15 +5,15 @@ For a delivery day D the selector scores every day in a window one year back
 D − 364, the 24-hour RMSE of D's MSM forecast against the candidate's
 observation for temperature, humidity and rain, and the absolute differences
 of three ``dim_date`` holiday attributes — and picks the nearest. The weights
-are fitted once on past pairs (Park, Song and Kwon 2020, §2.2) by
-``scripts/fit_similar_day.py``, which publishes them to
-``pma_ml.similar_day_parameters``; the ``ftr_period_similar_day`` mart then
-scores every delivery day in SQL the way :class:`SimilarDaySelector` does
-here, and the chosen day's でんき予報 hourly load, halved per period, is the
-feature ``similar_day_demand_kwh``. This module holds the fit, the selection
-and the retrieval check the fit script logs. Design:
+are fitted on past pairs (Park, Song and Kwon 2020, §2.2). Since the feature
+catalogue's PR 7 ``scripts/fit_similar_day.py`` walks forward through history,
+refitting every few days on the days before each step and scoring the days
+that follow with that fit (``similar_day_feature.score_walk_forward``), and
+writes the chosen day's でんき予報 hourly load, halved per period, to
+``pma_ml.similar_day`` as the feature ``similar_day_demand_kwh``. This module
+holds the fit, the selection and the retrieval check. Design:
 docs/superpowers/specs/2026-09-05-demand-similar-day-reference-design.md;
-the mart: docs/superpowers/specs/2026-09-10-feature-catalogue-design.md §5.
+the job: docs/superpowers/specs/2026-09-10-feature-catalogue-design.md §5.
 """
 
 from __future__ import annotations
@@ -463,6 +463,7 @@ class SimilarDaySelector:
             )
         self._candidates = pd.DatetimeIndex(candidates).sort_values()
         self._weights: SimilarDayWeights | None = None
+        self._pairs_cache: pd.DataFrame | None = None
         self.first_candidate_day: pd.Timestamp = self._candidates[0]
         self.hourly_load_span: tuple[pd.Timestamp, pd.Timestamp] = (
             self._load.days[0],
@@ -565,6 +566,21 @@ class SimilarDaySelector:
         out = out.sort_values(["target_date", "candidate_date"], ignore_index=True)
         return DayPairDifferences.from_df(out[list(DayPairDifferences.schema)])
 
+    def _all_training_pairs(self) -> pd.DataFrame:
+        """Every window pair of every scorable forecast day whose own load is known,
+        with the realised load difference; computed once, as a walk-forward job
+        fits on a prefix of it every few days."""
+        if self._pairs_cache is None:
+            targets = self._forecast.days[self._forecast.days.isin(self._load.days)]
+            diffs = self.differences(targets).df
+            loads = self._load.values["load"]
+            realised = load_difference(
+                loads[self._load.days.get_indexer(pd.DatetimeIndex(diffs["target_date"]))],
+                loads[self._load.days.get_indexer(pd.DatetimeIndex(diffs["candidate_date"]))],
+            )
+            self._pairs_cache = diffs.assign(load_difference=realised)
+        return self._pairs_cache
+
     def training_pairs(self, through: pd.Timestamp) -> SimilarDayTrainingPairs:
         """Every window pair of the scorable forecast days on or before ``through``
         whose own hourly load is known, with the realised load difference.
@@ -572,21 +588,22 @@ class SimilarDaySelector:
         Parameters
         ----------
         through : pandas.Timestamp
-            Last target day allowed (the newest day the strategy may see).
+            Last target day allowed (the newest day a fit may see).
 
         Returns
         -------
         SimilarDayTrainingPairs
         """
-        through = pd.Timestamp(through)
-        targets = self._forecast.days[self._forecast.days <= through]
-        diffs = self.differences(targets[targets.isin(self._load.days)]).df
-        loads = self._load.values["load"]
-        realised = load_difference(
-            loads[self._load.days.get_indexer(pd.DatetimeIndex(diffs["target_date"]))],
-            loads[self._load.days.get_indexer(pd.DatetimeIndex(diffs["candidate_date"]))],
-        )
-        return SimilarDayTrainingPairs.from_df(diffs.assign(load_difference=realised))
+        pairs = self._all_training_pairs()
+        kept = pairs[pairs["target_date"] <= pd.Timestamp(through)].reset_index(drop=True)
+        return SimilarDayTrainingPairs.from_df(kept)
+
+    @property
+    def first_fit_day(self) -> pd.Timestamp | None:
+        """The earliest day a fit can run through: the first scorable forecast day
+        whose own load is known, if any."""
+        pairs = self._all_training_pairs()
+        return None if pairs.empty else pd.Timestamp(pairs["target_date"].min())
 
     def fit(self, through: pd.Timestamp) -> SimilarDayWeights:
         """Fit and store the weights on the training pairs up to ``through``.
