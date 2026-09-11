@@ -1,7 +1,8 @@
 # power_market_analytics/tasks/demand/datasets.py
-"""Load the demand history and, for the similar-day selector, the hourly load,
-the holiday calendar and the population-weighted weather profiles of the demand
-task. The strategies' other features come from the feature marts through Feast."""
+"""Load the demand history and, for the similar-day weight fit
+(``scripts/fit_similar_day.py``), the hourly load, the holiday calendar and the
+population-weighted weather profiles of the demand task. The strategies'
+features come from the feature marts through Feast."""
 
 from __future__ import annotations
 
@@ -13,7 +14,6 @@ from pyspark.sql import SparkSession
 
 from power_market_analytics.common.warehouse import query_pandas
 from power_market_analytics.forecasting.frames import GRAIN_COLS
-from power_market_analytics.tasks.demand.features import day_type_code
 from power_market_analytics.tasks.demand.frames import (
     AreaDemand,
     AreaHourlyLoad,
@@ -209,7 +209,8 @@ def load_area_hourly_load(
     is the only public area demand before the A-1 series begins (2022-04) and,
     by research decision (demand/R-004), the single source for the whole
     history rather than a stitch with the A-1 fact. ``hour_ending`` is the
-    fact's ``hour_of_day`` + 1, the hour convention of the temperature frames.
+    fact's ``hour_of_day`` + 1, the hour convention of the temperature frames;
+    ``available_at`` is the fact's, when the hour's load became public.
 
     Parameters
     ----------
@@ -233,7 +234,8 @@ def load_area_hourly_load(
         select
           f.date_key as load_date,
           f.hour_of_day + 1 as hour_ending,
-          f.demand_kwh
+          f.demand_kwh,
+          f.available_at
         from pma_curated.fct_area_power_usage_hourly f
         join pma_curated.dim_area a on f.area_key = a.area_key
         where a.area_code = '{area_code}'
@@ -244,7 +246,7 @@ def load_area_hourly_load(
         raise ValueError(f"No hourly load history found for area_code={area_code!r}")
     pdf = (
         pdf.assign(load_date=lambda d: pd.to_datetime(d["load_date"]))
-        .astype({"hour_ending": "int64", "demand_kwh": "float64"})
+        .astype({"hour_ending": "int64", "demand_kwh": "float64", "available_at": "datetime64[ns]"})
         .sort_values(["load_date", "hour_ending"], ignore_index=True)
     )
     logger.info(
@@ -259,18 +261,14 @@ def load_area_hourly_load(
 
 
 def load_day_calendar(spark: SparkSession | None = None) -> DayCalendar:
-    """Load the calendar attributes the similar-day selector and the
-    calendar-feature strategy read from ``dim_date``.
+    """Load the holiday attributes the similar-day selector reads from ``dim_date``.
 
-    ``day_type`` is :func:`day_type_code` of the weekend / holiday flags; the
-    two holiday distances count calendar days to the nearest named holiday
+    The two holiday distances count calendar days to the nearest named holiday
     (``is_holiday``: the 国民の祝日 plus the customary 年末年始 / ゴールデン
     ウィーク / お盆 days; 0 on a holiday itself), computed over the gapless
     spine with a forward and a backward fill; days before the spine's first
     holiday or after its last have no distance and are dropped.
-    ``holiday_degree``, the calendar counts (``half``, ``quarter``,
-    ``day_of_month``, ``day_of_quarter``, ``day_of_year``, ``fiscal_quarter``)
-    and ``is_business_day`` are the dimension's columns.
+    ``holiday_degree`` is the dimension's column.
 
     Parameters
     ----------
@@ -291,37 +289,22 @@ def load_day_calendar(spark: SparkSession | None = None) -> DayCalendar:
         """
         select
           d.date_key as trade_date,
-          d.is_weekend,
           d.is_holiday,
-          d.holiday_degree,
-          d.half,
-          d.quarter,
-          d.day_of_month,
-          d.day_of_quarter,
-          d.day_of_year,
-          d.is_business_day,
-          d.fiscal_quarter
+          d.holiday_degree
         from pma_curated.dim_date d
         """,
         spark=spark,
     )
     if pdf.empty:
         raise ValueError("No calendar days found in dim_date")
-    # A null flag would be coerced by the bool cast below (None -> False,
-    # NaN -> True) and slip past the frame's non-null check, so refuse it here.
-    n_null_flags = int(pdf["is_business_day"].isna().sum())
-    if n_null_flags:
-        raise ValueError(f"dim_date.is_business_day has {n_null_flags} null value(s)")
     pdf = pdf.assign(trade_date=lambda d: pd.to_datetime(d["trade_date"])).sort_values(
         "trade_date", ignore_index=True
     )
     holiday_dates = pdf["trade_date"].where(pdf["is_holiday"].astype(bool))
     last_holiday = holiday_dates.ffill()
     next_holiday = holiday_dates.bfill()
-    counts = ("half", "quarter", "day_of_month", "day_of_quarter", "day_of_year", "fiscal_quarter")
     pdf = (
         pdf.assign(
-            day_type=lambda d: day_type_code(d["is_weekend"], d["is_holiday"]),
             days_since_holiday=(pdf["trade_date"] - last_holiday).dt.days,
             days_until_holiday=(next_holiday - pdf["trade_date"]).dt.days,
         )
@@ -331,8 +314,6 @@ def load_day_calendar(spark: SparkSession | None = None) -> DayCalendar:
                 "days_since_holiday": "int64",
                 "days_until_holiday": "int64",
                 "holiday_degree": "float64",
-                "is_business_day": "bool",
-                **{col: "int64" for col in counts},
             }
         )
         .reset_index(drop=True)
@@ -381,7 +362,8 @@ def load_area_weather_forecast_population_weighted(
     :func:`load_area_temperature_forecast_population_weighted`'s;
     ``relative_humidity_pct`` and ``precipitation_mm`` are weighted the same
     way, each renormalised over the stations that have a value for the hour.
-    One vintage per delivery-day hour, as there.
+    One vintage per delivery-day hour, as there; ``available_at`` is the
+    vintage's, the newest over the hour's stations.
 
     Parameters
     ----------
@@ -420,7 +402,8 @@ def load_area_weather_forecast_population_weighted(
           m.date_key as trade_date,
           hour(m.forecast_hour_start_at) + 1 as hour_ending,
           m.forecast_reference_at,
-          {measures}
+          {measures},
+          max(m.available_at) as available_at
         from pma_curated.fct_jma_msm_weather_forecast_hourly m
         join pma_curated.fct_census_population_jma_station w
           on w.station_id = m.station_id and w.census_year = {year}
@@ -443,6 +426,7 @@ def load_area_weather_forecast_population_weighted(
                 "forecast_temperature_c": "float64",
                 "forecast_relative_humidity_pct": "float64",
                 "forecast_precipitation_mm": "float64",
+                "available_at": "datetime64[ns]",
             }
         )
         .sort_values(["trade_date", "hour_ending", "forecast_reference_at"], ignore_index=True)

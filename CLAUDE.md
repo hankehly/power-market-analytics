@@ -53,9 +53,10 @@
   `[tool.coverage.*]`; gated at 100% via `fail_under`, so a partial suite fails locally and in
   CI — `.github/workflows/ci.yml` runs the same command on every push). Shared fixtures in
   `tests/conftest.py`: `spark` (local session, temp warehouse, no metastore),
-  `curated_warehouse` (synthetic `pma_curated` star for both tasks), `feature_marts` (the six
-  `pma_features` marts from it under a UTC session, with the Feast store in a temp registry —
-  every test that builds a preset strategy takes it), an autouse temp MLflow file store, and
+  `curated_warehouse` (synthetic `pma_curated` star for both tasks), `feature_marts` (the seven
+  `pma_features` marts from it under a UTC session — the similar-day mart picks D − 364 —
+  with the Feast store in a temp registry; every test that builds a preset strategy takes
+  it), an autouse temp MLflow file store, and
   a session-wide single-thread LightGBM cap. HTTP is never real: the
   downloaders take an injectable `session` (`session_factory` for OCCTO) and scripts are driven
   through `main(argv)` with their downloader/loader class swapped in the module namespace
@@ -122,35 +123,53 @@
   month / high-price days, plus bias) as markdown; needs
   `just dbt build --select +fct_spot_price_forecast_accuracy` after the runs.
 - `just python scripts/demand_backtest.py --strategy lightgbm_msm_popw_daytype --area tokyo` —
-  day-ahead area demand backtest. Strategies: the presets `lightgbm`, `lightgbm_msm`,
-  `lightgbm_msm_popw` and `lightgbm_msm_popw_daytype` (the script default and the Kansai
-  baseline), and the similar-day strategies `lightgbm_msm_popw_daytype_simday` (the Tokyo
-  demand baseline, reference run `008868fe…`; Tokyo-only, because it needs the でんき予報
-  hourly load of `fct_area_power_usage_hourly`, `dim_date.holiday_degree` and the
-  population-weighted MSM forecast and JMA observations of temperature, humidity and rain;
-  its run also logs `similar_day_selection.csv` / `similar_day_retrieval.csv` and four
-  `similar_day_*` metrics through the `diagnostics` hook) and its four calendar variants
-  `…_simday_calendar`, `…_simday_holidaydegree`, `…_simday_holidaydistance` and
-  `…_simday_calendarcounts` (research `demand/R-005`, all rejected, kept registered as
-  references; their feature lists and numbers are in the Demand task bullet below). Areas:
-  `tokyo`, `kansai` = the TSO feeds loaded into `fct_area_demand_generation_actual`. An area's
-  feature marts need its representative JMA station's hourly weather loaded and current
-  (`dim_area.representative_jma_station_id`: 東京 s47662, 大阪 s47772 — both loaded and current
-  as of the 2026-08-20 re-scope backfill; keep them fresh with the JMA download + load scripts,
-  since a stale window's last days are skipped for lack of a temperature window), the MSM
-  forecasts of its stations in `fct_jma_msm_weather_forecast_hourly` (a delivery day without a
-  forecast is skipped) and `fct_census_population_jma_station`. Same flags as the spot script:
-  `--add VIEW:COLUMN …` / `--drop VIEW:COLUMN …` with `--name` (a similar-day strategy takes
-  them too: they change the `lightgbm_msm_popw_daytype` preset under its similar-day feature),
-  `--days` (default 365), `--start-date` / `--end-date`, `--train-start`,
-  `--importance-repeats`. Logs to the MLflow experiment `demand`, publishes to
-  `pma_ml.demand_forecast`, then `just dbt build --select +fct_demand_forecast_accuracy
-  +fct_demand_forecast_contribution +fct_demand_forecast_importance` (the second selector
-  materialises the run's TreeSHAP contributions for the dashboard's Explanation tab, the
-  third its permutation feature importance for that tab's Feature importance section —
-  `--importance-repeats`, default 5; the first is what its Run filter reads). Feast's retrieval
-  needs a UTC Spark session (the devcontainer's), so the demand backtests run in the
-  devcontainer only.
+  day-ahead area demand backtest. Strategies: the nine presets of `tasks/demand/presets.py`
+  — `lightgbm`, `lightgbm_msm`, `lightgbm_msm_popw`, `lightgbm_msm_popw_daytype` (the
+  script default and the Kansai baseline), `lightgbm_msm_popw_daytype_simday` (the Tokyo
+  demand baseline, reference run `008868fe…`; Tokyo-only, because its
+  `ftr_period_similar_day` mart needs the でんき予報 hourly load of
+  `fct_area_power_usage_hourly` and a fit of the similar-day weights, below) and its four
+  calendar variants `…_simday_calendar`, `…_simday_holidaydegree`,
+  `…_simday_holidaydistance` and `…_simday_calendarcounts` (research `demand/R-005`, all
+  rejected, kept as reference presets; their feature lists and numbers are in the Demand
+  task bullet below). Areas: `tokyo`, `kansai` = the TSO feeds loaded into
+  `fct_area_demand_generation_actual`. An area's feature marts need its representative JMA
+  station's hourly weather loaded and current (`dim_area.representative_jma_station_id`:
+  東京 s47662, 大阪 s47772 — both loaded and current as of the 2026-08-20 re-scope backfill;
+  keep them fresh with the JMA download + load scripts, since a stale window's last days are
+  skipped for lack of a temperature window), the MSM forecasts of its stations in
+  `fct_jma_msm_weather_forecast_hourly` (a delivery day without a forecast is skipped) and
+  `fct_census_population_jma_station`. Same flags as the spot script: `--add VIEW:COLUMN …` /
+  `--drop VIEW:COLUMN …` with `--name`, `--days` (default 365), `--start-date` /
+  `--end-date`, `--train-start`, `--importance-repeats`. Logs to the MLflow experiment
+  `demand`, publishes to `pma_ml.demand_forecast`, then `just dbt build --select
+  +fct_demand_forecast_accuracy +fct_demand_forecast_contribution
+  +fct_demand_forecast_importance` (the second selector materialises the run's TreeSHAP
+  contributions for the dashboard's Explanation tab, the third its permutation feature
+  importance for that tab's Feature importance section — `--importance-repeats`, default 5;
+  the first is what its Run filter reads). Feast's retrieval needs a UTC Spark session (the
+  devcontainer's), so the demand backtests run in the devcontainer only.
+- `just python scripts/fit_similar_day.py --area tokyo` — score the demand similar day walking
+  forward (since 2026-09-11, feature catalogue PR 7): every `--refit-every-days` (default 7,
+  the LightGBM strategies' refit cadence) a fit of the seven weights of the similar-day
+  distance runs at a cutoff instant on the (target, candidate) pairs whose target load was
+  public by then (`tasks/demand/similar_day.py`'s selector; the loads' `available_at`, which
+  `AreaHourlyLoad` carries: the daily files' update time from 2022-04, two days after the
+  day for the yearly files before) and scores the days whose 09:30 D-1 issue time follows the
+  cutoff until the next one, so no day is scored with weights that saw a load that was not
+  yet public — and writes the feature to `pma_ml.similar_day`
+  (`tasks/demand/similar_day_feature.py`; 48 rows per day, partitioned by `run_id` like the
+  forecast tables); `--window-half-width-days` (default 30). Logs to the MLflow experiment
+  `similar_day` (`refit_every_days`, `n_fits`, `first_fit_cutoff`, `last_fit_cutoff`,
+  `n_days_scored`, the last fit's `similar_day_*` params; every fit's weights as
+  `similar_day_fits.csv`, the selection of every scored day as `similar_day_selection.csv`,
+  the retrieval check of every scored day with a known load as `similar_day_retrieval.csv`
+  and the four `similar_day_*` metrics over them; tag `feature_table`). Then
+  `just dbt build --select stg_ml__similar_day ftr_period_similar_day` passes the rows to
+  Feast; a re-run is a new run whose rows win wherever they overlap. The first run backfills
+  every day from 2019 (the first fit runs when eight pairs are public — with 61 candidates a
+  day, when the first scorable day's load is — so scoring starts 2019-04-04); scoring only
+  new days is the live-path spec's. Needs the devcontainer.
 - `just python scripts/compare_demand_runs.py --baseline <run_id> --candidate <run_id>` — the
   demand task's matched two-run comparison (`tasks/demand/compare.py`): MAE overall / MAPE /
   bias / by day part, day type, month, season, 2,000-MWh actual-demand band, top-10 % demand
@@ -394,17 +413,21 @@
   feature column tagged `config.meta.feature` / `categorical`, plus `available_at` carried
   from the facts through the `available_at()` macro; the singular test
   `assert_feature_marts_declare_available_at` lists any feature model without the column.
-  Today's six: `ftr_day_calendar`, `ftr_day_occto`, `ftr_hour_jma_obs`, `ftr_hour_msm`,
-  `ftr_period_actuals`, `ftr_period_jepx`, each proven equal to the Python builder it
-  mirrors for Tokyo 2025; every strategy reads them through Feast except the demand
-  similar-day feature, still built in Python until the feature catalogue's PR 7, design
+  Today's seven: `ftr_day_calendar`, `ftr_day_occto`, `ftr_hour_jma_obs`, `ftr_hour_msm`,
+  `ftr_period_actuals`, `ftr_period_jepx` (each proven equal to the Python builder it
+  mirrors for Tokyo 2025) and `ftr_period_similar_day` (since 2026-09-11: the demand
+  similar day as the fit-and-score job wrote it to `pma_ml.similar_day`, passed through
+  the guarded `stg_ml__similar_day`, one row per scoring run, with `published_at` next to
+  `available_at`); every strategy reads them through Feast; design
   `docs/superpowers/specs/2026-09-10-feature-catalogue-design.md`).
   Schemas: `pma_<layer>`.
 - Feature retrieval (Feast, since 2026-09-10; both tasks' presets read it since 2026-09-11):
   `power_market_analytics/features/` — `entities.py` (join keys `area_code`, `trade_date_key`
   = int yyyymmdd, `hour_ending`, `time_code`; `GRAIN_ENTITIES` per mart grain), `views.py`
   (generated: one `SparkSource(query=…)` + `FeatureView` per mart, tagged columns as fields,
-  `timestamp_field = available_at`, `online=False`), `store.py` (`open_store()` reads
+  `timestamp_field = available_at`, `created_timestamp_column = published_at` for a mart
+  that has the column — several vintages per key, the newest published wins among rows
+  tied on `available_at` — `online=False`), `store.py` (`open_store()` reads
   `conf/feast/feature_store.yaml` — Spark offline store on the active SparkSession, file
   registry `data/feast/registry.db`, gitignored — and applies the entities and views, so
   every caller's registry matches the package; `session_time_zone`) and `retrieval.py`
@@ -457,8 +480,9 @@
   dataset `<task>_forecast_explanation`.
 - Diagnostics: `ForecastStrategy.diagnostics(history, run)` (default `{}`) returns per-run frames
   keyed by artifact stem; both backtest scripts call it after publishing and log each frame as
-  `<stem>.csv`, and an implementation may log metrics inside it (the demand similar-day strategy
-  does).
+  `<stem>.csv`, and an implementation may log metrics inside it. No registered strategy
+  implements it since 2026-09-11: the similar-day selection and retrieval check moved to
+  the fit script's run.
 - Importance: `ForecastStrategy.permutation_importance(run, n_repeats=5, seed=0)` (default
   `None`) returns a `PermutationImportance` frame (grain feature × repeat: `n_periods`, `mae` =
   the run's MAE on its scored periods, `permuted_mae`); the LightGBM base keeps every refit
@@ -503,21 +527,20 @@
   and implements the one hook `_features`, all plain attributes, not `ClassVar`s; since
   2026-09-11 `forecasting.preset_lgbm.PresetLightGbmStrategy` is that subclass for every
   preset: it sets them per instance from a `Preset`, reads its features off a retrieved
-  `FeatureFrame` in `_add_features`, the hook a strategy with a Python-built feature extends),
+  `FeatureFrame` in `_features`; no strategy builds a feature in Python since PR 7),
   `forecasting.publish` and `forecasting.plots`. Adding a task = TaskSpec + frames + datasets + strategies +
   script + `pma_ml.<task>_forecast` dbt models.
 - Demand task (`tasks/demand/`): at 09:30 JST on D-1 forecast the 48 half-hourly `demand_kwh`
   of `fct_area_demand_generation_actual` for D; usable history = days ≤ D-2
   (`history_lead_days = 2`, TSO files finalise after midnight). Null-demand rows (TSO holes)
   are dropped at load; a target day whose D-7 lag falls in a hole is skipped. Since 2026-09-11
-  (feature catalogue PR 6) the four strategies without similar day are **presets**
-  (`tasks/demand/presets.py`, `<view>:<column>` references into the Feast views of the
-  feature marts, retrieved by `build_strategy` and run by `PresetLightGbmStrategy`; their
-  classes, eval sets, the temperature / forecast-temperature / day-type builders of
-  `demand/features.py`, the `AreaTemperature`, `AreaTemperatureForecast` and
-  `DayTypeCalendar` frames and their loaders were deleted, reproduced at 0 difference first —
-  the one known divergence from the class-based code is two December-2022 delivery days,
-  see Gotchas):
+  (feature catalogue PRs 6 and 7) every strategy is a **preset** (`tasks/demand/presets.py`,
+  `<view>:<column>` references into the Feast views of the feature marts, retrieved by
+  `build_strategy` and run by `PresetLightGbmStrategy`; the nine strategy classes, their
+  eval sets, `demand/features.py`, the `AreaTemperature`, `AreaTemperatureForecast` and
+  `DayTypeCalendar` frames and their loaders were deleted, each run reproduced first — the
+  one known divergence from the class-based code is two December-2022 delivery days, see
+  Gotchas):
   `lightgbm` = `ftr_day_calendar:month`, `ftr_day_calendar:day_of_week`,
   `ftr_hour_jma_obs:wavg_temperature_c` (the same-hour temperature at the area's
   representative JMA station — `dim_area.representative_jma_station_id`, seed `jepx_areas`;
@@ -540,49 +563,63 @@
   でんき予報 hourly load of `fct_area_power_usage_hourly` on the delivery day's `dim_date`
   prior-year reference date; research `demand/R-004`), was run on 2026-08-31 and removed with
   the column on 2026-09-05 — Not supported, the reasons in the investigation.
-  `lightgbm_msm_popw_daytype_simday` (`LightGbmMsmPopWeightedDayTypeSimilarDayStrategy`,
-  `tasks/demand/strategies/lgbm.py`; research `demand/R-004` E-002, kept 2026-09-06: the Tokyo
-  demand baseline, reference run `008868fe59274abfb49f128e29aa28fe`) = the
-  `lightgbm_msm_popw_daytype` preset + `similar_day_demand_kwh`, still built in Python until
-  the feature catalogue's PR 7: the class subclasses `PresetLightGbmStrategy`, merges the
-  retrieved frame and then joins the similar day's load. `tasks/demand/similar_day.py`'s
-  `SimilarDaySelector` scores the 61 days D − 364 ± 30 with a softmax-weighted distance over
-  seven parts (calendar days from D − 364; the 24-h RMSE of D's population-weighted MSM
-  forecast against the candidate's population-weighted observation for temperature, humidity
-  and rain; |Δ| of `dim_date`'s days since / until a named holiday and of `holiday_degree`),
-  fits the weights once per run by `scipy.optimize.least_squares` on the pairs up to the
-  first forecast day's cutoff (Park, Song and Kwon 2020 Eq. 1–3), picks the nearest day and
-  joins its hourly load ÷ 2 per period; a day whose window starts before the hourly load and
-  observations begin (2016-04-01), or that lacks a forecast profile, is unscorable (first
-  scorable day 2019-04-01). Inputs next to the preset's frame: `AreaWeatherForecast`,
-  `AreaObservedWeather`, `DayCalendar`, `AreaHourlyLoad`, loaded by `build_strategy`, which
-  also takes `--add` / `--drop` / `--name` for the preset underneath. The strategy's
-  `diagnostics` returns the selection and the retrieval check (selected vs D − 364 vs oracle
-  load difference); it logs `population_weight_census_year` next to the preset params.
-  `lightgbm_msm_popw_daytype_simday_calendar`
-  (`LightGbmMsmPopWeightedDayTypeSimilarDayCalendarStrategy`, research `demand/R-005` E-001,
-  run 2026-09-06 `e3e3bd61…`: MAE +7.3 % on the matched window, rejected by the researcher,
-  Not supported; kept as a reference strategy) = that + `DAY_CALENDAR_FEATURE_COLS`
-  (`tasks/demand/features.py`: `half`, `quarter`, `day_of_month`, `day_of_quarter`,
-  `day_of_year`, `holiday_degree`, `is_business_day` as 1/0, `fiscal_quarter`,
-  `days_since_holiday`, `days_until_holiday`), joined per delivery day by `join_day_calendar`
-  from the same `DayCalendar` after the similar day's load; no new categorical, no new inputs.
-  The class attribute `calendar_feature_cols` (empty on the similar-day base) is what its
-  three siblings narrow, the eval set following it (research `demand/R-005` E-002 / E-003 /
-  E-004, run 2026-09-06, all rejected by the researcher the same day, kept registered as
-  references): `lightgbm_msm_popw_daytype_simday_holidaydegree`
-  (`LightGbmMsmPopWeightedDayTypeSimilarDayHolidayDegreeStrategy`, `HOLIDAY_DEGREE_FEATURE_COLS`
-  = `holiday_degree`; run `a8da46c5…`: MAE +0.3 %, CI over days includes zero, holidays +1.8 %,
-  4.8 % of the SHAP mass mostly from `day_type`),
-  `lightgbm_msm_popw_daytype_simday_holidaydistance`
-  (`LightGbmMsmPopWeightedDayTypeSimilarDayHolidayDistanceStrategy`,
-  `HOLIDAY_DISTANCE_FEATURE_COLS` = `days_since_holiday`, `days_until_holiday`; run
-  `f7153839…`: MAE +6.5 %, CI excludes zero, every day part / day type / season worse) and
-  `lightgbm_msm_popw_daytype_simday_calendarcounts`
-  (`LightGbmMsmPopWeightedDayTypeSimilarDayCalendarCountStrategy`, `CALENDAR_COUNT_FEATURE_COLS`
-  = `half`, `quarter`, `day_of_month`, `day_of_quarter`, `day_of_year`, `fiscal_quarter`; run
-  `9182d469…`: MAE +4.2 %, CI excludes zero, weekdays +7.7 % but holidays −13.4 % — E-001's
-  holiday gain comes with this subset; `half` / `quarter` never split on).
+  `lightgbm_msm_popw_daytype_simday` (research `demand/R-004` E-002, kept 2026-09-06: the
+  Tokyo demand baseline, reference run `008868fe59274abfb49f128e29aa28fe`) = the
+  `lightgbm_msm_popw_daytype` preset + `ftr_period_similar_day:similar_day_demand_kwh`, the
+  load of a learned similar day one year earlier, halved per period. Since 2026-09-11
+  (feature catalogue PR 7) a walk-forward job builds it: `scripts/fit_similar_day.py` refits
+  the seven softmax weights of `tasks/demand/similar_day.py`'s distance every 7 days
+  (`scipy.optimize.least_squares` on the pairs whose target load was public by the fit's
+  cutoff, Park, Song and Kwon 2020 Eq. 1–3) and scores the days that follow with them — for a
+  delivery day D the nearest day in D − 364 ± 30 under seven parts: days from D − 364; the
+  24-h RMSE of D's population-weighted MSM forecast against the candidate's
+  population-weighted observation for temperature, humidity and rain; |Δ| of `dim_date`'s
+  days since / until a named holiday and of `holiday_degree`; a candidate needs all 24
+  hourly loads of `fct_area_power_usage_hourly`, a full observed profile and a calendar
+  row, D a full forecast profile and a window on or after the first candidate day (first
+  scorable day 2019-04-01, the MSM start; the first fit runs when eight pairs are public,
+  with its load, so scoring starts 2019-04-04) — and writes the chosen day's hourly load over the period's
+  hour ÷ 2 to `pma_ml.similar_day` (`tasks/demand/similar_day_feature.py`: 48 rows per day
+  with the chosen day, lag, distance, candidate count and the fit's cutoff next to the
+  feature; `available_at` = the latest of the day's MSM forecast vintage's, from
+  `AreaWeatherForecast`, the fit's cutoff and the chosen day's load availability; under
+  the default window every candidate is at least 334 days older, so the first two decide).
+  A fit at cutoff C uses only the pairs whose target load was public by C (`AreaHourlyLoad`
+  carries the fact's `available_at`; `SimilarDaySelector.fit(available_by)`), and a day is
+  scored by the latest fit whose cutoff is on or before its issue time, so no day is scored
+  with weights that saw a load that was not yet public — the similar-day spec's decision 7
+  (one fit per backtest, frozen) replaced by its deferred follow-up, on Codex's findings in
+  PR #67 that a separate fit through today would otherwise score the history in sample and
+  that the yearly-file loads are public only two days after their day.
+  `stg_ml__similar_day` (guarded like the importance tables) and
+  `ftr_period_similar_day` pass the rows to Feast, one row per scoring run
+  (`similar_day_run_id`): the join takes the newest run usable at the issue time and, among
+  rows tied on `available_at`, the newest published (the view's `created_timestamp_column`),
+  so a re-run replaces the feature wherever it scored. The job's run (MLflow experiment
+  `similar_day`) logs every fit's weights (the weight-stability follow-up of E-002), the
+  selection and the retrieval check (selected vs D − 364 vs oracle load difference) that the
+  deleted strategy's `diagnostics` used to log per backtest. Reproduced 2026-09-11 (PR 7,
+  before the walk-forward): the one fit through 2024-08-16 equalled run `008868fe…`'s and
+  the old and new code were identical period by period; with the walk-forward the run is a
+  matched comparison instead — numbers in
+  `docs/superpowers/plans/2026-09-11-similar-day-feature.md`.
+  `lightgbm_msm_popw_daytype_simday_calendar` (research `demand/R-005` E-001, run 2026-09-06
+  `e3e3bd61…`: MAE +7.3 % on the matched window, rejected by the researcher, Not supported;
+  kept as a reference preset) = that + the ten `ftr_day_calendar` columns `half`, `quarter`,
+  `day_of_month`, `day_of_quarter`, `day_of_year`, `holiday_degree`, `is_business_day` (1/0),
+  `fiscal_quarter`, `days_since_holiday`, `days_until_holiday` (`DAY_CALENDAR_FEATURES` in
+  `presets.py`, the old join order); no new categorical. Three subsets of it (research
+  `demand/R-005` E-002 / E-003 / E-004, run 2026-09-06, all rejected by the researcher the
+  same day, kept as reference presets): `lightgbm_msm_popw_daytype_simday_holidaydegree`
+  (`HOLIDAY_DEGREE_FEATURES` = `holiday_degree`; run `a8da46c5…`: MAE +0.3 %, CI over days
+  includes zero, holidays +1.8 %, 4.8 % of the SHAP mass mostly from `day_type`),
+  `lightgbm_msm_popw_daytype_simday_holidaydistance` (`HOLIDAY_DISTANCE_FEATURES` =
+  `days_since_holiday`, `days_until_holiday`; run `f7153839…`: MAE +6.5 %, CI excludes zero,
+  every day part / day type / season worse) and `lightgbm_msm_popw_daytype_simday_calendarcounts`
+  (`CALENDAR_COUNT_FEATURES` = `half`, `quarter`, `day_of_month`, `day_of_quarter`,
+  `day_of_year`, `fiscal_quarter`; run `9182d469…`: MAE +4.2 %, CI excludes zero, weekdays
+  +7.7 % but holidays −13.4 % — E-001's holiday gain comes with this subset; `half` /
+  `quarter` never split on).
   Write-back: `pma_ml.demand_forecast` →
   `stg/std_ml__demand_forecast` →
   `fct_demand_forecast` → `fct_demand_forecast_accuracy` → Superset **Demand Forecast Analysis**
@@ -693,6 +730,12 @@
   period. Since 2026-09-11 the two marts add their terms in a fixed order (the
   `ordered_weighted_mean` macro, the dbt rule below), so a rebuild cannot move a model; the
   values still differ from the deleted pandas builders at 1e-14, which no longer matters.
+- The `pma_ml` write-back tables (`forecasting.publish.create_run_partitioned_table`: the
+  forecast, contribution, importance and similar-day tables) are created if absent and
+  never altered, so a job that gains a column fails on an existing table with
+  `INSERT_COLUMN_ARITY_MISMATCH`; drop the table (its rows are re-published by the next
+  run) before the first run with the new column. Hit on 2026-09-11 when
+  `pma_ml.similar_day` gained `similar_day_fit_through`.
 - `scipy` is a declared dependency since 2026-09-05 (the similar-day weight fit uses
   `scipy.optimize.least_squares`); `scipy.*` is mypy-ignored like `shap.*`.
 - `scikit-learn` is a declared dependency since 2026-09-08 (`sklearn.inspection.permutation_importance`;
@@ -862,6 +905,15 @@
   `named_struct(key, weight, value)` folded with `aggregate()`), never with a plain `sum()`,
   so a rebuild gives the same value to the bit (since 2026-09-11; `ftr_hour_jma_obs` in lag
   order, `ftr_hour_msm` in station order).
+- A feature a Python job fits and scores (spec §5 Form B; the similar day) is written
+  back to `pma_ml.<feature>` (partitioned by `run_id`, with `available_at` = the latest of
+  every input of the row and the cutoff of the fit that scored it, and `published_at`),
+  read by a guarded staging model, and passed through by a mart with one row per scoring
+  run and `published_at` next to `available_at` (the view generator turns that column into
+  Feast's `created_timestamp_column`, so the newest published run wins among rows tied on
+  `available_at`). The job walks forward, each fit at a cutoff on the data public by then,
+  so no row is scored with a fit that saw anything published after the row's issue time; a
+  backtest can then start anywhere.
 
 ## Writing style (specs, research docs, PR bodies, replies)
 

@@ -71,6 +71,7 @@ def manifest() -> dict:
                     "hour_ending": column("int"),
                     "z": column("bigint", "Z.", {"feature": True}),
                     "note": column("string", "Untagged."),
+                    "published_at": column("timestamp", "When the row was written."),
                 },
             ),
             "model.pma.fct_other": node(
@@ -106,10 +107,20 @@ class TestRender:
             "query=\"select area_code, cast(date_format(trade_date, 'yyyyMMdd') as int) as trade_date_key, "
             'time_code, x, available_at from pma_features.ftr_period_x"'
         ) in text
-        assert "hour_ending, z, available_at from pma_features.ftr_hour_z" in text
+        assert "hour_ending, z, available_at, published_at from pma_features.ftr_hour_z" in text
         assert "note" not in text.split("FTR_HOUR_Z = FeatureView")[1].split("VIEWS")[0].replace(
             "Untagged", ""
         )
+
+    def test_a_mart_with_published_at_breaks_ties_on_it(self):
+        text = generate.render(manifest())
+        z_source = text.split("FTR_HOUR_Z_SOURCE = SparkSource(")[1].split(")\n")[0]
+        assert (
+            'timestamp_field="available_at",\n    created_timestamp_column="published_at",'
+            in z_source
+        )
+        x_source = text.split("FTR_PERIOD_X_SOURCE = SparkSource(")[1].split(")\n")[0]
+        assert "created_timestamp_column" not in x_source
 
     def test_fields_carry_types_descriptions_and_categorical_tags(self):
         text = generate.render(manifest())

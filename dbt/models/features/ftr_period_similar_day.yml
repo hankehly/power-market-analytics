@@ -1,0 +1,156 @@
+models:
+  - name: ftr_period_similar_day
+    config:
+      contract:
+        enforced: true
+    description: >
+      The load of a learned similar day one year earlier for every delivery period, the demand
+      similar-day feature (research demand/R-004 E-002), as scripts/fit_similar_day.py scored
+      it walking forward and wrote it to pma_ml.similar_day. Every few days the job refits the
+      seven weights of tasks/demand/similar_day.py's distance on the days before that step and
+      scores the days that follow with them: for a delivery day D the nearest day in D - 364 +-
+      30 (days from D - 364, the 24-hour RMSE of D's population-weighted MSM forecast against
+      the candidate's population-weighted observation for temperature, humidity and rain, the
+      differences in days since and until a named holiday and in holiday degree), its hourly
+      load over the hour containing the period halved. No day is scored with weights that saw
+      a load that was not yet public: each fit runs at a cutoff on the pairs whose target load
+      was public by then, a day is scored by the latest fit whose cutoff is on or before its
+      issue time, and available_at is the latest of D's MSM forecast vintage's, that cutoff and the
+      chosen day's load availability.
+      The chosen day, its lag, its distance, the candidate count and the fit's cutoff sit next
+      to the feature,
+      untagged. One row per scoring run: the as-of join takes the newest run usable at the
+      issue time, and among rows tied on available_at the newest published wins, so a re-run
+      replaces the feature wherever it scored. Grain: area_code x trade_date x time_code x
+      similar_day_run_id.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - area_code
+              - trade_date
+              - time_code
+              - similar_day_run_id
+    columns:
+      - name: area_code
+        data_type: string
+        description: >
+          dim_area.area_code of the bidding zone.
+        data_tests:
+          - not_null
+      - name: trade_date
+        data_type: date
+        description: >
+          The delivery day D.
+        data_tests:
+          - not_null
+      - name: time_code
+        data_type: int
+        description: >
+          JEPX time code 1-48 of the delivery period.
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 1
+                max_value: 48
+      - name: similar_day_run_id
+        data_type: string
+        description: >
+          The scoring run: the MLflow run id (experiment similar_day) whose fitted weights chose the day.
+        data_tests:
+          - not_null
+      - name: similar_day_demand_kwh
+        data_type: double
+        description: >
+          The chosen similar day's hourly load (fct_area_power_usage_hourly, kWh over the hour containing the period) halved, kWh per 30-minute period.
+        config:
+          meta:
+            feature: true
+            categorical: false
+        data_tests:
+          - not_null
+      - name: similar_day_reference_date
+        data_type: date
+        description: >
+          The chosen similar day.
+        data_tests:
+          - not_null
+      - name: similar_day_reference_lag_days
+        data_type: int
+        description: >
+          trade_date minus the chosen day, in days (334-394 under the default window).
+        data_tests:
+          - not_null
+      - name: similar_day_distance
+        data_type: double
+        description: >
+          The chosen day's distance from D under the run's weights.
+        data_tests:
+          - not_null
+      - name: similar_day_n_candidates
+        data_type: int
+        description: >
+          Window days that could be scored for D.
+        data_tests:
+          - not_null
+      - name: similar_day_fit_cutoff
+        data_type: timestamp
+        description: >
+          When the fit whose weights chose the day ran, naive JST: on or before D's issue time, and every pair it used was public by then.
+        data_tests:
+          - not_null
+      - name: available_at
+        data_type: timestamp
+        description: >
+          When the row became usable, naive JST: the latest of D's MSM forecast vintage (reference + 4 h, 01:00 on D-1), similar_day_fit_cutoff and the chosen day's load availability.
+        data_tests:
+          - not_null
+      - name: published_at
+        data_type: timestamp
+        description: >
+          When the scoring run wrote the row (naive JST); breaks ties on available_at, newest wins.
+        data_tests:
+          - not_null
+
+unit_tests:
+  - name: ftr_period_similar_day_passes_every_run_through
+    description: >
+      Two scoring runs of the same period pass through as two rows, the run id
+      renamed; nothing is computed here.
+    model: ftr_period_similar_day
+    given:
+      - input: ref('stg_ml__similar_day')
+        format: sql
+        rows: |
+          select
+            'score-1' as run_id, 'tokyo' as area_code, date '2025-03-10' as trade_date, 1 as time_code,
+            cast(505000 as double) as similar_day_demand_kwh, date '2024-03-11' as similar_day_reference_date,
+            364 as similar_day_reference_lag_days, cast(0.25 as double) as similar_day_distance,
+            61 as similar_day_n_candidates, timestamp '2025-03-02 00:00:00' as similar_day_fit_cutoff,
+            timestamp '2025-03-09 01:00:00' as available_at,
+            timestamp '2025-01-02 10:00:00' as published_at
+          union all
+          select
+            'score-2', 'tokyo', date '2025-03-10', 1,
+            cast(1005000 as double), date '2024-03-12',
+            363, cast(0.5 as double),
+            61, timestamp '2025-03-09 00:00:00', timestamp '2025-03-09 01:00:00',
+            timestamp '2025-06-02 10:00:00'
+    expect:
+      format: sql
+      rows: |
+        select
+          'tokyo' as area_code, date '2025-03-10' as trade_date, 1 as time_code, 'score-1' as similar_day_run_id,
+          cast(505000 as double) as similar_day_demand_kwh, date '2024-03-11' as similar_day_reference_date,
+          364 as similar_day_reference_lag_days, cast(0.25 as double) as similar_day_distance,
+          61 as similar_day_n_candidates, timestamp '2025-03-02 00:00:00' as similar_day_fit_cutoff,
+            timestamp '2025-03-09 01:00:00' as available_at,
+          timestamp '2025-01-02 10:00:00' as published_at
+        union all
+        select
+          'tokyo', date '2025-03-10', 1, 'score-2',
+          cast(1005000 as double), date '2024-03-12',
+          363, cast(0.5 as double),
+          61, timestamp '2025-03-09 00:00:00', timestamp '2025-03-09 01:00:00',
+          timestamp '2025-06-02 10:00:00'

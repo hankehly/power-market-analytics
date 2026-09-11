@@ -1,0 +1,85 @@
+models:
+  - name: stg_ml__similar_day
+    config:
+      contract:
+        enforced: true
+    description: >
+      As-is representation of pma_ml.similar_day (the demand similar-day feature
+      as the fit-and-score runs wrote it). One row per MLflow run, area and
+      30-minute period. Column documentation lives on the source
+      (models/raw/ml.yml). Empty (no rows, the contract's types) until the
+      first run creates the source table.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - run_id
+              - area_code
+              - trade_date
+              - time_code
+    columns:
+      - name: run_id
+        data_type: string
+        data_tests:
+          - not_null
+      - name: area_code
+        data_type: string
+        data_tests:
+          - not_null
+      - name: trade_date
+        data_type: date
+        data_tests:
+          - not_null
+      - name: time_code
+        data_type: int
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 1
+                max_value: 48
+      - name: similar_day_demand_kwh
+        data_type: double
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                inclusive: false
+      - name: similar_day_reference_date
+        data_type: date
+        data_tests:
+          - not_null
+      - name: similar_day_reference_lag_days
+        data_type: int
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 1
+      - name: similar_day_distance
+        data_type: double
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+      - name: similar_day_n_candidates
+        data_type: int
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 1
+      - name: similar_day_fit_cutoff
+        data_type: timestamp
+        data_tests:
+          - not_null
+      - name: available_at
+        data_type: timestamp
+        data_tests:
+          - not_null
+      - name: published_at
+        data_type: timestamp
+        data_tests:
+          - not_null
