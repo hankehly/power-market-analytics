@@ -93,6 +93,7 @@ class TestFitScript:
         assert params["first_fit_cutoff"] == "2024-02-08 00:00:00"
         assert params["last_fit_cutoff"] == "2024-04-25 00:00:00"
         assert params["n_fits"] == "12"
+        assert params["n_cutoffs_without_fit"] == "0"
         assert params["first_day_scored"] == "2024-02-09"
         assert params["last_day_scored"] == str(HOLIDAYS[-1].date())
         assert params["population_weight_census_year"] == "2020"

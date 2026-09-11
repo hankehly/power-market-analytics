@@ -163,3 +163,29 @@ load was public by C. The first fit still runs at the first instant eight pairs 
 the window, so scoring still starts 2019-04-04 and the fits before mid-2021 are the ones
 before. `SimilarDaySelector(fit_window_days=…)`, `similar_day_fit_window_days` in the run's
 params. The write-back table is unchanged.
+
+Run `30ab12e9…` (2026-09-12, PR #68): 388 fits at the same cutoffs, 2,714 days, 6.6 min on
+14.9 M pairs (the expanding run `d57d9bc6…`: 10.8 min, 32.1 M). The 105 fits through
+2021-03-31 are the expanding run's to the digit; from then on a fit sees 701–730 targets,
+44,530 pairs at most. The weights move where the expanding run's had settled: over the
+full-window fits temperature 0.35–0.55, holiday degree 0.38–0.54, calendar days 0.03–0.09,
+days since holiday 0.01–0.10, humidity, rain and days until holiday at most 0.03; the 2026
+fits put 0.54 on temperature and 0.39 on holiday degree where the expanding fit had 0.47 and
+0.45. 172 of the 2,714 days (6.3 %) choose a different reference day, 49 of the 730 in the
+backtest window; the retrieval check is unchanged (selected load difference 0.0522 against
+0.0523, 56.8 % of days better than D − 364 in both).
+
+Codex round 1 (P2): a window shorter than a gap in the targets leaves a later cutoff without
+pairs, and the job aborted where the expanding fit could not. Closed as a rule: a cutoff whose
+window holds fewer than eight public pairs makes no fit, the previous fit serves on, and the
+run lists such cutoffs (`WalkForwardScoring.cutoffs_without_fit`, `n_cutoffs_without_fit`).
+Under the default window the Tokyo data skips none: every one of the 388 fits ran.
+
+Matched backtest, `lightgbm_msm_popw_daytype_simday` for Tokyo 2024-08-18..2026-08-17 with
+`--importance-repeats 1` (run `429eca36…`, 729 days, 34,954 periods): MAE 583,561 kWh against
+588,051 for the expanding fit (`20e483c3…`), −0.8 %, 95 % CI over days of the mean daily-MAE
+difference [−10,950, +1,896], lower on 49.1 % of days; holidays −3.5 %, weekends −2.2 %,
+weekdays +0.4 %; the ten most-improved days hold the whole gain. Against the reference run
+`008868fe…` (the one fit through 2024-08-16, in sample): 585,362, −0.3 %, CI [−8,083, +4,500].
+The sliding window gives back what the walk-forward had cost (+0.5 % on both pairs), with an
+interval that includes zero either way.
