@@ -77,8 +77,8 @@ def script(monkeypatch):
 
 
 class TestFitScript:
-    def test_fits_through_the_given_day_and_publishes_the_row(self, spark, script):
-        script.main(["--area", "tokyo", "--fit-through", "2024-03-31"])
+    def test_walks_forward_weekly_and_publishes_the_rows(self, spark, script):
+        script.main(["--area", "tokyo"])
         run = last_run()
         assert run.info.status == "FINISHED"
         assert run.info.run_name == "similar_day-tokyo"
@@ -88,75 +88,96 @@ class TestFitScript:
 
         params = run.data.params
         assert params["area"] == "tokyo"
-        assert params["fit_through"] == "2024-03-31"
+        assert params["refit_every_days"] == "7"
+        assert params["first_fit_through"] == "2024-02-07"
+        assert params["last_fit_through"] == "2024-04-24"
+        assert params["n_fits"] == "12"
+        assert params["first_day_scored"] == "2024-02-09"
+        assert params["last_day_scored"] == str(HOLIDAYS[-1].date())
         assert params["population_weight_census_year"] == "2020"
         assert params["n_stations"] == "2"
         assert params["similar_day_center_lag_days"] == "364"
         assert params["similar_day_window_half_width_days"] == "30"
         assert params["similar_day_components"].startswith("calendar_days,temperature,")
-        assert params["similar_day_fit_through"] == "2024-03-31"
+        # The last fit's params.
+        assert params["similar_day_fit_through"] == "2024-04-24"
         assert params["similar_day_fit_from"] == "2024-02-07"
         assert params["similar_day_first_selectable_day"] == "2024-02-07"
         assert params["similar_day_hourly_load_span"] == "2023-01-01..2024-04-30"
-        assert params["similar_day_periods_per_hour"] == "2"
         assert params["similar_day_weights"].startswith("calendar_days=")
 
-        # Every scorable day is selected and written: 48 periods of its similar
-        # day's load halved, available once its forecast is.
-        scorable = [d for d in FORECAST_DAYS if pd.Timestamp("2024-02-07") <= d <= HOLIDAYS[-1]]
-        assert params["n_days_scored"] == str(len(scorable))
-        assert params["first_day_scored"] == "2024-02-07"
-        assert params["last_day_scored"] == str(HOLIDAYS[-1].date())
+        scored = [d for d in FORECAST_DAYS if pd.Timestamp("2024-02-09") <= d <= HOLIDAYS[-1]]
+        assert params["n_days_scored"] == str(len(scored))
+        fits = artifact(run.info.run_id, "similar_day_fits.csv")
+        assert len(fits) == 12
+        assert fits["n_days_scored"].sum() == len(scored)
         selection = artifact(run.info.run_id, "similar_day_selection.csv")
-        assert selection["trade_date"].tolist() == [str(d.date()) for d in scorable]
+        assert selection["trade_date"].tolist() == [str(d.date()) for d in scored]
+        assert list(selection.columns)[-1] == "fit_through"
+        retrieval = artifact(run.info.run_id, "similar_day_retrieval.csv")
+        assert retrieval["trade_date"].tolist() == [
+            str(d.date()) for d in scored if d in HISTORY_DAYS
+        ]
+        assert set(RETRIEVAL_METRICS) <= set(run.data.metrics)
+        assert run.data.metrics["similar_day_load_difference_selected"] == pytest.approx(
+            retrieval["selected_load_difference"].mean()
+        )
+
         rows = published_rows(spark, run.info.run_id)
-        assert len(rows) == 48 * len(scorable)
+        assert len(rows) == 48 * len(scored)
         assert set(rows["area_code"]) == {"tokyo"}
-        chosen = selection.set_index("trade_date")["reference_date"]
+        chosen = selection.set_index("trade_date")
         by_period = rows.set_index(["trade_date", "time_code"]).sort_index()
         day = pd.Timestamp("2024-04-10")
-        reference = pd.Timestamp(chosen[str(day.date())])
+        reference = pd.Timestamp(chosen.loc[str(day.date()), "reference_date"])
         row = by_period.loc[(day.date(), 7)]
         assert row["similar_day_reference_date"] == reference.date()
         assert row["similar_day_demand_kwh"] == load_at(reference, 4) / PERIODS_PER_HOUR
         assert row["similar_day_reference_lag_days"] == (day - reference).days
+        assert (
+            row["similar_day_fit_through"]
+            == pd.Timestamp(chosen.loc[str(day.date()), "fit_through"]).date()
+        )
+        assert row["similar_day_fit_through"] <= (day - pd.Timedelta(days=2)).date()
         assert row["available_at"] == forecast_available_at(day)
         assert rows["published_at"].nunique() == 1
-        retrieval = artifact(run.info.run_id, "similar_day_retrieval.csv")
-        assert retrieval["trade_date"].tolist() == [
-            str(d.date()) for d in scorable if d in HISTORY_DAYS
-        ]
-        assert list(retrieval.columns)[-1] == "in_fit"
-        assert retrieval["in_fit"].tolist() == [
-            d <= pd.Timestamp("2024-03-31") for d in pd.to_datetime(retrieval["trade_date"])
-        ]
-        # The four metrics judge the selector on the days after the fit.
-        assert set(RETRIEVAL_METRICS) <= set(run.data.metrics)
-        out_of_sample = retrieval[~retrieval["in_fit"]]
-        assert run.data.metrics["similar_day_load_difference_selected"] == pytest.approx(
-            out_of_sample["selected_load_difference"].mean()
+
+    def test_cadence_reaches_the_job(self, spark, script):
+        script.main(["--refit-every-days", "30"])
+        run = last_run()
+        assert run.data.params["refit_every_days"] == "30"
+        assert run.data.params["n_fits"] == "3"
+        assert len(published_rows(spark, run.info.run_id)) == 48 * int(
+            run.data.params["n_days_scored"]
         )
 
-    def test_defaults_to_the_last_loaded_day_and_logs_no_out_of_sample_metrics(self, spark, script):
-        script.main([])
-        run = last_run()
-        assert run.data.params["area"] == "tokyo"
-        assert run.data.params["fit_through"] == "2024-04-30"
-        # The last day with a pair: the calendar ends at its last holiday, 04-29.
-        assert run.data.params["similar_day_fit_through"] == "2024-04-29"
-        assert not set(RETRIEVAL_METRICS) & set(run.data.metrics)
-        retrieval = artifact(run.info.run_id, "similar_day_retrieval.csv")
-        assert retrieval["in_fit"].all()
-        assert len(published_rows(spark, run.info.run_id)) == 48 * 83
-
-    def test_window_half_width_reaches_the_selector_and_the_row(self, spark, script):
-        script.main(["--fit-through", "2024-03-31", "--window-half-width-days", "10"])
+    def test_window_half_width_reaches_the_selector(self, spark, script):
+        script.main(["--window-half-width-days", "10"])
         run = last_run()
         assert run.data.params["similar_day_window_half_width_days"] == "10"
         rows = published_rows(spark, run.info.run_id)
         assert rows["similar_day_reference_lag_days"].between(354, 374).all()
         assert rows["similar_day_n_candidates"].max() <= 21
 
-    def test_a_fit_without_pairs_fails_before_publishing(self, spark, script):
-        with pytest.raises(ValueError, match="no training pairs"):
-            script.main(["--fit-through", "2023-12-31"])
+    def test_scored_days_without_a_load_yet_log_no_metrics(self, spark, script, monkeypatch):
+        # Loads end on the first fittable day: every scored day is still unknown.
+        monkeypatch.setattr(
+            script,
+            "load_area_hourly_load",
+            lambda area_code="tokyo", spark=None: make_hourly_load(
+                pd.date_range(HISTORY_DAYS[0], "2024-02-07")
+            ),
+        )
+        script.main([])
+        run = last_run()
+        assert run.data.params["first_day_scored"] == "2024-02-09"
+        assert not set(RETRIEVAL_METRICS) & set(run.data.metrics)
+        assert artifact(run.info.run_id, "similar_day_retrieval.csv").empty
+        assert len(published_rows(spark, run.info.run_id)) == 48 * int(
+            run.data.params["n_days_scored"]
+        )
+
+    def test_cadence_below_one_is_rejected(self, script, capsys):
+        with pytest.raises(SystemExit):
+            script.main(["--refit-every-days", "0"])
+        assert "--refit-every-days must be >= 1" in capsys.readouterr().err

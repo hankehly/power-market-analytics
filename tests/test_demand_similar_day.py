@@ -375,8 +375,26 @@ class TestTrainingPairs:
         )
         assert row["load_difference"] == pytest.approx(expected)
 
+    def test_the_pairs_are_computed_once_and_sliced_by_through(self, selector):
+        everything = selector.training_pairs(HISTORY_DAYS[-1])
+        early = selector.training_pairs(pd.Timestamp("2024-03-01"))
+        assert len(early) < len(everything)
+        assert early.df["target_date"].max() <= pd.Timestamp("2024-03-01")
+        assert selector.first_fit_day == HOLIDAYS[0] + pd.Timedelta(days=394)
+        # The same frame object serves every call.
+        assert selector._all_training_pairs() is selector._all_training_pairs()
+
     def test_no_pairs_before_the_first_scorable_day(self, selector):
         assert len(selector.training_pairs(pd.Timestamp("2024-01-31"))) == 0
+
+    def test_first_fit_day_is_none_without_pairs(self):
+        selector = SimilarDaySelector(
+            make_calendar(),
+            make_forecast(),
+            make_observed(),
+            make_hourly_load(pd.date_range("2023-01-01", "2024-01-31")),
+        )
+        assert selector.first_fit_day is None
 
 
 def planted_pairs(

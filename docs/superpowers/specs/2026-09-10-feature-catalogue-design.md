@@ -126,17 +126,25 @@ Similar day is Form B, decided 2026-09-11 in PR 7's review. Form A was built fir
 SQL twin of the selector, 600 lines of model and contract, and a parameters table with
 its own staging model. The researcher chose the write-back for the smaller change and the
 single definition of the selector; that dbt does not score this feature was not a
-concern. `scripts/fit_similar_day.py` fits the seven softmax weights
-(`scipy.optimize.least_squares`, Park, Song and Kwon 2020 Eq. 1–3, in
-`tasks/demand/similar_day.py`) on the pairs up to `--fit-through`, selects the similar
-day of every scorable delivery day with them, and writes 48 rows per day to
-`pma_ml.similar_day`: the chosen day's hourly load over the period's hour ÷ 2 as
-`similar_day_demand_kwh`, the chosen day, its lag, its distance and the candidate count,
-`available_at` = the day's MSM forecast vintage's (every candidate is at least 334 days
-older). The run also logs the selection and the retrieval check (selected vs D − 364 vs
-oracle) with the four `similar_day_*` metrics over the days after the fit. Proof,
-2026-09-11: the fit through 2024-08-16 gives run `008868fe…`'s weights, and the written
-rows are the Python selector's, which matched the run's selection on all 729 forecast days.
+concern. The job walks forward (decided the same day, on Codex's finding that a fit
+through today would score every past day with weights that had seen its own load, and a
+backtest over the fit window would then evaluate on those rows): every 7 days, the
+LightGBM strategies' refit cadence, `scripts/fit_similar_day.py` refits the seven softmax
+weights (`scipy.optimize.least_squares`, Park, Song and Kwon 2020 Eq. 1–3, in
+`tasks/demand/similar_day.py`) on the pairs whose target day lies on or before that step,
+and scores the days that follow with them; a day D is scored by the latest fit whose last
+target day is on or before D − 2, so the fit's cutoff (the midnight after its last target
+day) precedes D's issue time. It writes 48 rows per day to `pma_ml.similar_day`: the
+chosen day's hourly load over the period's hour ÷ 2 as `similar_day_demand_kwh`, the
+chosen day, its lag, its distance, the candidate count, the fit's last day, and
+`available_at` = the later of the day's MSM forecast vintage's and the fit's cutoff (every
+candidate is at least 334 days older). The first run backfills every day from 2019; a later
+run scores only new days, in the live-path spec. The run also logs every fit's weights,
+the selection of every scored day and the retrieval check (selected vs D − 364 vs oracle)
+with the four `similar_day_*` metrics. This is the similar-day spec's deferred follow-up
+(refit as the backtest steps forward) made the job's rule; run `008868fe…`, whose one fit
+served its whole training window, is therefore no longer reproducible to the digit, and the
+proof is the fit through 2024-08-16 reproduced exactly plus a matched comparison.
 
 A Form A feature, should one come, keeps this section's original rule: parameters in
 `pma_ml.<feature>_parameters` with `available_at` = the fit window's end, one mart row per

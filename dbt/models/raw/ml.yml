@@ -299,13 +299,14 @@ sources:
       - name: similar_day
         description: >
           The demand task's similar-day feature as scripts/fit_similar_day.py
-          scored it: for every delivery day that can be scored, the load of the
-          learned similar day one year earlier, halved per 30-minute period
+          scored it walking forward: for every delivery day that can be scored,
+          the load of the learned similar day one year earlier, halved per
+          30-minute period, chosen by weights fitted only on days before it
           (tasks/demand/similar_day.py selects the day, similar_day_feature.py
-          writes the rows). One row per MLflow run, area and period; partitioned
-          by run_id and overwritten per run like the forecast tables, so a
-          refit-and-rescore is a new run whose rows the ftr_period_similar_day
-          mart passes to Feast next to the older runs'. The table exists only
+          refits every few days and writes the rows). One row per MLflow run,
+          area and period; partitioned by run_id and overwritten per run like
+          the forecast tables, so a re-run is a new run whose rows the
+          ftr_period_similar_day mart passes to Feast next to the older runs'. The table exists only
           once a run has published to it, so no test runs against the source
           itself: the guarded staging model is the only node that reads it, and
           its contract and tests check every column.
@@ -337,9 +338,12 @@ sources:
           - name: similar_day_n_candidates
             description: >
               Window days that could be scored for D.
+          - name: similar_day_fit_through
+            description: >
+              Last target day of the fit whose weights chose the day, at least two days before D: the job refits every few days as it walks forward and scores each day with the latest fit before its issue time.
           - name: available_at
             description: >
-              When the row's newest input became public, naive JST: D's MSM forecast vintage (reference + 4 h, 01:00 on D-1); every candidate is at least 334 days older.
+              When the row became usable, naive JST: the later of D's MSM forecast vintage (reference + 4 h, 01:00 on D-1) and the fit's cutoff, the midnight after similar_day_fit_through; every candidate is at least 334 days older.
           - name: published_at
             description: >
               When the run's rows were written to the warehouse (naive JST); the newest published run wins among rows tied on available_at.
