@@ -151,21 +151,25 @@
   devcontainer's), so the demand backtests run in the devcontainer only.
 - `just python scripts/fit_similar_day.py --area tokyo` — score the demand similar day walking
   forward (since 2026-09-11, feature catalogue PR 7): every `--refit-every-days` (default 7,
-  the LightGBM strategies' refit cadence) the job refits the seven weights of the similar-day
-  distance on the (target, candidate) pairs whose target day lies on or before that step
-  (`tasks/demand/similar_day.py`'s selector) and scores the days that follow with them — a day
-  is scored by the latest fit whose last target day is at least two days before it, so no day
-  is scored with weights that saw its own load — and writes the feature to `pma_ml.similar_day`
+  the LightGBM strategies' refit cadence) a fit of the seven weights of the similar-day
+  distance runs at a cutoff instant on the (target, candidate) pairs whose target load was
+  public by then (`tasks/demand/similar_day.py`'s selector; the loads' `available_at`, which
+  `AreaHourlyLoad` carries: the daily files' update time from 2022-04, two days after the
+  day for the yearly files before) and scores the days whose 09:30 D-1 issue time follows the
+  cutoff until the next one, so no day is scored with weights that saw a load that was not
+  yet public — and writes the feature to `pma_ml.similar_day`
   (`tasks/demand/similar_day_feature.py`; 48 rows per day, partitioned by `run_id` like the
   forecast tables); `--window-half-width-days` (default 30). Logs to the MLflow experiment
-  `similar_day` (`refit_every_days`, `n_fits`, `first_fit_through`, `last_fit_through`,
+  `similar_day` (`refit_every_days`, `n_fits`, `first_fit_cutoff`, `last_fit_cutoff`,
   `n_days_scored`, the last fit's `similar_day_*` params; every fit's weights as
   `similar_day_fits.csv`, the selection of every scored day as `similar_day_selection.csv`,
   the retrieval check of every scored day with a known load as `similar_day_retrieval.csv`
   and the four `similar_day_*` metrics over them; tag `feature_table`). Then
   `just dbt build --select stg_ml__similar_day ftr_period_similar_day` passes the rows to
   Feast; a re-run is a new run whose rows win wherever they overlap. The first run backfills
-  every day from 2019; scoring only new days is the live-path spec's. Needs the devcontainer.
+  every day from 2019 (the first fit runs when the first scorable day's load is public, so
+  scoring starts 2019-04-04); scoring only new days is the live-path spec's. Needs the
+  devcontainer.
 - `just python scripts/compare_demand_runs.py --baseline <run_id> --candidate <run_id>` — the
   demand task's matched two-run comparison (`tasks/demand/compare.py`): MAE overall / MAPE /
   bias / by day part, day type, month, season, 2,000-MWh actual-demand band, top-10 % demand
@@ -565,26 +569,28 @@
   load of a learned similar day one year earlier, halved per period. Since 2026-09-11
   (feature catalogue PR 7) a walk-forward job builds it: `scripts/fit_similar_day.py` refits
   the seven softmax weights of `tasks/demand/similar_day.py`'s distance every 7 days
-  (`scipy.optimize.least_squares` on the pairs whose target day lies on or before the step,
-  Park, Song and Kwon 2020 Eq. 1–3) and scores the days that follow with them — for a
+  (`scipy.optimize.least_squares` on the pairs whose target load was public by the fit's
+  cutoff, Park, Song and Kwon 2020 Eq. 1–3) and scores the days that follow with them — for a
   delivery day D the nearest day in D − 364 ± 30 under seven parts: days from D − 364; the
   24-h RMSE of D's population-weighted MSM forecast against the candidate's
   population-weighted observation for temperature, humidity and rain; |Δ| of `dim_date`'s
   days since / until a named holiday and of `holiday_degree`; a candidate needs all 24
   hourly loads of `fct_area_power_usage_hourly`, a full observed profile and a calendar
   row, D a full forecast profile and a window on or after the first candidate day (first
-  scorable day 2019-04-01, the MSM start; the first fit runs through it, so scoring starts
-  two days later) — and writes the chosen day's hourly load over the period's hour ÷ 2 to
-  `pma_ml.similar_day` (`tasks/demand/similar_day_feature.py`: 48 rows per day with the
-  chosen day, lag, distance, candidate count and the fit's last day next to the feature;
-  `available_at` = the later of the day's MSM forecast vintage's, from
-  `AreaWeatherForecast`, and the fit's cutoff, the midnight after its last target day;
-  every candidate is at least 334 days older). A day is scored by the latest fit whose last
-  target day is at least two days before it, so the fit's cutoff precedes the day's issue
-  time and no day is scored with weights that saw its own load — the similar-day spec's
-  decision 7 (one fit per backtest, frozen) replaced by its deferred follow-up, on Codex's
-  finding in PR #67 that a separate fit through today would otherwise score the history in
-  sample. `stg_ml__similar_day` (guarded like the importance tables) and
+  scorable day 2019-04-01, the MSM start; the first fit runs when its load is public, so
+  scoring starts 2019-04-04) — and writes the chosen day's hourly load over the period's
+  hour ÷ 2 to `pma_ml.similar_day` (`tasks/demand/similar_day_feature.py`: 48 rows per day
+  with the chosen day, lag, distance, candidate count and the fit's cutoff next to the
+  feature; `available_at` = the later of the day's MSM forecast vintage's, from
+  `AreaWeatherForecast`, and the fit's cutoff; every candidate is at least 334 days older).
+  A fit at cutoff C uses only the pairs whose target load was public by C (`AreaHourlyLoad`
+  carries the fact's `available_at`; `SimilarDaySelector.fit(available_by)`), and a day is
+  scored by the latest fit whose cutoff is on or before its issue time, so no day is scored
+  with weights that saw a load that was not yet public — the similar-day spec's decision 7
+  (one fit per backtest, frozen) replaced by its deferred follow-up, on Codex's findings in
+  PR #67 that a separate fit through today would otherwise score the history in sample and
+  that the yearly-file loads are public only two days after their day.
+  `stg_ml__similar_day` (guarded like the importance tables) and
   `ftr_period_similar_day` pass the rows to Feast, one row per scoring run
   (`similar_day_run_id`): the join takes the newest run usable at the issue time and, among
   rows tied on `available_at`, the newest published (the view's `created_timestamp_column`),
@@ -904,8 +910,9 @@
   read by a guarded staging model, and passed through by a mart with one row per scoring
   run and `published_at` next to `available_at` (the view generator turns that column into
   Feast's `created_timestamp_column`, so the newest published run wins among rows tied on
-  `available_at`). The job walks forward, refitting as it goes, so no row is scored with a
-  fit that saw the row's own outcome; a backtest can then start anywhere.
+  `available_at`). The job walks forward, each fit at a cutoff on the data public by then,
+  so no row is scored with a fit that saw anything published after the row's issue time; a
+  backtest can then start anywhere.
 
 ## Writing style (specs, research docs, PR bodies, replies)
 

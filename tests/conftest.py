@@ -553,6 +553,8 @@ def curated_warehouse(spark: SparkSession) -> CuratedWarehouse:
                     TOKYO_AREA_KEY,
                     (day + pd.Timedelta(hours=hour)).to_pydatetime(),
                     load_kwh,
+                    # A daily file: public at midnight after the day.
+                    (day + pd.Timedelta(days=1)).to_pydatetime(),
                 )
             )
             hourly_load_records.append(
@@ -746,7 +748,7 @@ def curated_warehouse(spark: SparkSession) -> CuratedWarehouse:
     spark.createDataFrame(
         hourly_load_rows,
         "date_key date, hour_of_day int, area_key int, delivery_datetime timestamp, "
-        "demand_kwh bigint",
+        "demand_kwh bigint, available_at timestamp",
     ).write.mode("overwrite").saveAsTable("pma_curated.fct_area_power_usage_hourly")
     return CuratedWarehouse(
         areas=AREAS,
@@ -902,7 +904,7 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
             "similar_day_reference_lag_days": 364,
             "similar_day_distance": 0.0,
             "similar_day_n_candidates": 61,
-            "similar_day_fit_through": (day - pd.Timedelta(days=2)).date(),
+            "similar_day_fit_cutoff": day - pd.Timedelta(days=1),
             "available_at": day - pd.Timedelta(days=1) + pd.Timedelta(hours=1),
             "published_at": pd.Timestamp("2026-09-11 09:00:00"),
         }
@@ -956,7 +958,7 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
         "similar_day_demand_kwh double, "
         "similar_day_reference_date date, similar_day_reference_lag_days int, "
         "similar_day_distance double, similar_day_n_candidates int, "
-        "similar_day_fit_through date, available_at timestamp, published_at timestamp",
+        "similar_day_fit_cutoff timestamp, available_at timestamp, published_at timestamp",
     ).write.mode("overwrite").saveAsTable("pma_features.ftr_period_similar_day")
 
 

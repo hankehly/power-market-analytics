@@ -6,14 +6,14 @@ server):
     python scripts/fit_similar_day.py --area tokyo
 
 The job walks through every delivery day that can be scored. Every
-``--refit-every-days`` (default 7, the LightGBM strategies' refit cadence) it
-refits the seven weights of the similar-day distance on the (target,
-candidate) pairs whose target day lies before that step
-(``tasks/demand/similar_day.py``; Park, Song and Kwon 2020), and scores the
-days that follow with them: a day is scored by the latest fit whose last
-target day is at least two days before it, so the fit's cutoff precedes the
-day's 09:30 D-1 issue time and no day is scored with weights that saw its
-own load. The chosen day's hourly load halved per period is written to
+``--refit-every-days`` (default 7, the LightGBM strategies' refit cadence) a
+fit of the seven weights of the similar-day distance runs at a cutoff
+instant on the (target, candidate) pairs whose target load was public by
+then (``tasks/demand/similar_day.py``; Park, Song and Kwon 2020), and scores
+the days whose 09:30 D-1 issue time follows the cutoff until the next one,
+so no day is scored with weights that saw a load that was not yet public
+when the forecast would have been made. The chosen day's hourly load halved
+per period is written to
 ``pma_ml.similar_day`` (``tasks/demand/similar_day_feature.py``) with
 ``available_at`` = the later of the day's forecast availability and its
 fit's cutoff. The ``ftr_period_similar_day`` mart passes the rows to Feast
@@ -114,8 +114,8 @@ def main(argv: list[str] | None = None) -> None:
                 "area": args.area,
                 "refit_every_days": args.refit_every_days,
                 "n_fits": len(scoring.fits),
-                "first_fit_through": str(scoring.fits["fit_through"].iloc[0].date()),
-                "last_fit_through": str(scoring.fits["fit_through"].iloc[-1].date()),
+                "first_fit_cutoff": str(scoring.fits["fit_cutoff"].iloc[0]),
+                "last_fit_cutoff": str(scoring.fits["fit_cutoff"].iloc[-1]),
                 "n_days_scored": len(selection),
                 "first_day_scored": str(selection.df["trade_date"].min().date()),
                 "last_day_scored": str(selection.df["trade_date"].max().date()),
@@ -127,7 +127,7 @@ def main(argv: list[str] | None = None) -> None:
         )
         log_dataframe(scoring.fits, "similar_day_fits.csv")
         log_dataframe(
-            selection.df.assign(fit_through=scoring.fit_through.to_numpy()),
+            selection.df.assign(fit_cutoff=scoring.fit_cutoff.to_numpy()),
             "similar_day_selection.csv",
         )
         # The outcomes do not depend on the weights; the distances are the last fit's.
@@ -148,8 +148,8 @@ def main(argv: list[str] | None = None) -> None:
         args.area,
         len(scoring.fits),
         args.refit_every_days,
-        scoring.fits["fit_through"].iloc[0].date(),
-        scoring.fits["fit_through"].iloc[-1].date(),
+        scoring.fits["fit_cutoff"].iloc[0],
+        scoring.fits["fit_cutoff"].iloc[-1],
         len(selection),
         len(records),
         selection.df["trade_date"].min().date(),

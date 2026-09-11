@@ -453,6 +453,8 @@ class SimilarDaySelector:
             weather_observed.df, "obs_date", {name: col for name, _, col in _WEATHER_MEASURES}
         )
         self._load = _complete_profiles(hourly_load.df, "load_date", {"load": "demand_kwh"})
+        # When a day's load was fully public: its newest hour's availability.
+        self._load_available_at = hourly_load.df.groupby("load_date")["available_at"].max()
         candidates = self._observed.days.intersection(self._load.days).intersection(
             pd.DatetimeIndex(self._calendar.index)
         )
@@ -568,8 +570,9 @@ class SimilarDaySelector:
 
     def _all_training_pairs(self) -> pd.DataFrame:
         """Every window pair of every scorable forecast day whose own load is known,
-        with the realised load difference; computed once, as a walk-forward job
-        fits on a prefix of it every few days."""
+        with the realised load difference and ``available_at``, when the target's
+        load was public; computed once, as a walk-forward job fits on a prefix
+        of it every few days."""
         if self._pairs_cache is None:
             targets = self._forecast.days[self._forecast.days.isin(self._load.days)]
             diffs = self.differences(targets).df
@@ -578,39 +581,46 @@ class SimilarDaySelector:
                 loads[self._load.days.get_indexer(pd.DatetimeIndex(diffs["target_date"]))],
                 loads[self._load.days.get_indexer(pd.DatetimeIndex(diffs["candidate_date"]))],
             )
-            self._pairs_cache = diffs.assign(load_difference=realised)
+            self._pairs_cache = diffs.assign(
+                load_difference=realised,
+                available_at=diffs["target_date"].map(self._load_available_at),
+            )
         return self._pairs_cache
 
-    def training_pairs(self, through: pd.Timestamp) -> SimilarDayTrainingPairs:
-        """Every window pair of the scorable forecast days on or before ``through``
-        whose own hourly load is known, with the realised load difference.
+    def training_pairs(self, available_by: pd.Timestamp) -> SimilarDayTrainingPairs:
+        """Every window pair whose target day's own load was public by ``available_by``,
+        with the realised load difference: what a fit run at that instant may see.
 
         Parameters
         ----------
-        through : pandas.Timestamp
-            Last target day allowed (the newest day a fit may see).
+        available_by : pandas.Timestamp
+            The instant the fit runs (naive JST, the warehouse's clock).
 
         Returns
         -------
         SimilarDayTrainingPairs
         """
         pairs = self._all_training_pairs()
-        kept = pairs[pairs["target_date"] <= pd.Timestamp(through)].reset_index(drop=True)
-        return SimilarDayTrainingPairs.from_df(kept)
+        kept = pairs[pairs["available_at"] <= pd.Timestamp(available_by)]
+        return SimilarDayTrainingPairs.from_df(
+            kept.drop(columns="available_at").reset_index(drop=True)
+        )
 
     @property
-    def first_fit_day(self) -> pd.Timestamp | None:
-        """The earliest day a fit can run through: the first scorable forecast day
-        whose own load is known, if any."""
+    def first_fit_cutoff(self) -> pd.Timestamp | None:
+        """The earliest instant a fit can run: when the first scorable forecast day's
+        own load became public, if any day has one."""
         pairs = self._all_training_pairs()
-        return None if pairs.empty else pd.Timestamp(pairs["target_date"].min())
+        return None if pairs.empty else pd.Timestamp(pairs["available_at"].min())
 
-    def fit(self, through: pd.Timestamp) -> SimilarDayWeights:
-        """Fit and store the weights on the training pairs up to ``through``.
+    def fit(self, available_by: pd.Timestamp) -> SimilarDayWeights:
+        """Fit and store the weights on the pairs public by ``available_by``.
 
         Parameters
         ----------
-        through : pandas.Timestamp
+        available_by : pandas.Timestamp
+            The instant the fit runs; only pairs whose target load was public by
+            then are used.
 
         Returns
         -------
@@ -619,31 +629,29 @@ class SimilarDaySelector:
         Raises
         ------
         ValueError
-            No pair has a target day on or before ``through`` (or too few).
+            No pair was public by ``available_by`` (or too few).
         RuntimeError
             The solver did not converge.
         """
-        pairs = self.training_pairs(through)
+        pairs = self.training_pairs(available_by)
         if len(pairs) == 0:
-            raise ValueError(
-                f"no training pairs with a target day on or before {pd.Timestamp(through).date()}"
-            )
+            raise ValueError(f"no training pairs public by {pd.Timestamp(available_by)}")
         self._weights = fit_similar_day_weights(pairs)
         logger.info("SimilarDaySelector: fitted on {}", self._weights.as_params())
         return self._weights
 
-    def ensure_fitted(self, through: pd.Timestamp) -> SimilarDayWeights:
-        """Fit once; later calls return the stored weights whatever ``through`` is.
+    def ensure_fitted(self, available_by: pd.Timestamp) -> SimilarDayWeights:
+        """Fit once; later calls return the stored weights whatever ``available_by`` is.
 
         Parameters
         ----------
-        through : pandas.Timestamp
+        available_by : pandas.Timestamp
 
         Returns
         -------
         SimilarDayWeights
         """
-        return self._weights if self._weights is not None else self.fit(through)
+        return self._weights if self._weights is not None else self.fit(available_by)
 
     @property
     def weights(self) -> SimilarDayWeights:

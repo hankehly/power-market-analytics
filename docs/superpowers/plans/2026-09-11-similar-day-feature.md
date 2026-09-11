@@ -35,6 +35,16 @@ on the row). The selector caches its training pairs so the ~380 weekly fits over
 stay fast. Run `008868fe…` is no longer reproducible to the digit (its one fit served its
 whole training window); the proof is the fit reproduced exactly plus a matched comparison.
 
+## Rework 3, 2026-09-11: the fit's cutoff from the data
+
+Codex's third round: the TEPCO yearly-file loads (2016-04 to 2022-03) are public two days
+after their day, so a fit "through T" that scores from T + 2 used T's load a day before the
+contract says it existed. The closed rule: a fit runs at a cutoff instant on the pairs whose
+target load was public by then (`AreaHourlyLoad.available_at`, `SimilarDaySelector.fit(
+available_by)`), and scores the days whose issue time follows the cutoff; the rows carry
+`similar_day_fit_cutoff` and `available_at` = the later of the forecast's and the cutoff. No
+lead is assumed any more.
+
 ## Global Constraints
 
 - The scoring in SQL reproduces `tasks/demand/similar_day.py`: window D − 364 ± 30 from the parameters row; a candidate needs all 24 hours of population-weighted observed temperature, humidity and rain (the latest census vintage's station weights, added in station order), all 24 hourly loads and a calendar row with both holiday distances; a target needs all 24 hours of the `ftr_hour_msm` population-weighted forecast of one vintage and a calendar row, and a window that starts on or after the area's first candidate day; parts: `abs(lag − 364)`, the three 24-hour RMSEs (target forecast against candidate observation), `abs(Δ days_since_holiday)`, `abs(Δ days_until_holiday)`, `abs(Δ holiday_degree)`; distance `sqrt(Σ w_j (part_j / s_j)²)`; the smallest distance wins, ties to the candidate nearest D − 364, then the earlier date; the feature is the chosen day's hourly load at `(time_code + 1) div 2` ÷ 2.

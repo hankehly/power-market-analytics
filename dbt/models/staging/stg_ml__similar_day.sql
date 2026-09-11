@@ -19,7 +19,7 @@ with
     similar_day_reference_lag_days,
     similar_day_distance,
     similar_day_n_candidates,
-    similar_day_fit_through,
+    similar_day_fit_cutoff,
     available_at,
     published_at
   from
@@ -38,7 +38,7 @@ select
   cast(null as int) as similar_day_reference_lag_days,
   cast(null as double) as similar_day_distance,
   cast(null as int) as similar_day_n_candidates,
-  cast(null as date) as similar_day_fit_through,
+  cast(null as timestamp) as similar_day_fit_cutoff,
   cast(null as timestamp) as available_at,
   cast(null as timestamp) as published_at
 where

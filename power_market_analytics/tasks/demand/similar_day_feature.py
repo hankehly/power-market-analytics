@@ -1,9 +1,10 @@
 """The similar-day feature values, scored walking forward and written back.
 
 ``scripts/fit_similar_day.py`` walks through history with the selector of
-``tasks/demand/similar_day.py``: every ``refit_every_days`` it refits the
-weights on the days before that step and scores the days that follow with
-them, so no day is scored with weights that saw its own load. The chosen
+``tasks/demand/similar_day.py``: every ``refit_every_days`` a fit runs at a
+cutoff instant on the pairs whose target load was public by then, and scores
+the days whose issue time follows the cutoff until the next one, so no day is
+scored with weights that saw a load that was not yet public. The chosen
 day's hourly load halved per period is written to ``pma_ml.similar_day``,
 partitioned by the job's MLflow run like the forecast tables, each row
 usable from the later of its forecast's availability and its fit's cutoff.
@@ -29,6 +30,7 @@ from power_market_analytics.forecasting.publish import (
     overwrite_run_partitions,
 )
 from power_market_analytics.spark import get_spark_session
+from power_market_analytics.tasks.demand import TASK
 from power_market_analytics.tasks.demand.frames import AreaHourlyLoad, AreaWeatherForecast
 from power_market_analytics.tasks.demand.similar_day import (
     PERIODS_PER_HOUR,
@@ -44,10 +46,6 @@ MLFLOW_EXPERIMENT = "similar_day"
 FEATURE_TABLE = "pma_ml.similar_day"
 #: Days between two fits of the walk-forward job: the LightGBM strategies' refit cadence.
 DEFAULT_REFIT_EVERY_DAYS = 7
-#: The gap between a fit's last target day and the first day it may score: the
-#: day's issue time (09:30 on D-1) must follow the fit's cutoff (00:00 after
-#: its last target day), so the fit runs through D-2 at the latest.
-FIT_LEAD_DAYS = 2
 _DATE = "datetime64[ns]"
 
 
@@ -59,23 +57,27 @@ class WalkForwardScoring:
     ----------
     selection : SimilarDaySelection
         One row per scored day.
-    fit_through : pandas.Series
-        The last target day of the fit that scored each day, indexed by ``trade_date``.
+    fit_cutoff : pandas.Series
+        The cutoff of the fit that scored each day, indexed by ``trade_date``: the
+        instant the fit ran, before the day's issue time.
     fits : pandas.DataFrame
-        One row per fit: ``fit_through``, ``fit_from``, ``n_pairs``, ``n_targets``,
-        ``alpha``, ``beta``, ``fit_rmse``, ``n_days_scored``, then ``weight_<part>`` and
-        ``scale_<part>`` for every part.
+        One row per fit: ``fit_cutoff``, ``fit_from``, ``fit_through`` (the target
+        days it saw), ``n_pairs``, ``n_targets``, ``alpha``, ``beta``, ``fit_rmse``,
+        ``n_days_scored``, then ``weight_<part>`` and ``scale_<part>`` for every part.
     """
 
     selection: SimilarDaySelection
-    fit_through: pd.Series
+    fit_cutoff: pd.Series
     fits: pd.DataFrame
 
 
-def _fit_row(weights: SimilarDayWeights, n_days_scored: int) -> dict[str, object]:
+def _fit_row(
+    cutoff: pd.Timestamp, weights: SimilarDayWeights, n_days_scored: int
+) -> dict[str, object]:
     return {
-        "fit_through": weights.fit_through,
+        "fit_cutoff": cutoff,
         "fit_from": weights.fit_from,
+        "fit_through": weights.fit_through,
         "n_pairs": weights.n_pairs,
         "n_targets": weights.n_targets,
         "alpha": weights.alpha,
@@ -87,6 +89,20 @@ def _fit_row(weights: SimilarDayWeights, n_days_scored: int) -> dict[str, object
     }
 
 
+def issue_times(days: pd.DatetimeIndex) -> pd.DatetimeIndex:
+    """The demand task's issue time of each delivery day (09:30 on D-1, naive JST).
+
+    Parameters
+    ----------
+    days : pandas.DatetimeIndex
+
+    Returns
+    -------
+    pandas.DatetimeIndex
+    """
+    return pd.DatetimeIndex(days) + TASK.issue_offset
+
+
 def score_walk_forward(
     selector: SimilarDaySelector,
     days: Iterable[pd.Timestamp],
@@ -95,11 +111,13 @@ def score_walk_forward(
 ) -> WalkForwardScoring:
     """Score the scorable days among ``days``, refitting the weights as time passes.
 
-    The first fit runs through the first day a fit is possible (the first
-    scorable day with a known load); every ``refit_every_days`` after it a new
-    fit runs through that day. A day D is scored by the latest fit whose last
-    target day is on or before D − ``FIT_LEAD_DAYS``, so the fit's cutoff
-    precedes D's issue time. Days before the first fit can score are left out.
+    The first fit runs at the first instant a fit is possible (when the first
+    scorable day's own load became public) and every ``refit_every_days`` after
+    it; a fit at cutoff C uses the pairs whose target load was public by C
+    (``SimilarDaySelector.training_pairs``). A day is scored by the latest fit
+    whose cutoff is on or before the day's issue time, so nothing the fit saw
+    was published after the forecast would have been made. Days whose issue
+    time precedes the first cutoff are left out.
 
     Parameters
     ----------
@@ -123,26 +141,27 @@ def score_walk_forward(
     """
     if refit_every_days < 1:
         raise ValueError(f"refit_every_days must be >= 1, got {refit_every_days}")
-    first_fit = selector.first_fit_day
-    if first_fit is None:
+    first = selector.first_fit_cutoff
+    if first is None:
         raise ValueError("no training pairs: no scorable day has a known load")
     scorable = selector.scorable_days(days)
-    lead = pd.Timedelta(days=FIT_LEAD_DAYS)
+    issued = issue_times(scorable)
+    if scorable.empty or issued.max() < first:
+        raise ValueError(f"no day can be scored: the first fit can run at {first}")
     step = pd.Timedelta(days=refit_every_days)
-    if scorable.empty or scorable.max() < first_fit + lead:
-        raise ValueError(f"no day can be scored: the first fit runs through {first_fit.date()}")
+    cutoffs = pd.date_range(first, issued.max(), freq=step)
     frames: list[pd.DataFrame] = []
     fits: list[dict[str, object]] = []
-    fit_through = first_fit
-    while fit_through + lead <= scorable.max():
-        block = scorable[(scorable >= fit_through + lead) & (scorable < fit_through + step + lead)]
-        weights = selector.fit(fit_through)
+    for k, cutoff in enumerate(cutoffs):
+        served = issued >= cutoff
+        if k + 1 < len(cutoffs):
+            served &= issued < cutoffs[k + 1]
+        weights = selector.fit(cutoff)
         # An empty block (a gap in the forecasts) gives an empty selection.
-        selection = selector.select(block).df
-        fits.append(_fit_row(weights, len(selection)))
+        selection = selector.select(scorable[served]).df
+        fits.append(_fit_row(cutoff, weights, len(selection)))
         if not selection.empty:
-            frames.append(selection.assign(fit_through=fit_through))
-        fit_through = fit_through + step
+            frames.append(selection.assign(fit_cutoff=cutoff))
     scored = pd.concat(frames, ignore_index=True)
     logger.info(
         "score_walk_forward: {} days scored ({}..{}) by {} fits every {} days ({}..{})",
@@ -151,12 +170,12 @@ def score_walk_forward(
         scored["trade_date"].max().date(),
         len(fits),
         refit_every_days,
-        first_fit.date(),
-        (fit_through - step).date(),
+        cutoffs[0],
+        cutoffs[-1],
     )
     return WalkForwardScoring(
-        selection=SimilarDaySelection.from_df(scored.drop(columns="fit_through")),
-        fit_through=scored.set_index("trade_date")["fit_through"],
+        selection=SimilarDaySelection.from_df(scored.drop(columns="fit_cutoff")),
+        fit_cutoff=scored.set_index("trade_date")["fit_cutoff"],
         fits=pd.DataFrame(fits),
     )
 
@@ -166,11 +185,10 @@ class SimilarDayFeatureRecords(DomainFrame):
 
     Per delivery period: the chosen day's hourly load over the period's hour
     halved (``similar_day_demand_kwh``), the chosen day, its lag in days, its
-    distance, the candidate count, the last target day of the fit that chose
-    it (at least ``FIT_LEAD_DAYS`` before the delivery day) and
-    ``available_at``: the later of the day's forecast availability and the
-    fit's cutoff, the midnight after its last target day. The candidates are
-    at least 334 days older.
+    distance, the candidate count, the cutoff of the fit that chose it (on or
+    before the day's issue time) and ``available_at``: the later of the day's
+    forecast availability and that cutoff. The candidates are at least 334
+    days older.
 
     Grain: (area_code, trade_date, time_code); one run per frame.
     """
@@ -184,7 +202,7 @@ class SimilarDayFeatureRecords(DomainFrame):
         "similar_day_reference_lag_days": "int64",
         "similar_day_distance": "float64",
         "similar_day_n_candidates": "int64",
-        "similar_day_fit_through": _DATE,
+        "similar_day_fit_cutoff": _DATE,
         "available_at": _DATE,
         "published_at": _DATE,
         "run_id": "object",
@@ -204,14 +222,10 @@ class SimilarDayFeatureRecords(DomainFrame):
             raise ValueError(f"{name}: similar_day_reference_lag_days must equal the date gap")
         if (df["similar_day_demand_kwh"] <= 0).any():
             raise ValueError(f"{name}: similar_day_demand_kwh must be positive")
-        latest_fit = df["trade_date"] - pd.Timedelta(days=FIT_LEAD_DAYS)
-        if (df["similar_day_fit_through"] > latest_fit).any():
-            raise ValueError(
-                f"{name}: similar_day_fit_through must be at least {FIT_LEAD_DAYS} days "
-                "before trade_date"
-            )
-        cutoff = df["similar_day_fit_through"] + pd.Timedelta(days=1)
-        if (df["available_at"] < cutoff).any():
+        issued = issue_times(pd.DatetimeIndex(df["trade_date"])).to_numpy()
+        if (df["similar_day_fit_cutoff"].to_numpy() > issued).any():
+            raise ValueError(f"{name}: similar_day_fit_cutoff must not follow the issue time")
+        if (df["available_at"] < df["similar_day_fit_cutoff"]).any():
             raise ValueError(f"{name}: available_at must not precede the fit's cutoff")
         if df["run_id"].nunique() != 1:
             raise ValueError(f"{name}: one run per frame, got {df['run_id'].nunique()}")
@@ -281,8 +295,7 @@ def build_feature_records(
             d.date() for d in rows.loc[forecast_available_at.isna(), "trade_date"].unique()
         )
         raise ValueError(f"{len(unknown)} day(s) have no forecast availability, e.g. {unknown[0]}")
-    fit_through = rows["trade_date"].map(scoring.fit_through)
-    fit_cutoff = fit_through + pd.Timedelta(days=1)
+    fit_cutoff = rows["trade_date"].map(scoring.fit_cutoff)
     df = (
         pd.DataFrame(
             {
@@ -295,13 +308,13 @@ def build_feature_records(
                 "similar_day_reference_lag_days": rows["reference_lag_days"],
                 "similar_day_distance": rows["distance"],
                 "similar_day_n_candidates": rows["n_candidates"],
-                "similar_day_fit_through": fit_through,
+                "similar_day_fit_cutoff": fit_cutoff,
                 "available_at": np.maximum(forecast_available_at, fit_cutoff),
                 "published_at": pd.Timestamp(published_at),
                 "run_id": run_id,
             }
         )
-        .astype({"similar_day_fit_through": _DATE, "available_at": _DATE, "published_at": _DATE})
+        .astype({"similar_day_fit_cutoff": _DATE, "available_at": _DATE, "published_at": _DATE})
         .sort_values(["trade_date", "time_code"], ignore_index=True)
     )
     return SimilarDayFeatureRecords.from_df(df)
@@ -340,7 +353,7 @@ def publish_feature_records(
           similar_day_reference_lag_days int,
           similar_day_distance double,
           similar_day_n_candidates int,
-          similar_day_fit_through date,
+          similar_day_fit_cutoff timestamp,
           available_at timestamp,
           published_at timestamp""",
     )
@@ -353,7 +366,7 @@ def publish_feature_records(
         F.col("similar_day_reference_lag_days").cast("int"),
         F.col("similar_day_distance").cast("double"),
         F.col("similar_day_n_candidates").cast("int"),
-        F.col("similar_day_fit_through").cast("date"),
+        F.col("similar_day_fit_cutoff").cast("timestamp"),
         F.col("available_at").cast("timestamp"),
         F.col("published_at").cast("timestamp"),
         F.col("run_id").cast("string"),

@@ -89,8 +89,9 @@ class TestFitScript:
         params = run.data.params
         assert params["area"] == "tokyo"
         assert params["refit_every_days"] == "7"
-        assert params["first_fit_through"] == "2024-02-07"
-        assert params["last_fit_through"] == "2024-04-24"
+        # Loads are public at midnight after the day, so the first fit runs on 02-08.
+        assert params["first_fit_cutoff"] == "2024-02-08 00:00:00"
+        assert params["last_fit_cutoff"] == "2024-04-25 00:00:00"
         assert params["n_fits"] == "12"
         assert params["first_day_scored"] == "2024-02-09"
         assert params["last_day_scored"] == str(HOLIDAYS[-1].date())
@@ -113,7 +114,7 @@ class TestFitScript:
         assert fits["n_days_scored"].sum() == len(scored)
         selection = artifact(run.info.run_id, "similar_day_selection.csv")
         assert selection["trade_date"].tolist() == [str(d.date()) for d in scored]
-        assert list(selection.columns)[-1] == "fit_through"
+        assert list(selection.columns)[-1] == "fit_cutoff"
         retrieval = artifact(run.info.run_id, "similar_day_retrieval.csv")
         assert retrieval["trade_date"].tolist() == [
             str(d.date()) for d in scored if d in HISTORY_DAYS
@@ -134,11 +135,13 @@ class TestFitScript:
         assert row["similar_day_reference_date"] == reference.date()
         assert row["similar_day_demand_kwh"] == load_at(reference, 4) / PERIODS_PER_HOUR
         assert row["similar_day_reference_lag_days"] == (day - reference).days
-        assert (
-            row["similar_day_fit_through"]
-            == pd.Timestamp(chosen.loc[str(day.date()), "fit_through"]).date()
+        assert row["similar_day_fit_cutoff"] == pd.Timestamp(
+            chosen.loc[str(day.date()), "fit_cutoff"]
         )
-        assert row["similar_day_fit_through"] <= (day - pd.Timedelta(days=2)).date()
+        # The fit ran before the day's issue time, 09:30 the day before.
+        assert row["similar_day_fit_cutoff"] <= day - pd.Timedelta(days=1) + pd.Timedelta(
+            hours=9, minutes=30
+        )
         assert row["available_at"] == forecast_available_at(day)
         assert rows["published_at"].nunique() == 1
 

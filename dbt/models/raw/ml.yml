@@ -338,12 +338,12 @@ sources:
           - name: similar_day_n_candidates
             description: >
               Window days that could be scored for D.
-          - name: similar_day_fit_through
+          - name: similar_day_fit_cutoff
             description: >
-              Last target day of the fit whose weights chose the day, at least two days before D: the job refits every few days as it walks forward and scores each day with the latest fit before its issue time.
+              When the fit whose weights chose the day ran, naive JST, on or before D's issue time: the job refits every few days as it walks forward, each fit on the pairs whose target load was public by its cutoff, and scores each day with the latest fit before its issue time.
           - name: available_at
             description: >
-              When the row became usable, naive JST: the later of D's MSM forecast vintage (reference + 4 h, 01:00 on D-1) and the fit's cutoff, the midnight after similar_day_fit_through; every candidate is at least 334 days older.
+              When the row became usable, naive JST: the later of D's MSM forecast vintage (reference + 4 h, 01:00 on D-1) and similar_day_fit_cutoff; every candidate is at least 334 days older.
           - name: published_at
             description: >
               When the run's rows were written to the warehouse (naive JST); the newest published run wins among rows tied on available_at.

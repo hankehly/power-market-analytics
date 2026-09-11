@@ -23,6 +23,7 @@ def hourly(**overrides) -> pd.DataFrame:
             "load_date": [DAY, DAY],
             "hour_ending": np.array([1, 2], dtype="int64"),
             "demand_kwh": [30_000_000.0, 29_000_000.0],
+            "available_at": pd.to_datetime([DAY + pd.Timedelta(days=1)] * 2),
         }
     )
     return df.assign(**overrides)
@@ -32,7 +33,11 @@ class TestAreaHourlyLoad:
     def test_keys_and_columns(self):
         frame = AreaHourlyLoad.from_df(hourly())
         assert frame.keys == ["load_date", "hour_ending"]
-        assert list(frame.df.columns) == ["load_date", "hour_ending", "demand_kwh"]
+        assert list(frame.df.columns) == ["load_date", "hour_ending", "demand_kwh", "available_at"]
+
+    def test_availability_is_required(self):
+        with pytest.raises(ValueError, match="'available_at' has 1 null"):
+            AreaHourlyLoad.from_df(hourly(available_at=pd.to_datetime([DAY, pd.NaT])))
 
     def test_hour_outside_1_24_is_rejected(self):
         with pytest.raises(ValueError, match="hour_ending outside 1..24"):
