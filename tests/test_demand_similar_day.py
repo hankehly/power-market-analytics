@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from power_market_analytics.forecasting.lgbm import DEFAULT_TRAIN_WINDOW_DAYS
 from power_market_analytics.tasks.demand.frames import (
     AreaHourlyLoad,
     AreaObservedWeather,
@@ -21,6 +22,7 @@ from power_market_analytics.tasks.demand.similar_day import (
     PERIODS_PER_HOUR,
     SIMILAR_DAY_CENTER_LAG_DAYS,
     SIMILAR_DAY_COMPONENTS,
+    SIMILAR_DAY_FIT_WINDOW_DAYS,
     SIMILAR_DAY_WINDOW_HALF_WIDTH_DAYS,
     DayPairDifferences,
     SimilarDayRetrieval,
@@ -169,6 +171,7 @@ class TestConstants:
     def test_values(self):
         assert SIMILAR_DAY_CENTER_LAG_DAYS == 364
         assert SIMILAR_DAY_WINDOW_HALF_WIDTH_DAYS == 30
+        assert SIMILAR_DAY_FIT_WINDOW_DAYS == DEFAULT_TRAIN_WINDOW_DAYS == 730
         assert PERIODS_PER_HOUR == 2
         assert HOURS_PER_DAY == 24
         assert MIN_FIT_PAIRS == 8
@@ -209,6 +212,14 @@ class TestSelectorSetup:
                 make_hourly_load(),
                 center_lag_days=10,
                 half_width_days=10,
+            )
+        with pytest.raises(ValueError, match="fit window"):
+            SimilarDaySelector(
+                make_calendar(),
+                make_forecast(),
+                make_observed(),
+                make_hourly_load(),
+                fit_window_days=0,
             )
 
     def test_no_candidates_is_rejected(self):
@@ -443,6 +454,45 @@ class TestTrainingPairs:
         )
         assert len(tiny.training_pairs(HISTORY_DAYS[-1])) < MIN_FIT_PAIRS
         assert tiny.first_fit_cutoff is None
+
+    def test_the_fit_window_keeps_the_targets_of_the_days_before_the_cutoff(self):
+        # A window of ten days: a fit on 04-01 sees the targets 03-22..03-31.
+        windowed = SimilarDaySelector(
+            make_calendar(),
+            make_forecast(),
+            make_observed(),
+            make_hourly_load(),
+            fit_window_days=10,
+        )
+        assert windowed.fit_window_days == 10
+        pairs = windowed.training_pairs(pd.Timestamp("2024-04-01"))
+        targets = pairs.df["target_date"].unique()
+        assert targets.min() == pd.Timestamp("2024-03-22")
+        assert targets.max() == pd.Timestamp("2024-03-31")
+        assert len(pairs) == 10 * 61
+        # The window counts calendar days before the cutoff's day, whatever the hour.
+        later = windowed.training_pairs(pd.Timestamp("2024-04-01 10:15"))
+        assert later.df["target_date"].unique().tolist() == targets.tolist()
+        # Until the window fills, the pairs are the ones without a window.
+        assert len(windowed.training_pairs(pd.Timestamp("2024-02-12"))) == 5 * 61
+
+    def test_first_fit_cutoff_counts_the_pairs_inside_the_fit_window(self):
+        # Three candidates a day and a window of two days: at most six pairs are
+        # ever inside the window, so no fit can run. Three days hold nine.
+        def narrow(fit_window_days: int) -> SimilarDaySelector:
+            return SimilarDaySelector(
+                make_calendar(),
+                make_forecast(),
+                make_observed(),
+                make_hourly_load(),
+                half_width_days=1,
+                fit_window_days=fit_window_days,
+            )
+
+        assert narrow(2).first_fit_cutoff is None
+        cutoff = narrow(3).first_fit_cutoff
+        assert cutoff == narrow(SIMILAR_DAY_FIT_WINDOW_DAYS).first_fit_cutoff
+        assert len(narrow(3).training_pairs(cutoff)) == 9
 
 
 def planted_pairs(
@@ -702,6 +752,7 @@ class TestSelectorParams:
         params = fitted.as_params()
         assert params["similar_day_center_lag_days"] == SIMILAR_DAY_CENTER_LAG_DAYS
         assert params["similar_day_window_half_width_days"] == SIMILAR_DAY_WINDOW_HALF_WIDTH_DAYS
+        assert params["similar_day_fit_window_days"] == SIMILAR_DAY_FIT_WINDOW_DAYS
         assert params["similar_day_components"] == ",".join(SIMILAR_DAY_COMPONENTS)
         assert params["similar_day_weights"] == fitted.weights.as_params()["similar_day_weights"]
         assert params["similar_day_first_selectable_day"] == "2024-02-07"

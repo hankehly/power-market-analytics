@@ -132,10 +132,12 @@ backtest over the fit window would then evaluate on those rows, and, in a third 
 that the yearly-file loads before 2022-04 are public only two days after their day): every
 7 days, the LightGBM strategies' refit cadence, `scripts/fit_similar_day.py` runs a fit of
 the seven softmax weights (`scipy.optimize.least_squares`, Park, Song and Kwon 2020 Eq.
-1–3, in `tasks/demand/similar_day.py`) at a cutoff instant, on the pairs whose target load
-was public by then (the loads' `available_at`, which `AreaHourlyLoad` carries), and scores
-with it the days whose issue time follows the cutoff until the next one. Nothing a fit saw
-was published after the issue time of a day it scores. It writes 48 rows per day to
+1–3, in `tasks/demand/similar_day.py`) at a cutoff instant, on the pairs of the 730 days
+before it (the LightGBM strategies' training window, `--fit-window-days`; a sliding window
+since 2026-09-12, the researcher's call after the first run's fit grew without bound) whose
+target load was public by then (the loads' `available_at`, which `AreaHourlyLoad` carries),
+and scores with it the days whose issue time follows the cutoff until the next one. Nothing
+a fit saw was published after the issue time of a day it scores. It writes 48 rows per day to
 `pma_ml.similar_day`: the chosen day's hourly load over the period's hour ÷ 2 as
 `similar_day_demand_kwh`, the chosen day, its lag, its distance, the candidate count, the
 fit's cutoff, and `available_at` = the latest of the day's MSM forecast vintage's, that

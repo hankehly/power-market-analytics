@@ -7,15 +7,16 @@ models:
       The load of a learned similar day one year earlier for every delivery period, the demand
       similar-day feature (research demand/R-004 E-002), as scripts/fit_similar_day.py scored
       it walking forward and wrote it to pma_ml.similar_day. Every few days the job refits the
-      seven weights of tasks/demand/similar_day.py's distance on the days before that step and
+      seven weights of tasks/demand/similar_day.py's distance on the 730 days before that step and
       scores the days that follow with them: for a delivery day D the nearest day in D - 364 +-
       30 (days from D - 364, the 24-hour RMSE of D's population-weighted MSM forecast against
       the candidate's population-weighted observation for temperature, humidity and rain, the
       differences in days since and until a named holiday and in holiday degree), its hourly
       load over the hour containing the period halved. No day is scored with weights that saw
-      a load that was not yet public: each fit runs at a cutoff on the pairs whose target load
-      was public by then, a day is scored by the latest fit whose cutoff is on or before its
-      issue time, and available_at is the latest of D's MSM forecast vintage's, that cutoff and the
+      a load that was not yet public: each fit runs at a cutoff on the pairs of the 730 days
+      before it whose target load was public by then, a day is scored by the latest fit whose
+      cutoff is on or before its issue time, and available_at is the latest of D's MSM forecast
+      vintage's, that cutoff and the
       chosen day's load availability.
       The chosen day, its lag, its distance, the candidate count and the fit's cutoff sit next
       to the feature,

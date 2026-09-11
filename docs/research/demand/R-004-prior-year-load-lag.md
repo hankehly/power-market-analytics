@@ -526,8 +526,14 @@ The same day the researcher made E-002 the new demand baseline (see
 ### Follow-up ideas
 
 - Weight variability over time: fit the weights on yearly or rolling windows
-  of targets and compare
+  of targets and compare — done 2026-09-12 (PR #68): the fit job's sliding
+  730-day window shows the weights move, temperature 0.35–0.55 and holiday
+  degree 0.38–0.54 over 2021–2026, where the expanding fit had settled at 0.47
+  and 0.45; numbers in
+  `docs/superpowers/plans/2026-09-11-similar-day-feature.md`
 - Refit the weights during the backtest, at each LightGBM refit, if they move
+  — done 2026-09-11 (PR #67): the fit job walks forward, refitting every 7
+  days at a cutoff on the data public by then
 - Top-K similar days; the distance itself as a feature; a blended curve
 
 ---
@@ -577,5 +583,5 @@ experiment. It stays out of `scripts/demand_backtest.py`'s default because it
 runs for Tokyo only until another TSO's でんき予報 is loaded; `lightgbm_msm_popw_daytype`
 remains the default and the Kansai baseline.
 
-**Next:** the weight-stability and refit follow-ups (E-002's follow-up ideas);
-the script default once Kansai's でんき予報 lands.
+**Next:** the script default once Kansai's でんき予報 lands (the weight-stability
+and refit follow-ups landed with the walk-forward fit job, PRs #67 and #68).

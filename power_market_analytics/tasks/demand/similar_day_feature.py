@@ -2,9 +2,11 @@
 
 ``scripts/fit_similar_day.py`` walks through history with the selector of
 ``tasks/demand/similar_day.py``: every ``refit_every_days`` a fit runs at a
-cutoff instant on the pairs whose target load was public by then, and scores
-the days whose issue time follows the cutoff until the next one, so no day is
-scored with weights that saw a load that was not yet public. The chosen
+cutoff instant on the pairs of the selector's fit window (the 730 days before
+it by default, the LightGBM strategies' training window) whose target load was
+public by then, and scores the days whose issue time follows the cutoff until
+the next one, so no day is scored with weights that saw a load that was not
+yet public. The chosen
 day's hourly load halved per period is written to ``pma_ml.similar_day``,
 partitioned by the job's MLflow run like the forecast tables, each row
 usable from the later of its forecast's availability and its fit's cutoff.
@@ -65,11 +67,17 @@ class WalkForwardScoring:
         One row per fit: ``fit_cutoff``, ``fit_from``, ``fit_through`` (the target
         days it saw), ``n_pairs``, ``n_targets``, ``alpha``, ``beta``, ``fit_rmse``,
         ``n_days_scored``, then ``weight_<part>`` and ``scale_<part>`` for every part.
+    cutoffs_without_fit : pandas.DatetimeIndex
+        The cutoffs at which fewer than ``MIN_FIT_PAIRS`` public pairs lay inside
+        the fit window, so no fit ran and the previous fit served on.
     """
 
     selection: SimilarDaySelection
     fit_cutoff: pd.Series
     fits: pd.DataFrame
+    cutoffs_without_fit: pd.DatetimeIndex = dataclasses.field(
+        default_factory=lambda: pd.DatetimeIndex([])
+    )
 
 
 def _fit_row(
@@ -114,11 +122,15 @@ def score_walk_forward(
 
     The first fit runs at the first instant a fit is possible (when
     ``MIN_FIT_PAIRS`` pairs were public) and every ``refit_every_days`` after
-    it; a fit at cutoff C uses the pairs whose target load was public by C
-    (``SimilarDaySelector.training_pairs``). A day is scored by the latest fit
-    whose cutoff is on or before the day's issue time, so nothing the fit saw
-    was published after the forecast would have been made. Days whose issue
-    time precedes the first cutoff are left out.
+    it; a fit at cutoff C uses the pairs of the selector's fit window (its
+    ``fit_window_days`` before C) whose target load was public by C
+    (``SimilarDaySelector.training_pairs``). A cutoff whose window holds fewer
+    than ``MIN_FIT_PAIRS`` public pairs (a gap in the targets longer than the
+    fit window) makes no fit: the previous fit serves on, and the cutoff is
+    listed in ``cutoffs_without_fit``. A day is scored by the latest fit whose
+    cutoff is on or before the day's issue time, so nothing the fit saw was
+    published after the forecast would have been made. Days whose issue time
+    precedes the first cutoff are left out.
 
     Parameters
     ----------
@@ -145,7 +157,7 @@ def score_walk_forward(
     first = selector.first_fit_cutoff
     if first is None:
         raise ValueError(
-            f"fewer than {MIN_FIT_PAIRS} training pairs: too few scorable days have a known load"
+            f"fewer than {MIN_FIT_PAIRS} training pairs are ever public inside the fit window"
         )
     scorable = selector.scorable_days(days)
     issued = issue_times(scorable)
@@ -154,20 +166,36 @@ def score_walk_forward(
     step = pd.Timedelta(days=refit_every_days)
     cutoffs = pd.date_range(first, issued.max(), freq=step)
     frames: list[pd.DataFrame] = []
-    fits: list[dict[str, object]] = []
+    fitted: list[tuple[pd.Timestamp, SimilarDayWeights]] = []
+    n_served: list[int] = []
+    skipped: list[pd.Timestamp] = []
     for k, cutoff in enumerate(cutoffs):
         served = issued >= cutoff
         if k + 1 < len(cutoffs):
             served &= issued < cutoffs[k + 1]
-        weights = selector.fit(cutoff)
+        # The first cutoff has enough pairs by construction; a later one may not.
+        if len(selector.training_pairs(cutoff)) >= MIN_FIT_PAIRS:
+            fitted.append((cutoff, selector.fit(cutoff)))
+            n_served.append(0)
+        else:
+            skipped.append(cutoff)
+            logger.info(
+                "score_walk_forward: no fit at {}: fewer than {} pairs public inside the "
+                "fit window; the fit of {} serves on",
+                cutoff,
+                MIN_FIT_PAIRS,
+                fitted[-1][0],
+            )
         # An empty block (a gap in the forecasts) gives an empty selection.
         selection = selector.select(scorable[served]).df
-        fits.append(_fit_row(cutoff, weights, len(selection)))
+        n_served[-1] += len(selection)
         if not selection.empty:
-            frames.append(selection.assign(fit_cutoff=cutoff))
+            frames.append(selection.assign(fit_cutoff=fitted[-1][0]))
     scored = pd.concat(frames, ignore_index=True)
+    fits = [_fit_row(cutoff, weights, n) for (cutoff, weights), n in zip(fitted, n_served)]
     logger.info(
-        "score_walk_forward: {} days scored ({}..{}) by {} fits every {} days ({}..{})",
+        "score_walk_forward: {} days scored ({}..{}) by {} fits every {} days ({}..{}), "
+        "{} cutoffs without a fit",
         len(scored),
         scored["trade_date"].min().date(),
         scored["trade_date"].max().date(),
@@ -175,11 +203,13 @@ def score_walk_forward(
         refit_every_days,
         cutoffs[0],
         cutoffs[-1],
+        len(skipped),
     )
     return WalkForwardScoring(
         selection=SimilarDaySelection.from_df(scored.drop(columns="fit_cutoff")),
         fit_cutoff=scored.set_index("trade_date")["fit_cutoff"],
         fits=pd.DataFrame(fits),
+        cutoffs_without_fit=pd.DatetimeIndex(skipped),
     )
 
 
