@@ -38,23 +38,43 @@ with
     inner join areas on areas.representative_jma_station_id = forecasts.station_id
   ),
 
-  -- Each measure renormalised over the stations that have a value for the hour.
-  weighted as (
+  -- Each measure's stations that have a value for the hour, in station order: a
+  -- fixed order whatever order Spark reads the rows in, so the sums below are the
+  -- same on every build.
+  station_terms as (
   select
     areas.area_code,
     forecasts.trade_date,
     forecasts.hour_ending,
     forecasts.forecast_reference_at,
     weights.census_year,
-    sum(weights.area_population_weight * forecasts.temperature_c)
-      / sum(case when forecasts.temperature_c is not null then weights.area_population_weight end)
-      as popw_forecast_temperature_c,
-    sum(weights.area_population_weight * forecasts.relative_humidity_pct)
-      / sum(case when forecasts.relative_humidity_pct is not null then weights.area_population_weight end)
-      as popw_forecast_relative_humidity_pct,
-    sum(weights.area_population_weight * forecasts.precipitation_mm)
-      / sum(case when forecasts.precipitation_mm is not null then weights.area_population_weight end)
-      as popw_forecast_precipitation_mm,
+    array_sort(collect_list(
+      case when forecasts.temperature_c is not null
+        then named_struct(
+          'station_id', forecasts.station_id,
+          'weight', weights.area_population_weight,
+          'value', forecasts.temperature_c
+        )
+      end
+    )) as temperature_terms,
+    array_sort(collect_list(
+      case when forecasts.relative_humidity_pct is not null
+        then named_struct(
+          'station_id', forecasts.station_id,
+          'weight', weights.area_population_weight,
+          'value', forecasts.relative_humidity_pct
+        )
+      end
+    )) as humidity_terms,
+    array_sort(collect_list(
+      case when forecasts.precipitation_mm is not null
+        then named_struct(
+          'station_id', forecasts.station_id,
+          'weight', weights.area_population_weight,
+          'value', forecasts.precipitation_mm
+        )
+      end
+    )) as precipitation_terms,
     max(forecasts.available_at) as available_at
   from
     forecasts
@@ -62,6 +82,22 @@ with
     inner join areas on areas.area_key = weights.area_key
   group by
     areas.area_code, forecasts.trade_date, forecasts.hour_ending, forecasts.forecast_reference_at, weights.census_year
+  ),
+
+  -- Each measure added in station order, renormalised over the stations present.
+  weighted as (
+  select
+    area_code,
+    trade_date,
+    hour_ending,
+    forecast_reference_at,
+    census_year,
+    {{ ordered_weighted_mean('temperature_terms') }} as popw_forecast_temperature_c,
+    {{ ordered_weighted_mean('humidity_terms') }} as popw_forecast_relative_humidity_pct,
+    {{ ordered_weighted_mean('precipitation_terms') }} as popw_forecast_precipitation_mm,
+    available_at
+  from
+    station_terms
   ),
 
   final as (

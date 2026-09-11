@@ -690,8 +690,9 @@
   refit with both sides rounded to 9 decimals was identical to the digit, to 12 decimals
   not (a 1e-14 pair straddles a rounding boundary about once per 10^(d-14) values at d
   decimals). So two runs whose features differ at 1e-14 are not comparable period by
-  period; a fixed summation order in the marts, with rounding on top, is an open question
-  in the feature-catalogue spec (§13).
+  period. Since 2026-09-11 the two marts add their terms in a fixed order (the
+  `ordered_weighted_mean` macro, the dbt rule below), so a rebuild cannot move a model; the
+  values still differ from the deleted pandas builders at 1e-14, which no longer matters.
 - `scipy` is a declared dependency since 2026-09-05 (the similar-day weight fit uses
   `scipy.optimize.least_squares`); `scipy.*` is mypy-ignored like `shap.*`.
 - `scikit-learn` is a declared dependency since 2026-09-08 (`sklearn.inspection.permutation_importance`;
@@ -856,6 +857,11 @@
   lists them with the measured lags). The curated facts built from those models pass
   the column through, and a model that joins several inputs takes `greatest()`.
   Forecast write-backs expose `forecast_issued_ts` under the same name.
+- A weighted mean in a feature mart is added in a fixed order through the
+  `ordered_weighted_mean` macro (`dbt/macros/`: an `array_sort`ed `collect_list` of
+  `named_struct(key, weight, value)` folded with `aggregate()`), never with a plain `sum()`,
+  so a rebuild gives the same value to the bit (since 2026-09-11; `ftr_hour_jma_obs` in lag
+  order, `ftr_hour_msm` in station order).
 
 ## Writing style (specs, research docs, PR bodies, replies)
 
