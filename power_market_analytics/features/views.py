@@ -153,7 +153,7 @@ FTR_HOUR_JMA_OBS = FeatureView(
         Field(
             name="wavg_temperature_c",
             dtype=Float64,
-            description="Weighted mean of the station's temperature at this hour on D-2..D-8, weight 0.5 ** (k - 2) for lag k, renormalised over the lags present; null when all are missing.",
+            description="Weighted mean of the station's temperature at this hour on D-2..D-8, weight 0.5 ** (k - 2) for lag k, renormalised over the lags present; null when all are missing. The terms are added in lag order (D-2 first), so the value is the same on every build (the ordered_weighted_mean macro).",
             tags={"categorical": "false"},
         ),
     ],
@@ -182,19 +182,19 @@ FTR_HOUR_MSM = FeatureView(
         Field(
             name="popw_forecast_temperature_c",
             dtype=Float64,
-            description="Population-weighted forecast temperature over the area's stations, C.",
+            description="Population-weighted forecast temperature over the area's stations, C, renormalised over the stations that have a value; the terms are added in station order, so the value is the same on every build (the ordered_weighted_mean macro).",
             tags={"categorical": "false"},
         ),
         Field(
             name="popw_forecast_relative_humidity_pct",
             dtype=Float64,
-            description="Population-weighted forecast relative humidity, %.",
+            description="Population-weighted forecast relative humidity, %, renormalised over the stations that have a value and added in station order.",
             tags={"categorical": "false"},
         ),
         Field(
             name="popw_forecast_precipitation_mm",
             dtype=Float64,
-            description="Population-weighted forecast precipitation over the hour, mm.",
+            description="Population-weighted forecast precipitation over the hour, mm, renormalised over the stations that have a value and added in station order.",
             tags={"categorical": "false"},
         ),
     ],
