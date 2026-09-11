@@ -17,6 +17,7 @@ MART_NAMES = [
     "ftr_hour_msm",
     "ftr_period_actuals",
     "ftr_period_jepx",
+    "ftr_period_similar_day",
 ]
 
 

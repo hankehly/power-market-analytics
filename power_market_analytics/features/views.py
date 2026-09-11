@@ -250,6 +250,30 @@ FTR_PERIOD_JEPX = FeatureView(
     tags={"grain": "period"},
 )
 
+FTR_PERIOD_SIMILAR_DAY_SOURCE = SparkSource(
+    name="ftr_period_similar_day",
+    query="select area_code, cast(date_format(trade_date, 'yyyyMMdd') as int) as trade_date_key, time_code, similar_day_demand_kwh, available_at, published_at from pma_features.ftr_period_similar_day",
+    timestamp_field="available_at",
+    created_timestamp_column="published_at",
+    description="The load of a learned similar day one year earlier for every delivery period, the demand similar-day feature (research demand/R-004 E-002), scored in SQL with the weights a fit published to pma_ml.similar_day_parameters (scripts/fit_similar_day.py). For a delivery day D every day in D - 364 +- 30 with a full population-weighted observed weather profile, a full hourly load and both holiday distances is a candidate; D needs a full population-weighted MSM forecast profile of one vintage (ftr_hour_msm), a calendar row and a window that starts on or after the area's first candidate day. Distance = sqrt(sum of weight * (part / scale)^2) over seven parts: days away from D - 364, the 24-hour RMSE of D's forecast against the candidate's observation for temperature, humidity and rain, and the absolute differences in days since and until a named holiday and in holiday degree. The nearest candidate wins, ties to the day nearest D - 364 then the earlier date; its hourly load over the hour containing the period, halved, is the feature. One row per parameter vintage: the oldest vintage's rows carry the data's available_at (the vintage scores the history before its fit, as a backtest's training rows lie before the fit serving its forecasts), a later vintage's the greater of the data's and the fit's; among rows tied on available_at the newest published_at wins, so a refit re-scores every row from its fit-window end on. Grain: area_code x trade_date x time_code x forecast_reference_at x parameters_run_id. Sums run in a fixed order (hours, stations), so a rebuild gives the same values to the bit.",
+)
+FTR_PERIOD_SIMILAR_DAY = FeatureView(
+    name="ftr_period_similar_day",
+    entities=list(GRAIN_ENTITIES["period"]),
+    schema=[
+        Field(
+            name="similar_day_demand_kwh",
+            dtype=Float64,
+            description="The chosen similar day's hourly load (fct_area_power_usage_hourly, kWh over the hour containing the period) halved, kWh per 30-minute period.",
+            tags={"categorical": "false"},
+        ),
+    ],
+    source=FTR_PERIOD_SIMILAR_DAY_SOURCE,
+    online=False,
+    description="The load of a learned similar day one year earlier for every delivery period, the demand similar-day feature (research demand/R-004 E-002), scored in SQL with the weights a fit published to pma_ml.similar_day_parameters (scripts/fit_similar_day.py). For a delivery day D every day in D - 364 +- 30 with a full population-weighted observed weather profile, a full hourly load and both holiday distances is a candidate; D needs a full population-weighted MSM forecast profile of one vintage (ftr_hour_msm), a calendar row and a window that starts on or after the area's first candidate day. Distance = sqrt(sum of weight * (part / scale)^2) over seven parts: days away from D - 364, the 24-hour RMSE of D's forecast against the candidate's observation for temperature, humidity and rain, and the absolute differences in days since and until a named holiday and in holiday degree. The nearest candidate wins, ties to the day nearest D - 364 then the earlier date; its hourly load over the hour containing the period, halved, is the feature. One row per parameter vintage: the oldest vintage's rows carry the data's available_at (the vintage scores the history before its fit, as a backtest's training rows lie before the fit serving its forecasts), a later vintage's the greater of the data's and the fit's; among rows tied on available_at the newest published_at wins, so a refit re-scores every row from its fit-window end on. Grain: area_code x trade_date x time_code x forecast_reference_at x parameters_run_id. Sums run in a fixed order (hours, stations), so a rebuild gives the same values to the bit.",
+    tags={"grain": "period"},
+)
+
 #: Every feature view, by mart name.
 VIEWS = (
     FTR_DAY_CALENDAR,
@@ -258,4 +282,5 @@ VIEWS = (
     FTR_HOUR_MSM,
     FTR_PERIOD_ACTUALS,
     FTR_PERIOD_JEPX,
+    FTR_PERIOD_SIMILAR_DAY,
 )
