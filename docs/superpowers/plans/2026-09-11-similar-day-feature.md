@@ -10,6 +10,19 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-10-feature-catalogue-design.md` §4 (marts), §5 (fitted features), §6 (Feast), §10 (reproduction), §11 PR 7.
 
+## Rework, 2026-09-11
+
+After PR #67 was reviewed and green, the researcher found it larger than expected and chose
+the write-back design over SQL scoring ("I don't care if dbt scores the feature"). Tasks 1
+and 2 were reworked in place: the script fits, scores every day and writes the feature
+values to `pma_ml.similar_day` (`tasks/demand/similar_day_feature.py`); the mart is a
+pass-through of the guarded `stg_ml__similar_day`; the parameters table, its staging
+model, the `profile_rmse` macro and the SQL scoring are gone; `AreaWeatherForecast` carries
+the vintage's `available_at`, which the written rows take. The vintage rule of the SQL
+design (the oldest vintage backfilling history) is not needed: a run scores every day it
+can, and the newest published run wins wherever it scored. Task 3 is unchanged. The
+reproduction of Task 4 was rerun on the write-back; its results are under Task 4.
+
 ## Global Constraints
 
 - The scoring in SQL reproduces `tasks/demand/similar_day.py`: window D − 364 ± 30 from the parameters row; a candidate needs all 24 hours of population-weighted observed temperature, humidity and rain (the latest census vintage's station weights, added in station order), all 24 hourly loads and a calendar row with both holiday distances; a target needs all 24 hours of the `ftr_hour_msm` population-weighted forecast of one vintage and a calendar row, and a window that starts on or after the area's first candidate day; parts: `abs(lag − 364)`, the three 24-hour RMSEs (target forecast against candidate observation), `abs(Δ days_since_holiday)`, `abs(Δ days_until_holiday)`, `abs(Δ holiday_degree)`; distance `sqrt(Σ w_j (part_j / s_j)²)`; the smallest distance wins, ties to the candidate nearest D − 364, then the earlier date; the feature is the chosen day's hourly load at `(time_code + 1) div 2` ÷ 2.
