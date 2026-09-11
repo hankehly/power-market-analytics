@@ -639,6 +639,30 @@ class SimilarDaySelector:
             raise RuntimeError("similar-day weights are not fitted; call fit(through) first")
         return self._weights
 
+    def as_params(self) -> dict[str, object]:
+        """The window, the parts, the fitted weights and the data's span as MLflow run params.
+
+        Returns
+        -------
+        dict of str to object
+
+        Raises
+        ------
+        RuntimeError
+            Before any fit.
+        """
+        first = self.first_scorable_day
+        start, end = self.hourly_load_span
+        return {
+            "similar_day_center_lag_days": self.center_lag_days,
+            "similar_day_window_half_width_days": self.half_width_days,
+            "similar_day_components": ",".join(SIMILAR_DAY_COMPONENTS),
+            **self.weights.as_params(),
+            "similar_day_first_selectable_day": "none" if first is None else str(first.date()),
+            "similar_day_hourly_load_span": f"{start.date()}..{end.date()}",
+            "similar_day_periods_per_hour": PERIODS_PER_HOUR,
+        }
+
     def _scored(self, days: Iterable[pd.Timestamp]) -> pd.DataFrame:
         """Window pairs with their distance, lag and gap from the window's centre."""
         diffs = self.differences(days)
