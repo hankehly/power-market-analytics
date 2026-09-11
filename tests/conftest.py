@@ -187,8 +187,8 @@ def synthetic_hourly_load(day: pd.Timestamp, hour_of_day: int) -> int:
     return int(round((shape + weekend + 10_000 * day_index) / 10_000) * 10_000)
 
 
-#: The parameter vintage every ``ftr_period_similar_day`` fixture row was scored with.
-SIMILAR_DAY_PARAMETERS_RUN_ID = "similar-day-fit"
+#: The scoring run every ``ftr_period_similar_day`` fixture row came from.
+SIMILAR_DAY_RUN_ID = "similar-day-fit"
 
 
 def similar_day_load(day: pd.Timestamp, time_code: int) -> float:
@@ -624,6 +624,8 @@ def curated_warehouse(spark: SparkSession) -> CuratedWarehouse:
                         forecast,
                         humidity,
                         rain,
+                        # The vintage is public four hours after its reference time.
+                        (pd.Timestamp(reference_at) + pd.Timedelta(hours=4)).to_pydatetime(),
                     )
                 )
                 forecast_records.append(
@@ -652,6 +654,7 @@ def curated_warehouse(spark: SparkSession) -> CuratedWarehouse:
                 12.0,
                 55.0,
                 0.0,
+                (reference_at + pd.Timedelta(hours=4)).to_pydatetime(),
             )
         )
     weather_forecast = pd.DataFrame(forecast_records)
@@ -722,7 +725,7 @@ def curated_warehouse(spark: SparkSession) -> CuratedWarehouse:
         forecast_rows,
         "station_id string, forecast_reference_at timestamp, forecast_valid_at timestamp, "
         "forecast_hour_start_at timestamp, date_key date, temperature_c double, "
-        "relative_humidity_pct double, precipitation_mm double",
+        "relative_humidity_pct double, precipitation_mm double, available_at timestamp",
     ).write.mode("overwrite").saveAsTable("pma_curated.fct_jma_msm_weather_forecast_hourly")
     spark.createDataFrame(
         station_weights,
@@ -769,7 +772,7 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
 
     ``available_at`` is any instant before the 09:30 D-1 issue time, except the
     calendar's, which is the mart's constant. The similar-day mart picks D - 364
-    for every day with a forecast under one parameter vintage.
+    for every day with a forecast, from one scoring run.
     """
     calendar_rows = []
     holidays = set(HOLIDAYS_2024_SPRING)
@@ -893,8 +896,7 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
             "area_code": "tokyo",
             "trade_date": day.date(),
             "time_code": tc,
-            "forecast_reference_at": day - pd.Timedelta(days=2) + pd.Timedelta(hours=21),
-            "parameters_run_id": SIMILAR_DAY_PARAMETERS_RUN_ID,
+            "similar_day_run_id": SIMILAR_DAY_RUN_ID,
             "similar_day_demand_kwh": similar_day_load(day, tc),
             "similar_day_reference_date": (day - pd.Timedelta(days=364)).date(),
             "similar_day_reference_lag_days": 364,
@@ -949,8 +951,8 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
     ).write.mode("overwrite").saveAsTable("pma_features.ftr_period_actuals")
     spark.createDataFrame(
         pd.DataFrame(similar_day_rows),
-        "area_code string, trade_date date, time_code int, forecast_reference_at timestamp, "
-        "parameters_run_id string, similar_day_demand_kwh double, "
+        "area_code string, trade_date date, time_code int, similar_day_run_id string, "
+        "similar_day_demand_kwh double, "
         "similar_day_reference_date date, similar_day_reference_lag_days int, "
         "similar_day_distance double, similar_day_n_candidates int, available_at timestamp, "
         "published_at timestamp",

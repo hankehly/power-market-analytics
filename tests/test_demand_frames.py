@@ -51,6 +51,7 @@ def weather_forecast(**overrides) -> pd.DataFrame:
             "forecast_temperature_c": [10.0, 11.0],
             "forecast_relative_humidity_pct": [60.0, np.nan],
             "forecast_precipitation_mm": [0.0, 0.5],
+            "available_at": pd.to_datetime([DAY - pd.Timedelta(hours=23)] * 2),
         }
     )
     return df.assign(**overrides)
@@ -61,6 +62,12 @@ class TestAreaWeatherForecast:
         frame = AreaWeatherForecast.from_df(weather_forecast())
         assert frame.keys == ["trade_date", "hour_ending"]
         assert frame.df["forecast_relative_humidity_pct"].isna().tolist() == [False, True]
+
+    def test_availability_is_required(self):
+        with pytest.raises(ValueError, match="'available_at' has 1 null"):
+            AreaWeatherForecast.from_df(
+                weather_forecast(available_at=pd.to_datetime([DAY, pd.NaT]))
+            )
 
     def test_hour_outside_1_24_is_rejected(self):
         with pytest.raises(ValueError, match="hour_ending outside 1..24"):

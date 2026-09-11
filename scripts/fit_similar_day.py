@@ -1,4 +1,4 @@
-"""Fit the demand task's similar-day weights and publish them as a parameter vintage.
+"""Fit the demand task's similar-day weights, score every day and publish the feature.
 
 Run inside the devcontainer (needs the Spark warehouse and the MLflow
 server):
@@ -8,18 +8,20 @@ server):
 The seven weights of the similar-day distance are fitted on every (target,
 candidate) pair whose target day is on or before ``--fit-through`` and whose
 load is known (``tasks/demand/similar_day.py``; Park, Song and Kwon 2020).
-The fit is logged to the MLflow experiment ``similar_day`` and written as one
-row of ``pma_ml.similar_day_parameters``; ``dbt build`` then scores every
-delivery day with it in ``ftr_period_similar_day``, the mart the
-``lightgbm_msm_popw_daytype_simday`` preset reads. A refit is a new row: the
-mart keeps every vintage and the as-of join picks the newest one available
-at each row's issue time.
+The fitted selector then picks the similar day of every delivery day that
+can be scored, and the chosen day's hourly load halved per period is written
+to ``pma_ml.similar_day`` (``tasks/demand/similar_day_feature.py``) with the
+day's forecast availability as ``available_at``. The ``ftr_period_similar_day``
+mart passes the rows to Feast after ``dbt build``; the
+``lightgbm_msm_popw_daytype_simday`` preset reads them. A refit is a new run
+whose rows win by ``published_at`` wherever it scored.
 
-The run also logs the selection of every scorable day
-(``similar_day_selection.csv``), the retrieval check of every day whose load
-is known (``similar_day_retrieval.csv``, ``in_fit`` marking the fit's days)
-and, when days after the fit have a load, the four ``similar_day_*`` metrics
-over those out-of-sample days.
+The run logs the fit to the MLflow experiment ``similar_day`` with the
+selection of every scorable day (``similar_day_selection.csv``), the
+retrieval check of every day whose load is known
+(``similar_day_retrieval.csv``, ``in_fit`` marking the fit's days) and, when
+days after the fit have a load, the four ``similar_day_*`` metrics over those
+out-of-sample days.
 """
 
 import argparse
@@ -43,11 +45,11 @@ from power_market_analytics.tasks.demand.similar_day import (
     SimilarDaySelector,
     retrieval_metrics,
 )
-from power_market_analytics.tasks.demand.similar_day_parameters import (
+from power_market_analytics.tasks.demand.similar_day_feature import (
+    FEATURE_TABLE,
     MLFLOW_EXPERIMENT,
-    PARAMETERS_TABLE,
-    build_parameter_records,
-    publish_parameter_records,
+    build_feature_records,
+    publish_feature_records,
 )
 
 
@@ -77,11 +79,12 @@ def main(argv: list[str] | None = None) -> None:
         observed = load_area_observed_weather_population_weighted(
             args.area, census_year=weather.census_year
         )
+        hourly_load = load_area_hourly_load(args.area)
         selector = SimilarDaySelector(
             load_day_calendar(),
             weather.forecast,
             observed.weather,
-            load_area_hourly_load(args.area),
+            hourly_load,
             half_width_days=args.window_half_width_days,
         )
         fit_through = selector.hourly_load_span[1] if args.fit_through is None else args.fit_through
@@ -95,19 +98,26 @@ def main(argv: list[str] | None = None) -> None:
                 **selector.as_params(),
             }
         )
-        records = build_parameter_records(
-            weights,
-            run_id=mlflow_run.info.run_id,
-            area_code=args.area,
-            center_lag_days=selector.center_lag_days,
-            window_half_width_days=selector.half_width_days,
-            census_year=weather.census_year,
-            published_at=pd.Timestamp.now(tz="Asia/Tokyo").tz_localize(None),
-        )
-        publish_parameter_records(records)
-        mlflow.set_tag("parameters_table", PARAMETERS_TABLE)
 
         selection = selector.select(weather.forecast.df["trade_date"].unique())
+        records = build_feature_records(
+            selection,
+            hourly_load,
+            weather.forecast,
+            run_id=mlflow_run.info.run_id,
+            area_code=args.area,
+            published_at=pd.Timestamp.now(tz="Asia/Tokyo").tz_localize(None),
+        )
+        publish_feature_records(records)
+        mlflow.set_tag("feature_table", FEATURE_TABLE)
+        mlflow.log_params(
+            {
+                "n_days_scored": len(selection),
+                "first_day_scored": str(selection.df["trade_date"].min().date()),
+                "last_day_scored": str(selection.df["trade_date"].max().date()),
+            }
+        )
+
         retrieval = selector.retrieval(selection)
         checked = retrieval.df.assign(in_fit=retrieval.df["trade_date"] <= fit_through)
         log_dataframe(selection.df, "similar_day_selection.csv")
@@ -126,18 +136,20 @@ def main(argv: list[str] | None = None) -> None:
         run_id = mlflow_run.info.run_id
 
     logger.info(
-        "area={} fit_through={} pairs={} targets={} rmse={:.4f} selected={} checked={} ({} out of sample)",
+        "area={} fit_through={} pairs={} targets={} rmse={:.4f} scored={} days ({} rows) "
+        "checked={} ({} out of sample)",
         args.area,
         fit_through.date(),
         weights.n_pairs,
         weights.n_targets,
         weights.fit_rmse,
         len(selection),
+        len(records),
         len(checked),
         len(out_of_sample),
     )
     logger.info("MLflow run: {} (experiment: {})", run_id, MLFLOW_EXPERIMENT)
-    logger.info("Parameters written to {} (partition run_id={})", PARAMETERS_TABLE, run_id)
+    logger.info("Feature written to {} (partition run_id={})", FEATURE_TABLE, run_id)
 
 
 if __name__ == "__main__":

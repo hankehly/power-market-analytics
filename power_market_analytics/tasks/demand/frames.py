@@ -114,7 +114,9 @@ class AreaWeatherForecast(DomainFrame):
     One row per delivery day and hour-ending 1..24, the hour convention of
     :class:`AreaHourlyLoad`; exactly one forecast vintage per hour, so a
     loader that sees two fails fast. The three measures are nullable (an hour
-    no weighted station forecast).
+    no weighted station forecast). ``available_at`` is when the vintage
+    became public (the fact's, naive JST): the instant a feature built from the
+    day's forecast becomes usable.
 
     Grain: (trade_date, hour_ending).
     """
@@ -125,8 +127,10 @@ class AreaWeatherForecast(DomainFrame):
         "forecast_temperature_c": "float64",
         "forecast_relative_humidity_pct": "float64",
         "forecast_precipitation_mm": "float64",
+        "available_at": "datetime64[ns]",
     }
     keys = ["trade_date", "hour_ending"]
+    non_null_cols = ["available_at"]
 
     @classmethod
     def _validate_extra(cls, df: pd.DataFrame) -> None:

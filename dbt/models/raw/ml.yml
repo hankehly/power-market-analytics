@@ -296,71 +296,50 @@ sources:
             description: The MAE over the same periods after shuffling the feature's column (JPY/kWh); minus mae_price_jpy_kwh = the importance.
           - name: published_at
             description: Same instant as the run's spot_price_forecast rows (naive JST).
-      - name: similar_day_parameters
+      - name: similar_day
         description: >
-          The fitted weights of the demand task's similar-day distance, one row
-          per fit (scripts/fit_similar_day.py; tasks/demand/similar_day.py fits
-          them by least squares on the pairs up to fit_through). The
-          ftr_period_similar_day mart scores every delivery day with each row:
-          a parameter vintage. Partitioned by run_id and overwritten per run
-          like the forecast tables. The table exists only once a fit has
-          published to it, so no test runs against the source itself: the
-          guarded staging model is the only node that reads it, and its
-          contract and tests check every column.
+          The demand task's similar-day feature as scripts/fit_similar_day.py
+          scored it: for every delivery day that can be scored, the load of the
+          learned similar day one year earlier, halved per 30-minute period
+          (tasks/demand/similar_day.py selects the day, similar_day_feature.py
+          writes the rows). One row per MLflow run, area and period; partitioned
+          by run_id and overwritten per run like the forecast tables, so a
+          refit-and-rescore is a new run whose rows the ftr_period_similar_day
+          mart passes to Feast next to the older runs'. The table exists only
+          once a run has published to it, so no test runs against the source
+          itself: the guarded staging model is the only node that reads it, and
+          its contract and tests check every column.
         columns:
-          - name: area_code
-            description: Bidding zone the weights were fitted for; joins to dim_area.area_code.
-          - name: fit_from
-            description: First target day of the pairs the fit used.
-          - name: fit_through
-            description: Last target day of the pairs the fit used.
-          - name: center_lag_days
-            description: Centre of the candidate window in days before the delivery day (364).
-          - name: window_half_width_days
-            description: Half width of the candidate window in days (30).
-          - name: census_year
-            description: Census vintage of the station weights behind the population-weighted weather profiles.
-          - name: weight_calendar_days
-            description: Share of the squared distance for the days away from D - 364; the seven weight_* columns are non-negative and sum to one.
-          - name: weight_temperature
-            description: Share for the 24-hour temperature RMSE.
-          - name: weight_humidity
-            description: Share for the 24-hour humidity RMSE.
-          - name: weight_rain
-            description: Share for the 24-hour rain RMSE.
-          - name: weight_days_since_holiday
-            description: Share for the difference in days since the last named holiday.
-          - name: weight_days_until_holiday
-            description: Share for the difference in days until the next named holiday.
-          - name: weight_holiday_degree
-            description: Share for the difference in holiday degree.
-          - name: scale_calendar_days
-            description: The part's RMS over the fit's pairs; each part is divided by its scale_* before weighting (1 where the part was all zero).
-          - name: scale_temperature
-            description: As scale_calendar_days, for the temperature RMSE.
-          - name: scale_humidity
-            description: As scale_calendar_days, for the humidity RMSE.
-          - name: scale_rain
-            description: As scale_calendar_days, for the rain RMSE.
-          - name: scale_days_since_holiday
-            description: As scale_calendar_days, for the days-since-holiday difference.
-          - name: scale_days_until_holiday
-            description: As scale_calendar_days, for the days-until-holiday difference.
-          - name: scale_holiday_degree
-            description: As scale_calendar_days, for the holiday-degree difference.
-          - name: alpha
-            description: Slope of the straight line from distance to realised load difference (>= 0); not used for scoring.
-          - name: beta
-            description: Intercept of that line; not used for scoring.
-          - name: n_pairs
-            description: Training pairs of the fit.
-          - name: n_targets
-            description: Distinct target days of the fit.
-          - name: fit_rmse
-            description: RMSE of the line against the realised load differences.
-          - name: available_at
-            description: When the fit could exist, naive JST, the midnight after fit_through, when every load it used was public.
-          - name: published_at
-            description: When the row was written to the warehouse (naive JST); the newest published vintage wins among rows tied on available_at.
           - name: run_id
-            description: MLflow run id (experiment similar_day) of the fit; the run's tag parameters_table points back here.
+            description: >
+              MLflow run id (experiment similar_day) of the fit-and-score run; the run's tag feature_table points back here.
+          - name: area_code
+            description: >
+              Bidding zone the feature was scored for; joins to dim_area.area_code.
+          - name: trade_date
+            description: >
+              The delivery day D.
+          - name: time_code
+            description: >
+              30-minute delivery period of the day, 1-48.
+          - name: similar_day_demand_kwh
+            description: >
+              The chosen similar day's hourly load (fct_area_power_usage_hourly, kWh over the hour containing the period) halved, kWh per 30-minute period.
+          - name: similar_day_reference_date
+            description: >
+              The chosen similar day, the nearest of D - 364 +- 30 under the run's fitted weights.
+          - name: similar_day_reference_lag_days
+            description: >
+              trade_date minus the chosen day, in days.
+          - name: similar_day_distance
+            description: >
+              The chosen day's distance from D under the run's weights (logged as the run's similar_day_* params).
+          - name: similar_day_n_candidates
+            description: >
+              Window days that could be scored for D.
+          - name: available_at
+            description: >
+              When the row's newest input became public, naive JST: D's MSM forecast vintage (reference + 4 h, 01:00 on D-1); every candidate is at least 334 days older.
+          - name: published_at
+            description: >
+              When the run's rows were written to the warehouse (naive JST); the newest published run wins among rows tied on available_at.
