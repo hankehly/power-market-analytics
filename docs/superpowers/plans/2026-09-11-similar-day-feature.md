@@ -62,11 +62,11 @@ def publish_parameter_records(records, spark=None) -> int   # create_run_partiti
 ```
 Script: `--area` (AREA_CODES, tokyo), `--fit-through YYYY-MM-DD` (default: the last day with an hourly load), `--window-half-width-days` (30). Loads the four inputs with the demand loaders, builds the selector, `fit(through)`, logs `area`, `fit_through`, `population_weight_census_year`, `n_stations`, the selector's params (`as_params()`, window, components, first scorable day, load span, periods per hour); publishes the row (tag `parameters_table`); selection over every scorable day → `similar_day_selection.csv`; retrieval over the days with a known load, column `in_fit` = `trade_date <= fit_through` → `similar_day_retrieval.csv`; the four `retrieval_metrics` over the out-of-sample days when there are any.
 
-- [ ] **Step 1: Failing tests** — records: columns and dtypes, `available_at` is the midnight after `fit_through`, weights sum to one, a bad record is rejected; publish writes one partition and a republish replaces it. Script: over the synthetic frames of `tests/test_demand_similar_day.py` (loaders monkeypatched in the script's namespace): a FINISHED run in experiment `similar_day` named `similar_day-tokyo`, the params, the tag, both CSVs, the metrics when days after `fit_through` have a load, no metrics when the fit runs through the last day, the published row.
-- [ ] **Step 2: Run** — `uv run pytest tests/test_demand_similar_day_parameters.py tests/test_fit_similar_day_script.py -q --no-cov`; ImportError.
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4: Run** — pass.
-- [ ] **Step 5: Commit** — `feat(demand): fit the similar-day weights once and publish them to pma_ml.similar_day_parameters`.
+- [x] **Step 1: Failing tests** — records: columns and dtypes, `available_at` is the midnight after `fit_through`, weights sum to one, a bad record is rejected; publish writes one partition and a republish replaces it. Script: over the synthetic frames of `tests/test_demand_similar_day.py` (loaders monkeypatched in the script's namespace): a FINISHED run in experiment `similar_day` named `similar_day-tokyo`, the params, the tag, both CSVs, the metrics when days after `fit_through` have a load, no metrics when the fit runs through the last day, the published row.
+- [x] **Step 2: Run** — `uv run pytest tests/test_demand_similar_day_parameters.py tests/test_fit_similar_day_script.py -q --no-cov`; ImportError.
+- [x] **Step 3: Implement.**
+- [x] **Step 4: Run** — pass.
+- [x] **Step 5: Commit** — `feat(demand): fit the similar-day weights once and publish them to pma_ml.similar_day_parameters`.
 
 ### Task 2: The mart, its staging model and the view
 
@@ -75,11 +75,11 @@ Script: `--area` (AREA_CODES, tokyo), `--fit-through YYYY-MM-DD` (default: the l
 - Modify: `dbt/models/raw/ml.yml` (the source, no tests), `scripts/generate_feature_views.py` (`published_at` → `created_timestamp_column`), `power_market_analytics/features/views.py` (regenerated)
 - Test: dbt unit test `ftr_period_similar_day_scores_the_window_per_vintage` (`format: sql` fixtures: two vintages, three window days one of which lacks an observed hour, 96 expected rows), `tests/test_generate_feature_views.py`, `tests/test_feature_views.py`
 
-- [ ] **Step 1: Failing tests** — generator: a mart with `published_at` gets `created_timestamp_column="published_at"` and selects it; one without does not. Views: seven names; `FTR_PERIOD_SIMILAR_DAY_SOURCE.created_timestamp_column == "published_at"`.
-- [ ] **Step 2: Run** — fail.
-- [ ] **Step 3: Implement** — the models, the generator, `just feature-views`; `cd dbt && DBT_THRIFT_HOST=localhost uv run dbt parse`; the unit test and the build run in the container in Task 4.
-- [ ] **Step 4: Run** — pass.
-- [ ] **Step 5: Commit** — `feat(dbt): ftr_period_similar_day scores the similar day per parameter vintage`.
+- [x] **Step 1: Failing tests** — generator: a mart with `published_at` gets `created_timestamp_column="published_at"` and selects it; one without does not. Views: seven names; `FTR_PERIOD_SIMILAR_DAY_SOURCE.created_timestamp_column == "published_at"`.
+- [x] **Step 2: Run** — fail.
+- [x] **Step 3: Implement** — the models, the generator, `just feature-views`; `cd dbt && DBT_THRIFT_HOST=localhost uv run dbt parse`; the unit test and the build run in the container in Task 4.
+- [x] **Step 4: Run** — pass.
+- [x] **Step 5: Commit** — `feat(dbt): ftr_period_similar_day scores the similar day per parameter vintage`.
 
 ### Task 3: The five presets; delete the classes
 
@@ -97,17 +97,17 @@ LIGHTGBM_MSM_POPW_DAYTYPE_SIMDAY = LIGHTGBM_MSM_POPW_DAYTYPE.with_changes(name="
 PRESETS: the four, simday, calendar, calendarcounts, holidaydegree, holidaydistance
 ```
 
-- [ ] **Step 1: Failing tests** — presets: nine names in that order, the simday feature columns, `feature_dtypes` of the calendar variants (`holiday_degree` float64, the rest int64), `day_type` the only categorical; registry `STRATEGIES == tuple(PRESETS)`; `build_strategy("lightgbm_msm_popw_daytype_simday", …)` is a `PresetLightGbmStrategy` whose frame carries `similar_day_load(day, tc)` and NaN on `FORECAST_MISSING_DAY`; script: a simday run publishes eight components; the catalogue lists eleven services.
-- [ ] **Step 2: Run** — fail.
-- [ ] **Step 3: Implement** — then `just test`, `just lint`, `just mypy`.
-- [ ] **Step 4: Run** — pass, 100 %.
-- [ ] **Step 5: Commit** — `feat(demand): the similar-day strategies become presets over ftr_period_similar_day`.
+- [x] **Step 1: Failing tests** — presets: nine names in that order, the simday feature columns, `feature_dtypes` of the calendar variants (`holiday_degree` float64, the rest int64), `day_type` the only categorical; registry `STRATEGIES == tuple(PRESETS)`; `build_strategy("lightgbm_msm_popw_daytype_simday", …)` is a `PresetLightGbmStrategy` whose frame carries `similar_day_load(day, tc)` and NaN on `FORECAST_MISSING_DAY`; script: a simday run publishes eight components; the catalogue lists eleven services.
+- [x] **Step 2: Run** — fail.
+- [x] **Step 3: Implement** — then `just test`, `just lint`, `just mypy`.
+- [x] **Step 4: Run** — pass, 100 %.
+- [x] **Step 5: Commit** — `feat(demand): the similar-day strategies become presets over ftr_period_similar_day`.
 
 ### Task 4: Reproduction, docs, PR
 
-- [ ] **Step 1: Fit** — in the container, `python scripts/fit_similar_day.py --area tokyo --fit-through 2024-08-16`; the params equal run `008868fe…`'s `similar_day_*`.
-- [ ] **Step 2: Build** — `dbt build --select stg_ml__similar_day_parameters ftr_period_similar_day` (unit test, contract, tests) and the row counts.
-- [ ] **Step 3: Selection parity** — the mart's `similar_day_reference_date` against the run's `similar_day_selection.csv` (729 days) and against `SimilarDaySelector.select` over every scorable day, in the container.
-- [ ] **Step 4: Runs** — `main` and the branch: `--strategy lightgbm_msm_popw_daytype_simday --area tokyo --start-date 2024-08-18 --end-date 2026-08-17 --importance-repeats 1`, one at a time; features and forecasts compared period by period; `compare_demand_runs.py` against `008868fe…` after `dbt build --select +fct_demand_forecast_accuracy`.
-- [ ] **Step 5: Docs** — this plan's results, the spec (§5 as built, the vintage rule, §7, §11), CLAUDE.md, memory.
+- [x] **Step 1: Fit** — `python scripts/fit_similar_day.py --area tokyo --fit-through 2024-08-16` in the container, run `00c8b8553d3c46a4bae2ae06c35b29b3`: weights `calendar_days=0.0530, temperature=0.4320, humidity=0.0000, rain=0.0003, days_since_holiday=0.0381, days_until_holiday=0.0000, holiday_degree=0.4766`, scales `17.61, 4.557, 19.65, 1.272, 19.29, 19.41, 0.6167`, α 0.108417, β 0.022378, 119,865 pairs over 1,965 targets (2019-04-01 to 2024-08-16), RMSE 0.075297 — every value equal to run `008868fe…`'s params. 2,717 days selected, 2,715 checked (750 after the fit).
+- [x] **Step 2: Build** — `dbt build --select stg_ml__similar_day_parameters ftr_period_similar_day`: 63 nodes pass (the unit test included). The mart holds 2,717 Tokyo days, 2019-04-01 to 2026-09-07, 48 periods each, one vintage; `available_at` from 2019-03-31 01:00 to 2026-09-06 01:00 (the forecast vintage's, the fit being the oldest vintage).
+- [x] **Step 3: Selection parity** — against the run's `similar_day_selection.csv`: the same reference day and candidate count on all 729 forecast days, distance within 3.6e-9 (the run's fit was a separate least-squares solve, converged to its 1e-8 tolerance). Against `SimilarDaySelector.select` over every scorable day (the fit above): the same reference day and candidate count on all 2,717 days, distance within 8.0e-16. The feature equals the chosen day's hourly load ÷ 2 exactly on 2,400 sampled periods.
+- [x] **Step 4: Runs** — `main` (the Python-joined feature) run `425ae3977acf4d9ca8d991c49c5af4af` and the branch run `7db80fbe3eb84ca5bff19609ed2d7360`, both `--strategy lightgbm_msm_popw_daytype_simday --area tokyo --start-date 2024-08-18 --end-date 2026-08-17 --importance-repeats 1`: 729 days, 34,954 periods, one skipped day (2025-06-21) each, MAE 585,065 kWh both. Every feature value of every scored period is identical (8 features × 34,954 periods, max difference 0); the forecasts are identical on 34,953 of 34,954 periods and 1.9e-9 kWh apart on the last (multi-threaded LightGBM); the SHAP contributions identical on 277,175 of 279,632 and within 2.3e-10 kWh. Against the reference run `008868fe…` (the pre-PR-66 marts, the class-based code, MAE 585,362 kWh): MAE 585,362 → 585,065 kWh (−0.1 %); the forecasts are identical to the digit from 2025-01 on (every month, season and band from then shows +0), and differ only in 2024-08 to 2024-12 (+0.5 % to −1.2 % by month) — the months whose 730-day training window still reaches the two December-2022 delivery days whose D-7 file was re-published after the issue time (the as-of join hides them, the class-based code read them; see CLAUDE.md Gotchas). Candidate lower on 71 of 729 days, equal on most; 95 % bootstrap CI over days [−1,081, +465] kWh. The identical months also show that the ordered weighted-mean marts of PR #66 equal the deleted pandas builders to the bit: the 1e-14 differences of PR 6's reproduction are gone..
+- [x] **Step 5: Docs** — this entry, the spec (§3 table, §5 as built with the vintage rule, §7, §11, §13), CLAUDE.md, memory.
 - [ ] **Step 6: PR** — `feat(demand): the similar day as a fitted feature mart; delete the last strategy classes`, labels `enhancement` + `documentation`, Codex loop.
