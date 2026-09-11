@@ -33,7 +33,7 @@ from power_market_analytics.forecasting.task import TaskSpec
 from power_market_analytics.spark import get_spark_session
 
 
-def _create_run_partitioned_table(spark: SparkSession, table: str, columns_ddl: str) -> None:
+def create_run_partitioned_table(spark: SparkSession, table: str, columns_ddl: str) -> None:
     """Create ``table`` (parquet, partitioned by ``run_id``) and its database if absent.
 
     Explicit DDL rather than ``saveAsTable`` schema inference, so the table
@@ -62,7 +62,7 @@ def _create_run_partitioned_table(spark: SparkSession, table: str, columns_ddl: 
     )
 
 
-def _overwrite_run_partitions(spark: SparkSession, table: str, sdf: DataFrame) -> None:
+def overwrite_run_partitions(spark: SparkSession, table: str, sdf: DataFrame) -> None:
     """Insert ``sdf`` into ``table``, replacing only the partitions it carries.
 
     Parameters
@@ -142,7 +142,7 @@ def publish_forecast_records(
     """
     spark = spark if spark is not None else get_spark_session()
     table = task.forecast_table
-    _create_run_partitioned_table(
+    create_run_partitioned_table(
         spark,
         table,
         f"""strategy string,
@@ -163,7 +163,7 @@ def publish_forecast_records(
         F.col("published_at").cast("timestamp"),
         F.col("run_id").cast("string"),
     )
-    _overwrite_run_partitions(spark, table, sdf)
+    overwrite_run_partitions(spark, table, sdf)
     logger.info(
         "Published {} rows to {} (run_id={})", len(records), table, records.df["run_id"].iloc[0]
     )
@@ -262,7 +262,7 @@ def publish_contribution_records(
     """
     spark = spark if spark is not None else get_spark_session()
     table = task.contribution_table
-    _create_run_partitioned_table(
+    create_run_partitioned_table(
         spark,
         table,
         f"""strategy string,
@@ -291,7 +291,7 @@ def publish_contribution_records(
         F.col("published_at").cast("timestamp"),
         F.col("run_id").cast("string"),
     )
-    _overwrite_run_partitions(spark, table, sdf)
+    overwrite_run_partitions(spark, table, sdf)
     logger.info(
         "Published {} contribution rows to {} (run_id={})",
         len(records),
@@ -362,7 +362,7 @@ def publish_importance_records(
     """
     spark = spark if spark is not None else get_spark_session()
     table = task.importance_table
-    _create_run_partitioned_table(
+    create_run_partitioned_table(
         spark,
         table,
         f"""strategy string,
@@ -387,7 +387,7 @@ def publish_importance_records(
         F.col("published_at").cast("timestamp"),
         F.col("run_id").cast("string"),
     )
-    _overwrite_run_partitions(spark, table, sdf)
+    overwrite_run_partitions(spark, table, sdf)
     logger.info(
         "Published {} importance rows to {} (run_id={})",
         len(records),
