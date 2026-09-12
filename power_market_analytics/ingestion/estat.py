@@ -51,7 +51,7 @@ from loguru import logger
 from pyspark.sql import Column, DataFrame, SparkSession
 from pyspark.sql import functions as F
 
-from power_market_analytics.csv_loader import SOURCE_FILE_COL, CsvLoader, CsvTableSchema
+from power_market_analytics.ingestion.loader import SOURCE_FILE_COL, CsvLoader, CsvTableSchema
 
 BASE_URL = "https://www.e-stat.go.jp"
 #: JSON endpoint behind the listing page (rows + pager as HTML fragments).
@@ -618,7 +618,7 @@ _EXAMPLE_LIMIT = 5
 class EstatCensusMeshCsvLoader(CsvLoader):
     """Vintage-aware full reload of census population-mesh text files.
 
-    Works like :class:`~power_market_analytics.csv_loader.CsvLoader` (same
+    Works like :class:`~power_market_analytics.ingestion.loader.CsvLoader` (same
     validation and write behaviour) except for how files are found and read;
     see the module docstring. The contract's ``source`` fields are the shared
     physical headers (``KEY_CODE``, ``HTKSYORI``, ``HTKSAKI``, ``GASSAN``)

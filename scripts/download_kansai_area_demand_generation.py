@@ -11,7 +11,7 @@ from pathlib import Path
 
 from loguru import logger
 
-from power_market_analytics.kansai import KansaiAreaDownloader
+from power_market_analytics.ingestion.tso.kansai.area_demand_generation import KansaiAreaDownloader
 
 
 def main(argv: list[str] | None = None) -> None:

@@ -1,7 +1,7 @@
 """Tests for the MSM forecast raw load contract.
 
 Files are written the way :meth:`MsmDownloader.extract_day` writes them
-(``power_market_analytics.msm``): gzip CSV, header ``RAW_CSV_COLUMNS``,
+(``power_market_analytics.ingestion.msm``): gzip CSV, header ``RAW_CSV_COLUMNS``,
 floats as ``str(round(v, 6))``, timestamps as ``"...Z"`` strings, ``None`` as
 an empty cell — loaded through the real
 ``conf/schemas/jma_msm_surface_forecast.yaml`` contract and
@@ -16,8 +16,8 @@ from pathlib import Path
 
 import pytest
 
-from power_market_analytics.csv_loader import CsvTableSchema
-from power_market_analytics.msm import RAW_CSV_COLUMNS, MsmForecastCsvLoader
+from power_market_analytics.ingestion.loader import CsvTableSchema
+from power_market_analytics.ingestion.msm import RAW_CSV_COLUMNS, MsmForecastCsvLoader
 from tests.support import REPO_ROOT
 
 CONTRACT = CsvTableSchema.from_yaml(REPO_ROOT / "conf/schemas/jma_msm_surface_forecast.yaml")

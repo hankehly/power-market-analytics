@@ -36,7 +36,7 @@ from pathlib import Path
 
 from loguru import logger
 
-from power_market_analytics.jma import (
+from power_market_analytics.ingestion.jma import (
     SCRAPE_ELEMENTS,
     JmaHourlyDownloader,
     JmaStationMasterDownloader,

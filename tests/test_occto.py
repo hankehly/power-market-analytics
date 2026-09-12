@@ -1,4 +1,4 @@
-"""Tests for the OCCTO 情報ダウンロード bulk downloader (power_market_analytics.occto)."""
+"""Tests for the OCCTO 情報ダウンロード bulk downloader (power_market_analytics.ingestion.occto)."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from typing import cast
 import pytest
 import requests
 
-from power_market_analytics.occto import (
+from power_market_analytics.ingestion.occto import (
     BASE_URL,
     DATASETS,
     JST,
@@ -970,7 +970,7 @@ class TestDownloadRetries:
 
     def test_waits_retry_wait_seconds_before_each_retry(self, tmp_path, monkeypatch):
         sleeps: list[float] = []
-        monkeypatch.setattr("power_market_analytics.occto.time.sleep", sleeps.append)
+        monkeypatch.setattr("power_market_analytics.ingestion.occto.time.sleep", sleeps.append)
         session = FakeSession(
             [
                 LOGIN,

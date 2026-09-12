@@ -26,12 +26,12 @@ from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
 
 from power_market_analytics.common.frames import DomainFrame
+from power_market_analytics.common.spark import get_spark_session
 from power_market_analytics.forecasting.frames import N_PERIODS
 from power_market_analytics.forecasting.publish import (
     create_run_partitioned_table,
     overwrite_run_partitions,
 )
-from power_market_analytics.spark import get_spark_session
 from power_market_analytics.tasks.demand import TASK
 from power_market_analytics.tasks.demand.frames import AreaHourlyLoad, AreaWeatherForecast
 from power_market_analytics.tasks.demand.similar_day import (
@@ -372,7 +372,7 @@ def publish_feature_records(
         The run's rows.
     spark : pyspark.sql.SparkSession, optional
         Existing session; defaults to
-        :func:`power_market_analytics.spark.get_spark_session`.
+        :func:`power_market_analytics.common.spark.get_spark_session`.
 
     Returns
     -------

@@ -14,8 +14,8 @@ import pytest
 import requests
 from loguru import logger
 
-import power_market_analytics.jma as jma_module
-from power_market_analytics.jma import (
+import power_market_analytics.ingestion.jma as jma_module
+from power_market_analytics.ingestion.jma import (
     ELEMENT_VALUE_COLUMNS,
     HOURLY_ELEMENTS,
     KANSOKU_DIGITS,

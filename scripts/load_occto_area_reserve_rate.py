@@ -11,7 +11,7 @@ from pathlib import Path
 
 from loguru import logger
 
-from power_market_analytics.csv_loader import CsvLoader, CsvTableSchema
+from power_market_analytics.ingestion.loader import CsvLoader, CsvTableSchema
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 

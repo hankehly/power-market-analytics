@@ -12,9 +12,9 @@ extracted. The archive layout, CSV format and data quirks are documented in
 docs/TEPCO-Area-Demand-Generation-Retrieval.md.
 
 The download/extract and load logic itself is the shared
-:class:`~power_market_analytics.area_actuals.AreaActualsDownloader` /
-:class:`~power_market_analytics.area_actuals.AreaActualsCsvLoader` pair; this
-module only supplies the TEPCO :class:`~power_market_analytics.area_actuals.AreaActualsSource`
+:class:`~power_market_analytics.ingestion.tso.area_actuals.AreaActualsDownloader` /
+:class:`~power_market_analytics.ingestion.tso.area_actuals.AreaActualsCsvLoader` pair; this
+module only supplies the TEPCO :class:`~power_market_analytics.ingestion.tso.area_actuals.AreaActualsSource`
 and convenience subclasses bound to it.
 """
 
@@ -25,7 +25,7 @@ from pathlib import Path
 
 import requests
 
-from power_market_analytics.area_actuals import (
+from power_market_analytics.ingestion.tso.area_actuals import (
     AreaActualsCsvLoader,
     AreaActualsDownloader,
     AreaActualsDownloadError,
@@ -106,10 +106,10 @@ class TepcoAreaCsvLoader(AreaActualsCsvLoader):
     docs/TEPCO-Area-Demand-Generation-Retrieval.md) opens with two metadata
     lines — the header ``ファイル更新日,ファイル更新時間,対象年月日`` and its
     values — before the real column header, so the files are read positionally
-    by the shared :class:`~power_market_analytics.area_actuals.AreaActualsCsvLoader`
+    by the shared :class:`~power_market_analytics.ingestion.tso.area_actuals.AreaActualsCsvLoader`
     (contract ``source: _c0`` .. ``_c6`` plus ``__file_updated_at``).
 
-    Same constructor as :class:`~power_market_analytics.csv_loader.CsvLoader`
+    Same constructor as :class:`~power_market_analytics.ingestion.loader.CsvLoader`
     (``schema``, ``filepath``, ``table``, optional ``spark``); the source spec
     (accepted column-header line) is fixed to :data:`TEPCO`.
     """
