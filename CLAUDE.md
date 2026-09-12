@@ -44,10 +44,13 @@
     ~157 MB per delivery day, ~54 GiB/yr), `load_jma_msm_surface_forecast.py`. `--start-date`
     defaults to 2022-04-01, but the warehouse holds 2019-04-01 → since the 2026-09-05 backfill;
     2019-04-01 is the earliest the downloader accepts (the archive's `FH40-51` member starts
-    with the 2019-03-05 12 UTC run), so pass it on a fresh clone. Both need a
-    devcontainer image rebuild (`docker compose build devcontainer`) for the eccodes dependency
-    before they can run in-container — `power_market_analytics/ingestion/msm/grib.py`
-    imports eccodes at module level; see [docs/JMA-MSM-GPV-Retrieval.md](docs/JMA-MSM-GPV-Retrieval.md) §8.
+    with the 2019-03-05 12 UTC run), so pass it on a fresh clone. Only the
+    downloader needs a devcontainer image rebuild (`docker compose build devcontainer`)
+    for the eccodes dependency before it can run in-container:
+    `power_market_analytics/ingestion/msm/grib.py` imports eccodes at module level, and
+    since the 2026-09-12 package split only the downloader reaches it — the loader imports
+    `ingestion.loader` alone. See
+    [docs/JMA-MSM-GPV-Retrieval.md](docs/JMA-MSM-GPV-Retrieval.md) §8.
 - `just test [pytest args]` — Python unit tests (host-side pytest, ~1 min) with a `pytest-cov`
   term-missing report over `power_market_analytics/` + `scripts/` (config in `pyproject.toml`
   `[tool.coverage.*]`; gated at 100% via `fail_under`, so a partial suite fails locally and in

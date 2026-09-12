@@ -463,14 +463,19 @@ any of them. Run a full historical backfill from `DEFAULT_BACKFILL_START`
 detached. Given the disk cost, leave GRIBs un-deleted (`--keep-grib`) only when
 actively debugging a decode issue.
 
-**The devcontainer image must be rebuilt** (`docker compose build devcontainer`) before
-the MSM download / load scripts can run inside it — the baked venv predates the `eccodes` /
+**The devcontainer image must be rebuilt** (`docker compose build devcontainer`) before the
+MSM **download** script can run inside it — the baked venv predates the `eccodes` /
 `eccodeslib` dependency this pipeline added (`pyproject.toml`, `uv.lock`). Until that rebuild
 happens, the download+extract step can still run **host-side**
 (`uv run python scripts/download_jma_msm_surface_forecast.py ...`, no Spark/metastore
-needed). The load step (`just python scripts/load_jma_msm_surface_forecast.py`) needs the
-rebuilt image as well: `msm.load` imports the package, whose `grib` module imports
-eccodes at module level. So the loader needs eccodes installed too.
+needed).
+
+The load step does **not** need eccodes. `msm.load` imports only
+`ingestion.loader`, and the package's `__init__.py` is a docstring, so nothing pulls in
+`msm.grib` — the only module that imports eccodes. (Before the package split this was not
+true: the loader lived in the same module as the decoder.) Verified by importing each
+script with `eccodes` made unimportable: the load script imports, the download script
+raises.
 
 ### 8.3 Resume behavior
 
