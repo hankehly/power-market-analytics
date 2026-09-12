@@ -78,8 +78,10 @@ safe-outputs:
     expires: 2d
     # No title-prefix: this repository requires PR titles in the plain
     # `type(scope): description` form, and a prefix would break it. The prompt sets the title.
-    # One type label only, per the repository's label rule: a docs-only PR is `documentation`,
-    # and `documentation` never sits beside another type label.
+    # `documentation` is the type label for a docs-only PR, and the only type label allowed
+    # beside it is none. It is configured here so every run carries it even if the agent
+    # forgets; the prompt passes it again along with the applicable area labels, which is
+    # correct whether the handler merges its list with this one or replaces it.
     labels: [documentation]
     draft: true
     protected-files: fallback-to-issue
@@ -337,6 +339,19 @@ After improving ONE file:
      `tepco` / `occto`, `justfile`, `docs`); use plain `docs: <description>` when no scope fits.
      The description is lowercase, imperative and has no trailing period. Nothing is prefixed to
      what you write, so the title you pass is the title that appears
+   - **Labels**: pass `documentation` plus every area the file belongs to. The repository's rule is
+     one type label - `documentation` here - plus the areas the PR touches:
+     - `ingestion` - a source's retrieval doc: the `*-Retrieval.md` files (`JMA-Weather-Data`,
+       `JMA-MSM-GPV`, `OCCTO-Demand-Forecast`, `TEPCO-Area-Demand-Generation`, `TEPCO-Power-Usage`,
+       `Kansai-Area-Demand-Generation`, `Kansai-Power-Usage`, `eStat-Census-Population-Mesh`)
+     - `forecasting` - the forecast tasks, the forecasting framework, the feature marts and Feast,
+       the `pma_ml` models: `Forecast-Analysis.md` and the research docs about them
+     - `dashboard` - the Superset dashboards
+     - `research` - anything under `docs/research/`
+     Pass as many areas as apply, and none if none do (a general doc such as `Development.md`,
+     `Curated-Star-Schema.md` or `docs/README.md` takes `documentation` alone). Never add a label
+     outside this set - `documentation` must not sit beside another *type* label, and an invented
+     area filters nothing
 3. Include in the PR description:
    - Which file you improved
    - What types of bloat you removed
