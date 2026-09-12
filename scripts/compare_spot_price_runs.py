@@ -20,13 +20,14 @@ from power_market_analytics.tasks.spot_price.compare import (
     to_markdown,
 )
 
+#: section key -> (title, metric, unit, decimals).
 SECTIONS = {
-    "overall": ("Overall", "MAE"),
-    "day_part": ("By day part", "MAE"),
-    "near_peak": ("Near the OCCTO forecast maximum-demand hour", "MAE"),
-    "bias": ("Mean error (forecast − actual)", "bias"),
-    "month": ("By calendar month", "MAE"),
-    "price_band": ("High-price days", "MAE"),
+    "overall": ("Overall", "MAE", "JPY/kWh", 3),
+    "day_part": ("By day part", "MAE", "JPY/kWh", 3),
+    "near_peak": ("Near the OCCTO forecast maximum-demand hour", "MAE", "JPY/kWh", 3),
+    "bias": ("Mean error (forecast − actual)", "bias", "JPY/kWh", 3),
+    "month": ("By calendar month", "MAE", "JPY/kWh", 3),
+    "price_band": ("High-price days", "MAE", "JPY/kWh", 3),
 }
 
 
@@ -58,9 +59,9 @@ def main(argv: list[str] | None = None) -> None:
     )
     print(f"Baseline run: `{args.baseline}`  ")
     print(f"Candidate run: `{args.candidate}`\n")
-    for key, (title, metric) in SECTIONS.items():
+    for key, (title, metric, unit, decimals) in SECTIONS.items():
         print(f"### {title}\n")
-        print(to_markdown(tables[key], metric=metric))
+        print(to_markdown(tables[key], metric=metric, unit=unit, decimals=decimals))
         print()
     months = tables["month"].df
     improved = int((months["abs_change"] < 0).sum())
