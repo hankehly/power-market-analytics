@@ -4,7 +4,7 @@ models:
       contract:
         enforced: true
     description: >
-      The area demand seven days before each delivery period, the demand strategies' lag_7d_demand_kwh, from fct_area_demand_generation_actual. Grain: area_code x trade_date x time_code. A period whose D-7 actual is a TSO hole has no row. available_at is the D-7 row's.
+      The area's own recent demand for each delivery period, from fct_area_demand_generation_actual: the demand 2, 3, 7, 9, 14, 21 and 28 days before, a plain and an exponentially weighted mean over the four weekly lags, the D-2 minus D-9 change, and a plain and an exponentially weighted mean over the same period of the last four complete days of D's day type (the lag_7d_demand_kwh of research demand/R-001 to R-005; the rest research demand/R-006). Grain: area_code x trade_date x time_code. A row exists wherever at least one lag exists; a column is null where its input is absent (a TSO hole, or a day before the history starts). Both exponentially weighted means use the weights 8, 4, 2, 1 from the newest input back, tied to the input's position and renormalised over the inputs present. A complete day has all 48 periods non-null. available_at is the greatest over the rows the row used, so the whole row is usable only once its newest input is public.
     data_tests:
       - dbt_utils.unique_combination_of_columns:
           arguments:
@@ -12,6 +12,15 @@ models:
               - area_code
               - trade_date
               - time_code
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: >
+              coalesce(lag_2d_demand_kwh, lag_3d_demand_kwh, lag_7d_demand_kwh, lag_9d_demand_kwh,
+              lag_14d_demand_kwh, lag_21d_demand_kwh, lag_28d_demand_kwh) is not null
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: >
+              (change_2d_9d_demand_kwh is null) = (lag_2d_demand_kwh is null or lag_9d_demand_kwh is null)
     columns:
       - name: area_code
         data_type: string
@@ -22,7 +31,7 @@ models:
       - name: trade_date
         data_type: date
         description: >
-          The delivery day D (the actual's day + 7).
+          The delivery day D.
         data_tests:
           - not_null
       - name: time_code
@@ -35,6 +44,22 @@ models:
               arguments:
                 min_value: 1
                 max_value: 48
+      - name: lag_2d_demand_kwh
+        data_type: bigint
+        description: >
+          Area demand over the same period on D-2, kWh. Public about 00:05 on D-1.
+        config:
+          meta:
+            feature: true
+            categorical: false
+      - name: lag_3d_demand_kwh
+        data_type: bigint
+        description: >
+          Area demand over the same period on D-3, kWh.
+        config:
+          meta:
+            feature: true
+            categorical: false
       - name: lag_7d_demand_kwh
         data_type: bigint
         description: >
@@ -43,29 +68,177 @@ models:
           meta:
             feature: true
             categorical: false
-        data_tests:
-          - not_null
+      - name: lag_9d_demand_kwh
+        data_type: bigint
+        description: >
+          Area demand over the same period on D-9, kWh: the older side of change_2d_9d_demand_kwh.
+        config:
+          meta:
+            feature: true
+            categorical: false
+      - name: lag_14d_demand_kwh
+        data_type: bigint
+        description: >
+          Area demand over the same period on D-14, kWh.
+        config:
+          meta:
+            feature: true
+            categorical: false
+      - name: lag_21d_demand_kwh
+        data_type: bigint
+        description: >
+          Area demand over the same period on D-21, kWh.
+        config:
+          meta:
+            feature: true
+            categorical: false
+      - name: lag_28d_demand_kwh
+        data_type: bigint
+        description: >
+          Area demand over the same period on D-28, kWh.
+        config:
+          meta:
+            feature: true
+            categorical: false
+      - name: mean_weekly_lags_demand_kwh
+        data_type: double
+        description: >
+          Mean of the D-7, D-14, D-21 and D-28 lags present, kWh; null when none is.
+        config:
+          meta:
+            feature: true
+            categorical: false
+      - name: ewm_weekly_lags_demand_kwh
+        data_type: double
+        description: >
+          Exponentially weighted mean of the D-7, D-14, D-21 and D-28 lags with weights 8, 4, 2, 1, renormalised over the lags present, kWh; null when none is.
+        config:
+          meta:
+            feature: true
+            categorical: false
+      - name: change_2d_9d_demand_kwh
+        data_type: bigint
+        description: >
+          The D-2 lag minus the D-9 lag, kWh: the week-on-week change of the newest complete day. Null when either is absent.
+        config:
+          meta:
+            feature: true
+            categorical: false
+      - name: mean_daytype_4d_demand_kwh
+        data_type: double
+        description: >
+          Mean over the same period of the last four complete days of D's day type (ftr_day_calendar.day_type) at or before D-2, kWh; fewer days at the start of the history; null when there is none.
+        config:
+          meta:
+            feature: true
+            categorical: false
+      - name: ewm_daytype_4d_demand_kwh
+        data_type: double
+        description: >
+          The same four days with weights 8, 4, 2, 1 from the newest back, renormalised over the days present, kWh.
+        config:
+          meta:
+            feature: true
+            categorical: false
       - name: available_at
         data_type: timestamp
         description: >
-          When the row became public, naive JST: the D-7 actual's available_at.
+          When the row became public, naive JST: the greatest available_at over the lag rows and the day-type window's days the row used.
         data_tests:
           - not_null
 
 unit_tests:
-  - name: ftr_period_actuals_shift_and_hole
+  - name: ftr_period_actuals_lags_means_change_and_day_type_window
     description: >
-      A demand row moves seven days forward with its available_at; a null
-      demand row (a TSO hole) produces no lag row.
+      Five complete Saturdays (2025-01-25 = 40, 02-01 = 100, 02-08 = 220,
+      02-15 = 280, 02-22 = 340 kWh in every period) and one all-null Saturday
+      (03-01). Every actual feeds the seven delivery days it is a lag of. The
+      weekly means take the D-7, D-14, D-21 and D-28 lags present with the
+      weights 8, 4, 2, 1 of their positions (03-08 has no D-7: 2140 / 7). The
+      change is D-2 minus D-9, null when either is absent (03-03: 03-01 is a
+      hole, so its row has a null lag_2d, not no row). A Saturday D takes the
+      last four complete Saturdays at or before D-2: 03-01's window ends at
+      02-22 and leaves 01-25 out; 03-08's skips the incomplete 03-01. Mondays
+      and Tuesdays have no complete weekday, so their window is null. The
+      02-01 file is public only 03-10, so every row that used it, through a
+      lag or the window alone (03-08, 03-15, 03-22), carries that instant.
     model: ftr_period_actuals
     given:
       - input: ref('dim_area')
         rows:
           - {area_key: 1, area_code: tokyo}
+      - input: ref('ftr_day_calendar')
+        format: sql
+        rows: |
+          select
+            'tokyo' as area_code,
+            d as trade_date,
+            case when dayofweek(d) in (1, 7) then 1 else 0 end as day_type
+          from
+            (select explode(sequence(date '2025-01-20', date '2025-03-31')) as d)
       - input: ref('fct_area_demand_generation_actual')
-        rows:
-          - {date_key: 2025-03-01, time_code: 1, area_key: 1, demand_kwh: 100, available_at: "2025-03-02 00:05:00"}
-          - {date_key: 2025-03-01, time_code: 2, area_key: 1, demand_kwh: null, available_at: "2025-03-02 00:05:00"}
+        format: sql
+        rows: |
+          select
+            d as date_key,
+            p as time_code,
+            1 as area_key,
+            case d
+              when date '2025-01-25' then 40
+              when date '2025-02-01' then 100
+              when date '2025-02-08' then 220
+              when date '2025-02-15' then 280
+              when date '2025-02-22' then 340
+            end as demand_kwh,
+            case
+              when d = date '2025-02-01' then timestamp '2025-03-10 00:05:00'
+              else timestampadd(minute, 5, timestampadd(day, 1, cast(d as timestamp)))
+            end as available_at
+          from
+            (select explode(array(
+              date '2025-01-25', date '2025-02-01', date '2025-02-08',
+              date '2025-02-15', date '2025-02-22', date '2025-03-01')) as d)
+            cross join (select explode(sequence(1, 48)) as p)
     expect:
-      rows:
-        - {area_code: tokyo, trade_date: 2025-03-08, time_code: 1, lag_7d_demand_kwh: 100, available_at: "2025-03-02 00:05:00"}
+      format: sql
+      rows: |
+        select
+          'tokyo' as area_code,
+          t.trade_date,
+          p.time_code,
+          cast(t.lag_2d as bigint) as lag_2d_demand_kwh,
+          cast(t.lag_3d as bigint) as lag_3d_demand_kwh,
+          cast(t.lag_7d as bigint) as lag_7d_demand_kwh,
+          cast(t.lag_9d as bigint) as lag_9d_demand_kwh,
+          cast(t.lag_14d as bigint) as lag_14d_demand_kwh,
+          cast(t.lag_21d as bigint) as lag_21d_demand_kwh,
+          cast(t.lag_28d as bigint) as lag_28d_demand_kwh,
+          cast(t.mean_weekly as double) as mean_weekly_lags_demand_kwh,
+          cast(t.ewm_weekly as double) as ewm_weekly_lags_demand_kwh,
+          cast(t.change as bigint) as change_2d_9d_demand_kwh,
+          cast(t.mean_daytype as double) as mean_daytype_4d_demand_kwh,
+          cast(t.ewm_daytype as double) as ewm_daytype_4d_demand_kwh,
+          t.available_at
+        from (values
+          (date '2025-01-27',   40, null, null, null, null, null, null, null, null, null, null, null, timestamp '2025-01-26 00:05:00'),
+          (date '2025-01-28', null,   40, null, null, null, null, null, null, null, null, null, null, timestamp '2025-01-26 00:05:00'),
+          (date '2025-02-01', null, null,   40, null, null, null, null,   40,   40, null,   40,   40, timestamp '2025-01-26 00:05:00'),
+          (date '2025-02-03',  100, null, null,   40, null, null, null, null, null,   60, null, null, timestamp '2025-03-10 00:05:00'),
+          (date '2025-02-04', null,  100, null, null, null, null, null, null, null, null, null, null, timestamp '2025-03-10 00:05:00'),
+          (date '2025-02-08', null, null,  100, null,   40, null, null,   70,   80, null,   70,   80, timestamp '2025-03-10 00:05:00'),
+          (date '2025-02-10',  220, null, null,  100, null, null, null, null, null,  120, null, null, timestamp '2025-03-10 00:05:00'),
+          (date '2025-02-11', null,  220, null, null, null, null, null, null, null, null, null, null, timestamp '2025-02-09 00:05:00'),
+          (date '2025-02-15', null, null,  220, null,  100,   40, null,  120,  160, null,  120,  160, timestamp '2025-03-10 00:05:00'),
+          (date '2025-02-17',  280, null, null,  220, null, null, null, null, null,   60, null, null, timestamp '2025-02-16 00:05:00'),
+          (date '2025-02-18', null,  280, null, null, null, null, null, null, null, null, null, null, timestamp '2025-02-16 00:05:00'),
+          (date '2025-02-22', null, null,  280, null,  220,  100,   40,  160,  224, null,  160,  224, timestamp '2025-03-10 00:05:00'),
+          (date '2025-02-24',  340, null, null,  280, null, null, null, null, null,   60, null, null, timestamp '2025-02-23 00:05:00'),
+          (date '2025-02-25', null,  340, null, null, null, null, null, null, null, null, null, null, timestamp '2025-02-23 00:05:00'),
+          (date '2025-03-01', null, null,  340, null,  280,  220,  100,  235,  292, null,  235,  292, timestamp '2025-03-10 00:05:00'),
+          (date '2025-03-03', null, null, null,  340, null, null, null, null, null, null, null, null, timestamp '2025-02-23 00:05:00'),
+          (date '2025-03-08', null, null, null, null,  340,  280,  220,  280, 2140 / 7, null, 235, 292, timestamp '2025-03-10 00:05:00'),
+          (date '2025-03-15', null, null, null, null, null,  340,  280,  310,  320, null,  235,  292, timestamp '2025-03-10 00:05:00'),
+          (date '2025-03-22', null, null, null, null, null, null,  340,  340,  340, null,  235,  292, timestamp '2025-03-10 00:05:00')
+        ) as t(trade_date, lag_2d, lag_3d, lag_7d, lag_9d, lag_14d, lag_21d, lag_28d,
+               mean_weekly, ewm_weekly, change, mean_daytype, ewm_daytype, available_at)
+        cross join (select explode(sequence(1, 48)) as time_code) as p

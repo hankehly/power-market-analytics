@@ -10,6 +10,41 @@ from feast.types import Float64, Int64
 
 from power_market_analytics.features.entities import GRAIN_ENTITIES
 
+FTR_DAY_ACTUALS_SOURCE = SparkSource(
+    name="ftr_day_actuals",
+    query="select area_code, cast(date_format(trade_date, 'yyyyMMdd') as int) as trade_date_key, lag_2d_mean_demand_kwh, lag_2d_max_demand_kwh, lag_2d_range_demand_kwh, available_at from pma_features.ftr_day_actuals",
+    timestamp_field="available_at",
+    description="The previous complete day's demand summaries for each delivery day: D-2's mean, maximum and maximum-minus-minimum over its 48 periods of fct_area_demand_generation_actual (research demand/R-006). Grain: area_code x trade_date. A day with a hole (a null period) is not complete and gives no row. available_at is the newest of D-2's rows.",
+)
+FTR_DAY_ACTUALS = FeatureView(
+    name="ftr_day_actuals",
+    entities=list(GRAIN_ENTITIES["day"]),
+    schema=[
+        Field(
+            name="lag_2d_mean_demand_kwh",
+            dtype=Float64,
+            description="Mean of D-2's 48 half-hourly demand values, kWh per period.",
+            tags={"categorical": "false"},
+        ),
+        Field(
+            name="lag_2d_max_demand_kwh",
+            dtype=Int64,
+            description="D-2's maximum half-hourly demand, kWh per period.",
+            tags={"categorical": "false"},
+        ),
+        Field(
+            name="lag_2d_range_demand_kwh",
+            dtype=Int64,
+            description="D-2's maximum minus minimum half-hourly demand, kWh per period.",
+            tags={"categorical": "false"},
+        ),
+    ],
+    source=FTR_DAY_ACTUALS_SOURCE,
+    online=False,
+    description="The previous complete day's demand summaries for each delivery day: D-2's mean, maximum and maximum-minus-minimum over its 48 periods of fct_area_demand_generation_actual (research demand/R-006). Grain: area_code x trade_date. A day with a hole (a null period) is not complete and gives no row. available_at is the newest of D-2's rows.",
+    tags={"grain": "day"},
+)
+
 FTR_DAY_CALENDAR_SOURCE = SparkSource(
     name="ftr_day_calendar",
     query="select area_code, cast(date_format(trade_date, 'yyyyMMdd') as int) as trade_date_key, month, day_of_week, day_type, holiday_degree, half, quarter, day_of_month, day_of_quarter, day_of_year, is_business_day, fiscal_quarter, days_since_holiday, days_until_holiday, available_at from pma_features.ftr_day_calendar",
@@ -206,24 +241,90 @@ FTR_HOUR_MSM = FeatureView(
 
 FTR_PERIOD_ACTUALS_SOURCE = SparkSource(
     name="ftr_period_actuals",
-    query="select area_code, cast(date_format(trade_date, 'yyyyMMdd') as int) as trade_date_key, time_code, lag_7d_demand_kwh, available_at from pma_features.ftr_period_actuals",
+    query="select area_code, cast(date_format(trade_date, 'yyyyMMdd') as int) as trade_date_key, time_code, lag_2d_demand_kwh, lag_3d_demand_kwh, lag_7d_demand_kwh, lag_9d_demand_kwh, lag_14d_demand_kwh, lag_21d_demand_kwh, lag_28d_demand_kwh, mean_weekly_lags_demand_kwh, ewm_weekly_lags_demand_kwh, change_2d_9d_demand_kwh, mean_daytype_4d_demand_kwh, ewm_daytype_4d_demand_kwh, available_at from pma_features.ftr_period_actuals",
     timestamp_field="available_at",
-    description="The area demand seven days before each delivery period, the demand strategies' lag_7d_demand_kwh, from fct_area_demand_generation_actual. Grain: area_code x trade_date x time_code. A period whose D-7 actual is a TSO hole has no row. available_at is the D-7 row's.",
+    description="The area's own recent demand for each delivery period, from fct_area_demand_generation_actual: the demand 2, 3, 7, 9, 14, 21 and 28 days before, a plain and an exponentially weighted mean over the four weekly lags, the D-2 minus D-9 change, and a plain and an exponentially weighted mean over the same period of the last four complete days of D's day type (the lag_7d_demand_kwh of research demand/R-001 to R-005; the rest research demand/R-006). Grain: area_code x trade_date x time_code. A row exists wherever at least one lag exists; a column is null where its input is absent (a TSO hole, or a day before the history starts). Both exponentially weighted means use the weights 8, 4, 2, 1 from the newest input back, tied to the input's position and renormalised over the inputs present. A complete day has all 48 periods non-null. available_at is the greatest over the rows the row used, so the whole row is usable only once its newest input is public.",
 )
 FTR_PERIOD_ACTUALS = FeatureView(
     name="ftr_period_actuals",
     entities=list(GRAIN_ENTITIES["period"]),
     schema=[
         Field(
+            name="lag_2d_demand_kwh",
+            dtype=Int64,
+            description="Area demand over the same period on D-2, kWh. Public about 00:05 on D-1.",
+            tags={"categorical": "false"},
+        ),
+        Field(
+            name="lag_3d_demand_kwh",
+            dtype=Int64,
+            description="Area demand over the same period on D-3, kWh.",
+            tags={"categorical": "false"},
+        ),
+        Field(
             name="lag_7d_demand_kwh",
             dtype=Int64,
             description="Area demand over the same period on D-7, kWh.",
             tags={"categorical": "false"},
         ),
+        Field(
+            name="lag_9d_demand_kwh",
+            dtype=Int64,
+            description="Area demand over the same period on D-9, kWh: the older side of change_2d_9d_demand_kwh.",
+            tags={"categorical": "false"},
+        ),
+        Field(
+            name="lag_14d_demand_kwh",
+            dtype=Int64,
+            description="Area demand over the same period on D-14, kWh.",
+            tags={"categorical": "false"},
+        ),
+        Field(
+            name="lag_21d_demand_kwh",
+            dtype=Int64,
+            description="Area demand over the same period on D-21, kWh.",
+            tags={"categorical": "false"},
+        ),
+        Field(
+            name="lag_28d_demand_kwh",
+            dtype=Int64,
+            description="Area demand over the same period on D-28, kWh.",
+            tags={"categorical": "false"},
+        ),
+        Field(
+            name="mean_weekly_lags_demand_kwh",
+            dtype=Float64,
+            description="Mean of the D-7, D-14, D-21 and D-28 lags present, kWh; null when none is.",
+            tags={"categorical": "false"},
+        ),
+        Field(
+            name="ewm_weekly_lags_demand_kwh",
+            dtype=Float64,
+            description="Exponentially weighted mean of the D-7, D-14, D-21 and D-28 lags with weights 8, 4, 2, 1, renormalised over the lags present, kWh; null when none is.",
+            tags={"categorical": "false"},
+        ),
+        Field(
+            name="change_2d_9d_demand_kwh",
+            dtype=Int64,
+            description="The D-2 lag minus the D-9 lag, kWh: the week-on-week change of the newest complete day. Null when either is absent.",
+            tags={"categorical": "false"},
+        ),
+        Field(
+            name="mean_daytype_4d_demand_kwh",
+            dtype=Float64,
+            description="Mean over the same period of the last four complete days of D's day type (ftr_day_calendar.day_type) at or before D-2, kWh; fewer days at the start of the history; null when there is none.",
+            tags={"categorical": "false"},
+        ),
+        Field(
+            name="ewm_daytype_4d_demand_kwh",
+            dtype=Float64,
+            description="The same four days with weights 8, 4, 2, 1 from the newest back, renormalised over the days present, kWh.",
+            tags={"categorical": "false"},
+        ),
     ],
     source=FTR_PERIOD_ACTUALS_SOURCE,
     online=False,
-    description="The area demand seven days before each delivery period, the demand strategies' lag_7d_demand_kwh, from fct_area_demand_generation_actual. Grain: area_code x trade_date x time_code. A period whose D-7 actual is a TSO hole has no row. available_at is the D-7 row's.",
+    description="The area's own recent demand for each delivery period, from fct_area_demand_generation_actual: the demand 2, 3, 7, 9, 14, 21 and 28 days before, a plain and an exponentially weighted mean over the four weekly lags, the D-2 minus D-9 change, and a plain and an exponentially weighted mean over the same period of the last four complete days of D's day type (the lag_7d_demand_kwh of research demand/R-001 to R-005; the rest research demand/R-006). Grain: area_code x trade_date x time_code. A row exists wherever at least one lag exists; a column is null where its input is absent (a TSO hole, or a day before the history starts). Both exponentially weighted means use the weights 8, 4, 2, 1 from the newest input back, tied to the input's position and renormalised over the inputs present. A complete day has all 48 periods non-null. available_at is the greatest over the rows the row used, so the whole row is usable only once its newest input is public.",
     tags={"grain": "period"},
 )
 
@@ -276,6 +377,7 @@ FTR_PERIOD_SIMILAR_DAY = FeatureView(
 
 #: Every feature view, by mart name.
 VIEWS = (
+    FTR_DAY_ACTUALS,
     FTR_DAY_CALENDAR,
     FTR_DAY_OCCTO,
     FTR_HOUR_JMA_OBS,
