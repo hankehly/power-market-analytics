@@ -126,7 +126,16 @@ find /tmp/gh-aw/cache-memory/ -maxdepth 1 -ls
 cat /tmp/gh-aw/cache-memory/cleaned-files.txt 2>/dev/null || echo "No previous cleanups found"
 ````
 
-This will help you avoid re-cleaning files that were recently processed.
+Each line is `YYYY-MM-DD - Cleaned: <filename>`.
+
+**A cache entry is a cooldown, not a permanent exclusion.** This workflow runs daily, so a cache
+that only ever grows would eventually exclude every file and leave the run nothing to do. A file
+that appears in the cache becomes eligible again when either of these is true:
+
+- its newest entry is more than **90 days** old, or
+- it has changed since that entry: `git log -1 --format=%cs -- <filename>` is a later date
+
+Check both before you rule a cached file out.
 
 ### 2. Find Documentation Files
 
@@ -187,7 +196,9 @@ Choose the file most in need of improvement based on:
 - Recent modification date
 - File size (larger files may have more bloat)
 - Number of bullet points or repetitive patterns
-- **Files NOT in the cleaned-files.txt cache** (avoid duplicating recent work)
+- **Files whose cleaned-files.txt cooldown has passed** - not in the cache at all, or last cleaned
+  more than 90 days ago, or changed since it was cleaned (step 1). Prefer an uncached file when one
+  is available; fall back to an expired entry rather than having nothing to do
 - **Files WITHOUT `disable-agentic-editing: true` in frontmatter** (respect protection flag)
 
 ### 4. Analyze the File
@@ -267,7 +278,8 @@ After improving the file, update the cache memory to track the cleanup:
 echo "$(date -u +%Y-%m-%d) - Cleaned: <filename>" >> /tmp/gh-aw/cache-memory/cleaned-files.txt
 ````
 
-This helps future runs avoid re-cleaning the same files.
+Append, never rewrite the file: a later entry for the same file supersedes the earlier one, and
+step 1 reads the newest. That is what makes the 90-day cooldown work.
 
 ### 9. Create Pull Request
 
