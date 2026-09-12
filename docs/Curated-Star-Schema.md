@@ -4,73 +4,20 @@ The curated layer (`dbt/models/curated/`) contains sixteen fact tables across
 six subject areas, sharing a conformed `dim_date` (the census fact, a
 once-per-census snapshot, joins its own mesh dimension instead):
 
-- `fct_jepx_spot_market` — market-wide JEPX day-ahead auction results, one row
-  per delivery period (trade date × 30-minute time code).
-- `fct_jepx_spot_area_price` — area clearing prices, one row per delivery
-  period per bidding zone.
-- `fct_jma_weather_hourly` — JMA hourly weather observations, one row per
-  station and observation hour (native hourly grain; not interpolated to the
-  30-minute JEPX periods — align by joining each delivery period to the
-  weather hour that contains it).
-- `fct_spot_price_forecast` — day-ahead price forecasts written back from
-  backtest runs (`scripts/spot_price_backtest.py` →
-  `pma_ml.spot_price_forecast`), one row per MLflow run per delivery period
-  per area; `run_id` is a degenerate dimension linking to the MLflow run.
-  Forecasts only — no actuals stored.
-- `fct_spot_price_forecast_accuracy` — the forecast fact drilled across to
-  `fct_jepx_spot_area_price` actuals, adding signed/absolute/percentage error
-  columns. This is the intended BI surface for forecast analysis.
-- `fct_demand_forecast` — day-ahead area demand forecasts written back from
-  `scripts/demand_backtest.py` (MLflow experiment `demand`); grain run ×
-  delivery period × area; forecast values only.
-- `fct_demand_forecast_accuracy` — the demand forecast fact drilled across to
-  `fct_area_demand_generation_actual` on (date_key, time_code, area_key):
-  `actual_demand_kwh`, signed `error_kwh`, `abs_error_kwh`, `pct_error`,
-  `abs_pct_error`; the BI surface for demand runs.
-- `fct_occto_demand_supply_forecast_daily` — OCCTO day-after-next (翌々日) demand and
-  peak supply-capacity forecasts, one row per target date per JEPX area
-  (periodic snapshot; formulated on target date − 2, so it is known before
-  the day-ahead auction and usable as a spot-price feature). Covers
-  2024-04-01 onward: the published エリア計 roll-ups, Okinawa, and OCCTO's
-  pre-FY2024 trial rows (試験データ, 2024-03-13..31) stay in
-  `std_occto__demand_forecast_dad` only.
-- `fct_occto_demand_supply_forecast_30m` — the half-hourly counterpart: OCCTO
-  day-after-next area demand and supply-capacity forecasts (MW) from the
-  広域予備率 エリア・広域ブロック情報 publication, one row per delivery period
-  per JEPX area (same grain as `fct_jepx_spot_area_price`, joins 1:1). Covers
-  2025-04-01 onward — the 48-point 翌々日 series began with FY2025; before
-  that only the daily peak/min points above exist. Okinawa and the wide-area
-  block / reserve columns stay in `std_occto__area_reserve_rate_dad`.
-- `fct_area_demand_generation_actual` — TSO-published area actuals, the
-  インバランス料金 「系統の需給に関する情報」 items A-1/B-1/B-4. Total demand,
-  total generation and wind+solar generation per 30-minute delivery period,
-  energy in kWh and additive, one row per delivery period per area. Tokyo
-  (TEPCO Power Grid) and Kansai (関西電力送配電) today, one `std_<tso>__…`
-  model per TSO unioned underneath, same grain as `fct_jepx_spot_area_price`.
-  Covers 2022-04-01 onward through the last finalized day. Measures are null
-  where the TSO published no observation (Tokyo 2025-06-14 time codes 11-48,
-  Kansai 2025-10-12 × 22 periods).
-- `fct_area_power_usage_hourly` — the TSO でんき予報 hourly 電力使用状況
-  display series for Tokyo (TEPCO Power Grid) and Kansai (関西電力送配電). Area
-  demand per delivery hour, energy in kWh = the published 1時間平均 万kW ×
-  10,000 and additive, one row per date × `hour_of_day` × area. Covers
-  2016-04-01, the only public area demand before A-1 begins, through
-  yesterday, with no gaps except Kansai 2024-03-31. It is this series alone,
-  not stitched with A-1: it is a display product at 万kW resolution, revised
-  without notice at best, and the two differ by 0.05 % MAE over their overlap.
-  `hour_of_day` references `dim_delivery_hour`, the 24-row shrunken rollup of
-  `dim_delivery_period`, so the two facts drill across by summing the
-  30-minute fact per `dim_delivery_period.hour_of_day`. The daily files'
-  予測値 / 使用率 / 供給力 stay in the `std_<tso>__power_usage_hourly` models.
-- `fct_census_population_mesh` — Population Census total population per 500 m
-  mesh (e-Stat 統計GIS 4次メッシュ). One row per census vintage (2015 and 2020,
-  both JGD2000 products) per nine-digit `mesh_code`. It is a periodic snapshot
-  at the census date. It is additive across meshes, since the population is as
-  published at every mesh with the privacy processing untouched, but not across
-  census years. Joins
-  `dim_population_mesh_500m` (one row per mesh: primary mesh, datum, bounding
-  box and centroid decoded from the code). Intended for population-weighted
-  weather aggregation later; no weights or weather-grid crosswalk are stored.
+| Fact | Grain | Content |
+|---|---|---|
+| `fct_jepx_spot_market` | trade date × 30-minute time code | Market-wide JEPX day-ahead auction results. |
+| `fct_jepx_spot_area_price` | delivery period × bidding zone | Area clearing prices. |
+| `fct_jma_weather_hourly` | station × observation hour | JMA hourly weather observations. Native hourly grain, not interpolated to 30-minute JEPX periods — align by joining each delivery period to the weather hour that contains it. |
+| `fct_spot_price_forecast` | MLflow run × delivery period × area | Day-ahead price forecasts written back from backtest runs (`scripts/spot_price_backtest.py` → `pma_ml.spot_price_forecast`); `run_id` is a degenerate dimension linking to the MLflow run. Forecasts only — no actuals stored. |
+| `fct_spot_price_forecast_accuracy` | same as above | The forecast fact drilled across to `fct_jepx_spot_area_price` actuals, adding signed/absolute/percentage error columns. The intended BI surface for forecast analysis. |
+| `fct_demand_forecast` | run × delivery period × area | Day-ahead area demand forecasts written back from `scripts/demand_backtest.py` (MLflow experiment `demand`); forecast values only. |
+| `fct_demand_forecast_accuracy` | same as above | The demand forecast fact drilled across to `fct_area_demand_generation_actual` on (date_key, time_code, area_key): `actual_demand_kwh`, signed `error_kwh`, `abs_error_kwh`, `pct_error`, `abs_pct_error`; the BI surface for demand runs. |
+| `fct_occto_demand_supply_forecast_daily` | target date × JEPX area | OCCTO day-after-next (翌々日) demand and peak supply-capacity forecasts (periodic snapshot; formulated on target date − 2, so it is known before the day-ahead auction and usable as a spot-price feature). Covers 2024-04-01 onward: the published エリア計 roll-ups, Okinawa, and OCCTO's pre-FY2024 trial rows (試験データ, 2024-03-13..31) stay in `std_occto__demand_forecast_dad` only. |
+| `fct_occto_demand_supply_forecast_30m` | delivery period × JEPX area (joins `fct_jepx_spot_area_price` 1:1) | The half-hourly counterpart: OCCTO day-after-next area demand and supply-capacity forecasts (MW) from the 広域予備率 エリア・広域ブロック情報 publication. Covers 2025-04-01 onward — the 48-point 翌々日 series began with FY2025; before that only the daily peak/min points above exist. Okinawa and the wide-area block / reserve columns stay in `std_occto__area_reserve_rate_dad`. |
+| `fct_area_demand_generation_actual` | delivery period × area (same grain as `fct_jepx_spot_area_price`) | TSO-published area actuals, the インバランス料金 「系統の需給に関する情報」 items A-1/B-1/B-4: total demand, total generation and wind+solar generation, energy in kWh and additive. Tokyo (TEPCO Power Grid) and Kansai (関西電力送配電) today, one `std_<tso>__…` model per TSO unioned underneath. Covers 2022-04-01 onward through the last finalized day; measures are null where the TSO published no observation (Tokyo 2025-06-14 time codes 11-48, Kansai 2025-10-12 × 22 periods). |
+| `fct_area_power_usage_hourly` | date × `hour_of_day` × area | The TSO でんき予報 hourly 電力使用状況 display series for Tokyo and Kansai. Energy in kWh = the published 1時間平均 万kW × 10,000, additive. Covers 2016-04-01, the only public area demand before A-1 begins, through yesterday, with no gaps except Kansai 2024-03-31. It is this series alone, not stitched with A-1: a display product at 万kW resolution, revised without notice at best, and the two differ by 0.05 % MAE over their overlap. `hour_of_day` references `dim_delivery_hour`, the 24-row shrunken rollup of `dim_delivery_period`, so the two facts drill across by summing the 30-minute fact per `dim_delivery_period.hour_of_day`. The daily files' 予測値 / 使用率 / 供給力 stay in the `std_<tso>__power_usage_hourly` models. |
+| `fct_census_population_mesh` | census vintage × nine-digit `mesh_code` | Population Census total population per 500 m mesh (e-Stat 統計GIS 4次メッシュ). A periodic snapshot at the census date (2015 and 2020, both JGD2000 products). Additive across meshes, since the population is as published at every mesh with the privacy processing untouched, but not across census years. Joins `dim_population_mesh_500m` (one row per mesh: primary mesh, datum, bounding box and centroid decoded from the code). Intended for population-weighted weather aggregation later; no weights or weather-grid crosswalk are stored. |
 
 ```mermaid
 erDiagram
@@ -362,53 +309,14 @@ erDiagram
 
 Notes:
 
-- Prices (`system_price_jpy_kwh`, `area_price_jpy_kwh`) are non-additive —
-  average them (volume-weighted if needed), never sum. Volumes are fully
-  additive.
-- `trade_datetime` is a standalone timestamp for time-series work, not a
-  dimension key.
-- `dim_area` row 0 is the default "System (Nationwide)" row, so fact tables
-  never carry a null area foreign key.
-- In `fct_spot_price_forecast_accuracy`, error columns are null where the
-  actual is missing (Hokkaido suspension) and percentage errors are also null
-  where the actual is 0.00 JPY/kWh, so `AVG(abs_error_jpy_kwh)` /
-  `AVG(abs_pct_error)` reproduce the MLflow run's MAE /
-  `mape_excl_zero_actuals`. Beware that actuals at the post-FY2016 0.01 floor
-  still make percentage errors explode — prefer MAE when a window contains
-  near-zero prices.
-- `dim_date` is conformed across all subject areas: its spine starts 2016-01-01
-  to cover JMA weather (JEPX spot begins at fiscal year 2016 = 2016-04-01).
-- `fct_jma_weather_hourly.observed_at` marks the end of the observation hour;
-  precipitation and sunshine accumulate over `[observed_hour_start_at,
-  observed_at]`, temperature and wind are instantaneous at `observed_at`.
-  `phenomenon_absent` columns are null only when the quality flag is 2/1/0, and
-  for snow depth also when snow is untracked off-season. Value 0 with
-  `phenomenon_absent = 0` is a JMA "trace" reading, below measurement
-  resolution, which is distinct from a true zero (`phenomenon_absent = 1`).
-- `fct_occto_demand_supply_forecast_daily` MW columns are additive across areas; the
-  `usage_rate` / `reserve_rate` columns are fractions (0.924 = 92.4%, converted
-  from OCCTO's percentages in the standardized layer) and non-additive
-  (average, or recompute from the MW columns). `min_demand_mw` for `date_key` ≤ 2025-03-31 is the demand at the
-  minimum-reserve-rate hour, not the minimum demand (an OCCTO definition
-  change). Hour-ending values run 1–24 (24 = the hour ending at midnight).
-- `fct_occto_demand_supply_forecast_30m` measures are power in MW for the
-  30-minute period: additive across areas (they sum to OCCTO's wide-area
-  block demand), not across periods — × 0.5 h for MWh, × 500 for the kWh
-  unit of `fct_area_demand_generation_actual`. `supply_capacity_mw` is available supply
-  capacity (供給力), not a generation forecast; minus `demand_mw` it is the
-  published area reserve and can be negative.
-- `fct_area_demand_generation_actual` measures are energy per 30-minute
-  period in kWh (30分kWh, as published) and additive across periods, days
-  and areas; divide by 500 for average MW. `wind_solar_generation_kwh` is
-  the wind + solar share of `generation_kwh` (always ≤ it). Each TSO
-  measures its own area with its own system (TEPCO values are multiples of
-  1,000 kWh, Kansai's exact kWh). The fact joins `fct_jepx_spot_area_price`
-  1:1 on (`date_key`, `time_code`, `area_key`).
-- `fct_census_population_mesh.population_total` is additive across meshes
-  (sum for any geography) but not across `census_year` — each vintage is a
-  separate snapshot. It is the published headcount at every mesh, privacy
-  processing included (the 秘匿処理 folds only the suppressed detail columns
-  into neighbouring meshes, never the total), so nothing is reallocated. The
-  census date (October 1) predates `dim_date`'s spine and is carried as a
-  plain `census_date`; mesh geography lives on `dim_population_mesh_500m`
-  (bounding box / centroid decoded from the JIS X 0410 code, JGD2000).
+| Subject | Note |
+|---|---|
+| Prices | `system_price_jpy_kwh` / `area_price_jpy_kwh` are non-additive — average them (volume-weighted if needed), never sum. Volumes are fully additive. `trade_datetime` is a standalone timestamp for time-series work, not a dimension key. |
+| `dim_area` | Row 0 is the default "System (Nationwide)" row, so fact tables never carry a null area foreign key. |
+| `fct_spot_price_forecast_accuracy` | Error columns are null where the actual is missing (Hokkaido suspension) and percentage errors are also null where the actual is 0.00 JPY/kWh, so `AVG(abs_error_jpy_kwh)` / `AVG(abs_pct_error)` reproduce the MLflow run's MAE / `mape_excl_zero_actuals`. Actuals at the post-FY2016 0.01 floor still make percentage errors explode — prefer MAE when a window contains near-zero prices. |
+| `dim_date` | Conformed across all subject areas: its spine starts 2016-01-01 to cover JMA weather (JEPX spot begins at fiscal year 2016 = 2016-04-01). |
+| `fct_jma_weather_hourly` | `observed_at` marks the end of the observation hour; precipitation and sunshine accumulate over `[observed_hour_start_at, observed_at]`, temperature and wind are instantaneous at `observed_at`. `phenomenon_absent` columns are null only when the quality flag is 2/1/0, and for snow depth also when snow is untracked off-season. Value 0 with `phenomenon_absent = 0` is a JMA "trace" reading, below measurement resolution, distinct from a true zero (`phenomenon_absent = 1`). |
+| `fct_occto_demand_supply_forecast_daily` | MW columns are additive across areas; `usage_rate` / `reserve_rate` are fractions (0.924 = 92.4%, converted from OCCTO's percentages in the standardized layer) and non-additive (average, or recompute from the MW columns). `min_demand_mw` for `date_key` ≤ 2025-03-31 is the demand at the minimum-reserve-rate hour, not the minimum demand (an OCCTO definition change). Hour-ending values run 1–24 (24 = the hour ending at midnight). |
+| `fct_occto_demand_supply_forecast_30m` | Measures are power in MW for the 30-minute period: additive across areas (they sum to OCCTO's wide-area block demand), not across periods — × 0.5 h for MWh, × 500 for the kWh unit of `fct_area_demand_generation_actual`. `supply_capacity_mw` is available supply capacity (供給力), not a generation forecast; minus `demand_mw` it is the published area reserve and can be negative. |
+| `fct_area_demand_generation_actual` | Measures are energy per 30-minute period in kWh (30分kWh, as published) and additive across periods, days and areas; divide by 500 for average MW. `wind_solar_generation_kwh` is the wind + solar share of `generation_kwh` (always ≤ it). Each TSO measures its own area with its own system (TEPCO values are multiples of 1,000 kWh, Kansai's exact kWh). Joins `fct_jepx_spot_area_price` 1:1 on (`date_key`, `time_code`, `area_key`). |
+| `fct_census_population_mesh` | `population_total` is additive across meshes (sum for any geography) but not across `census_year` — each vintage is a separate snapshot. It is the published headcount at every mesh, privacy processing included (the 秘匿処理 folds only the suppressed detail columns into neighbouring meshes, never the total), so nothing is reallocated. The census date (October 1) predates `dim_date`'s spine and is carried as a plain `census_date`; mesh geography lives on `dim_population_mesh_500m` (bounding box / centroid decoded from the JIS X 0410 code, JGD2000). |
