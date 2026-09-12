@@ -150,6 +150,7 @@ def compare_runs(
     candidate_run_id: str,
     high_demand_quantile: float = 0.9,
     band_mwh: int = 2000,
+    common_days: bool = False,
 ) -> dict[str, SegmentComparison]:
     """Compare a candidate run against its matched baseline by segment.
 
@@ -166,6 +167,9 @@ def compare_runs(
     band_mwh : int, optional
         Width of the actual-demand bands in MWh per 30-minute period (the
         Superset dashboard's 2,000-MWh bands by default).
+    common_days : bool, optional
+        Compare on the delivery days both runs scored: a day only one run
+        scored is dropped first (two feature sets can skip different days).
 
     Returns
     -------
@@ -182,7 +186,11 @@ def compare_runs(
         If the two runs do not cover exactly the same points.
     """
     df = matched_rows(
-        errors, task=TASK, baseline_run_id=baseline_run_id, candidate_run_id=candidate_run_id
+        errors,
+        task=TASK,
+        baseline_run_id=baseline_run_id,
+        candidate_run_id=candidate_run_id,
+        common_days=common_days,
     )
     daily_mean = df.loc[df["role"] == "baseline"].groupby("trade_date")[TASK.actual_col].mean()
     threshold = daily_mean.quantile(high_demand_quantile)
@@ -224,6 +232,7 @@ def daily_paired_comparison(
     resamples: int = 10_000,
     seed: int = 0,
     top_days: int = 10,
+    common_days: bool = False,
 ) -> DailyPairedComparison:
     """Compare the two runs day by day and bootstrap the mean daily-MAE difference.
 
@@ -241,6 +250,8 @@ def daily_paired_comparison(
     top_days : int, optional
         How many of the most-improved days to attribute the gain to; capped
         at the number of days.
+    common_days : bool, optional
+        Compare on the delivery days both runs scored (``compare_runs``).
 
     Returns
     -------
@@ -259,6 +270,7 @@ def daily_paired_comparison(
         resamples=resamples,
         seed=seed,
         top_days=top_days,
+        common_days=common_days,
     )
 
 
