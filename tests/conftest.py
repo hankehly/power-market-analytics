@@ -448,7 +448,11 @@ def curated_warehouse(spark: SparkSession) -> CuratedWarehouse:
         ]
     )
     delivery_periods = pd.DataFrame(
-        {"time_code": range(1, 49), "day_part": [day_part(tc) for tc in range(1, 49)]}
+        {
+            "time_code": range(1, 49),
+            "hour_of_day": [(tc - 1) // 2 for tc in range(1, 49)],
+            "day_part": [day_part(tc) for tc in range(1, 49)],
+        }
     )
     accuracy_rows = []
     for run_id, days, bias in (
@@ -705,9 +709,9 @@ def curated_warehouse(spark: SparkSession) -> CuratedWarehouse:
         "date_key date, area_key int, max_demand_hour_ending int, max_demand_mw int, "
         "max_supply_capacity_mw int",
     ).write.mode("overwrite").saveAsTable("pma_curated.fct_occto_demand_supply_forecast_daily")
-    spark.createDataFrame(delivery_periods, "time_code int, day_part string").write.mode(
-        "overwrite"
-    ).saveAsTable("pma_curated.dim_delivery_period")
+    spark.createDataFrame(
+        delivery_periods, "time_code int, hour_of_day int, day_part string"
+    ).write.mode("overwrite").saveAsTable("pma_curated.dim_delivery_period")
     spark.createDataFrame(
         accuracy,
         "date_key date, time_code int, area_key int, run_id string, "
