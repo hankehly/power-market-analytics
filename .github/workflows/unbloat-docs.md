@@ -16,6 +16,12 @@ on:
     pull-requests: read
   steps:
     - id: check
+      # continue-on-error is required, not optional: the activation job gates on
+      # needs.pre_activation.outputs.check_result, which is this step's `outcome`. Without it a
+      # non-zero exit aborts pre_activation, the output is never published, and the scheduled run
+      # is marked failed instead of skipped. With it the step's outcome is still `failure`, so
+      # activation is skipped, and the job itself succeeds.
+      continue-on-error: true
       env: 
         GH_TOKEN: ${{ github.token }}
       run: |
@@ -129,6 +135,10 @@ Scan the repository for markdown documentation files. Common locations include:
 - Changelog files
 - License files
 - Code of conduct files
+- **`CLAUDE.md` and `AGENTS.md`** - these are the agent instruction files, not prose documentation.
+  `AGENTS.md` is a symlink to `CLAUDE.md`, so they are one file: the repository's operating manual of
+  commands, architecture and rules. Every line is load-bearing and density is deliberate, so the
+  bloat criteria below do not apply to it
 - **Everything under `docs/superpowers/`** - design specs and implementation plans are written once
   and then left alone (see `docs/superpowers/README.md`). That folder is a design-history archive,
   not documentation that is kept current
@@ -148,16 +158,24 @@ Look for documentation files that were recently modified or are likely to benefi
 - Auto-generated documentation
 - Changelog or release notes
 - License or legal files
+- **`CLAUDE.md` and `AGENTS.md`** - the agent instruction files, excluded above
 - **Anything under `docs/superpowers/`** - the design-history archive, excluded above
 - **Files with `disable-agentic-editing: true` in frontmatter** - These files are explicitly protected from automated editing
 
-Before selecting a file, check its frontmatter to ensure it doesn't have `disable-agentic-editing: true`:
+Before selecting a file, check its frontmatter for `disable-agentic-editing: true`. The rule is:
+**read the frontmatter block in full, and when you cannot establish where it ends, treat the file as
+protected.** Never judge it from a fixed number of lines.
+
 ````bash
-# Check if a file has disable-agentic-editing set to true.
-# Search the whole leading block: the flag is often not the first key.
-head -30 <filename> | grep -n "disable-agentic-editing: true"
-# If this returns a match, SKIP this file - it's protected
+# 1. Frontmatter is the block between the first two lines that are exactly ---.
+#    This prints both delimiter line numbers:
+grep -n "^---$" <filename> | head -2
+# 2. Search inside that block only, with N = the SECOND line number from step 1:
+head -N <filename> | grep -n "disable-agentic-editing: true"
 ````
+
+SKIP the file if step 2 matches, or if step 1 returns fewer than two delimiters while the file starts
+with `---` (frontmatter you cannot delimit is frontmatter you cannot check).
 
 Choose the file most in need of improvement based on:
 - Recent modification date
@@ -168,10 +186,11 @@ Choose the file most in need of improvement based on:
 
 ### 4. Analyze the File
 
-**First, verify the file is editable**:
+**First, verify the file is editable** — the same two steps as above, with the same rule (the whole
+frontmatter block; an undelimitable block counts as protected):
 ````bash
-# Check frontmatter for disable-agentic-editing flag
-head -30 <filename> | grep -n "disable-agentic-editing: true"
+grep -n "^---$" <filename> | head -2
+head -N <filename> | grep -n "disable-agentic-editing: true"
 ````
 
 If this command returns a match, **STOP** - the file is protected. Select a different file.
