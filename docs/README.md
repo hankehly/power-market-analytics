@@ -526,15 +526,29 @@ records the results in two places, linked by the MLflow `run_id`:
 
 ### Walk-forward backtest
 
-`run_backtest` steps through the window one delivery day at a time. For day D it
-hands the strategy only the history published by the issue time — delivery days
-`<= D-2` for demand, because the TSO file for D-1 is not final at 09:30 — and
-keeps the 48 forecasts it returns. The LightGBM strategies do not fit once: they
-refit every 7 delivery days on the trailing 730 days of complete rows, and
-between refits the cached model scores the next days, so by the seventh its
-newest training day is 8 days old.
+Both tasks run on one engine, `run_backtest`. It steps through the window one
+delivery day at a time and hands the strategy only the history published by the
+issue time, keeping the 48 forecasts it returns for day D.
 
-![Walk-forward demand backtest: the 730-day training window, the unseen day D-1, and the seven delivery days each refit scores](img/demand-backtest-walk-forward.svg)
+Both are issued at 09:30 JST on D-1, but they do not see the same history, so
+every statement below names its task:
+
+- **Demand** — history through **D-2** (`history_lead_days = 2`). The TSO 実績
+  file for D-1 is not final at 09:30.
+- **Spot price** — history through **D-1** (`history_lead_days = 1`). JEPX
+  publishes the previous day's auction result before 09:30.
+
+The LightGBM strategies of both tasks do not fit once: they refit every 7
+delivery days on a window that opens 730 calendar days before the target day
+and closes at that task's cutoff — 729 delivery days for demand (D-730 … D-2),
+730 for spot price (D-730 … D-1). Between refits the cached model scores the
+next days, so by the seventh its newest training day is 8 days old.
+
+![Walk-forward demand backtest: the 730-calendar-day training window, the unseen day D-1, and the seven delivery days each refit scores](img/demand-backtest-walk-forward.svg)
+
+The figure is the **demand** task: 48 half-hourly periods per delivery day, the
+D-2 cutoff and the unseen D-1. The spot-price loop has the same shape with that
+gap closed, since its window runs to D-1.
 
 A day the strategy cannot forecast — a missing feature raises
 `ForecastUnavailableError` — is skipped and reported on
@@ -542,16 +556,15 @@ A day the strategy cannot forecast — a missing feature raises
 are then joined one-to-one to actuals, and a forecast point with no actual is
 dropped.
 
-The numbers come from two places. The task fixes the cutoff and the issue time
-(`history_lead_days` and `issue_offset` on its `TaskSpec`: 2 days and 09:30 on
-D-1 for demand; the spot task uses 1, since JEPX publishes the previous day's
-auction before 09:30). The strategy fixes the window and the cadence
-(`DEFAULT_TRAIN_WINDOW_DAYS = 730` and `refit_every_days = 7` on
-`SlidingWindowLightGbmStrategy`). `--train-start` clips the window's left edge,
+The numbers come from two places. Each task's `TaskSpec` fixes its cutoff and
+issue time (`history_lead_days`, `issue_offset`); the strategy fixes the window
+and the cadence, shared by both tasks (`DEFAULT_TRAIN_WINDOW_DAYS = 730` and
+`refit_every_days = 7` on `SlidingWindowLightGbmStrategy`). `--train-start`
+clips the window's left edge,
 which is how a baseline is fitted on exactly the rows a feature-limited
 candidate can use.
 
-### Strategies and feature experiments
+### Strategies and feature experiments (spot price)
 
 Three strategies: `previous_day` (naive), `lightgbm` (calendar and 1-day-lag
 features) and `lightgbm_occto`. The last adds the OCCTO 翌々日 peak-demand
