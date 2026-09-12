@@ -1,7 +1,7 @@
 # Recent load features for the demand task — design
 
-Date: 2026-09-12. Status: **approved in chat**, awaiting the researcher's review of this
-file. Branch: `feature/demand-recent-load-features`.
+Date: 2026-09-12. Status: **implemented** on 2026-09-12 (research `demand/R-006` E-001).
+Branch: `feature/demand-recent-load-features`.
 
 ## 1. Goal
 
@@ -180,9 +180,10 @@ that run against the newest baseline run on the old mart, `429eca36…` (2026-09
 A second, smaller cost: a target day is skipped when any of its 48 rows lacks a feature
 (`ForecastUnavailableError`, the existing rule). The TEPCO hole of 2025-06-14 removes
 one target day from the baseline (through D−7) and up to seven from the candidate
-(D−2, D−3, D−7, D−9, D−14, D−21, D−28 after it). The compare script and the Compare tab
-count only the periods both runs scored, so the comparison stays matched; the
-investigation records the day counts.
+(D−2, D−3, D−7, D−9, D−14, D−21, D−28 after it). The Compare tab counts only the periods
+both runs scored; the compare script refused unmatched runs until this work, so it gained
+`--common-days` (drop and list the days only one run scored, then match the rest period by
+period), and the investigation records the day counts.
 
 ## 7. Preset and the experiment
 
