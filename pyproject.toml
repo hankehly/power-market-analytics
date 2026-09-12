@@ -20,7 +20,7 @@ dependencies = [
     "pandas>=2.3.3",
     "pydantic>=2.13.4",
     "pydantic-settings>=2.14.1",
-    "pyspark[ml,pandas-on-spark]==4.1.1",
+    "pyspark[ml,pandas-on-spark]==4.2.0",
     "pyyaml>=6.0",
     "requests>=2.32.3",
     "scipy>=1.18",
