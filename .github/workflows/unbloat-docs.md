@@ -119,6 +119,16 @@ safe-outputs:
     run-success: "🗜️ Docs on a diet! [{workflow_name}]({run_url}) has removed the bloat. Lean and mean! 💪"
     run-failure: "📦 Unbloating paused! [{workflow_name}]({run_url}) {status}. The docs remain... fluffy."
 
+# One fixed group for every run of this workflow, rather than the default group that keys on the
+# issue number or, for a scheduled run, the run id. All runs share one cache-memory store through a
+# restore/append/save cycle, so two that overlap - a /unbloat comment during the daily run, say -
+# would each save a snapshot without the other's entry, and whichever is restored next would have
+# lost a cleanup record and let that file skip its cooldown. Serialising them is the fix; the
+# compiled workflow queues rather than cancels, so nothing is dropped.
+concurrency:
+  group: "gh-aw-unbloat-docs"
+  queue: max
+
 # Timeout
 timeout-minutes: 30
 ---
