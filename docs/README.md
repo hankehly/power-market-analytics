@@ -542,7 +542,8 @@ The LightGBM strategies of both tasks do not fit once: they refit every 7
 delivery days on a window that opens 730 calendar days before the target day
 and closes at that task's cutoff — 729 delivery days for demand (D-730 … D-2),
 730 for spot price (D-730 … D-1). Between refits the cached model scores the
-next days, so by the seventh its newest training day is 8 days old.
+next days, so by the seventh its newest training day is `6 + history_lead_days`
+days old: 8 days for demand, 7 for spot price.
 
 ![Walk-forward demand backtest: the 730-calendar-day training window, the unseen day D-1, and the seven delivery days each refit scores](img/demand-backtest-walk-forward.svg)
 
