@@ -1,0 +1,43 @@
+# Dependabot keeps this repo's two dependency surfaces current: the Python lock
+# (uv) and the actions used by the ci workflow. It is also what makes commit-SHA
+# pinning viable there, since an unattended SHA pin never moves and so never
+# receives a security fix.
+#
+# Everything is grouped, because every PR here costs a Codex review and a manual
+# merge. Minor and patch updates arrive as one PR per ecosystem per month; a
+# major gets its own PR, which is the one worth reading closely.
+#
+# Docs: https://docs.github.com/en/code-security/dependabot/working-with-dependabot/dependabot-options-reference
+version: 2
+updates:
+  # uv is its own ecosystem — the `pip` ecosystem does not read uv.lock.
+  - package-ecosystem: uv
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      python-minor-and-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+    ignore:
+      # pyproject.toml pins mlflow exactly to match the server image in
+      # docker-compose.yaml, and Dependabot cannot move the image tag with it.
+      # A PR that bumped only the lock would break that lockstep, so mlflow is
+      # bumped by hand — both files together, as the pyproject comment says.
+      # This suppresses Dependabot's PRs for mlflow, security ones included, so
+      # the signal to act is the alert itself (alerts come from the advisory
+      # database and are not filtered here) or `just pip-audit` going red.
+      - dependency-name: mlflow
+
+  # The actions used by .github/workflows/ci.yml. Dependabot updates the
+  # reference in place whatever its form: for a commit-SHA pin it rewrites the
+  # SHA and its trailing version comment together, which is what keeps a pin
+  # current rather than merely frozen.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions-minor-and-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]

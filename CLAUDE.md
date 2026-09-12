@@ -82,6 +82,44 @@
   in any committed file; config in `.checkov.yaml`, version pinned in the justfile and
   `.github/workflows/ci.yml`). Exits 1 on any failed check; the `ci` workflow runs it as a
   second job on every push.
+- `just docs-links` — check that every relative Markdown link in the git-tracked `*.md` files
+  resolves (`scripts/check_docs_links.py`), `.github/` excluded: the markdown there is agentic
+  workflow source, whose YAML frontmatter carries message templates like
+  `[{workflow_name}]({run_url})` that are strings, not links. A link is accepted under any of the three
+  conventions the docsify site uses — relative to the page, to the site root at `docs/`, or to
+  the repo root — and only the path is checked, never the `#anchor`. Targets carrying the
+  repo's placeholder markers (`<` for an inline `<slug>`, `XXX` for the `O-XXX` / `R-XXX`
+  research IDs) are skipped. Exits 1 naming each broken link; a `ci` job on every push,
+  installing the dev group only. Links are found with **markdown-it-py** (a dev dependency
+  since 2026-09-12), not a pattern of our own: two hand-written attempts made eight parsing
+  mistakes between them (code fences and spans, fence run length, reference definitions plain
+  and angle-bracketed, parenthesised destinations, URI schemes), and both directions fail
+  silently — a missed form lets a broken link through, a mis-detected one fails CI on valid
+  prose. Added because PR #74 renamed and moved docs with nothing checking the links.
+- `just zizmor [zizmor args]` — audit `.github/workflows/` with zizmor (`--persona=regular`),
+  version pinned in the justfile and `.github/workflows/ci.yml`. Exits non-zero on any finding;
+  a `ci` job on every push. It guards the two things checkov's 8 GitHub Actions checks miss:
+  every `uses:` pinned to a 40-char commit SHA (version as a trailing comment; Dependabot
+  rewrites both together) and `persist-credentials: false` on each checkout, so the job token
+  is not left in `.git/config`. The CI job passes `GH_TOKEN` to switch on the online audits
+  (`stale-action-refs` and friends); a bare local run is offline and says so, so match CI with
+  `GH_TOKEN=$(gh auth token) just zizmor`. zizmor rather than semgrep because a 25-defect
+  bake-off on 2026-09-12 (issue #33, closed as superseded by #80) found semgrep's
+  `p/github-actions` adds only the unpinned-uses class over checkov while zizmor finds that
+  plus `artipacked`, in 0.18 s against 8.2 s; semgrep's `p/docker-compose` is dead on a
+  version-less Compose v2 file and its `p/secrets` is weaker than checkov's entropy-backed scan.
+- `just pip-audit [pip-audit args]` — audit the locked dependencies against the PyPI / OSV
+  advisory databases (`uv export` of `uv.lock` piped into a pinned `pip-audit`; `pip-audit
+  --locked` reads only a PEP 751 `pylock.toml`, not `uv.lock`). Exits 1 on any advisory, so it
+  gates on its own. The `--ignore-vuln` list lives in the recipe, one entry per advisory whose
+  fix a dbt pin puts out of reach (`sqlparse` behind dbt-core 1.11, `thrift` behind dbt-spark
+  1.10 — issue #84), each with its reason and a recheck date; drop an entry as soon as its fix
+  becomes reachable. Because that list must have exactly one definition, the `ci` job is the
+  one job that runs the recipe (`uvx --from rust-just@1.58.0 just pip-audit`) instead of
+  repeating its command. Dependency *updates* come from `.github/dependabot.yml` (the `uv` and
+  `github-actions` ecosystems, monthly, minor and patch grouped into one PR each; `mlflow` is
+  excluded because `pyproject.toml` pins it to the `docker-compose.yaml` server image and both
+  move together).
 - `just python <args>` / `just exec <cmd>` / `just shell` — run inside the devcontainer.
 - `just dbt <args>` — dbt from `/workspace/dbt` (e.g. `just dbt build`, `just dbt show --inline "select ..." --limit 5`).
   `just dbt parse` needs no warehouse (parse never opens a connection) and is the one dbt step
