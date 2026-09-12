@@ -21,6 +21,7 @@ from power_market_analytics.ingestion.occto import (
     OcctoDownloadError,
     OcctoTransientError,
 )
+from tests.support import record_sleeps
 
 SCREEN_URL = f"{BASE_URL}/CF01S010C"
 LOGIN_URL = f"{BASE_URL}/LOGIN_login"
@@ -969,8 +970,7 @@ class TestDownloadRetries:
         assert [c[0] for c in session.calls] == ["get", "post", "post"]
 
     def test_waits_retry_wait_seconds_before_each_retry(self, tmp_path, monkeypatch):
-        sleeps: list[float] = []
-        monkeypatch.setattr("power_market_analytics.ingestion.occto.time.sleep", sleeps.append)
+        sleeps = record_sleeps(monkeypatch)
         session = FakeSession(
             [
                 LOGIN,

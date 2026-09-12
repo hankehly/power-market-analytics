@@ -155,11 +155,11 @@ from pathlib import Path  # noqa: E402
 
 import requests  # noqa: E402
 
-from power_market_analytics.ingestion.estat import download as estat_download  # noqa: E402
 from power_market_analytics.ingestion.estat.download import (  # noqa: E402
     EstatCensusMeshDownloader,
     EstatDownloadError,
 )
+from tests.support import patch_monotonic, record_sleeps  # noqa: E402
 
 V2015 = vintage_for_year(2015)
 V2020 = vintage_for_year(2020)
@@ -544,9 +544,8 @@ class TestDownloadVintageAndAll:
 class TestThrottle:
     def test_consecutive_requests_are_spaced_by_the_interval(self, tmp_path, monkeypatch):
         clock = {"now": 100.0}
-        sleeps: list[float] = []
-        monkeypatch.setattr(estat_download.time, "monotonic", lambda: clock["now"])
-        monkeypatch.setattr(estat_download.time, "sleep", lambda s: sleeps.append(s))
+        patch_monotonic(monkeypatch, lambda: clock["now"])
+        sleeps = record_sleeps(monkeypatch)
         session = demo_session()
         dl = EstatCensusMeshDownloader(data_dir=tmp_path, session=session, request_interval=0.5)
 
