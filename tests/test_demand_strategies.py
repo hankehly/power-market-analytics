@@ -15,11 +15,17 @@ from tests.conftest import (
     FORECAST_MISSING_DAY,
     HOLIDAYS_2024_SPRING,
     RECENT_LOAD_COLUMNS,
+    SECOND_STATION_FORECAST_HUMIDITY_OFFSET_PCT,
     SECOND_STATION_FORECAST_OFFSET_C,
+    SECOND_STATION_FORECAST_RAIN_OFFSET_MM,
+    SECOND_STATION_FORECAST_SOLAR_OFFSET_MJM2,
     popw_forecast,
     similar_day_load,
     synthetic_day_type,
     synthetic_demand,
+    synthetic_forecast_humidity,
+    synthetic_forecast_precipitation,
+    synthetic_forecast_solar_radiation,
     synthetic_forecast_temperature,
     wavg_temperature,
 )
@@ -52,6 +58,7 @@ class TestRegistry:
             "lightgbm_msm_popw_daytype_simday_holidaydegree",
             "lightgbm_msm_popw_daytype_simday_holidaydistance",
             "lightgbm_msm_popw_daytype_simday_lags",
+            "lightgbm_msm_popw_daytype_simday_lags_weather",
         )
         assert STRATEGIES == tuple(PRESETS)
 
@@ -124,6 +131,49 @@ class TestBuildPreset:
         assert lag.loc[list(DEMAND_HOLE_TIME_CODES)].isna().all()
         assert lag.loc[1:10].notna().all()
         assert frame.loc[after - pd.Timedelta(days=1), "lag_7d_demand_kwh"].notna().all()
+
+    def test_weather_preset_appends_the_three_msm_elements(self, feature_marts):
+        days = pd.date_range("2024-04-01", "2024-04-25", freq="D")
+        strategy = build_strategy(
+            "lightgbm_msm_popw_daytype_simday_lags_weather", area_code="tokyo", days=days
+        )
+        assert type(strategy) is PresetLightGbmStrategy
+        assert strategy.feature_cols == (
+            *SIMDAY_FEATURE_COLS,
+            *RECENT_LOAD_COLUMNS,
+            "popw_forecast_relative_humidity_pct",
+            "popw_forecast_precipitation_mm",
+            "popw_forecast_solar_radiation_mjm2",
+        )
+        assert strategy.categorical_feature_cols == ("day_type",)
+        # Retrieved through the generated Feast source query, so a column the
+        # generator left out of its select fails here, not at backtest time.
+        frame = frame_by_period(strategy)
+        day = pd.Timestamp("2024-04-05")
+        for time_code in (17, 2):  # hours 9 and 1: daylight and dark
+            hour = (time_code + 1) // 2
+            row = frame.loc[(day, time_code)]
+            for column, value, offset in (
+                (
+                    "popw_forecast_relative_humidity_pct",
+                    synthetic_forecast_humidity(day, hour),
+                    SECOND_STATION_FORECAST_HUMIDITY_OFFSET_PCT,
+                ),
+                (
+                    "popw_forecast_precipitation_mm",
+                    synthetic_forecast_precipitation(day, hour),
+                    SECOND_STATION_FORECAST_RAIN_OFFSET_MM,
+                ),
+                (
+                    "popw_forecast_solar_radiation_mjm2",
+                    synthetic_forecast_solar_radiation(day, hour),
+                    SECOND_STATION_FORECAST_SOLAR_OFFSET_MJM2,
+                ),
+            ):
+                assert row[column] == pytest.approx(popw_forecast(day, hour, value, offset))
+        assert frame.loc[(day, 17), "popw_forecast_solar_radiation_mjm2"] > frame.loc[
+            (day, 2), "popw_forecast_solar_radiation_mjm2"
+        ]
 
     def test_add_drop_and_label_compose_a_named_set(self, feature_marts):
         strategy = build_strategy(
