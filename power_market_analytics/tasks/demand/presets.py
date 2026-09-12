@@ -72,6 +72,14 @@ RECENT_LOAD_FEATURES: tuple[str, ...] = (
     "ftr_day_actuals:lag_2d_max_demand_kwh",
     "ftr_day_actuals:lag_2d_range_demand_kwh",
 )
+#: The MSM forecast elements of research demand/R-007, population-weighted like
+#: the forecast temperature every preset since lightgbm_msm_popw already
+#: carries: humidity, rain and solar radiation. The temperature is not repeated.
+MSM_ELEMENT_FEATURES: tuple[str, ...] = (
+    "ftr_hour_msm:popw_forecast_relative_humidity_pct",
+    "ftr_hour_msm:popw_forecast_precipitation_mm",
+    "ftr_hour_msm:popw_forecast_solar_radiation_mjm2",
+)
 
 #: Calendar, the recency-weighted same-hour temperature over D-8..D-2 at the
 #: representative station and the D-7 demand lag.
@@ -125,6 +133,10 @@ LIGHTGBM_MSM_POPW_DAYTYPE_SIMDAY_HOLIDAYDISTANCE = LIGHTGBM_MSM_POPW_DAYTYPE_SIM
 LIGHTGBM_MSM_POPW_DAYTYPE_SIMDAY_LAGS = LIGHTGBM_MSM_POPW_DAYTYPE_SIMDAY.with_changes(
     name="lightgbm_msm_popw_daytype_simday_lags", add=RECENT_LOAD_FEATURES
 )
+#: Plus the three other MSM forecast elements (demand/R-007 E-001).
+LIGHTGBM_MSM_POPW_DAYTYPE_SIMDAY_LAGS_WEATHER = LIGHTGBM_MSM_POPW_DAYTYPE_SIMDAY_LAGS.with_changes(
+    name="lightgbm_msm_popw_daytype_simday_lags_weather", add=MSM_ELEMENT_FEATURES
+)
 
 #: Every preset by name: the registry keys of the demand backtest script.
 PRESETS: dict[str, Preset] = {
@@ -140,5 +152,6 @@ PRESETS: dict[str, Preset] = {
         LIGHTGBM_MSM_POPW_DAYTYPE_SIMDAY_HOLIDAYDEGREE,
         LIGHTGBM_MSM_POPW_DAYTYPE_SIMDAY_HOLIDAYDISTANCE,
         LIGHTGBM_MSM_POPW_DAYTYPE_SIMDAY_LAGS,
+        LIGHTGBM_MSM_POPW_DAYTYPE_SIMDAY_LAGS_WEATHER,
     )
 }

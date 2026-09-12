@@ -28,6 +28,7 @@
     - [R-004 — Prior-Year Load Lag](research/demand/R-004-prior-year-load-lag.md)
     - [R-005 — Calendar Features](research/demand/R-005-calendar-features.md)
     - [R-006 — Recent Load Features](research/demand/R-006-recent-load-features.md)
+    - [R-007 — Forecast Weather Elements](research/demand/R-007-forecast-weather-elements.md)
 - [Development and code review](Development.md)
 - Reference
   - [Kimball dimensional modeling](Kimball-Dimensional-Modeling-Techniques.md)
