@@ -8,9 +8,64 @@ Power market analytics.
 
 Every external dataset the warehouse loads, plus candidates we have evaluated
 but not loaded. *Grain* is the source file's grain; *Availability* is the loaded
-date range (`current` = up to the last run of the matching `just refresh-*`
-recipe; for candidates, the published range). Retrieval protocols and format
-quirks live in the linked docs.
+date range (`current` = up to the last run of `just refresh-all`; for
+candidates, the published range). Retrieval protocols and format quirks live in
+the linked docs.
+
+### Coverage at a glance
+
+Every loaded source, as the warehouse held it on 2026-09-12. A bar ends at the
+last loaded day rather than at today: a source is only as current as the last
+`just refresh-all` run, and the feeds settle at different lags.
+
+```mermaid
+gantt
+    title Loaded date coverage by source — warehouse state on 2026-09-12
+    dateFormat YYYY-MM-DD
+    axisFormat %Y
+    tickInterval 1year
+    todayMarker off
+
+    section JEPX
+    スポット市場 取引結果 (30 min)                 :active, jepx, 2016-04-01, 2026-09-07
+
+    section JMA
+    過去の気象データ 時別値 (hourly, 149 stations) :active, jma, 2016-01-01, 2026-09-05
+    MSM GPV 地上予報 (hourly, 12 UTC D-2 run)      :active, msm, 2019-04-01, 2026-09-07
+
+    section OCCTO
+    需要予想・ピーク時供給力 翌々日 (daily)        :active, occtod, 2024-04-01, 2026-09-07
+    広域予備率 翌々日 (30 min)                     :active, occtor, 2025-04-01, 2026-09-07
+
+    section TEPCO
+    エリア需要・発電情報 実績 (30 min)             :active, tepcoa, 2022-04-01, 2026-09-05
+    でんき予報 電力使用実績 (hourly)               :active, tepcou, 2016-04-01, 2026-09-05
+
+    section 関西電力送配電
+    エリア需給・発電 実績 (30 min)                 :active, kansaia, 2022-04-01, 2026-09-05
+    でんき予報 電力使用実績 (hourly)               :active, kansaiu, 2016-04-01, 2026-09-05
+
+    section e-Stat
+    国勢調査 500 m メッシュ人口 2015年             :milestone, estat15, 2015-10-01, 0d
+    国勢調査 500 m メッシュ人口 2020年             :milestone, estat20, 2020-10-01, 0d
+
+    section Candidates (not loaded)
+    TEPCO でんき予報 5分値 (5 min)                 :done, cand1, 2022-04-01, 2026-09-12
+    関西 でんき予報 5分値 (5 min)                  :done, cand2, 2016-04-01, 2026-09-12
+    TEPCO エリア需給実績データ (30 min, hourly)    :done, cand3, 2016-04-01, 2026-09-12
+
+    %% Invisible anchor. Mermaid derives the axis from the earliest task date, and
+    %% has no axis-minimum setting, so without a task at 2015-01-01 the axis starts
+    %% at the 2015 census milestone and draws its diamond half outside the plot.
+    %% The name is a zero-width space (U+200B): an empty or blank name will not parse,
+    %% and the bar itself is 0 px wide.
+    ​ :done, axis_anchor_2015, 2015-01-01, 0d
+```
+
+The census is two point-in-time vintages, drawn as milestones. Candidate bars are
+the source's *published* range, not a loaded one, so they run to today. Two
+reference sets are off this scale and left out: the 内閣府 holiday seed
+(1955-01-01 ~ 2027-11-23) and the JMA station master (a current snapshot).
 
 ### Loaded
 
@@ -469,6 +524,35 @@ records the results in two places, linked by the MLflow `run_id`:
 (MLflow experiment `demand`), writing to `fct_demand_forecast` and
 `fct_demand_forecast_accuracy`.
 
+### Walk-forward backtest
+
+`run_backtest` steps through the window one delivery day at a time. For day D it
+hands the strategy only the history published by the issue time — delivery days
+`<= D-2` for demand, because the TSO file for D-1 is not final at 09:30 — and
+keeps the 48 forecasts it returns. The LightGBM strategies do not fit once: they
+refit every 7 delivery days on the trailing 730 days of complete rows, and
+between refits the cached model scores the next days, so by the seventh its
+newest training day is 8 days old.
+
+![Walk-forward demand backtest: the 730-day training window, the unseen day D-1, and the seven delivery days each refit scores](img/demand-backtest-walk-forward.svg)
+
+A day the strategy cannot forecast — a missing feature raises
+`ForecastUnavailableError` — is skipped and reported on
+`BacktestRun.skipped_days`, and the rest of the window continues. The forecasts
+are then joined one-to-one to actuals, and a forecast point with no actual is
+dropped.
+
+The numbers come from two places. The task fixes the cutoff and the issue time
+(`history_lead_days` and `issue_offset` on its `TaskSpec`: 2 days and 09:30 on
+D-1 for demand; the spot task uses 1, since JEPX publishes the previous day's
+auction before 09:30). The strategy fixes the window and the cadence
+(`DEFAULT_TRAIN_WINDOW_DAYS = 730` and `refit_every_days = 7` on
+`SlidingWindowLightGbmStrategy`). `--train-start` clips the window's left edge,
+which is how a baseline is fitted on exactly the rows a feature-limited
+candidate can use.
+
+### Strategies and feature experiments
+
 Three strategies: `previous_day` (naive), `lightgbm` (calendar and 1-day-lag
 features) and `lightgbm_occto`. The last adds the OCCTO 翌々日 peak-demand
 hour, peak demand and peak supply capacity for the delivery day, published
@@ -483,6 +567,8 @@ prints matched MAE/bias tables by day part, near the OCCTO peak hour, by month
 and for high-price days. Experiments are written up under
 [`research/spot_price/`](research/spot_price/README.md), with conventions in
 [`research/`](research/README.md).
+
+### Superset dashboards
 
 Charting happens in Superset (`just open superset`), with one
 forecast-analysis dashboard per task: **Spot Price Forecast Analysis** and

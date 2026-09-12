@@ -1,0 +1,105 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1040 540" width="1040" height="540" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" role="img" aria-label="Walk-forward demand backtest: a 730-day training window ending at D-2, the unseen day D-1, and the seven delivery days each refit scores; the window slides seven days per refit.">
+  <defs>
+    <pattern id="unseen" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+      <rect width="6" height="6" fill="#f1f3f5"/>
+      <line x1="0" y1="0" x2="0" y2="6" stroke="#aeb4bd" stroke-width="2"/>
+    </pattern>
+    <marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0,0 L8,4 L0,8 z" fill="#6b7280"/>
+    </marker>
+  </defs>
+
+  <rect x="0.5" y="0.5" width="1039" height="539" fill="#ffffff" stroke="#e5e7eb" rx="6"/>
+
+  <text font-size="17" font-weight="600" fill="#1f2328" x="24" y="34">Demand backtest: walk forward, one delivery day at a time</text>
+  <text font-size="11.5" fill="#57606a" x="24" y="56">scripts/demand_backtest.py &#8594; run_backtest() &#8594; PresetLightGbmStrategy. One cell = one delivery day.</text>
+
+  <!-- Issue-time marker, at 09:30 inside the D-1 cell of the first row. -->
+  <text font-size="11" font-weight="600" fill="#c23b4d" x="568" y="82" text-anchor="middle">forecast issued 09:30 JST on D-1</text>
+  <text font-size="10" fill="#a4636e" x="568" y="96" text-anchor="middle">before the 10:00 JEPX gate closure</text>
+  <line x1="568" y1="104" x2="568" y2="178" stroke="#c23b4d" stroke-width="1.5" stroke-dasharray="4 3"/>
+
+  <!-- Refit 1 -->
+  <text font-size="12" font-weight="600" fill="#1f2328" x="140" y="163" text-anchor="end">refit #1</text>
+  <rect x="160" y="140" width="400" height="36" fill="#e8ecfb" stroke="#4a54c9" rx="3"/>
+  <rect x="244" y="141" width="20" height="34" fill="#ffffff"/>
+  <line x1="245" y1="178" x2="257" y2="138" stroke="#4a54c9" stroke-width="1.2"/>
+  <line x1="251" y1="178" x2="263" y2="138" stroke="#4a54c9" stroke-width="1.2"/>
+  <text font-size="11" fill="#26306e" x="380" y="163" text-anchor="middle">trailing 730 days of complete rows, ending D-2</text>
+  <rect x="560" y="140" width="20" height="36" fill="url(#unseen)" stroke="#9aa1ab"/>
+  <g fill="#ffe9c7" stroke="#d98a1a">
+    <rect x="580" y="140" width="20" height="36"/>
+    <rect x="600" y="140" width="20" height="36"/>
+    <rect x="620" y="140" width="20" height="36"/>
+    <rect x="640" y="140" width="20" height="36"/>
+    <rect x="660" y="140" width="20" height="36"/>
+    <rect x="680" y="140" width="20" height="36"/>
+    <rect x="700" y="140" width="20" height="36"/>
+  </g>
+  <text font-size="10.5" fill="#57606a" x="570" y="190" text-anchor="middle">D-1</text>
+  <text font-size="10.5" fill="#57606a" x="590" y="190" text-anchor="middle">D</text>
+  <text font-size="10.5" fill="#57606a" x="710" y="190" text-anchor="middle">D+6</text>
+  <path d="M580,200 v5 h20 v-5" fill="none" stroke="#d98a1a" stroke-width="1"/>
+  <text font-size="10.5" fill="#57606a" x="590" y="219" text-anchor="middle">48 half-hourly periods</text>
+
+  <!-- Slide 1 -> 2 -->
+  <line x1="160" y1="238" x2="296" y2="238" stroke="#6b7280" stroke-width="1" marker-end="url(#arrow)"/>
+  <text font-size="10.5" fill="#6b7280" x="228" y="232" text-anchor="middle">the whole window slides +7 d</text>
+
+  <!-- Refit 2 -->
+  <text font-size="12" font-weight="600" fill="#1f2328" x="140" y="273" text-anchor="end">refit #2</text>
+  <rect x="300" y="250" width="400" height="36" fill="#e8ecfb" stroke="#4a54c9" rx="3"/>
+  <rect x="384" y="251" width="20" height="34" fill="#ffffff"/>
+  <line x1="385" y1="288" x2="397" y2="248" stroke="#4a54c9" stroke-width="1.2"/>
+  <line x1="391" y1="288" x2="403" y2="248" stroke="#4a54c9" stroke-width="1.2"/>
+  <text font-size="11" fill="#26306e" x="520" y="273" text-anchor="middle">trailing 730 days, ending D+5</text>
+  <rect x="700" y="250" width="20" height="36" fill="url(#unseen)" stroke="#9aa1ab"/>
+  <g fill="#ffe9c7" stroke="#d98a1a">
+    <rect x="720" y="250" width="20" height="36"/>
+    <rect x="740" y="250" width="20" height="36"/>
+    <rect x="760" y="250" width="20" height="36"/>
+    <rect x="780" y="250" width="20" height="36"/>
+    <rect x="800" y="250" width="20" height="36"/>
+    <rect x="820" y="250" width="20" height="36"/>
+    <rect x="840" y="250" width="20" height="36"/>
+  </g>
+  <text font-size="10.5" fill="#57606a" x="730" y="300" text-anchor="middle">D+7</text>
+  <text font-size="10.5" fill="#57606a" x="850" y="300" text-anchor="middle">D+13</text>
+
+  <!-- Slide 2 -> 3 -->
+  <line x1="300" y1="338" x2="436" y2="338" stroke="#6b7280" stroke-width="1" marker-end="url(#arrow)"/>
+  <text font-size="10.5" fill="#6b7280" x="368" y="332" text-anchor="middle">+7 d</text>
+
+  <!-- Refit 3 -->
+  <text font-size="12" font-weight="600" fill="#1f2328" x="140" y="383" text-anchor="end">refit #3</text>
+  <rect x="440" y="360" width="400" height="36" fill="#e8ecfb" stroke="#4a54c9" rx="3"/>
+  <rect x="524" y="361" width="20" height="34" fill="#ffffff"/>
+  <line x1="525" y1="398" x2="537" y2="358" stroke="#4a54c9" stroke-width="1.2"/>
+  <line x1="531" y1="398" x2="543" y2="358" stroke="#4a54c9" stroke-width="1.2"/>
+  <text font-size="11" fill="#26306e" x="660" y="383" text-anchor="middle">trailing 730 days, ending D+12</text>
+  <rect x="840" y="360" width="20" height="36" fill="url(#unseen)" stroke="#9aa1ab"/>
+  <g fill="#ffe9c7" stroke="#d98a1a">
+    <rect x="860" y="360" width="20" height="36"/>
+    <rect x="880" y="360" width="20" height="36"/>
+    <rect x="900" y="360" width="20" height="36"/>
+    <rect x="920" y="360" width="20" height="36"/>
+    <rect x="940" y="360" width="20" height="36"/>
+    <rect x="960" y="360" width="20" height="36"/>
+    <rect x="980" y="360" width="20" height="36"/>
+  </g>
+  <text font-size="10.5" fill="#57606a" x="870" y="410" text-anchor="middle">D+14</text>
+  <text font-size="10.5" fill="#57606a" x="990" y="410" text-anchor="middle">D+20</text>
+
+  <!-- Legend -->
+  <rect x="24" y="440" width="12" height="12" fill="#e8ecfb" stroke="#4a54c9"/>
+  <text font-size="11" fill="#424a53" x="42" y="450">training rows the refit sees</text>
+  <rect x="215" y="440" width="12" height="12" fill="url(#unseen)" stroke="#9aa1ab"/>
+  <text font-size="11" fill="#424a53" x="233" y="450">D-1: never seen, its TSO file is not final at 09:30</text>
+  <rect x="530" y="440" width="12" height="12" fill="#ffe9c7" stroke="#d98a1a"/>
+  <text font-size="11" fill="#424a53" x="548" y="450">the delivery days this one model scores</text>
+
+  <!-- Notes -->
+  <text font-size="11" fill="#57606a" x="24" y="478">A refit trains on every complete row in its window — 48 per day; a row missing any feature is dropped, and the window never reaches back before --train-start.</text>
+  <text font-size="11" fill="#57606a" x="24" y="496">Refits are every 7 days, anchored to the day that triggered the previous one, so the cached model scores up to 7 delivery days: by the last of them its newest</text>
+  <text font-size="11" fill="#57606a" x="24" y="514">training day is 8 days old. A day whose features are unavailable is skipped and reported; forecasts are joined 1:1 to actuals, and points with no actual are dropped.</text>
+</svg>
