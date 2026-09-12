@@ -16,6 +16,7 @@ from power_market_analytics.features.entities import (
 def test_one_view_per_mart_on_the_entities_of_its_grain():
     by_name = {view.name: view for view in views.VIEWS}
     assert sorted(by_name) == [
+        "ftr_day_actuals",
         "ftr_day_calendar",
         "ftr_day_occto",
         "ftr_hour_jma_obs",
@@ -25,6 +26,7 @@ def test_one_view_per_mart_on_the_entities_of_its_grain():
         "ftr_period_similar_day",
     ]
     day = [AREA_CODE.name, TRADE_DATE_KEY.name]
+    assert by_name["ftr_day_actuals"].entities == day
     assert by_name["ftr_day_calendar"].entities == day
     assert by_name["ftr_hour_msm"].entities == [*day, HOUR_ENDING.name]
     assert by_name["ftr_period_jepx"].entities == [*day, TIME_CODE.name]
@@ -64,3 +66,34 @@ def test_the_similar_day_source_breaks_ties_on_the_vintages_published_at():
         TRADE_DATE_KEY.name,
         TIME_CODE.name,
     ]
+
+
+def test_the_actuals_views_carry_the_recent_load_columns():
+    period = {field.name: field for field in views.FTR_PERIOD_ACTUALS.features}
+    assert list(period) == [
+        "lag_2d_demand_kwh",
+        "lag_3d_demand_kwh",
+        "lag_7d_demand_kwh",
+        "lag_9d_demand_kwh",
+        "lag_14d_demand_kwh",
+        "lag_21d_demand_kwh",
+        "lag_28d_demand_kwh",
+        "mean_weekly_lags_demand_kwh",
+        "ewm_weekly_lags_demand_kwh",
+        "change_2d_9d_demand_kwh",
+        "mean_daytype_4d_demand_kwh",
+        "ewm_daytype_4d_demand_kwh",
+    ]
+    assert period["lag_2d_demand_kwh"].dtype == Int64
+    assert period["ewm_daytype_4d_demand_kwh"].dtype == Float64
+    day = {field.name: field for field in views.FTR_DAY_ACTUALS.features}
+    assert list(day) == [
+        "lag_2d_mean_demand_kwh",
+        "lag_2d_max_demand_kwh",
+        "lag_2d_range_demand_kwh",
+    ]
+    assert day["lag_2d_mean_demand_kwh"].dtype == Float64
+    assert day["lag_2d_max_demand_kwh"].dtype == Int64
+    assert all(
+        field.tags == {"categorical": "false"} for field in [*period.values(), *day.values()]
+    )
