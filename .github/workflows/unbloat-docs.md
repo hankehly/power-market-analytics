@@ -89,6 +89,11 @@ safe-outputs:
     # accept a patch touching up to 100 (the default), so the reviewability promise was only
     # an instruction. Now it is enforced.
     max-patch-files: 1
+    # ...and one *markdown* file. max-patch-files bounds the count, not the kind, so without
+    # this a mistaken or prompt-injected run could still open a PR against any single
+    # unprotected source or config file. This workflow only ever edits prose.
+    allowed-files:
+      - "**/*.md"
     # The handler appends a random salt suffix to the agent's branch name unless this is set,
     # which would make the PR's head branch differ from the name the prompt records in the
     # cache - and the cache's staleness rule looks a branch up to decide whether an entry is
@@ -181,7 +186,6 @@ concluding there is nothing to do.
 
 Scan the repository for markdown documentation files. Common locations include:
 - `docs/` directory
-- `README.md` files
 - `.md` files in project root
 - Any documentation subdirectories
 
@@ -190,6 +194,10 @@ Scan the repository for markdown documentation files. Common locations include:
 - Changelog files
 - License files
 - Code of conduct files
+- **Every `README.md`, at any path.** Safe outputs match protected files **by basename**, and
+  `README.md` is in the protected set, so a patch touching any of them falls back to an issue and
+  never becomes a PR. The run would then be recorded, read as stale next time because no PR exists,
+  and pick the same file again — so these are excluded rather than retried forever
 - **Everything under `.github/`**, this workflow's own `unbloat-docs.md` included. It is markdown,
   and it is large, but it is workflow configuration rather than prose — and safe outputs protect
   top-level dot folders, so a run that picked it would open an issue instead of the PR it meant to
@@ -216,6 +224,7 @@ Look for documentation files that were recently modified or are likely to benefi
 - Auto-generated documentation
 - Changelog or release notes
 - License or legal files
+- **Any `README.md`** - protected by basename, so it can only ever produce an issue, excluded above
 - **Anything under `.github/`** - workflow configuration, excluded above
 - **`CLAUDE.md` and `AGENTS.md`** - the agent instruction files, excluded above
 - **Anything under `docs/superpowers/`** - the design-history archive, excluded above
@@ -313,13 +322,13 @@ git checkout -b chore/unbloat-<path-slug>-${{ github.run_id }}
 The path slug is the path without its extension, lowercased, with every character outside `a-z0-9`
 replaced by a hyphen and runs of hyphens collapsed:
 
-- `docs/research/demand/README.md` → `chore/unbloat-docs-research-demand-readme-<run id>`
+- `docs/research/demand/observations.md` → `chore/unbloat-docs-research-demand-observations-<run id>`
 - `docs/JMA-MSM-GPV-Retrieval.md` → `chore/unbloat-docs-jma-msm-gpv-retrieval-<run id>`
 
 Both halves are load-bearing:
 
-- **the path**, because basenames are not unique — this repository has seven `README.md` files, and a
-  basename branch would collide between two of them
+- **the path**, because basenames are not unique — `docs/research/demand/observations.md` and
+  `docs/research/spot_price/observations.md` would share a basename branch
 - **the run id**, because a file cleaned again after its cooldown would otherwise ask for the branch
   its previous cleanup already used. A still-existing branch (a closed unmerged PR, or a merged
   branch that was never deleted) would fail `git checkout -b` and block the new PR
