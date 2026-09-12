@@ -61,10 +61,13 @@ all.
 - **Important segments:** overall MAE (the researcher's stated expectation);
   day type, day part, calendar month, season and the top-10 % demand days as
   consistency checks; the daily paired comparison's bootstrap interval
-- **Evaluation method:** rolling out-of-sample backtest over identical
-  delivery dates and training rows (`--start-date 2024-08-18 --end-date
-  2026-08-17`, no `--train-start`); the compare script counts the periods
-  both runs scored
+- **Evaluation method:** rolling out-of-sample backtest with the same
+  requested window (`--start-date 2024-08-18 --end-date 2026-08-17`, no
+  `--train-start`) and the same 730-day training window for both runs. The
+  runs' rows are not identical: the candidate drops a training row whose new
+  features are null (the days around the 2025-06-14 hole) and skips six more
+  target days than the baseline, so the comparison is made on the 723
+  delivery days both runs scored (`compare_demand_runs.py --common-days`)
 
 ## E-001 — Add the thirteen recent-load features
 
