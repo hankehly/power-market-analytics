@@ -112,9 +112,10 @@
   advisory databases (`uv export` of `uv.lock` piped into a pinned `pip-audit`; `pip-audit
   --locked` reads only a PEP 751 `pylock.toml`, not `uv.lock`). Exits 1 on any advisory, so it
   gates on its own. The `--ignore-vuln` list lives in the recipe, one entry per advisory whose
-  fix a dbt pin puts out of reach (`sqlparse` behind dbt-core 1.11, `thrift` behind dbt-spark
-  1.10 — issue #84), each with its reason and a recheck date; drop an entry as soon as its fix
-  becomes reachable. Because that list must have exactly one definition, the `ci` job is the
+  fix a dbt pin puts out of reach — since 2026-09-12 just the three `thrift` ones, held by
+  dbt-spark 1.11.0's `pyhive` extra requiring `thrift<0.23.0` while the fix is 0.24.0 — each
+  with its reason and a recheck date; drop an entry as soon as its fix becomes reachable (the
+  five `sqlparse` entries went when dbt-core 1.12 made 0.6.0 reachable). Because that list must have exactly one definition, the `ci` job is the
   one job that runs the recipe (`uvx --from rust-just@1.58.0 just pip-audit`) instead of
   repeating its command. Dependency *updates* come from `.github/dependabot.yml` (the `uv` and
   `github-actions` ecosystems, monthly, minor and patch grouped into one PR each; `mlflow` is
