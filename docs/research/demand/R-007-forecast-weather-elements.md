@@ -212,8 +212,11 @@ what the model picked up.
 - Ablate the three one at a time on this baseline and window, to see which
   carries the gain — the permutation importance cannot answer it.
 - Look at 2025-09, the one month clearly worse (+8.9 %), before adopting.
-- The remaining eleven MSM variables — cloud cover in particular, which is
-  what makes solar radiation vary — are in the fact but in no mart.
+- The remaining ten MSM columns — cloud cover in particular, which is what
+  makes solar radiation vary — are in the fact but in no mart. One of the ten,
+  `shortwave_radiation_wm2`, is the solar radiation this preset now uses at
+  1 / 0.0036 the scale (the two agree to 1e-6 across all 9,715,992 rows), so
+  nine of them carry something the mart does not already have.
 
 ---
 
