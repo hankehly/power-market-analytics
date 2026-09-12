@@ -136,6 +136,29 @@ checkov *args:
 #   pre-release. 3927 is TLS hostname validation, 3925 data amplification, 3926
 #   an infinite loop — all against a hostile Thrift peer. The only peer here is
 #   the Spark thriftserver on the local compose network, reached without TLS.
+# Version pinned here and in .github/workflows/ci.yml — bump both together.
+# Exits 1 on any finding, so it gates on its own.
+#
+# zizmor is a GitHub Actions analyser, and covers the one surface checkov is
+# weakest on: it reads workflows the way an attacker would. It is here rather
+# than semgrep because a measurement on 2026-09-12 (issue #33, closed) found
+# semgrep's github-actions ruleset adds only the unpinned-uses class over
+# checkov, while zizmor finds that plus artipacked, in 0.18 s against 8.2 s.
+#
+# --persona=regular is the default persona: findings the maintainer is expected
+# to act on, without the pedantic set's stylistic noise.
+#
+# zizmor reads GH_TOKEN and runs its online audits when one is set, which is
+# how the ci job runs it. Bare, it is offline and says so on stderr — a few
+# audits (stale-action-refs and friends) are skipped. To match CI exactly:
+#
+#     GH_TOKEN=$(gh auth token) just zizmor
+#
+# Offline is the weaker run, so local can only miss what CI then catches.
+[doc("Audit the GitHub Actions workflows with zizmor (pinning, injection, token handling)")]
+zizmor *args:
+    uvx zizmor@1.30.1 --persona=regular .github/workflows/ {{args}}
+
 [doc("Audit the locked dependencies for known vulnerabilities (pip-audit over uv.lock)")]
 pip-audit *args:
     uv export --locked --no-hashes --no-emit-project --format requirements.txt \
