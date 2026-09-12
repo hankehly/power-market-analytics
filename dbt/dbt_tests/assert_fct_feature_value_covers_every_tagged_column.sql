@@ -2,7 +2,9 @@
 -- so a column tagged after the last `just feature-views` is missing from it. This test
 -- reads the model's own SQL from the graph: every tagged column of every model under
 -- models/features/ must be stacked inside its mart's CTE. One row per missing column,
--- whatever the warehouse holds, so an empty mart cannot fail it.
+-- whatever the warehouse holds, so an empty mart cannot fail it. The ref below is
+-- the dependency that selects this test with the model and orders it after it.
+-- depends_on: {{ ref('fct_feature_value') }}
 {% set model_sql = graph.nodes['model.pma.fct_feature_value'].raw_code %}
 {% set missing = [] %}
 {% for node in graph.nodes.values() %}
