@@ -26,9 +26,11 @@ are not held to the same standard. The target history is whatever the warehouse
 now holds for those dates: `load_area_demand` reads the current value, so a day
 the TSO revised later trains on the revised value. Feature values are retrieved
 as of the issue time instead, because Feast joins them on `available_at` — which
-is why the delivery days 2022-12-08 and 2022-12-09 get no D-7 lag from
-`ftr_period_actuals`: TEPCO re-issued the files behind them on 2022-12-14, days
-after those forecasts were due.
+is why ten Tokyo delivery days of December 2022 (12-03 to 12-11 and 12-15) get
+no row from `ftr_period_actuals`: TEPCO re-issued the 2022-12-01 and 12-02 files
+on 2022-12-14, days after those forecasts were due, and since 2026-09-12 the
+mart's row is usable only once every lag it carries is public (before, only the
+D-7 lag counted, and two days were hidden).
 
 Both are issued at 09:30 JST on D-1, but they do not see the same history, so
 every statement below names its task:

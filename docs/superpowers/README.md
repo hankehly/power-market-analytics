@@ -13,6 +13,7 @@ applied without one.
 
 | Date | Work | Spec | Plan |
 |---|---|---|---|
+| 2026-09-12 | Recent load features — thirteen features from the area's last four weeks of demand in the feature marts, one preset and a matched run (demand R-006) | [spec](superpowers/specs/2026-09-12-demand-recent-load-features-design.md) | [plan](superpowers/plans/2026-09-12-demand-recent-load-features.md) |
 | 2026-09-12 | Feature-value fact — every tagged mart column unpivoted to the period grain, generated from the dbt manifest, as the Superset surface of the feature catalogue | — | [plan](superpowers/plans/2026-09-12-feature-value-fact.md) |
 | 2026-09-11 | The demand similar day moved out of the strategy into a walk-forward fit-and-score job that writes `pma_ml.similar_day` | — | [plan](superpowers/plans/2026-09-11-similar-day-feature.md) |
 | 2026-09-11 | Demand presets — the nine demand strategies became named feature lists read through Feast, and the strategy classes were deleted | — | [plan](superpowers/plans/2026-09-11-demand-presets.md) |

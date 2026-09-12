@@ -56,7 +56,7 @@
   `[tool.coverage.*]`; gated at 100% via `fail_under`, so a partial suite fails locally and in
   CI — `.github/workflows/ci.yml` runs the same command on every push). Shared fixtures in
   `tests/conftest.py`: `spark` (local session, temp warehouse, no metastore),
-  `curated_warehouse` (synthetic `pma_curated` star for both tasks), `feature_marts` (the seven
+  `curated_warehouse` (synthetic `pma_curated` star for both tasks), `feature_marts` (the eight
   `pma_features` marts from it under a UTC session — the similar-day mart picks D − 364 —
   with the Feast store in a temp registry; every test that builds a preset strategy takes
   it), an autouse temp MLflow file store, and
@@ -175,7 +175,7 @@
   month / high-price days, plus bias) as markdown; needs
   `just dbt build --select +fct_spot_price_forecast_accuracy` after the runs.
 - `just python scripts/demand_backtest.py --strategy lightgbm_msm_popw_daytype --area tokyo` —
-  day-ahead area demand backtest. Strategies: the nine presets of `tasks/demand/presets.py`
+  day-ahead area demand backtest. Strategies: the ten presets of `tasks/demand/presets.py`
   — `lightgbm`, `lightgbm_msm`, `lightgbm_msm_popw`, `lightgbm_msm_popw_daytype` (the
   script default and the Kansai baseline), `lightgbm_msm_popw_daytype_simday` (the Tokyo
   demand baseline, reference run `008868fe…`; Tokyo-only, because its
@@ -184,7 +184,10 @@
   calendar variants `…_simday_calendar`, `…_simday_holidaydegree`,
   `…_simday_holidaydistance` and `…_simday_calendarcounts` (research `demand/R-005`, all
   rejected, kept as reference presets; their feature lists and numbers are in the Demand
-  task bullet below). Areas: `tokyo`, `kansai` = the TSO feeds loaded into
+  task bullet below) and `…_simday_lags` (research `demand/R-006`: the thirteen recent-load
+  features of `ftr_period_actuals` and `ftr_day_actuals`, the researcher's decision pending;
+  it skips seven target days to the 2025-06-14 hole where the baseline skips one, so compare
+  it with `--common-days`). Areas: `tokyo`, `kansai` = the TSO feeds loaded into
   `fct_area_demand_generation_actual`. An area's feature marts need its representative JMA
   station's hourly weather loaded and current (`dim_area.representative_jma_station_id`:
   東京 s47662, 大阪 s47772 — both loaded and current as of the 2026-08-20 re-scope backfill;
@@ -235,7 +238,11 @@
   as markdown; `--mae-by-month-png` also writes the research figure. Reads
   `fct_demand_forecast_accuracy` (+ `dim_delivery_period`, `dim_date`), so run
   `just dbt build --select +fct_demand_forecast_accuracy` after the runs. Options:
-  `--high-demand-quantile`, `--band-mwh`, `--resamples`, `--seed`, `--top-days`.
+  `--high-demand-quantile`, `--band-mwh`, `--resamples`, `--seed`, `--top-days`,
+  `--common-days` (since 2026-09-12: compare on the delivery days both runs scored and list
+  the days only one scored — two feature sets can skip different days, as R-006's candidate
+  lost six more to the 2025-06-14 hole; without it the runs must have scored identical
+  points, and a day both scored must still match period by period).
 - `just python scripts/create_forecast_dashboard.py [--task spot_price|demand]` — (re)build the
   Superset forecast-analysis dashboards from the repo (idempotent; no `--task` = all): per task a
   `DashboardSpec` (dataset SQL, unit, formats, band/calibration columns) drives one shared set of
@@ -500,9 +507,18 @@
   feature column tagged `config.meta.feature` / `categorical`, plus `available_at` carried
   from the facts through the `available_at()` macro; the singular test
   `assert_feature_marts_declare_available_at` lists any feature model without the column.
-  Today's seven: `ftr_day_calendar`, `ftr_day_occto`, `ftr_hour_jma_obs`, `ftr_hour_msm`,
-  `ftr_period_actuals`, `ftr_period_jepx` (each proven equal to the Python builder it
-  mirrors for Tokyo 2025) and `ftr_period_similar_day` (since 2026-09-11: the demand
+  Today's eight: `ftr_day_actuals` (since 2026-09-12, research `demand/R-006`: D-2's mean,
+  max and max − min over its 48 periods, complete days only), `ftr_day_calendar`,
+  `ftr_day_occto`, `ftr_hour_jma_obs`, `ftr_hour_msm`, `ftr_period_actuals` (since
+  2026-09-12 the lags of 2, 3, 7, 9, 14, 21 and 28 days, the plain and 8:4:2:1 weighted
+  means of the four weekly lags, the D-2 − D-9 change and the same two means over the last
+  four complete days of D's `ftr_day_calendar` day type at or before D-2 — one union of
+  the shifted actuals grouped per period, so a row exists wherever any lag exists and a
+  column is null where its input is absent; `available_at` is the greatest over the rows
+  used, so the whole row waits for the newest lag's file; every weighted mean is explicit
+  arithmetic over named columns, exact and order-free), `ftr_period_jepx` (each proven
+  equal to the Python builder it mirrors for Tokyo 2025) and `ftr_period_similar_day`
+  (since 2026-09-11: the demand
   similar day as the fit-and-score job wrote it to `pma_ml.similar_day`, passed through
   the guarded `stg_ml__similar_day`, one row per scoring run, with `published_at` next to
   `available_at`); every strategy reads them through Feast. `fct_feature_value` (curated,
@@ -717,7 +733,14 @@
   (`CALENDAR_COUNT_FEATURES` = `half`, `quarter`, `day_of_month`, `day_of_quarter`,
   `day_of_year`, `fiscal_quarter`; run `9182d469…`: MAE +4.2 %, CI excludes zero, weekdays
   +7.7 % but holidays −13.4 % — E-001's holiday gain comes with this subset; `half` /
-  `quarter` never split on).
+  `quarter` never split on). `lightgbm_msm_popw_daytype_simday_lags` (research
+  `demand/R-006` E-001, run 2026-09-12 `34707ed6…` against the fresh baseline `a3fde7eb…`
+  on the 723 days both scored: MAE −0.6 %, CI over days includes zero, holidays −8.9 %,
+  overnight −8.5 %, daytime +1.3 %, the top-10 % demand days +2.9 %; the researcher's
+  decision pending) = the Tokyo baseline + `RECENT_LOAD_FEATURES`, the thirteen columns of
+  `ftr_period_actuals` and `ftr_day_actuals` above but `lag_9d_demand_kwh`; the 2025-06-14
+  hole reaches every lag it reads, so it skips seven target days where the baseline skips
+  one (compare with `--common-days`).
   Write-back: `pma_ml.demand_forecast` →
   `stg/std_ml__demand_forecast` →
   `fct_demand_forecast` → `fct_demand_forecast_accuracy` → Superset **Demand Forecast Analysis**
@@ -816,10 +839,15 @@
 - Feast's as-of join hides a fact row published after the issue time, by design. In the
   TEPCO actuals two delivery days, 2022-12-08 and 2022-12-09, have a D-7 file re-published
   after 09:30 D-1 (the 2022-12-01 / 12-02 files, re-issued 2022-12-14), so `ftr_period_actuals`
-  gives them no lag while the deleted class-based demand code read the final value: a run
-  whose 730-day training window reaches December 2022 differs from it by those 96 training
+  gave them no lag while the deleted class-based demand code read the final value: a run
+  whose 730-day training window reaches December 2022 differed from it by those 96 training
   rows. The PR 6 reproduction therefore used `--train-start 2023-01-01`; no other row in the
-  demand marts is published after its issue time (checked 2026-09-11).
+  demand marts is published after its issue time (checked 2026-09-11). Since 2026-09-12 the
+  mart carries every lag from D-2 to D-28 under one `available_at`, so the same two files
+  hide ten Tokyo delivery days (2022-12-03 … 12-11 and 12-15) from the whole row: the
+  baseline preset run on the old mart (`429eca36…`, MAE 583,561) and on the new
+  (`a3fde7eb…`, 583,132, −0.07 %) differ by those training rows, and a matched comparison
+  needs both runs on the same mart.
 - LightGBM's histogram bins move on last-bit feature differences. The weighted-mean marts
   (`wavg_temperature_c`, the `popw_*` forecast columns) equal the old pandas builders only to
   1.4e-14 (a different summation order), and PR 6's reproduction of the demand strategies had

@@ -436,3 +436,22 @@ class TestLoadRunErrors:
                 baseline_run_id=DEMAND_BASELINE_RUN_ID,
                 candidate_run_id=DEMAND_UNMATCHED_RUN_ID,
             )
+
+    def test_unmatched_windows_compare_on_common_days(self, spark, curated_warehouse):
+        errors = load_run_errors([DEMAND_BASELINE_RUN_ID, DEMAND_UNMATCHED_RUN_ID], spark=spark)
+        tables = compare_runs(
+            errors,
+            baseline_run_id=DEMAND_BASELINE_RUN_ID,
+            candidate_run_id=DEMAND_UNMATCHED_RUN_ID,
+            common_days=True,
+        )
+        # The unmatched run's six days (04-15 to 04-20) are the days both scored.
+        assert tables["overall"].df["n"].tolist() == [6 * 48]
+        paired = daily_paired_comparison(
+            errors,
+            baseline_run_id=DEMAND_BASELINE_RUN_ID,
+            candidate_run_id=DEMAND_UNMATCHED_RUN_ID,
+            common_days=True,
+            resamples=100,
+        )
+        assert paired.n_days == 6

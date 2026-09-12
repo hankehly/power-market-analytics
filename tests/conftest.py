@@ -199,6 +199,100 @@ def similar_day_load(day: pd.Timestamp, time_code: int) -> float:
     return synthetic_hourly_load(day - pd.Timedelta(days=364), hour_of_day) / 2
 
 
+#: The lags ``ftr_period_actuals`` carries, in days before the delivery day.
+ACTUALS_LAG_DAYS = (2, 3, 7, 9, 14, 21, 28)
+#: The weights of the mart's two exponentially weighted means, newest input first.
+EWM_WEIGHTS = (8, 4, 2, 1)
+#: The thirteen recent-load feature columns of research demand/R-006, in preset order.
+RECENT_LOAD_COLUMNS = (
+    "lag_2d_demand_kwh",
+    "lag_3d_demand_kwh",
+    "lag_14d_demand_kwh",
+    "lag_21d_demand_kwh",
+    "lag_28d_demand_kwh",
+    "mean_weekly_lags_demand_kwh",
+    "ewm_weekly_lags_demand_kwh",
+    "change_2d_9d_demand_kwh",
+    "mean_daytype_4d_demand_kwh",
+    "ewm_daytype_4d_demand_kwh",
+    "lag_2d_mean_demand_kwh",
+    "lag_2d_max_demand_kwh",
+    "lag_2d_range_demand_kwh",
+)
+
+
+def synthetic_day_type(day: pd.Timestamp) -> int:
+    """``ftr_day_calendar.day_type`` of the fixture.
+
+    Parameters
+    ----------
+    day : pandas.Timestamp
+        The calendar day.
+
+    Returns
+    -------
+    int
+        2 on a day in ``HOLIDAYS_2024_SPRING``, 1 on a Saturday or Sunday, else 0.
+    """
+    if day in HOLIDAYS_2024_SPRING:
+        return 2
+    return 1 if day.dayofweek >= 5 else 0
+
+
+def mean_of_present(values: list[int | None]) -> float | None:
+    """The plain mean over the values present, as ``ftr_period_actuals`` takes it.
+
+    Parameters
+    ----------
+    values : list of int or None
+        The inputs, newest first; None where an input is absent.
+
+    Returns
+    -------
+    float or None
+        None when no value is present.
+    """
+    present = [v for v in values if v is not None]
+    return sum(present) / len(present) if present else None
+
+
+def ewm_of_present(values: list[int | None]) -> float | None:
+    """The 8, 4, 2, 1 weighted mean over the values present, weights by position.
+
+    Parameters
+    ----------
+    values : list of int or None
+        Exactly four inputs, newest first; None where an input is absent.
+
+    Returns
+    -------
+    float or None
+        None when no value is present.
+    """
+    present = [(w, v) for w, v in zip(EWM_WEIGHTS, values, strict=True) if v is not None]
+    if not present:
+        return None
+    return sum(w * v for w, v in present) / sum(w for w, _ in present)
+
+
+def nullable_column(values: pd.Series, cast: type) -> pd.Series:
+    """A column of ``cast`` values and SQL nulls: None where pandas made a NaN of a None.
+
+    Parameters
+    ----------
+    values : pandas.Series
+        The column as ``pd.DataFrame`` built it from dicts holding None.
+    cast : type
+        ``int`` for a bigint column, ``float`` for a double one.
+
+    Returns
+    -------
+    pandas.Series
+        dtype object, so Spark reads each value as its own type.
+    """
+    return pd.Series([None if pd.isna(v) else cast(v) for v in values], dtype=object)
+
+
 def synthetic_holiday_degree(day: pd.Timestamp) -> float:
     """dim_date.holiday_degree in the fixture: 1.0 on a holiday or Sunday, 0.8 on a
     Saturday, 0.5 on a working day squeezed between two off days, else 0."""
@@ -774,7 +868,7 @@ def curated_warehouse(spark: SparkSession) -> CuratedWarehouse:
 
 
 def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> None:
-    """The seven feature marts of ``pma_features``, from the fixture's data (tokyo facts).
+    """The eight feature marts of ``pma_features``, from the fixture's data (tokyo facts).
 
     ``available_at`` is any instant before the 09:30 D-1 issue time, except the
     calendar's, which is the mart's constant. The similar-day mart picks D - 364
@@ -794,7 +888,7 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
                     "trade_date": day.date(),
                     "month": day.month,
                     "day_of_week": day.dayofweek,
-                    "day_type": 2 if day in holidays else 1 if day.dayofweek >= 5 else 0,
+                    "day_type": synthetic_day_type(day),
                     "holiday_degree": synthetic_holiday_degree(day),
                     **{
                         k: counts[k]
@@ -887,16 +981,76 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
         for hour in range(1, 25)
     ]
     actuals = warehouse.demand.dropna(subset=["demand_kwh"])
-    actuals_rows = [
-        {
-            "area_code": "tokyo",
-            "trade_date": (pd.Timestamp(row["date_key"]) + pd.Timedelta(days=7)).date(),
-            "time_code": int(row["time_code"]),
-            "lag_7d_demand_kwh": int(row["demand_kwh"]),
-            "available_at": pd.Timestamp(row["date_key"]) + pd.Timedelta(days=1, hours=5),
-        }
+    demand_at = {
+        (pd.Timestamp(row["date_key"]), int(row["time_code"])): int(row["demand_kwh"])
         for row in actuals.to_dict("records")
-    ]
+    }
+    # The fixture's daily file lands at 05:00 on the next day.
+    file_available_at = {day: day + pd.Timedelta(days=1, hours=5) for day in DEMAND_DAYS}
+    complete_days = [day for day in DEMAND_DAYS if day != DEMAND_HOLE_DAY]
+    delivery_days = pd.date_range(
+        DEMAND_DAYS[0] + pd.Timedelta(days=2), DEMAND_DAYS[-1] + pd.Timedelta(days=28), freq="D"
+    )
+    actuals_rows = []
+    for day in delivery_days:
+        # The last four complete days of D's day type at or before D-2, newest
+        # first; none when the fixture's calendar has no row for D.
+        window_days = (
+            [
+                d
+                for d in reversed(complete_days)
+                if d <= day - pd.Timedelta(days=2)
+                and synthetic_day_type(d) == synthetic_day_type(day)
+            ][:4]
+            if day in CALENDAR_DAYS
+            else []
+        )
+        for tc in range(1, 49):
+            lags = {k: demand_at.get((day - pd.Timedelta(days=k), tc)) for k in ACTUALS_LAG_DAYS}
+            if all(v is None for v in lags.values()):
+                continue
+            weekly = [lags[7], lags[14], lags[21], lags[28]]
+            window = [demand_at[(d, tc)] for d in window_days] + [None] * (4 - len(window_days))
+            used_days = [day - pd.Timedelta(days=k) for k, v in lags.items() if v is not None]
+            actuals_rows.append(
+                {
+                    "area_code": "tokyo",
+                    "trade_date": day.date(),
+                    "time_code": tc,
+                    **{f"lag_{k}d_demand_kwh": lags[k] for k in ACTUALS_LAG_DAYS},
+                    "mean_weekly_lags_demand_kwh": mean_of_present(weekly),
+                    "ewm_weekly_lags_demand_kwh": ewm_of_present(weekly),
+                    "change_2d_9d_demand_kwh": (
+                        None if lags[2] is None or lags[9] is None else lags[2] - lags[9]
+                    ),
+                    "mean_daytype_4d_demand_kwh": mean_of_present(window),
+                    "ewm_daytype_4d_demand_kwh": ewm_of_present(window),
+                    "available_at": max(file_available_at[d] for d in [*used_days, *window_days]),
+                }
+            )
+    period_actuals = pd.DataFrame(actuals_rows)
+    for col in [f"lag_{k}d_demand_kwh" for k in ACTUALS_LAG_DAYS] + ["change_2d_9d_demand_kwh"]:
+        period_actuals[col] = nullable_column(period_actuals[col], int)
+    for col in (
+        "mean_weekly_lags_demand_kwh",
+        "ewm_weekly_lags_demand_kwh",
+        "mean_daytype_4d_demand_kwh",
+        "ewm_daytype_4d_demand_kwh",
+    ):
+        period_actuals[col] = nullable_column(period_actuals[col], float)
+    day_actuals_rows = []
+    for day in complete_days:
+        values = [demand_at[(day, tc)] for tc in range(1, 49)]
+        day_actuals_rows.append(
+            {
+                "area_code": "tokyo",
+                "trade_date": (day + pd.Timedelta(days=2)).date(),
+                "lag_2d_mean_demand_kwh": sum(values) / len(values),
+                "lag_2d_max_demand_kwh": max(values),
+                "lag_2d_range_demand_kwh": max(values) - min(values),
+                "available_at": file_available_at[day],
+            }
+        )
     similar_day_rows = [
         {
             "area_code": "tokyo",
@@ -952,10 +1106,19 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
         "popw_forecast_precipitation_mm double, available_at timestamp",
     ).write.mode("overwrite").saveAsTable("pma_features.ftr_hour_msm")
     spark.createDataFrame(
-        pd.DataFrame(actuals_rows),
-        "area_code string, trade_date date, time_code int, lag_7d_demand_kwh bigint, "
-        "available_at timestamp",
+        period_actuals,
+        "area_code string, trade_date date, time_code int, lag_2d_demand_kwh bigint, "
+        "lag_3d_demand_kwh bigint, lag_7d_demand_kwh bigint, lag_9d_demand_kwh bigint, "
+        "lag_14d_demand_kwh bigint, lag_21d_demand_kwh bigint, lag_28d_demand_kwh bigint, "
+        "mean_weekly_lags_demand_kwh double, ewm_weekly_lags_demand_kwh double, "
+        "change_2d_9d_demand_kwh bigint, mean_daytype_4d_demand_kwh double, "
+        "ewm_daytype_4d_demand_kwh double, available_at timestamp",
     ).write.mode("overwrite").saveAsTable("pma_features.ftr_period_actuals")
+    spark.createDataFrame(
+        pd.DataFrame(day_actuals_rows),
+        "area_code string, trade_date date, lag_2d_mean_demand_kwh double, "
+        "lag_2d_max_demand_kwh bigint, lag_2d_range_demand_kwh bigint, available_at timestamp",
+    ).write.mode("overwrite").saveAsTable("pma_features.ftr_day_actuals")
     spark.createDataFrame(
         pd.DataFrame(similar_day_rows),
         "area_code string, trade_date date, time_code int, similar_day_run_id string, "
