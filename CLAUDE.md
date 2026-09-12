@@ -82,6 +82,18 @@
   in any committed file; config in `.checkov.yaml`, version pinned in the justfile and
   `.github/workflows/ci.yml`). Exits 1 on any failed check; the `ci` workflow runs it as a
   second job on every push.
+- `just zizmor [zizmor args]` — audit `.github/workflows/` with zizmor (`--persona=regular`),
+  version pinned in the justfile and `.github/workflows/ci.yml`. Exits non-zero on any finding;
+  a `ci` job on every push. It guards the two things checkov's 8 GitHub Actions checks miss:
+  every `uses:` pinned to a 40-char commit SHA (version as a trailing comment; Dependabot
+  rewrites both together) and `persist-credentials: false` on each checkout, so the job token
+  is not left in `.git/config`. The CI job passes `GH_TOKEN` to switch on the online audits
+  (`stale-action-refs` and friends); a bare local run is offline and says so, so match CI with
+  `GH_TOKEN=$(gh auth token) just zizmor`. zizmor rather than semgrep because a 25-defect
+  bake-off on 2026-09-12 (issue #33, closed as superseded by #80) found semgrep's
+  `p/github-actions` adds only the unpinned-uses class over checkov while zizmor finds that
+  plus `artipacked`, in 0.18 s against 8.2 s; semgrep's `p/docker-compose` is dead on a
+  version-less Compose v2 file and its `p/secrets` is weaker than checkov's entropy-backed scan.
 - `just pip-audit [pip-audit args]` — audit the locked dependencies against the PyPI / OSV
   advisory databases (`uv export` of `uv.lock` piped into a pinned `pip-audit`; `pip-audit
   --locked` reads only a PEP 751 `pylock.toml`, not `uv.lock`). Exits 1 on any advisory, so it
