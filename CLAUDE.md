@@ -82,11 +82,16 @@
   test-argument errors; the data tests (`dbt build`) still need the thriftserver and do not
   run in CI.
 - `just sql` — beeline shell on the thriftserver.
-- `just feature-views` — regenerate `power_market_analytics/features/views.py`, the Feast feature
-  views of the dbt feature marts, from the manifest (host-side `dbt parse`, then
-  `scripts/generate_feature_views.py`); run it after a mart or its tags change. The `dbt parse`
-  CI job runs the generator with `--check` and fails on a stale file. The file is generated
-  output: never edit it, and it is excluded from `ruff format`.
+- `just feature-views` — regenerate the two files the dbt manifest drives (host-side
+  `dbt parse`, then `scripts/generate_feature_views.py`): `power_market_analytics/features/views.py`,
+  the Feast feature views of the dbt feature marts, and
+  `dbt/models/curated/fct_feature_value.sql` (since 2026-09-12, feature catalogue PR 3), the
+  model that unpivots every tagged mart column to the period grain for Superset; run it after
+  a mart, a column tag or a mart description changes. The `dbt parse` CI job runs the
+  generator with `--check` and fails when either file is stale; the singular test
+  `assert_fct_feature_value_covers_every_tagged_column` fails a `dbt build` the same way,
+  reading the model's own SQL from the graph. Both files are generated output: never edit
+  them; `views.py` is excluded from `ruff format`.
 - `just feast-ui` — serve the Feast UI, the browsable feature catalogue (feature views with
   their fields, descriptions and tags, entities, data sources), host-side on
   http://localhost:8888 after refreshing `data/feast/registry.db` from the package; Ctrl-C
@@ -241,6 +246,12 @@
   to that tab, reads its options from the analysis dataset's `baseline_run_label` alias, and opens
   on the newest other run with the same area and window as the newest run (`--baseline-run
   <run_id or prefix>` overrides); the bootstrap CI over days stays in `compare_<task>_runs.py`.
+  Since 2026-09-12 (feature catalogue PR 3) the script also registers, after the dashboards,
+  the feature-value datasets over `fct_feature_value` (`build_feature_value_datasets`):
+  `<task>_feature_values`, the newest vintage of every period and feature public by the
+  task's issue time (`issue_time_sql` from `TaskSpec.issue_offset`; ties on `available_at` to
+  the newest published, Feast's rule) with `issue_time`, and `feature_values_all`, every
+  vintage. No dashboard reads them; they are the catalogue's browsing surface.
   Run labels are `published_at | area | strategy | run_id prefix` (`RUN_LABEL_SQL`, one
   definition); the leaderboard shows each run's first / last day and day count. Runs
   published before 2026-08-26 have no contributions and show an empty tab until re-run. After a
@@ -423,7 +434,13 @@
   mirrors for Tokyo 2025) and `ftr_period_similar_day` (since 2026-09-11: the demand
   similar day as the fit-and-score job wrote it to `pma_ml.similar_day`, passed through
   the guarded `stg_ml__similar_day`, one row per scoring run, with `published_at` next to
-  `available_at`); every strategy reads them through Feast; design
+  `available_at`); every strategy reads them through Feast. `fct_feature_value` (curated,
+  since 2026-09-12, PR 3) unpivots every tagged column of every mart to the period grain as
+  one long fact — day marts broadcast to the 48 periods, hour marts to their two through
+  `dim_delivery_period`, a mart with `published_at` reduced to the newest published row per
+  key and `available_at` — with `feature_ref` = `view:column`, the name presets use, and
+  `is_categorical` from the tag: the Superset surface of the catalogue (the datasets in the
+  dashboard bullet), generated with the Feast views (`just feature-views`); design
   `docs/superpowers/specs/2026-09-10-feature-catalogue-design.md`).
   Schemas: `pma_<layer>`.
 - Feature retrieval (Feast, since 2026-09-10; both tasks' presets read it since 2026-09-11):
