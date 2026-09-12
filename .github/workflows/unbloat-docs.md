@@ -71,6 +71,14 @@ tools:
     - "mkdir *"
     - "cp *"
     - "mv *"
+    # `jq` is required, not a convenience. The generated prompt's own instruction for a multi-line
+    # safe-output body is "write the content to a temp file with a heredoc, then use `jq -Rs` to
+    # inject it as the `body` field", and it warns that piping the file in instead does not
+    # populate `body`. gh-aw's default allowlist ships `yq` and not `jq`, so without this every
+    # such call is denied and the agent is left improvising: PR #100 opened with the body `@-`
+    # (the curl stdin idiom, taken literally by the CLI) after seven denied attempts to build the
+    # JSON, and #91 escaped only by writing the payload with a `cat` heredoc instead.
+    - "jq *"
 
 # Safe outputs configuration
 safe-outputs:
