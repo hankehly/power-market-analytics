@@ -177,14 +177,46 @@ def resolves(target: str, page: Path, root: Path) -> bool:
     path = unquote(re.split(r"[#?]", target, maxsplit=1)[0])
     if not path:
         return True
-    # A leading slash means the site root to docsify, not the machine's root.
-    # Left alone, `page.parent / "/etc/passwd"` is an absolute path — pathlib
-    # discards the base — so an unrelated file on the runner would satisfy it.
-    path = path.lstrip("/")
-    if not path:
-        return True
-    candidates = (page.parent / path, root / DOCS_DIRNAME / path, root / path)
-    return any(candidate.exists() for candidate in candidates)
+
+    if path.startswith("/"):
+        # Site-root-relative. Left alone this is a filesystem path — pathlib
+        # discards the base when the right operand is absolute — so `/etc/passwd`
+        # would be satisfied by the runner's own file. It is also not
+        # page-relative: allowing that candidate would accept a link the site
+        # cannot serve.
+        rooted = path.lstrip("/")
+        if not rooted:
+            return True
+        candidates: tuple[Path, ...] = (root / DOCS_DIRNAME / rooted, root / rooted)
+    else:
+        candidates = (page.parent / path, root / DOCS_DIRNAME / path, root / path)
+    return any(_inside_repo(candidate, root) for candidate in candidates)
+
+
+def _inside_repo(candidate: Path, root: Path) -> bool:
+    """Say whether ``candidate`` exists and stays inside ``root``.
+
+    A link is allowed to be wrong; it is not allowed to be answered by a file
+    outside the repository. Enough ``../`` segments reach the runner's
+    filesystem, where an unrelated file would otherwise satisfy the check.
+
+    Parameters
+    ----------
+    candidate : Path
+        A path built from a link target.
+    root : Path
+        Repository root.
+
+    Returns
+    -------
+    bool
+        True only for an existing path under ``root``.
+    """
+    try:
+        resolved = candidate.resolve()
+    except OSError:  # pragma: no cover - a path the OS refuses to resolve
+        return False
+    return resolved.is_relative_to(root.resolve()) and resolved.exists()
 
 
 def broken_links(root: Path) -> list[tuple[Path, str]]:
