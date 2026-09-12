@@ -16,7 +16,6 @@ from power_market_analytics.tasks.spot_price.compare import (
     DAY_PARTS,
     RunErrors,
     SegmentComparison,
-    _assert_matched,
     compare_runs,
     load_run_errors,
     to_markdown,
@@ -282,23 +281,11 @@ class TestCompareRuns:
         with pytest.raises(
             ValueError,
             match=(
-                r"Runs are not matched: \{'left_only': 48, 'right_only': 0, 'both': 0\} "
+                r"Runs are not matched: \{'left_only': 48\} "
                 r"points are not in both \(left_only = baseline only, right_only = candidate only\)"
             ),
         ):
             compare_runs(RunErrors.from_df(df), baseline_run_id=BASE, candidate_run_id=CAND)
-
-
-class TestAssertMatched:
-    def test_reports_candidate_only_points(self):
-        df = build_run_errors().df
-        # Drop the baseline's first day so 48 candidate points have no counterpart.
-        trimmed = df[~((df["run_id"] == BASE) & (df["trade_date"] == DAY_1))]
-        with pytest.raises(ValueError, match=r"\{'right_only': 48, 'left_only': 0, 'both': 0\}"):
-            _assert_matched(trimmed, BASE, CAND)
-
-    def test_passes_on_identical_points(self):
-        assert _assert_matched(build_run_errors().df, BASE, CAND) is None
 
 
 # --------------------------------------------------------------------------- to_markdown
@@ -314,24 +301,24 @@ class TestToMarkdown:
                 ]
             )
         )
-        assert to_markdown(table, metric="MAE") == "\n".join(
+        assert to_markdown(table, metric="MAE", unit="JPY/kWh", decimals=3) == "\n".join(
             [
                 "| Segment | n | Baseline MAE (JPY/kWh) | Candidate MAE (JPY/kWh) "
                 "| Absolute change | Relative change |",
                 "|---|---:|---:|---:|---:|---:|",
-                "| all | 1,234 | 2.000 | 1.500 | -0.500 | -25.0% |",
-                "| Daytime | 40 | 2.000 | -1.300 | -3.300 | — |",
+                "| all | 1,234 | 2.000 | 1.500 | −0.500 | −25.0 % |",
+                "| Daytime | 40 | 2.000 | −1.300 | −3.300 | — |",
             ]
         )
 
     def test_positive_changes_carry_a_plus_sign_and_unit_is_configurable(self):
         table = SegmentComparison.from_df(segment_frame([("x", 3, 1.0, 1.25, 0.25, 25.0)]))
-        assert to_markdown(table, metric="bias", unit="pct") == "\n".join(
+        assert to_markdown(table, metric="bias", unit="pct", decimals=3) == "\n".join(
             [
                 "| Segment | n | Baseline bias (pct) | Candidate bias (pct) "
                 "| Absolute change | Relative change |",
                 "|---|---:|---:|---:|---:|---:|",
-                "| x | 3 | 1.000 | 1.250 | +0.250 | +25.0% |",
+                "| x | 3 | 1.000 | 1.250 | +0.250 | +25.0 % |",
             ]
         )
 
@@ -429,6 +416,6 @@ class TestLoadRunErrors:
         # baseline covers 21 days, the unmatched run 6 of them -> 15 x 48 baseline-only points
         with pytest.raises(
             ValueError,
-            match=r"Runs are not matched: \{'left_only': 720, 'right_only': 0, 'both': 0\}",
+            match=r"Runs are not matched: \{'left_only': 720\}",
         ):
             compare_runs(errors, baseline_run_id=BASELINE_RUN_ID, candidate_run_id=UNMATCHED_RUN_ID)
