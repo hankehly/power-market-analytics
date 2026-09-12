@@ -187,17 +187,17 @@
   rejected, kept as reference presets; their feature lists and numbers are in the Demand
   task bullet below) and `…_simday_lags` (research `demand/R-006`: the thirteen recent-load
   features of `ftr_period_actuals` and `ftr_day_actuals`, the researcher's decision pending;
-  it skips seven target days to the 2025-06-14 hole where the baseline skips one, so compare
-  it with `--common-days`) and `…_simday_lags_weather` (research `demand/R-007`: the MSM
+  its 2026-09-12 run skipped seven target days to the 2025-06-14 hole where the baseline
+  skipped one, so that run compares with `--common-days`) and `…_simday_lags_weather` (research `demand/R-007`: the MSM
   forecast's population-weighted humidity, rain and solar radiation on top of that preset,
   the researcher's decision pending). Areas: `tokyo`, `kansai` = the TSO feeds loaded into
   `fct_area_demand_generation_actual`. An area's feature marts need its representative JMA
   station's hourly weather loaded and current (`dim_area.representative_jma_station_id`:
   東京 s47662, 大阪 s47772 — both loaded and current as of the 2026-08-20 re-scope backfill;
   keep them fresh with the JMA download + load scripts, since a stale window's last days are
-  skipped for lack of a temperature window), the MSM forecasts of its stations in
-  `fct_jma_msm_weather_forecast_hourly` (a delivery day without a forecast is skipped) and
-  `fct_census_population_jma_station`. Same flags as the spot script: `--add VIEW:COLUMN …` /
+  forecast with the temperature window null), the MSM forecasts of its stations in
+  `fct_jma_msm_weather_forecast_hourly` (a delivery day without a forecast is forecast with
+  those features null) and `fct_census_population_jma_station`. Same flags as the spot script: `--add VIEW:COLUMN …` /
   `--drop VIEW:COLUMN …` with `--name`, `--days` (default 365), `--start-date` /
   `--end-date`, `--train-start`, `--importance-repeats`. Logs to the MLflow experiment
   `demand`, publishes to `pma_ml.demand_forecast`, then `just dbt build --select
@@ -623,9 +623,9 @@
   entries in `models/raw/ml.yml` carry no data tests (a source test queries the table directly);
   the staging contract and tests check every column instead.
 - Exogenous features (spot): the `lightgbm_occto` preset adds the three `ftr_day_occto`
-  columns (from `fct_occto_demand_supply_forecast_daily`, 2024-04-01 on); a row without
-  them is dropped from training, so a matched `lightgbm` baseline needs
-  `--train-start 2024-04-01`.
+  columns (from `fct_occto_demand_supply_forecast_daily`, 2024-04-01 on); before that
+  date it trains with them null (since 2026-09-13), and `--train-start 2024-04-01` on both
+  runs keeps a matched `lightgbm` baseline to the rows that have them.
 - Modeling tasks live under `power_market_analytics/tasks/<task>/` (`spot_price`, `demand`),
   each a thin configuration of the shared framework `power_market_analytics/forecasting/`:
   a frozen `TaskSpec` in the task's `__init__.py` (name = MLflow experiment, unit,
@@ -636,7 +636,13 @@
   sees = days ≤ `task.history_cutoff(D)`; a `ForecastUnavailableError` skips the day and is
   reported on `BacktestRun.skipped_days`; forecast points without an actual are dropped),
   `forecasting.lgbm.SlidingWindowLightGbmStrategy` (the window, refit cadence, TreeSHAP,
-  importance and evaluation; a subclass sets `task`, `feature_cols`, `eval_set_cls`,
+  importance and evaluation; since 2026-09-13 a missing feature is NaN to LightGBM in
+  training and prediction alike — the training rows with NaN are what give each split a
+  missing-value branch, without which LightGBM scores a NaN as 0.0 — so only a training row
+  with no feature value besides `time_code` is dropped and only a day with none raises
+  `ForecastUnavailableError`; the eval set keeps the nulls, integer features as nullable
+  `Int64`, and `ForecastContributions.feature_value` is null on the base row and on a
+  missing feature's row; a subclass sets `task`, `feature_cols`, `eval_set_cls`,
   `lookback_days`, optionally `categorical_feature_cols` — passed to
   `LGBMRegressor.fit(categorical_feature=…)` and logged as `lgbm_categorical_feature_cols` —
   and implements the one hook `_features`, all plain attributes, not `ClassVar`s; since
@@ -648,7 +654,8 @@
 - Demand task (`tasks/demand/`): at 09:30 JST on D-1 forecast the 48 half-hourly `demand_kwh`
   of `fct_area_demand_generation_actual` for D; usable history = days ≤ D-2
   (`history_lead_days = 2`, TSO files finalise after midnight). Null-demand rows (TSO holes)
-  are dropped at load; a target day whose D-7 lag falls in a hole is skipped. Since 2026-09-11
+  are dropped at load; a target day whose D-7 lag falls in a hole is forecast with that lag
+  null (skipped before 2026-09-13). Since 2026-09-11
   (feature catalogue PRs 6 and 7) every strategy is a **preset** (`tasks/demand/presets.py`,
   `<view>:<column>` references into the Feast views of the feature marts, retrieved by
   `build_strategy` and run by `PresetLightGbmStrategy`; the nine strategy classes, their
@@ -662,9 +669,9 @@
   hour containing the period = `(time_code + 1) // 2` — over D-8..D-2, weights halving per
   day back) and `ftr_period_actuals:lag_7d_demand_kwh`. `lightgbm_msm` (research
   `demand/R-001`) = that + `ftr_hour_msm:forecast_temperature_c`, the MSM point forecast for D
-  at the same station (the D-2 12 UTC vintage); a training row without it is dropped, and MSM
-  covers 2019-04-01 → (since the 2026-09-05 backfill), earlier than the demand history's
-  2022-04-01 start, so a matched `lightgbm` baseline needs no `--train-start` today.
+  at the same station (the D-2 12 UTC vintage); MSM covers 2019-04-01 → (since the
+  2026-09-05 backfill), earlier than the demand history's 2022-04-01 start, so a matched
+  `lightgbm` baseline needs no `--train-start`.
   `lightgbm_msm_popw` (research `demand/R-002`) = `lightgbm` +
   `ftr_hour_msm:popw_forecast_temperature_c` instead: the same forecast averaged over the
   area's staffed stations with `fct_census_population_jma_station` weights of the latest
@@ -673,7 +680,8 @@
   `demand/R-003`; the demand baseline 2026-08-26 → 2026-09-06, still the script default and
   the Kansai baseline) = that + `ftr_day_calendar:day_type`: 0 Weekday / 1 Weekend / 2 Holiday
   from `dim_date` (`is_holiday` wins over `is_weekend`, the compare script's day-type
-  precedence), categorical by the mart's tag; a delivery day outside `dim_date` is skipped.
+  precedence), categorical by the mart's tag; a delivery day outside `dim_date` is forecast
+  with the calendar features null.
   A fifth strategy, `lightgbm_msm_popw_daytype_lag1y` = that + `lag_1y_demand_kwh` (the
   でんき予報 hourly load of `fct_area_power_usage_hourly` on the delivery day's `dim_date`
   prior-year reference date; research `demand/R-004`), was run on 2026-08-31 and removed with
@@ -745,8 +753,8 @@
   overnight −8.5 %, daytime +1.3 %, the top-10 % demand days +2.9 %; the researcher's
   decision pending) = the Tokyo baseline + `RECENT_LOAD_FEATURES`, the thirteen columns of
   `ftr_period_actuals` and `ftr_day_actuals` above but `lag_9d_demand_kwh`; the 2025-06-14
-  hole reaches every lag it reads, so it skips seven target days where the baseline skips
-  one (compare with `--common-days`).
+  hole reaches every lag it reads, so that run skipped seven target days where the baseline
+  skipped one (compared with `--common-days`; since 2026-09-13 both forecast them).
   `lightgbm_msm_popw_daytype_simday_lags_weather` (research `demand/R-007` E-001, run
   2026-09-12 `e6d6d4ef…` against a re-run of `…_simday_lags` as baseline, `d04e9d0c…`,
   which reproduces `34707ed6…` to the digit — the check that adding a column to
