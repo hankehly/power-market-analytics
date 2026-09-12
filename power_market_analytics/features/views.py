@@ -200,9 +200,9 @@ FTR_HOUR_JMA_OBS = FeatureView(
 
 FTR_HOUR_MSM_SOURCE = SparkSource(
     name="ftr_hour_msm",
-    query="select area_code, cast(date_format(trade_date, 'yyyyMMdd') as int) as trade_date_key, hour_ending, forecast_temperature_c, popw_forecast_temperature_c, popw_forecast_relative_humidity_pct, popw_forecast_precipitation_mm, popw_forecast_solar_radiation_mjm2, available_at from pma_features.ftr_hour_msm",
+    query="select area_code, cast(date_format(trade_date, 'yyyyMMdd') as int) as trade_date_key, hour_ending, forecast_temperature_c, popw_forecast_temperature_c, popw_forecast_relative_humidity_pct, popw_forecast_precipitation_mm, popw_forecast_solar_radiation_mjm2, popw_forecast_total_cloud_cover_pct, popw_forecast_high_cloud_cover_pct, popw_forecast_middle_cloud_cover_pct, popw_forecast_low_cloud_cover_pct, popw_forecast_wind_speed_ms, popw_forecast_u_wind_ms, popw_forecast_v_wind_ms, popw_forecast_surface_pressure_hpa, popw_forecast_sea_level_pressure_hpa, available_at from pma_features.ftr_hour_msm",
     timestamp_field="available_at",
-    description="The MSM forecast for each delivery-day hour per bidding zone, one row per forecast vintage: the representative station's temperature (the demand lightgbm_msm feature) and the population-weighted temperature, humidity, rain and solar radiation over the area's staffed stations with the latest census vintage's weights (lightgbm_msm_popw and the similar-day selector; tasks/demand/datasets.py). Grain: area_code x trade_date x hour_ending x forecast_reference_at. available_at is the vintage's: reference + 4 h.",
+    description="The MSM forecast for each delivery-day hour per bidding zone, one row per forecast vintage: the representative station's temperature (the demand lightgbm_msm feature) and the population-weighted temperature, humidity, rain, solar radiation, cloud cover (total, high, middle, low), wind (speed, u, v) and pressure (surface, sea-level) over the area's staffed stations with the latest census vintage's weights (lightgbm_msm_popw and the similar-day selector; tasks/demand/datasets.py). Grain: area_code x trade_date x hour_ending x forecast_reference_at. available_at is the vintage's: reference + 4 h.",
 )
 FTR_HOUR_MSM = FeatureView(
     name="ftr_hour_msm",
@@ -238,10 +238,64 @@ FTR_HOUR_MSM = FeatureView(
             description="Population-weighted forecast global solar radiation over the hour, MJ/m2, renormalised over the stations that have a value and added in station order. MJ/m2 is the unit fct_jma_weather_hourly.solar_radiation_mjm2 observes in; the fact's shortwave_radiation_wm2 is the same field at 1 / 0.0036 the scale.",
             tags={"categorical": "false"},
         ),
+        Field(
+            name="popw_forecast_total_cloud_cover_pct",
+            dtype=Float64,
+            description="Population-weighted forecast total cloud cover, %, renormalised over the stations that have a value and added in station order.",
+            tags={"categorical": "false"},
+        ),
+        Field(
+            name="popw_forecast_high_cloud_cover_pct",
+            dtype=Float64,
+            description="Population-weighted forecast high cloud cover, %, renormalised over the stations that have a value and added in station order.",
+            tags={"categorical": "false"},
+        ),
+        Field(
+            name="popw_forecast_middle_cloud_cover_pct",
+            dtype=Float64,
+            description="Population-weighted forecast middle cloud cover, %, renormalised over the stations that have a value and added in station order.",
+            tags={"categorical": "false"},
+        ),
+        Field(
+            name="popw_forecast_low_cloud_cover_pct",
+            dtype=Float64,
+            description="Population-weighted forecast low cloud cover, %, renormalised over the stations that have a value and added in station order.",
+            tags={"categorical": "false"},
+        ),
+        Field(
+            name="popw_forecast_wind_speed_ms",
+            dtype=Float64,
+            description="Population-weighted forecast wind speed, m/s, renormalised over the stations that have a value and added in station order. A mean of speeds, so not the speed of the weighted u/v vector.",
+            tags={"categorical": "false"},
+        ),
+        Field(
+            name="popw_forecast_u_wind_ms",
+            dtype=Float64,
+            description="Population-weighted forecast eastward wind component, m/s, renormalised over the stations that have a value and added in station order.",
+            tags={"categorical": "false"},
+        ),
+        Field(
+            name="popw_forecast_v_wind_ms",
+            dtype=Float64,
+            description="Population-weighted forecast northward wind component, m/s, renormalised over the stations that have a value and added in station order.",
+            tags={"categorical": "false"},
+        ),
+        Field(
+            name="popw_forecast_surface_pressure_hpa",
+            dtype=Float64,
+            description="Population-weighted forecast surface pressure, hPa, renormalised over the stations that have a value and added in station order. Mostly set by the stations' altitudes; sea-level pressure is the comparable one.",
+            tags={"categorical": "false"},
+        ),
+        Field(
+            name="popw_forecast_sea_level_pressure_hpa",
+            dtype=Float64,
+            description="Population-weighted forecast sea-level pressure, hPa, renormalised over the stations that have a value and added in station order.",
+            tags={"categorical": "false"},
+        ),
     ],
     source=FTR_HOUR_MSM_SOURCE,
     online=False,
-    description="The MSM forecast for each delivery-day hour per bidding zone, one row per forecast vintage: the representative station's temperature (the demand lightgbm_msm feature) and the population-weighted temperature, humidity, rain and solar radiation over the area's staffed stations with the latest census vintage's weights (lightgbm_msm_popw and the similar-day selector; tasks/demand/datasets.py). Grain: area_code x trade_date x hour_ending x forecast_reference_at. available_at is the vintage's: reference + 4 h.",
+    description="The MSM forecast for each delivery-day hour per bidding zone, one row per forecast vintage: the representative station's temperature (the demand lightgbm_msm feature) and the population-weighted temperature, humidity, rain, solar radiation, cloud cover (total, high, middle, low), wind (speed, u, v) and pressure (surface, sea-level) over the area's staffed stations with the latest census vintage's weights (lightgbm_msm_popw and the similar-day selector; tasks/demand/datasets.py). Grain: area_code x trade_date x hour_ending x forecast_reference_at. available_at is the vintage's: reference + 4 h.",
     tags={"grain": "hour"},
 )
 

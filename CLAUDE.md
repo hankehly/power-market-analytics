@@ -513,9 +513,12 @@
   Today's eight: `ftr_day_actuals` (since 2026-09-12, research `demand/R-006`: D-2's mean,
   max and max − min over its 48 periods, complete days only), `ftr_day_calendar`,
   `ftr_day_occto`, `ftr_hour_jma_obs`, `ftr_hour_msm` (the representative station's
-  forecast temperature and the population-weighted temperature, humidity, rain and —
-  since 2026-09-12, research `demand/R-007` — solar radiation, `popw_forecast_solar_radiation_mjm2`
-  in MJ/m2, the unit `fct_jma_weather_hourly` observes in), `ftr_period_actuals` (since
+  forecast temperature and the population-weighted `popw_forecast_<element>` of thirteen
+  MSM elements, generated from one Jinja list in the model: temperature, humidity, rain,
+  solar radiation — `popw_forecast_solar_radiation_mjm2` in MJ/m2, since 2026-09-12,
+  research `demand/R-007` — and, since 2026-09-13, cloud cover (total, high, middle, low),
+  wind (speed, u, v) and pressure (surface, sea-level); `shortwave_radiation_wm2` stays out,
+  the same field as the solar radiation at 1 / 0.0036 the scale), `ftr_period_actuals` (since
   2026-09-12 the lags of 2, 3, 7, 9, 14, 21 and 28 days, the plain and 8:4:2:1 weighted
   means of the four weekly lags, the D-2 − D-9 change and the same two means over the last
   four complete days of D's `ftr_day_calendar` day type at or before D-2 — one union of
