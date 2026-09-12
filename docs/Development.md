@@ -79,10 +79,11 @@ flowchart TD
     fix -->|"all rebutted — nothing to push"| ready
     codex -.->|"20 min with neither 👀<br/>nor a review"| nudge["Post the manual trigger<br/>as a plain PR comment"]
     nudge -.-> codex
-    codex -.->|"out of credits:<br/>the researcher decides"| copilot{"Fallback — request Copilot,<br/>once per push"}
-    copilot -->|"approved"| ready
-    copilot -->|"findings, or suppressed<br/>comments with no thread"| fix
-    fix -.->|"a fix was pushed"| copilot
+    codex -.->|"out of credits:<br/>the researcher decides"| copilot{"Fallback — request Copilot"}
+    copilot -->|"APPROVED"| ready
+    copilot -->|"findings, or suppressed<br/>comments with no thread"| cpfix["Address every finding<br/>the same way"]
+    cpfix -->|"a fix was pushed —<br/>request the next review,<br/>Copilot never re-reviews itself"| copilot
+    cpfix -->|"all rebutted — nothing to push"| ready
 ```
 
 One rule the diagram compresses. The repository's required checks must pass on the
