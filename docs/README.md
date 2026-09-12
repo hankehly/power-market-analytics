@@ -8,9 +8,68 @@ Power market analytics.
 
 Every external dataset the warehouse loads, plus candidates we have evaluated
 but not loaded. *Grain* is the source file's grain; *Availability* is the loaded
-date range (`current` = up to the last run of the matching `just refresh-*`
-recipe; for candidates, the published range). Retrieval protocols and format
-quirks live in the linked docs.
+date range (`current` = up to the last run of `just refresh-all`; for
+candidates, the published range). Retrieval protocols and format quirks live in
+the linked docs.
+
+### Coverage at a glance
+
+Every loaded source, as the warehouse held it on 2026-09-12. A bar ends at the
+last loaded day rather than at today: a source is only as current as the last
+`just refresh-all` run, and the feeds settle at different lags.
+
+```mermaid
+gantt
+    title Loaded date coverage by source — warehouse state on 2026-09-12
+    dateFormat YYYY-MM-DD
+    axisFormat %Y
+    tickInterval 1year
+    todayMarker off
+
+    section JEPX
+    スポット市場 取引結果 (30 min)                 :active, jepx, 2016-04-01, 2026-09-07
+
+    section JMA
+    過去の気象データ 時別値 (hourly, 149 stations) :active, jma, 2016-01-01, 2026-09-05
+    MSM GPV 地上予報 (hourly, 12 UTC D-2 run)      :active, msm, 2019-04-01, 2026-09-07
+
+    section OCCTO
+    需要予想・ピーク時供給力 翌々日 (daily)        :active, occtod, 2024-03-13, 2026-09-07
+    広域予備率 翌々日 (30 min)                     :active, occtor, 2025-04-01, 2026-09-07
+
+    section TEPCO
+    エリア需要・発電情報 実績 (30 min)             :active, tepcoa, 2022-04-01, 2026-09-05
+    でんき予報 電力使用実績 (hourly)               :active, tepcou, 2016-04-01, 2026-09-05
+
+    section 関西電力送配電
+    エリア需給・発電 実績 (30 min)                 :active, kansaia, 2022-04-01, 2026-09-05
+    でんき予報 電力使用実績 (hourly)               :active, kansaiu, 2016-04-01, 2026-09-05
+
+    section e-Stat
+    国勢調査 500 m メッシュ人口 2015年             :milestone, estat15, 2015-10-01, 0d
+    国勢調査 500 m メッシュ人口 2020年             :milestone, estat20, 2020-10-01, 0d
+
+    section Candidates (not loaded)
+    TEPCO でんき予報 5分値 (5 min)                 :done, cand1, 2022-04-01, 2026-09-11
+    関西 でんき予報 5分値 (5 min)                  :done, cand2, 2016-04-01, 2026-09-11
+    TEPCO エリア需給実績データ (30 min, hourly)    :done, cand3, 2016-04-01, 2026-09-11
+
+    %% Invisible anchor. Mermaid derives the axis from the earliest task date, and
+    %% has no axis-minimum setting, so without a task at 2015-01-01 the axis starts
+    %% at the 2015 census milestone and draws its diamond half outside the plot.
+    %% The name is a zero-width space (U+200B): an empty or blank name will not parse,
+    %% and the bar itself is 0 px wide.
+    ​ :done, axis_anchor_2015, 2015-01-01, 0d
+```
+
+Bars are raw coverage: what the loaders put in `pma_raw`, which is what the
+table below lists. A curated fact can start later — OCCTO's first 19 days are
+試験データ, so `fct_occto_demand_supply_forecast_daily` begins 2024-04-01. The
+census is two point-in-time vintages, drawn as milestones. Candidate bars are
+the source's *published* range, not a loaded one, and end on the last day
+published. Two reference sets are off this scale and left out: the 内閣府
+holiday seed (1955-01-01 ~ 2027-11-23) and the JMA station master (a current
+snapshot).
 
 ### Loaded
 
@@ -20,7 +79,7 @@ quirks live in the linked docs.
 | JMA | [過去の気象データ（官署 時別値）](https://www.data.jma.go.jp/risk/obsdl/index.php) (過去の気象データ・ダウンロード, obsdl) | <ul><li>station (149 staffed stations inside the JEPX areas)</li><li>hour</li></ul> | 27 columns: precipitation, temperature, wind speed/direction, sunshine duration, snow depth, humidity, solar radiation, each with quality / homogeneity flags and 現象なし markers ([doc](JMA-Weather-Data-Retrieval.md)) | 2016-01-01 ~ current | `pma_raw.jma_hourly_staffed` |
 | JMA | [Station master](https://www.data.jma.go.jp/risk/obsdl/top/station) (obsdl station list) | <ul><li>station</li></ul> | station id, name, prefecture, latitude / longitude, elevation, station type; JEPX-area mapping from the hand-curated seed `jma_station_areas` | current snapshot | seed `jma_stations` |
 | JMA | [MSM GPV 地上予報](https://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/) (RISH 京都大学 生存圏研究所 GPV archive) | <ul><li>station (nearest 5 km grid point)</li><li>forecast_reference_at (12 UTC D−2)</li><li>valid hour (leads 28–51 = D 01:00–24:00 JST)</li></ul> | temperature, relative humidity, u/v wind and speed, precipitation, surface / sea-level pressure, shortwave radiation, total / high / middle / low cloud cover ([doc](JMA-MSM-GPV-Retrieval.md)) | 2019-04-01 ~ current | `pma_raw.jma_msm_surface_forecast` |
-| OCCTO | [需要予想・ピーク時供給力（翌々日）](https://occtonet3.occto.or.jp/public/dfw/RP11/OCCTO/SD) (広域機関システム 系統情報公表) | <ul><li>対象日 (formulated on D−2)</li><li>area (9 JEPX areas + エリア計 + 沖縄)</li></ul> | 最小需要 時刻 / MW, 最大需要 時刻 / MW, ピーク時供給力 MW, 使用率 %, 予備率 % — hour-ending labels `01:00`–`24:00`; `min_demand_mw` changed meaning on 2025-04-01 ([doc](OCCTO-Demand-Forecast-Retrieval.md)) | 2024-04-01 ~ current | `pma_raw.occto_demand_forecast_dad` |
+| OCCTO | [需要予想・ピーク時供給力（翌々日）](https://occtonet3.occto.or.jp/public/dfw/RP11/OCCTO/SD) (広域機関システム 系統情報公表) | <ul><li>対象日 (formulated on D−2)</li><li>area (9 JEPX areas + エリア計 + 沖縄)</li></ul> | 最小需要 時刻 / MW, 最大需要 時刻 / MW, ピーク時供給力 MW, 使用率 %, 予備率 % — hour-ending labels `01:00`–`24:00`; `min_demand_mw` changed meaning on 2025-04-01 ([doc](OCCTO-Demand-Forecast-Retrieval.md)) | 2024-03-13 ~ current (2024-03-13..31 are OCCTO's pre-FY2024 試験データ, kept in `std` but out of the curated fact) | `pma_raw.occto_demand_forecast_dad` |
 | OCCTO | [広域予備率 エリア・広域ブロック情報（翌々日）](https://occtonet3.occto.or.jp/public/dfw/RP11/OCCTO/SD) (same portal, `areaDataKnd=31`; identical numbers on the [広域予備率Web公表システム](https://web-kohyo.occto.or.jp/kks-web-public/download)) | <ul><li>対象日</li><li>30-min period (48/day)</li><li>area / 広域ブロック</li></ul> | エリア需要 MW, 供給力 MW, 予備力 MW, 広域予備率 %, 広域使用率 %, block demand / supply capacity / reserve ([doc §9](OCCTO-Demand-Forecast-Retrieval.md)) | 2025-04-01 ~ current | `pma_raw.occto_area_reserve_rate_dad` |
 | TEPCO | [エリア需要・発電情報（実績）](https://www.tepco.co.jp/forecast/html/area-download-j.html) (`AREA_YYYYMM.zip`) | <ul><li>date</li><li>30-min period</li><li>Tokyo area</li></ul> | エリア総需要量, エリア総発電量, エリア風力・太陽光発電量 [30分kWh] — the インバランス料金 系統需給情報 items A-1 / B-1 / B-4; 予測 / BG計画 files exist but are not loaded ([doc](TEPCO-Area-Demand-Generation-Retrieval.md)) | 2022-04-01 ~ yesterday | `pma_raw.tepco_area_demand_generation_actual` |
 | TEPCO | [過去の電力使用実績データ（でんき予報）](https://www.tepco.co.jp/forecast/html/download-j.html) — yearly `juyo-YYYY.csv` to 2022-03, monthly `YYYYMM_power_usage.zip` of daily files from 2022-04 ([per-year page](https://www.tepco.co.jp/forecast/html/download_year-j.html)) | <ul><li>date</li><li>hour (1時間平均)</li><li>Tokyo area</li></ul> | **Hourly table only.** ≤ 2022-03: `DATE, TIME, 実績(万kW)`; 2022-04 →: `DATE, TIME, 当日実績(万kW), 予測値(万kW), 使用率(%), 供給力(万kW)` (万kW = 10 MW; 予測値 is the day's last intraday revision). **The same daily files also carry a 288-row 5-minute table — `当日実績(５分間隔値)(万kW), 太陽光発電実績(５分間隔値)(万kW), 太陽光発電量(電力使用量に対する割合)(%)` — which is parsed past and not ingested yet** (listed under Candidates). A display product: 万kW resolution, not systematically revised; TEPCO warns 端数処理の関係で1時間値と5分値の平均が一致しない; differs from A-1 by MAE 1.7 万kW (0.05 %) over 2022-04 → 2026-08 ([doc](TEPCO-Power-Usage-Retrieval.md)) | 2016-04-01 ~ yesterday | `pma_raw.tepco_power_usage_hourly` |
@@ -469,6 +528,70 @@ records the results in two places, linked by the MLflow `run_id`:
 (MLflow experiment `demand`), writing to `fct_demand_forecast` and
 `fct_demand_forecast_accuracy`.
 
+### Walk-forward backtest
+
+Both tasks run on one engine, `run_backtest`. It steps through the window one
+delivery day at a time, hands the strategy the history dated on or before the
+task's cutoff, and keeps the 48 forecasts it returns for day D.
+
+That cutoff is a date, not a publication time, and the target and the features
+are not held to the same standard. The target history is whatever the warehouse
+now holds for those dates: `load_area_demand` reads the current value, so a day
+the TSO revised later trains on the revised value. Feature values are retrieved
+as of the issue time instead, because Feast joins them on `available_at` — which
+is why the delivery days 2022-12-08 and 2022-12-09 get no D-7 lag from
+`ftr_period_actuals`: TEPCO re-issued the files behind them on 2022-12-14, days
+after those forecasts were due.
+
+Both are issued at 09:30 JST on D-1, but they do not see the same history, so
+every statement below names its task:
+
+- **Demand** — history through **D-2** (`history_lead_days = 2`). The TSO 実績
+  file for D-1 is not final at 09:30.
+- **Spot price** — history through **D-1** (`history_lead_days = 1`). JEPX
+  publishes the previous day's auction result before 09:30.
+
+The LightGBM strategies of both tasks do not fit once: they refit every 7
+**calendar** days, counted from the day that triggered the previous refit, on a
+window that opens 730 calendar days before the target day and closes at that
+task's cutoff — at most 729 delivery days for demand (D-730 … D-2), 730 for spot
+price (D-730 … D-1). Between refits the cached model scores the delivery days
+that fall inside that cadence, up to seven, and its newest training day reaches
+`6 + history_lead_days` days old — 8 for demand, 7 for spot price.
+
+![Walk-forward demand backtest: the 730-calendar-day training window, the unseen day D-1, and the up-to-seven delivery days each refit scores](img/demand-backtest-walk-forward.svg)
+
+The figure is the **demand** task: 48 half-hourly periods per delivery day, the
+D-2 cutoff and the unseen D-1. The spot-price loop has the same shape with that
+gap closed, since its window runs to D-1.
+
+A day the strategy cannot forecast — a missing feature raises
+`ForecastUnavailableError` — is skipped and reported on
+`BacktestRun.skipped_days`, and the rest of the window continues. The forecasts
+are then joined one-to-one to actuals, and a forecast point with no actual is
+dropped.
+
+Read every number above as the complete-data case, which is what the figure
+draws. Gaps only move them one way — fewer rows, fewer scored days, an older
+model — and they enter at three points: a period with a null actual never enters
+the demand history (a TSO hole like Tokyo 2025-06-14, which keeps 10 of its 48
+periods), a training row missing any feature is dropped at fit, and a day that
+cannot be forecast is skipped. The model's age follows the same rule: the fit
+records `_trained_through` as the newest day that kept a complete row, so when
+the cutoff day keeps none, the model is older than the figures above.
+
+The numbers come from two places. Each task's `TaskSpec` fixes its cutoff and
+issue time (`history_lead_days`, `issue_offset`); the strategy fixes the window
+and the cadence, shared by both tasks (`DEFAULT_TRAIN_WINDOW_DAYS = 730` and
+`refit_every_days = 7` on `SlidingWindowLightGbmStrategy`). `--train-start`
+clips the window's left edge, which is how a baseline is matched to a candidate
+whose feature only begins partway through the history. It aligns that boundary,
+not the rows themselves: each strategy drops training rows on its own feature
+list, so a candidate feature with scattered nulls still leaves the two fitted on
+different rows.
+
+### Strategies and feature experiments (spot price)
+
 Three strategies: `previous_day` (naive), `lightgbm` (calendar and 1-day-lag
 features) and `lightgbm_occto`. The last adds the OCCTO 翌々日 peak-demand
 hour, peak demand and peak supply capacity for the delivery day, published
@@ -483,6 +606,8 @@ prints matched MAE/bias tables by day part, near the OCCTO peak hour, by month
 and for high-price days. Experiments are written up under
 [`research/spot_price/`](research/spot_price/README.md), with conventions in
 [`research/`](research/README.md).
+
+### Superset dashboards
 
 Charting happens in Superset (`just open superset`), with one
 forecast-analysis dashboard per task: **Spot Price Forecast Analysis** and
