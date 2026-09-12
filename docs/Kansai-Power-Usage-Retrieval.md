@@ -3,10 +3,10 @@
 How 関西電力送配電 publishes the Kansai-area demand history behind its でんき予報
 page, what the files look like, how the hourly series compares with the Kansai
 A-1 series already in the warehouse, and how
-`power_market_analytics.kansai.power_usage` brings the hourly table into
+`power_market_analytics.ingestion.tso.kansai.power_usage` brings the hourly table into
 `pma_raw.kansai_power_usage_hourly`. It is the Kansai counterpart of
 [TEPCO's feed](TEPCO-Power-Usage-Retrieval.md); the two share the parser and
-loader (`power_market_analytics/power_usage.py`) and land in the same curated
+loader (`power_market_analytics/ingestion/tso/power_usage.py`) and land in the same curated
 fact. Verified against a full capture on 2026-09-06 (every monthly archive
 2016-04 → 2026-09: 126 zips, 3,809 daily files).
 
@@ -129,10 +129,10 @@ Kansai publishes them today; April 2022 A-1 was re-issued in 2023-09). It is
 recorded here so a reader of either fact knows the two disagree before
 2023-03; which series is closer to the metered load is not established.
 
-## 6. Downloading and loading with `power_market_analytics.kansai.power_usage`
+## 6. Downloading and loading with `power_market_analytics.ingestion.tso.kansai.power_usage`
 
 ```python
-from power_market_analytics.kansai.power_usage import KansaiPowerUsageDownloader
+from power_market_analytics.ingestion.tso.kansai.power_usage import KansaiPowerUsageDownloader
 
 downloader = KansaiPowerUsageDownloader()          # data/kansai/power_usage
 downloader.download(2025, 7)                        # one month -> 31 csv/ files

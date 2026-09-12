@@ -12,7 +12,7 @@ from pathlib import Path
 
 from loguru import logger
 
-from power_market_analytics.tepco.power_usage import TepcoPowerUsageDownloader
+from power_market_analytics.ingestion.tso.tepco.power_usage import TepcoPowerUsageDownloader
 
 
 def main(argv: list[str] | None = None) -> None:

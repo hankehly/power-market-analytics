@@ -2,7 +2,7 @@
 
 How the Statistics Bureau publishes the Population Census on the 500 m mesh
 through e-Stat 統計GIS, and what the files look like. How the privacy
-processing works. And how `power_market_analytics.estat` brings the total
+processing works. And how `power_market_analytics.ingestion.estat` brings the total
 population per mesh into the warehouse for every configured census vintage.
 The output feeds a later population-weighted weather aggregation; the
 weather-grid crosswalk and the weights themselves are **not** part of this
@@ -22,7 +22,8 @@ the official census counts, 127,094,745 and 126,146,099) and the official
   demographic tabulation その１ 人口等基本集計に関する事項 — total population,
   by sex, age bands, households, etc. **Only total population is loaded.**
 - **Vintages**: each census is a separate e-Stat statistics table
-  (`statsId`); the differences live in `power_market_analytics.estat.VINTAGES`:
+  (`statsId`); the differences live in
+  `power_market_analytics.ingestion.estat.vintages.VINTAGES`:
 
   | Census | Census date | Datum | `statsId` | Population column | Files |
   |---|---|---|---|---|---|
@@ -163,21 +164,23 @@ north = south + 1/240                   east = west + 1/160
 centroid = ((south + north)/2, (west + east)/2)
 ```
 
-`power_market_analytics.estat.decode_mesh_code("533946114")` (東京駅) →
+`power_market_analytics.ingestion.estat.mesh.decode_mesh_code("533946114")` (東京駅) →
 centroid `35.681250 N, 139.771875 E`; `std_estat__census_population_mesh`
 applies the same formula in SQL and `dim_population_mesh_500m` carries the
 result. Structural validity is `^\d{4}[0-7]{2}\d{2}[1-4]$` (checked by the
 loader and by a dbt test). Coordinates are on the vintage's datum (JGD2000);
 no boundary polygons are stored.
 
-## 6. Downloading and loading with `power_market_analytics.estat`
+## 6. Downloading and loading with `power_market_analytics.ingestion.estat`
 
-`power_market_analytics/estat.py` holds the vintage configuration
-(`CensusVintage`, `VINTAGES`), the mesh decoder, the downloader and the
-vintage-aware `EstatCensusMeshCsvLoader`.
+`power_market_analytics/ingestion/estat/` holds the vintage configuration in
+`vintages` (`CensusVintage`, `VINTAGES`), the mesh decoder in `mesh`, the
+downloader in `download` and the vintage-aware `EstatCensusMeshCsvLoader` in
+`load`.
 
 ```python
-from power_market_analytics.estat import EstatCensusMeshDownloader, vintage_for_year
+from power_market_analytics.ingestion.estat.download import EstatCensusMeshDownloader
+from power_market_analytics.ingestion.estat.vintages import vintage_for_year
 
 downloader = EstatCensusMeshDownloader()            # data/estat/census_population_mesh
 downloader.discover_primary_mesh_codes(vintage_for_year(2020))   # ['3622', '3623', ..., '6848']
@@ -247,7 +250,7 @@ The CLI registries are in `tests/test_download_scripts.py` and
    (`{statsId}001` so far) and the number of 第１次地域区画 downloads shown as
    the hit count.
 3. Append a `CensusVintage(...)` to `VINTAGES` in
-   `power_market_analytics/estat.py` (`census_year`, `census_date`,
+   `power_market_analytics/ingestion/estat/vintages.py` (`census_year`, `census_date`,
    `geodetic_datum`, `stats_id`, `population_source_column`, `listing_url`,
    `expected_file_count`) and add the year to the tests' vintage assertions
    and the singular dbt test `assert_fct_census_population_mesh_has_every_vintage`.

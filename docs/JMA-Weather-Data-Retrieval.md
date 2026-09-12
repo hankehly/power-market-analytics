@@ -4,7 +4,7 @@ How we obtain historical hourly weather observations from the Japan
 Meteorological Agency (JMA) for JEPX spot price forecasting. This document
 covers the reverse-engineered HTTP protocol, the station and element model, the
 per-request limits, the format of the downloaded CSV files, and how to use the
-downloader in `power_market_analytics/jma.py`.
+downloader in `power_market_analytics/ingestion/jma/`.
 
 All protocol details below were established empirically on 2026-07-20 by driving the JMA
 site in a browser, capturing its network traffic, and replaying the requests with plain
@@ -189,7 +189,7 @@ elements the station observes.
 `JmaStationMasterDownloader` automates this enumeration. It discovers the area
 codes from `pd=00`, walks all ~61 area pages, and writes one row per station to
 the `jma_stations` dbt seed (see
-[§8](#8-downloading-with-power_market_analyticsjma)). Each row carries the id,
+[§8](#8-downloading-with-power_market_analyticsingestionjma)). Each row carries the id,
 prefecture, name, kana, decimal-degree coordinates, elevation, the raw
 `kansoku` mask plus its decoded digits, and the end-of-observation date for
 discontinued stations.
@@ -300,7 +300,8 @@ cap ([§6](#6-request-limits)); wind is the only multi-column element.
 | 703 | 天気 | `weather` | 1 | ✓ | |
 | 704 | 視程 | `visibility` | 1 | ✓ | |
 
-The scrape set is `SCRAPE_ELEMENTS` in `power_market_analytics/jma.py` (8 value columns →
+The scrape set is `SCRAPE_ELEMENTS` in `power_market_analytics/ingestion/jma/hourly.py`
+(8 value columns →
 2 windows per station-year): 101/201/301/401/501/605/610 (precipitation, temperature, wind,
 sunshine, snow depth, humidity, solar radiation).
 
@@ -555,14 +556,18 @@ Consequences, given the pre-re-scope 5-value-column cap and both station classes
 - 全天日射量 and 降水量 print a bare `0` at some hours and a decimal (`0.0`, `1.56`) at
   others — parse both as double.
 
-## 8. Downloading with `power_market_analytics.jma`
+## 8. Downloading with `power_market_analytics.ingestion.jma`
 
 `JmaHourlyDownloader` handles chunking (one file per station × element set × year),
 caching, throttling, backoff, and response validation. `HOURLY_ELEMENTS` maps friendly
 names to element codes.
 
 ```python
-from power_market_analytics.jma import HOURLY_ELEMENTS, SCRAPE_ELEMENTS, JmaHourlyDownloader
+from power_market_analytics.ingestion.jma.hourly import (
+    HOURLY_ELEMENTS,
+    SCRAPE_ELEMENTS,
+    JmaHourlyDownloader,
+)
 
 downloader = JmaHourlyDownloader()  # data_dir="data/jma/hourly", 5 s between requests
 
@@ -638,7 +643,7 @@ format at the current scrape's coverage
 `pma_raw.jma_hourly_amedas` table is gone, AMeDAS being out of scope
 ([§4](#4-stations)).
 
-The loader is `JmaHourlyCsvLoader` (`power_market_analytics/jma.py`), a
+The loader is `JmaHourlyCsvLoader` (`power_market_analytics/ingestion/jma/load.py`), a
 positional variant of the generic `CsvLoader`. The JMA header rows repeat
 labels per element, so columns are addressed as `_c0`..`_c26` — 27 columns — in
 the load contract `conf/schemas/jma_hourly_staffed.yaml`. `station_id` is

@@ -2,21 +2,21 @@
 
 Each delivery day costs one archive of three GRIB2 files, roughly 157 MB
 total (~54 GiB for a full year); downloads are sequential and throttled
-(``power_market_analytics.msm.MsmDownloader``) out of politeness toward
+(``power_market_analytics.ingestion.msm.download.MsmDownloader``) out of politeness toward
 RISH, an academic mirror with no published rate limit of its own — a full
 historical backfill is correspondingly slow and should be run detached.
 
 For every delivery day D in ``[--start-date, --end-date]`` (default:
 ``DEFAULT_BACKFILL_START`` through ``default_end_date()``, JST "today" + 1
 day), downloads and decodes the three GRIB2 files covering D
-(``power_market_analytics.msm.source_files_for``) into one gzip CSV extract
+(``power_market_analytics.ingestion.msm.vintage.source_files_for``) into one gzip CSV extract
 under ``--data-dir/csv/``, reusing an already-cached extract unless
 ``--force``. The three GRIB2 files are deleted after a successful extract
 unless ``--keep-grib``.
 
 TLS needs no setup: RISH has sent an incomplete certificate chain since
 2026-05-28, and the downloader's default session trusts the missing
-intermediate CA directly (``power_market_analytics.msm.default_session``).
+intermediate CA directly (``power_market_analytics.ingestion.msm.download.default_session``).
 """
 
 import argparse
@@ -25,12 +25,9 @@ from pathlib import Path
 
 from loguru import logger
 
-from power_market_analytics.msm import (
-    DEFAULT_BACKFILL_START,
-    MsmDownloader,
-    default_end_date,
-    load_stations,
-)
+from power_market_analytics.ingestion.msm.download import MsmDownloader
+from power_market_analytics.ingestion.msm.stations import load_stations
+from power_market_analytics.ingestion.msm.vintage import DEFAULT_BACKFILL_START, default_end_date
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 

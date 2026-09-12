@@ -7,9 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from power_market_analytics.area_actuals import AreaActualsSource
-from power_market_analytics.csv_loader import SOURCE_FILE_COL, CsvTableSchema
-from power_market_analytics.power_usage import (
+from power_market_analytics.ingestion.loader import SOURCE_FILE_COL, CsvTableSchema
+from power_market_analytics.ingestion.tso.area_actuals import AreaActualsSource
+from power_market_analytics.ingestion.tso.power_usage import (
     CORRECTION_MARKER,
     HourlyFile,
     HourlyRow,

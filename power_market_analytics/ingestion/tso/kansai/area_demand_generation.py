@@ -15,9 +15,9 @@ first full month and the start of the new imbalance regime, matching TEPCO.
 Format and quirks: docs/Kansai-Area-Demand-Generation-Retrieval.md.
 
 The download/extract and load logic itself is the shared
-:class:`~power_market_analytics.area_actuals.AreaActualsDownloader` /
-:class:`~power_market_analytics.area_actuals.AreaActualsCsvLoader` pair; this
-module only supplies the Kansai :class:`~power_market_analytics.area_actuals.AreaActualsSource`
+:class:`~power_market_analytics.ingestion.tso.area_actuals.AreaActualsDownloader` /
+:class:`~power_market_analytics.ingestion.tso.area_actuals.AreaActualsCsvLoader` pair; this
+module only supplies the Kansai :class:`~power_market_analytics.ingestion.tso.area_actuals.AreaActualsSource`
 and convenience subclasses bound to it.
 """
 
@@ -28,7 +28,7 @@ from pathlib import Path
 
 import requests
 
-from power_market_analytics.area_actuals import (
+from power_market_analytics.ingestion.tso.area_actuals import (
     AreaActualsCsvLoader,
     AreaActualsDownloader,
     AreaActualsSource,
@@ -95,11 +95,11 @@ class KansaiAreaCsvLoader(AreaActualsCsvLoader):
     open with metadata lines before the real column header — three lines until
     2025-12-24 (a title line plus the two ``ファイル更新日`` lines), two from
     2025-12-25 — so they are read positionally by the shared
-    :class:`~power_market_analytics.area_actuals.AreaActualsCsvLoader`
+    :class:`~power_market_analytics.ingestion.tso.area_actuals.AreaActualsCsvLoader`
     (contract ``source: _c0`` .. ``_c6`` plus ``__file_updated_at``), which
     also normalises the newer ``yyyy/mm/dd`` dates to ``yyyymmdd``.
 
-    Same constructor as :class:`~power_market_analytics.csv_loader.CsvLoader`
+    Same constructor as :class:`~power_market_analytics.ingestion.loader.CsvLoader`
     (``schema``, ``filepath``, ``table``, optional ``spark``); the source spec
     (accepted column-header lines) is fixed to :data:`KANSAI`.
     """

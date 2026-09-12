@@ -24,16 +24,14 @@ import pytest
 import requests
 from requests.adapters import HTTPAdapter
 
-from power_market_analytics import msm
-from power_market_analytics.msm import (
+from power_market_analytics.ingestion.msm import download as msm_download
+from power_market_analytics.ingestion.msm.download import MsmDownloader
+from power_market_analytics.ingestion.msm.elements import MSM_SURFACE_ELEMENTS, RAW_CSV_COLUMNS
+from power_market_analytics.ingestion.msm.errors import MsmDownloadError, MsmExtractError
+from power_market_analytics.ingestion.msm.grid import MsmGrid
+from power_market_analytics.ingestion.msm.stations import MsmStation
+from power_market_analytics.ingestion.msm.vintage import (
     EARLIEST_DELIVERY_DATE,
-    MSM_SURFACE_ELEMENTS,
-    RAW_CSV_COLUMNS,
-    MsmDownloader,
-    MsmDownloadError,
-    MsmExtractError,
-    MsmGrid,
-    MsmStation,
     reference_at_for,
     source_files_for,
 )
@@ -259,7 +257,7 @@ class TestDownloadFile:
     def test_streams_content_spanning_multiple_chunks(self, tmp_path):
         # Real archive members are far larger than one 1 MiB chunk; pad past
         # the magic-bytes header so streaming actually spans several reads.
-        content = sample_message_bytes() + b"\x00" * (2 * msm.DOWNLOAD_CHUNK_BYTES)
+        content = sample_message_bytes() + b"\x00" * (2 * msm_download.DOWNLOAD_CHUNK_BYTES)
         sf = SOURCE_FILES[0]
         session = FakeSession({sf.url: FakeResponse(content)})
         dl = MsmDownloader(data_dir=tmp_path, session=session, request_interval=0)
@@ -414,8 +412,8 @@ class TestRetryBackoff:
             return clock["t"]
 
         sleeps: list[float] = []
-        monkeypatch.setattr(msm.time, "monotonic", fake_monotonic)
-        monkeypatch.setattr(msm.time, "sleep", lambda s: sleeps.append(s))
+        monkeypatch.setattr(msm_download.time, "monotonic", fake_monotonic)
+        monkeypatch.setattr(msm_download.time, "sleep", lambda s: sleeps.append(s))
         return sleeps
 
     def test_one_retry_sleeps_interval_times_one(self, tmp_path, no_throttle_sleeps):
@@ -457,8 +455,8 @@ class TestThrottle:
     def test_consecutive_requests_are_spaced_by_the_interval(self, tmp_path, monkeypatch):
         clock = {"now": 100.0}
         sleeps: list[float] = []
-        monkeypatch.setattr(msm.time, "monotonic", lambda: clock["now"])
-        monkeypatch.setattr(msm.time, "sleep", lambda s: sleeps.append(s))
+        monkeypatch.setattr(msm_download.time, "monotonic", lambda: clock["now"])
+        monkeypatch.setattr(msm_download.time, "sleep", lambda s: sleeps.append(s))
         sf0, sf1, sf2 = SOURCE_FILES
         session = FakeSession(
             {
@@ -631,7 +629,7 @@ class TestExtractDay:
     def test_record_count_mismatch_raises(self, tmp_path, monkeypatch):
         session = complete_session()
         dl = MsmDownloader(data_dir=tmp_path, session=session, request_interval=0)
-        monkeypatch.setattr(msm, "extract_station_records", lambda *a, **k: [])
+        monkeypatch.setattr(msm_download, "extract_station_records", lambda *a, **k: [])
 
         with pytest.raises(MsmExtractError, match="expected 48"):
             dl.extract_day(DELIVERY_DATE, STATIONS)
@@ -665,7 +663,7 @@ class TestExtractDay:
             raise OSError("disk full")
 
         with monkeypatch.context() as m:
-            m.setattr(msm.gzip, "open", boom)
+            m.setattr(msm_download.gzip, "open", boom)
             with pytest.raises(OSError):
                 dl.extract_day(DELIVERY_DATE, STATIONS)
 
@@ -682,7 +680,7 @@ class TestExtractDay:
             raise TypeError("not serializable")
 
         with monkeypatch.context() as m:
-            m.setattr(msm.json, "dumps", boom)
+            m.setattr(msm_download.json, "dumps", boom)
             with pytest.raises(TypeError):
                 dl.extract_day(DELIVERY_DATE, STATIONS)
 

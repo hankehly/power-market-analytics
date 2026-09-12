@@ -9,7 +9,7 @@ the fixtures deterministic and cheap:
   values round-trip bit-exactly, so a test can assert ``15.0`` and not an
   approximation of it (the sample's default ``grid_simple`` packing is lossy).
 * The grid is tiny (a handful of points); its geometry comes from an
-  :class:`~power_market_analytics.msm.MsmGrid` whose *signed* steps decide the
+  :class:`~power_market_analytics.ingestion.msm.grid.MsmGrid` whose *signed* steps decide the
   scan flags, so a north-to-south or east-to-west fixture is just a grid with
   a negative step.
 * A GRIB file is a plain concatenation of messages, so :func:`build_file`
@@ -34,13 +34,10 @@ from pathlib import Path
 
 import eccodes
 
-from power_market_analytics.msm import (
-    HOUR_STEP_UNIT,
-    MSM_SURFACE_ELEMENTS,
-    MsmElement,
-    MsmGrid,
-    MsmSourceFile,
-)
+from power_market_analytics.ingestion.msm.elements import MSM_SURFACE_ELEMENTS, MsmElement
+from power_market_analytics.ingestion.msm.grib import HOUR_STEP_UNIT
+from power_market_analytics.ingestion.msm.grid import MsmGrid
+from power_market_analytics.ingestion.msm.vintage import MsmSourceFile
 
 #: ecCodes sample the GRIB2 fixtures are built from.
 GRIB2_SAMPLE = "regular_ll_sfc_grib2"

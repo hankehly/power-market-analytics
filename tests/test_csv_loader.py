@@ -1,4 +1,4 @@
-"""Tests for the generic header-based CSV loader (``power_market_analytics.csv_loader``).
+"""Tests for the generic header-based CSV loader (``power_market_analytics.ingestion.loader``).
 
 All loads run against the shared local Spark fixture and real CSV files in
 ``tmp_path``; tables land in the ``test_csv_loader`` database of the temp
@@ -18,7 +18,7 @@ import pytest
 from pyspark.sql import DataFrame
 from pyspark.sql import functions as F
 
-from power_market_analytics.csv_loader import (
+from power_market_analytics.ingestion.loader import (
     REPORT_LIMIT,
     SOURCE_FILE_COL,
     CsvColumn,

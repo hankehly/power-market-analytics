@@ -1,4 +1,4 @@
-"""Tests for the JEPX spot-price CSV downloader (power_market_analytics.jepx)."""
+"""Tests for the JEPX spot-price CSV downloader (power_market_analytics.ingestion.jepx)."""
 
 from __future__ import annotations
 
@@ -8,8 +8,8 @@ from pathlib import Path
 import pytest
 import requests
 
-from power_market_analytics import jepx
-from power_market_analytics.jepx import JepxSpotDownloader, current_fiscal_year
+from power_market_analytics.ingestion import jepx
+from power_market_analytics.ingestion.jepx import JepxSpotDownloader, current_fiscal_year
 
 
 class TestCurrentFiscalYear:

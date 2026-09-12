@@ -3,7 +3,7 @@
 How TEPCO Power Grid publishes the Tokyo-area demand history behind its
 でんき予報 page, what the files look like, how the hourly series compares with
 the A-1 series already in the warehouse, and how
-`power_market_analytics.tepco.power_usage` brings the hourly table into
+`power_market_analytics.ingestion.tso.tepco.power_usage` brings the hourly table into
 `pma_raw.tepco_power_usage_hourly`. Verified against a full capture on
 2026-08-29 (yearly files 2016–2022 and every monthly archive 2022-04 → 2026-08).
 
@@ -110,10 +110,10 @@ hours within ±1 万kW. Behind the headline:
   30.9 万kW (0.97 %), p90 65, worst 08:00–09:00 (78); the 5-minute series
   reproduces the within-hour split to 2.6 万kW.
 
-## 6. Downloading and loading with `power_market_analytics.tepco.power_usage`
+## 6. Downloading and loading with `power_market_analytics.ingestion.tso.tepco.power_usage`
 
 ```python
-from power_market_analytics.tepco.power_usage import TepcoPowerUsageDownloader
+from power_market_analytics.ingestion.tso.tepco.power_usage import TepcoPowerUsageDownloader
 
 downloader = TepcoPowerUsageDownloader()            # data/tepco/power_usage
 paths = downloader.download_all()                   # yearly files (cached) + every monthly zip
@@ -130,7 +130,7 @@ archives, whose daily members are extracted into the same `csv/` folder. On the
 1st of a month the running month is skipped, having no finished day yet. A
 settled month — last day before yesterday — must hold a member for every day;
 the running month may be partial. `TepcoPowerUsageCsvLoader` is the shared `PowerUsageCsvLoader` of
-`power_market_analytics/power_usage.py`, which Kansai's loader also extends.
+`power_market_analytics/ingestion/tso/power_usage.py`, which Kansai's loader also extends.
 
 It reads each file with `parse_hourly`: the hourly table under the first
 accepted header line, ending at the first blank line, so the 5-minute table is
