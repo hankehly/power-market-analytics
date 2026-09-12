@@ -67,12 +67,16 @@ import os
 import re
 import string
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from typing import Any
 
+import pandas as pd
 import requests
 from loguru import logger
+
+from power_market_analytics.tasks.demand import TASK as DEMAND_TASK
+from power_market_analytics.tasks.spot_price import TASK as SPOT_PRICE_TASK
 
 SUPERSET_URL = os.environ.get("SUPERSET_URL", "http://superset:8088")
 ADMIN_USER = os.environ.get("SUPERSET_ADMIN_USER", "admin")
@@ -97,6 +101,125 @@ concat(
     ' | ', {f}.strategy,
     ' | ', substring({f}.run_id, 1, 8)
   )"""
+
+#: The every-vintage feature-value dataset (one for both tasks); the as-of
+#: datasets are ``<task>_feature_values``.
+FEATURE_VALUES_ALL_DATASET = "feature_values_all"
+
+# Shared select list of the feature-value datasets: calendar / delivery-period
+# / area context around one row of fct_feature_value (a period, a feature and
+# a vintage). The as-of dataset adds the issue time and keeps one vintage per
+# period and feature; the every-vintage dataset keeps them all.
+FEATURE_VALUES_SELECT_TEMPLATE = """\
+select
+  f.trade_date,
+  timestampadd(MINUTE, p.start_minute_of_day, timestamp(f.trade_date)) as trade_datetime,
+  year(f.trade_date) as year,
+  month(f.trade_date) as month,
+  f.time_code,
+  p.hour_of_day,
+  p.day_part,
+  p.is_daytime,
+  d.day_name,
+  case
+    when d.is_holiday then 'Holiday'
+    when d.is_weekend then 'Weekend'
+    else 'Weekday'
+  end as day_type,
+  d.is_weekend,
+  d.is_holiday,
+  d.is_business_day,
+  a.area_code,
+  a.area_name_en,
+  f.feature_view,
+  f.feature_name,
+  f.feature_ref,
+  f.feature_value,
+  f.is_categorical,
+  f.available_at,
+  f.published_at{extra_columns}
+from {source} f
+join pma_curated.dim_area a on f.area_code = a.area_code
+join pma_curated.dim_delivery_period p on f.time_code = p.time_code
+join pma_curated.dim_date d on f.trade_date = d.date_key{where}
+"""
+
+# The as-of dataset: the newest vintage of every period and feature that was
+# public by the task's issue time, the row Feast serves a backtest; ties on
+# available_at go to the newest published, Feast's rule.
+FEATURE_VALUES_ASOF_SQL_TEMPLATE = """\
+with asof as (
+  select
+    f.*,
+    {issue_time} as issue_time,
+    row_number() over (
+      partition by f.area_code, f.trade_date, f.time_code, f.feature_ref
+      order by f.available_at desc, f.published_at desc
+    ) as vintage_rank
+  from pma_curated.fct_feature_value f
+  where f.available_at <= {issue_time}
+)
+""" + FEATURE_VALUES_SELECT_TEMPLATE.format(
+    extra_columns=",\n  f.issue_time", source="asof", where="\nwhere f.vintage_rank = 1"
+)
+
+FEATURE_VALUES_ALL_SQL = FEATURE_VALUES_SELECT_TEMPLATE.format(
+    extra_columns="", source="pma_curated.fct_feature_value", where=""
+)
+
+# (column_name, generic type, is temporal) of the every-vintage dataset, in
+# select order; the as-of dataset appends issue_time.
+FEATURE_VALUES_ALL_COLUMNS = (
+    ("trade_date", "DATE", True),
+    ("trade_datetime", "TIMESTAMP", True),
+    ("year", "BIGINT", False),
+    ("month", "BIGINT", False),
+    ("time_code", "INT", False),
+    ("hour_of_day", "INT", False),
+    ("day_part", "STRING", False),
+    ("is_daytime", "BOOLEAN", False),
+    ("day_name", "STRING", False),
+    ("day_type", "STRING", False),
+    ("is_weekend", "BOOLEAN", False),
+    ("is_holiday", "BOOLEAN", False),
+    ("is_business_day", "BOOLEAN", False),
+    ("area_code", "STRING", False),
+    ("area_name_en", "STRING", False),
+    ("feature_view", "STRING", False),
+    ("feature_name", "STRING", False),
+    ("feature_ref", "STRING", False),
+    ("feature_value", "DOUBLE", False),
+    ("is_categorical", "BOOLEAN", False),
+    ("available_at", "TIMESTAMP", True),
+    ("published_at", "TIMESTAMP", True),
+)
+FEATURE_VALUES_ASOF_COLUMNS = (*FEATURE_VALUES_ALL_COLUMNS, ("issue_time", "TIMESTAMP", True))
+
+
+def issue_time_sql(issue_offset: pd.Timedelta) -> str:
+    """The task's issue time of a delivery day as SQL over ``f.trade_date``.
+
+    Parameters
+    ----------
+    issue_offset : pandas.Timedelta
+        The issue time relative to D 00:00, ``TaskSpec.issue_offset`` (a whole
+        number of minutes; 09:30 on D-1 is -870).
+
+    Returns
+    -------
+    str
+        ``timestampadd(MINUTE, <minutes>, timestamp(f.trade_date))``.
+
+    Raises
+    ------
+    ValueError
+        If the offset is not a whole number of minutes.
+    """
+    minutes = issue_offset / pd.Timedelta(minutes=1)
+    if minutes != int(minutes):
+        raise ValueError(f"issue offset {issue_offset} is not a whole number of minutes")
+    return f"timestampadd(MINUTE, {int(minutes)}, timestamp(f.trade_date))"
+
 
 # Shared skeleton of every task's virtual dataset: calendar / delivery-period
 # / area context, the run label, then the task's value and error columns
@@ -649,6 +772,12 @@ class DashboardSpec:
         The *dataset* columns of the run's MAE and of the MAE after shuffling
         a feature (rescaled like the value columns).
     importance_value_columns_sql, importance_value_columns : str, tuple of (str, str, bool)
+        The importance dataset's value block and its column metadata.
+    feature_values_dataset_name : str
+        The task's as-of feature-value dataset (``<task>_feature_values``).
+    issue_time_sql : str
+        The task's issue time as SQL over ``f.trade_date`` (``issue_time_sql``),
+        the as-of dataset's cutoff.
         The two-line value block — MAE, permuted MAE — two-space indented,
         the last line without a trailing comma, and its column metadata.
     """
@@ -693,6 +822,14 @@ class DashboardSpec:
     importance_permuted_mae_col: str
     importance_value_columns_sql: str
     importance_value_columns: tuple[tuple[str, str, bool], ...]
+    feature_values_dataset_name: str
+    issue_time_sql: str
+
+    @property
+    def feature_values_sql(self) -> str:
+        """The as-of feature-value dataset's SQL: one vintage per period and feature,
+        the newest public by the task's issue time."""
+        return FEATURE_VALUES_ASOF_SQL_TEMPLATE.format(issue_time=self.issue_time_sql)
 
     @property
     def dataset_sql(self) -> str:
@@ -1225,6 +1362,8 @@ SPOT_PRICE = DashboardSpec(
         ("baseline_forecast_price_jpy_kwh", "DOUBLE", False),
         ("actual_price_jpy_kwh", "DOUBLE", False),
     ),
+    feature_values_dataset_name="spot_price_feature_values",
+    issue_time_sql=issue_time_sql(SPOT_PRICE_TASK.issue_offset),
     importance_dataset_name="spot_price_forecast_importance",
     importance_table="pma_curated.fct_spot_price_forecast_importance",
     importance_mae_col="mae_price_jpy_kwh",
@@ -1346,6 +1485,8 @@ DEMAND = DashboardSpec(
         ("baseline_forecast_demand_mwh", "DOUBLE", False),
         ("actual_demand_mwh", "DOUBLE", False),
     ),
+    feature_values_dataset_name="demand_feature_values",
+    issue_time_sql=issue_time_sql(DEMAND_TASK.issue_offset),
     importance_dataset_name="demand_forecast_importance",
     importance_table="pma_curated.fct_demand_forecast_importance",
     importance_mae_col="mae_mwh",
@@ -3663,8 +3804,52 @@ def build_dashboard(
     return dashboard_id
 
 
+def build_feature_value_datasets(
+    client: SupersetClient, database_id: int, specs: Iterable[DashboardSpec]
+) -> dict[str, int]:
+    """Register the feature-value datasets and return their ids by name.
+
+    One as-of dataset per task (``spec.feature_values_dataset_name``: the
+    newest vintage of every period and feature public by the task's issue
+    time) and the shared every-vintage dataset ``feature_values_all``, all
+    over ``pma_curated.fct_feature_value``. No dashboard reads them; they are
+    the catalogue's browsing surface in Superset.
+
+    Parameters
+    ----------
+    client : SupersetClient
+    database_id : int
+        Superset id of the Spark Thriftserver connection.
+    specs : iterable of DashboardSpec
+        The tasks whose as-of dataset to register.
+
+    Returns
+    -------
+    dict of str to int
+    """
+    ids: dict[str, int] = {}
+    for spec in specs:
+        ids[spec.feature_values_dataset_name] = upsert_dataset(
+            client,
+            database_id,
+            spec.feature_values_dataset_name,
+            spec.feature_values_sql,
+            list(FEATURE_VALUES_ASOF_COLUMNS),
+        )
+    ids[FEATURE_VALUES_ALL_DATASET] = upsert_dataset(
+        client,
+        database_id,
+        FEATURE_VALUES_ALL_DATASET,
+        FEATURE_VALUES_ALL_SQL,
+        list(FEATURE_VALUES_ALL_COLUMNS),
+    )
+    for name, dataset_id in ids.items():
+        logger.info("dataset {}: id={}", name, dataset_id)
+    return ids
+
+
 def main(argv: list[str] | None = None) -> None:
-    """Build or refresh the selected dashboards end to end.
+    """Build or refresh the selected dashboards end to end, then the feature-value datasets.
 
     Parameters
     ----------
@@ -3705,8 +3890,10 @@ def main(argv: list[str] | None = None) -> None:
             "Spark Thriftserver connection in the Superset UI first."
         )
 
-    for task in args.task or list(DASHBOARDS):
-        build_dashboard(client, database_id, DASHBOARDS[task], baseline_run=args.baseline_run)
+    specs = [DASHBOARDS[task] for task in args.task or list(DASHBOARDS)]
+    for spec in specs:
+        build_dashboard(client, database_id, spec, baseline_run=args.baseline_run)
+    build_feature_value_datasets(client, database_id, specs)
 
 
 if __name__ == "__main__":
