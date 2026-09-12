@@ -121,21 +121,18 @@ checkov *args:
 # rather than re-resolving.
 #
 # Every --ignore-vuln below is an advisory whose fix this repo cannot reach: a
-# dbt package pins the vulnerable version, so the fix arrives with a dbt upgrade
-# (issue #84), not with a lock bump. Drop an entry the moment its fix becomes
-# reachable — the list is for advisories with nowhere to go, never for ones we
-# have not got to. Reviewed 2026-09-12, recheck by 2026-12-12.
+# dbt package pins the vulnerable version, so the fix arrives with a dbt upgrade,
+# not with a lock bump. Drop an entry the moment its fix becomes reachable — the
+# list is for advisories with nowhere to go, never for ones we have not got to.
+# The five sqlparse entries were dropped on 2026-09-12 when dbt-core 1.12 made
+# 0.6.0 reachable (#84). Reviewed 2026-09-12, recheck by 2026-12-12.
 #
-#   sqlparse 0.5.5 -> 0.6.0 is held by dbt-core 1.11; taking it pulls dbt-core
-#   1.12 and a release-candidate parser. All five are DoS or code-generation
-#   flaws that need attacker-supplied SQL: 3696 is the Python/PHP output filters
-#   (never used here), 3697/3698/3699/3923 are parser and reindent blowups. The
-#   only SQL sqlparse sees here is this repo's own dbt models.
-#
-#   thrift 0.16.0 -> 0.24.0 is held by dbt-spark 1.10, which allows it only in a
-#   pre-release. 3927 is TLS hostname validation, 3925 data amplification, 3926
-#   an infinite loop — all against a hostile Thrift peer. The only peer here is
-#   the Spark thriftserver on the local compose network, reached without TLS.
+#   thrift 0.22.0 -> 0.24.0 is held by dbt-spark 1.11.0, whose `pyhive` extra
+#   requires `thrift<0.23.0` — the same upgrade that freed sqlparse only moved
+#   this cap from 0.16 to 0.22, so the three advisories stand. 3927 is TLS
+#   hostname validation, 3925 data amplification, 3926 an infinite loop — all
+#   against a hostile Thrift peer. The only peer here is the Spark thriftserver
+#   on the local compose network, reached without TLS.
 [doc("Audit the locked dependencies for known vulnerabilities (pip-audit over uv.lock)")]
 pip-audit *args:
     #!/usr/bin/env bash
@@ -147,9 +144,6 @@ pip-audit *args:
     set -euo pipefail
     uv export --locked --no-hashes --no-emit-project --format requirements.txt \
       | uvx pip-audit@2.10.1 --no-deps --disable-pip --requirement /dev/stdin \
-          --ignore-vuln PYSEC-2026-3696 --ignore-vuln PYSEC-2026-3697 \
-          --ignore-vuln PYSEC-2026-3698 --ignore-vuln PYSEC-2026-3699 \
-          --ignore-vuln PYSEC-2026-3923 \
           --ignore-vuln PYSEC-2026-3925 --ignore-vuln PYSEC-2026-3926 \
           --ignore-vuln PYSEC-2026-3927 "$@"
 

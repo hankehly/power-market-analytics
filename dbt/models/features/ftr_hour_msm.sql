@@ -21,6 +21,7 @@ with
     temperature_c,
     relative_humidity_pct,
     precipitation_mm,
+    solar_radiation_mjm2,
     available_at
   from {{ ref('fct_jma_msm_weather_forecast_hourly') }}
   ),
@@ -75,6 +76,15 @@ with
         )
       end
     )) as precipitation_terms,
+    array_sort(collect_list(
+      case when forecasts.solar_radiation_mjm2 is not null
+        then named_struct(
+          'station_id', forecasts.station_id,
+          'weight', weights.area_population_weight,
+          'value', forecasts.solar_radiation_mjm2
+        )
+      end
+    )) as solar_terms,
     max(forecasts.available_at) as available_at
   from
     forecasts
@@ -95,6 +105,7 @@ with
     {{ ordered_weighted_mean('temperature_terms') }} as popw_forecast_temperature_c,
     {{ ordered_weighted_mean('humidity_terms') }} as popw_forecast_relative_humidity_pct,
     {{ ordered_weighted_mean('precipitation_terms') }} as popw_forecast_precipitation_mm,
+    {{ ordered_weighted_mean('solar_terms') }} as popw_forecast_solar_radiation_mjm2,
     available_at
   from
     station_terms
@@ -111,6 +122,7 @@ with
     weighted.popw_forecast_temperature_c,
     weighted.popw_forecast_relative_humidity_pct,
     weighted.popw_forecast_precipitation_mm,
+    weighted.popw_forecast_solar_radiation_mjm2,
     {{ available_at(['representative.available_at', 'weighted.available_at']) }} as available_at
   from
     representative

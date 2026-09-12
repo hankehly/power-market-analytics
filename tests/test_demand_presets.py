@@ -1,4 +1,4 @@
-"""The demand task's presets: the ten feature sets, the old classes' order then R-006."""
+"""The demand task's presets: the eleven feature sets, the old classes' order then R-006, R-007."""
 
 from __future__ import annotations
 
@@ -18,6 +18,8 @@ from power_market_analytics.tasks.demand.presets import (
     LIGHTGBM_MSM_POPW_DAYTYPE_SIMDAY_HOLIDAYDEGREE,
     LIGHTGBM_MSM_POPW_DAYTYPE_SIMDAY_HOLIDAYDISTANCE,
     LIGHTGBM_MSM_POPW_DAYTYPE_SIMDAY_LAGS,
+    LIGHTGBM_MSM_POPW_DAYTYPE_SIMDAY_LAGS_WEATHER,
+    MSM_ELEMENT_FEATURES,
     PRESETS,
     RECENT_LOAD_FEATURES,
     SIMILAR_DAY_FEATURE,
@@ -33,6 +35,11 @@ SIMDAY_COLUMNS = (
     "day_type",
     "similar_day_demand_kwh",
 )
+MSM_ELEMENT_COLUMNS = (
+    "popw_forecast_relative_humidity_pct",
+    "popw_forecast_precipitation_mm",
+    "popw_forecast_solar_radiation_mjm2",
+)
 DAY_CALENDAR_COLUMNS = (
     "half",
     "quarter",
@@ -47,7 +54,7 @@ DAY_CALENDAR_COLUMNS = (
 )
 
 
-def test_the_ten_presets_keep_the_old_feature_order():
+def test_the_eleven_presets_keep_the_old_feature_order():
     assert list(PRESETS) == [
         "lightgbm",
         "lightgbm_msm",
@@ -59,6 +66,7 @@ def test_the_ten_presets_keep_the_old_feature_order():
         "lightgbm_msm_popw_daytype_simday_holidaydegree",
         "lightgbm_msm_popw_daytype_simday_holidaydistance",
         "lightgbm_msm_popw_daytype_simday_lags",
+        "lightgbm_msm_popw_daytype_simday_lags_weather",
     ]
     assert PRESETS["lightgbm"] is LIGHTGBM
     assert LIGHTGBM.feature_cols == (
@@ -107,6 +115,27 @@ def test_the_similar_day_presets_add_the_mart_column_then_the_calendar_columns()
     assert set().union(*subsets) == set(DAY_CALENDAR_FEATURES) - {
         "ftr_day_calendar:is_business_day"
     }
+
+
+def test_the_weather_preset_adds_the_three_msm_elements_to_the_lags_preset():
+    assert MSM_ELEMENT_FEATURES == tuple(f"ftr_hour_msm:{c}" for c in MSM_ELEMENT_COLUMNS)
+    assert LIGHTGBM_MSM_POPW_DAYTYPE_SIMDAY_LAGS_WEATHER.base == "lightgbm_msm_popw_daytype_simday_lags"
+    assert LIGHTGBM_MSM_POPW_DAYTYPE_SIMDAY_LAGS_WEATHER.columns == (
+        *SIMDAY_COLUMNS,
+        *RECENT_LOAD_COLUMNS,
+        *MSM_ELEMENT_COLUMNS,
+    )
+    # The forecast temperature is already the base's: the preset adds three refs, not four.
+    assert "ftr_hour_msm:popw_forecast_temperature_c" in LIGHTGBM_MSM_POPW_DAYTYPE_SIMDAY_LAGS.features
+    assert len(LIGHTGBM_MSM_POPW_DAYTYPE_SIMDAY_LAGS_WEATHER.features) == (
+        len(LIGHTGBM_MSM_POPW_DAYTYPE_SIMDAY_LAGS.features) + 3
+    )
+    # Every element is continuous, so none reaches LightGBM as a categorical.
+    dtypes = feature_dtypes(LIGHTGBM_MSM_POPW_DAYTYPE_SIMDAY_LAGS_WEATHER)
+    assert [dtypes[c] for c in MSM_ELEMENT_COLUMNS] == ["float64"] * 3
+    assert not set(MSM_ELEMENT_COLUMNS) & set(
+        categorical_columns(LIGHTGBM_MSM_POPW_DAYTYPE_SIMDAY_LAGS_WEATHER)
+    )
 
 
 def test_the_presets_record_what_they_were_changed_from():
