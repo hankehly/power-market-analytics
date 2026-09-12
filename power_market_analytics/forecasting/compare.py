@@ -127,8 +127,35 @@ def run_errors_from_pandas(
     return frame_cls.from_df(typed)
 
 
+def uncommon_days(
+    df: pd.DataFrame, baseline_run_id: str, candidate_run_id: str
+) -> dict[str, list[pd.Timestamp]]:
+    """The delivery days only one of the two runs scored.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Rows of both runs.
+    baseline_run_id, candidate_run_id : str
+
+    Returns
+    -------
+    dict of str to list of pandas.Timestamp
+        ``baseline``: the days the baseline scored and the candidate did not;
+        ``candidate``: the reverse. Both sorted.
+    """
+    base = {pd.Timestamp(d) for d in df.loc[df["run_id"] == baseline_run_id, "trade_date"]}
+    cand = {pd.Timestamp(d) for d in df.loc[df["run_id"] == candidate_run_id, "trade_date"]}
+    return {"baseline": sorted(base - cand), "candidate": sorted(cand - base)}
+
+
 def matched_rows(
-    errors: DomainFrame, *, task: TaskSpec, baseline_run_id: str, candidate_run_id: str
+    errors: DomainFrame,
+    *,
+    task: TaskSpec,
+    baseline_run_id: str,
+    candidate_run_id: str,
+    common_days: bool = False,
 ) -> pd.DataFrame:
     """The two runs' rows with ``role``, ``error`` and ``abs_error`` columns, matched.
 
@@ -140,6 +167,11 @@ def matched_rows(
         Supplies the actual and forecast column names.
     baseline_run_id, candidate_run_id : str
         The two runs; they must have scored identical points.
+    common_days : bool, optional
+        Drop the delivery days only one run scored before matching, so two
+        runs that skipped different days compare on the days both scored
+        (``uncommon_days`` lists them). A day both scored must still match
+        period by period.
 
     Returns
     -------
@@ -151,6 +183,9 @@ def matched_rows(
         If the two runs do not cover exactly the same points.
     """
     df = errors.df[errors.df["run_id"].isin([baseline_run_id, candidate_run_id])]
+    if common_days:
+        only = uncommon_days(df, baseline_run_id, candidate_run_id)
+        df = df[~df["trade_date"].isin([*only["baseline"], *only["candidate"]])]
     assert_matched(df, baseline_run_id, candidate_run_id)
     error = df[task.forecast_col] - df[task.actual_col]
     return df.assign(
@@ -331,6 +366,7 @@ def daily_paired_comparison(
     resamples: int = 10_000,
     seed: int = 0,
     top_days: int = 10,
+    common_days: bool = False,
 ) -> DailyPairedComparison:
     """Compare the two runs day by day and bootstrap the mean daily-MAE difference.
 
@@ -350,6 +386,8 @@ def daily_paired_comparison(
     top_days : int, optional
         How many of the most-improved days to attribute the gain to; capped
         at the number of days.
+    common_days : bool, optional
+        Compare on the delivery days both runs scored (``matched_rows``).
 
     Returns
     -------
@@ -361,7 +399,11 @@ def daily_paired_comparison(
         If the two runs do not cover exactly the same points.
     """
     df = matched_rows(
-        errors, task=task, baseline_run_id=baseline_run_id, candidate_run_id=candidate_run_id
+        errors,
+        task=task,
+        baseline_run_id=baseline_run_id,
+        candidate_run_id=candidate_run_id,
+        common_days=common_days,
     )
     daily = df.groupby(["trade_date", "role"])["abs_error"].agg(["mean", "sum"]).unstack("role")
     diff = (daily[("mean", "candidate")] - daily[("mean", "baseline")]).to_numpy(dtype="float64")
