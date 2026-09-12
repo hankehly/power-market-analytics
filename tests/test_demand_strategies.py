@@ -52,6 +52,7 @@ class TestRegistry:
             "lightgbm_msm_popw_daytype_simday_holidaydegree",
             "lightgbm_msm_popw_daytype_simday_holidaydistance",
             "lightgbm_msm_popw_daytype_simday_lags",
+            "lightgbm_msm_popw_daytype_simday_lags_weather",
         )
         assert STRATEGIES == tuple(PRESETS)
 
