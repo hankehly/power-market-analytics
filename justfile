@@ -109,3 +109,39 @@ mypy *args:
 [doc("Scan Dockerfiles, workflows and committed files with checkov (config in .checkov.yaml)")]
 checkov *args:
     uvx checkov@3.3.11 {{args}}
+
+# Unlike checkov's, this version is pinned here and nowhere else: the ci job
+# runs this recipe through `uvx --from rust-just` instead of repeating the
+# command, because the --ignore-vuln list below must have exactly one
+# definition. Exits 1 on any advisory, so it gates on its own.
+#
+# `uv export` is how the lock reaches pip-audit: `pip-audit --locked` reads only
+# a PEP 751 pylock.toml, not uv.lock. --no-emit-project drops the `-e .` entry
+# pip-audit cannot version, and --no-deps audits exactly what the lock pins
+# rather than re-resolving.
+#
+# Every --ignore-vuln below is an advisory whose fix this repo cannot reach: a
+# dbt package pins the vulnerable version, so the fix arrives with a dbt upgrade
+# (issue #84), not with a lock bump. Drop an entry the moment its fix becomes
+# reachable — the list is for advisories with nowhere to go, never for ones we
+# have not got to. Reviewed 2026-09-12, recheck by 2026-12-12.
+#
+#   sqlparse 0.5.5 -> 0.6.0 is held by dbt-core 1.11; taking it pulls dbt-core
+#   1.12 and a release-candidate parser. All five are DoS or code-generation
+#   flaws that need attacker-supplied SQL: 3696 is the Python/PHP output filters
+#   (never used here), 3697/3698/3699/3923 are parser and reindent blowups. The
+#   only SQL sqlparse sees here is this repo's own dbt models.
+#
+#   thrift 0.16.0 -> 0.24.0 is held by dbt-spark 1.10, which allows it only in a
+#   pre-release. 3927 is TLS hostname validation, 3925 data amplification, 3926
+#   an infinite loop — all against a hostile Thrift peer. The only peer here is
+#   the Spark thriftserver on the local compose network, reached without TLS.
+[doc("Audit the locked dependencies for known vulnerabilities (pip-audit over uv.lock)")]
+pip-audit *args:
+    uv export --locked --no-hashes --no-emit-project --format requirements.txt \
+      | uvx pip-audit@2.10.1 --no-deps --disable-pip --requirement /dev/stdin \
+          --ignore-vuln PYSEC-2026-3696 --ignore-vuln PYSEC-2026-3697 \
+          --ignore-vuln PYSEC-2026-3698 --ignore-vuln PYSEC-2026-3699 \
+          --ignore-vuln PYSEC-2026-3923 \
+          --ignore-vuln PYSEC-2026-3925 --ignore-vuln PYSEC-2026-3926 \
+          --ignore-vuln PYSEC-2026-3927 {{args}}

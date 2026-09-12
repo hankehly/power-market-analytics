@@ -16,7 +16,7 @@ dependencies = [
     "eccodeslib>=2.48 ; sys_platform != 'win32'",
     "lightgbm>=4.6",
     # Pinned to match the mlflow server image in docker-compose.yaml; move both together.
-    "mlflow==3.14.0",
+    "mlflow==3.16.0",
     "pandas>=2.3.3",
     "pydantic>=2.13.4",
     "pydantic-settings>=2.14.1",

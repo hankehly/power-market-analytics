@@ -82,6 +82,18 @@
   in any committed file; config in `.checkov.yaml`, version pinned in the justfile and
   `.github/workflows/ci.yml`). Exits 1 on any failed check; the `ci` workflow runs it as a
   second job on every push.
+- `just pip-audit [pip-audit args]` — audit the locked dependencies against the PyPI / OSV
+  advisory databases (`uv export` of `uv.lock` piped into a pinned `pip-audit`; `pip-audit
+  --locked` reads only a PEP 751 `pylock.toml`, not `uv.lock`). Exits 1 on any advisory, so it
+  gates on its own. The `--ignore-vuln` list lives in the recipe, one entry per advisory whose
+  fix a dbt pin puts out of reach (`sqlparse` behind dbt-core 1.11, `thrift` behind dbt-spark
+  1.10 — issue #84), each with its reason and a recheck date; drop an entry as soon as its fix
+  becomes reachable. Because that list must have exactly one definition, the `ci` job is the
+  one job that runs the recipe (`uvx --from rust-just@1.58.0 just pip-audit`) instead of
+  repeating its command. Dependency *updates* come from `.github/dependabot.yml` (the `uv` and
+  `github-actions` ecosystems, monthly, minor and patch grouped into one PR each; `mlflow` is
+  excluded because `pyproject.toml` pins it to the `docker-compose.yaml` server image and both
+  move together).
 - `just python <args>` / `just exec <cmd>` / `just shell` — run inside the devcontainer.
 - `just dbt <args>` — dbt from `/workspace/dbt` (e.g. `just dbt build`, `just dbt show --inline "select ..." --limit 5`).
   `just dbt parse` needs no warehouse (parse never opens a connection) and is the one dbt step
