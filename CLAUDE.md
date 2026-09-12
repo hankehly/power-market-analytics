@@ -63,7 +63,13 @@
   a session-wide single-thread LightGBM cap. HTTP is never real: the
   downloaders take an injectable `session` (`session_factory` for OCCTO) and scripts are driven
   through `main(argv)` with their downloader/loader class swapped in the module namespace
-  (`tests/support.import_script`).
+  (`tests/support.import_script`). Time is never real either: a test that asserts a
+  downloader's waits takes `tests/support.record_sleeps` / `patch_monotonic`, which patch the
+  stdlib `time` for the calling thread only. Never patch `time.sleep` or `time.monotonic`
+  directly — a module's `time` attribute *is* the stdlib module, so the patch reaches every
+  thread, and py4j's finalizer thread (alive for as long as the `spark` fixture) then spins on
+  the neutered `sleep` and floods the recorded list with its own 1 s waits; issue #76 saw
+  541,015 of them. `test_support.py` fails on any such patch in `tests/`.
 - `just lint [ruff args]` — `uv run ruff check .` (rules in `pyproject.toml` `[tool.ruff]`;
   extra args append, e.g. `just lint --fix`). The `ci` workflow runs the same check as a
   `lint` job on every push (dev dependency group only, no PySpark install).
