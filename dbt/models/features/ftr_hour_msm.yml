@@ -4,7 +4,7 @@ models:
       contract:
         enforced: true
     description: >
-      The MSM forecast for each delivery-day hour per bidding zone, one row per forecast vintage: the representative station's temperature (the demand lightgbm_msm feature) and the population-weighted temperature, humidity, rain and solar radiation over the area's staffed stations with the latest census vintage's weights (lightgbm_msm_popw and the similar-day selector; tasks/demand/datasets.py). Grain: area_code x trade_date x hour_ending x forecast_reference_at. available_at is the vintage's: reference + 4 h.
+      The MSM forecast for each delivery-day hour per bidding zone, one row per forecast vintage: the representative station's temperature (the demand lightgbm_msm feature) and the population-weighted temperature, humidity, rain, solar radiation, cloud cover (total, high, middle, low), wind (speed, u, v) and pressure (surface, sea-level) over the area's staffed stations with the latest census vintage's weights (lightgbm_msm_popw and the similar-day selector; tasks/demand/datasets.py). Grain: area_code x trade_date x hour_ending x forecast_reference_at. available_at is the vintage's: reference + 4 h.
     data_tests:
       - dbt_utils.unique_combination_of_columns:
           arguments:
@@ -86,6 +86,78 @@ models:
           meta:
             feature: true
             categorical: false
+      - name: popw_forecast_total_cloud_cover_pct
+        data_type: double
+        description: >
+          Population-weighted forecast total cloud cover, %, renormalised over the stations that have a value and added in station order.
+        config:
+          meta:
+            feature: true
+            categorical: false
+      - name: popw_forecast_high_cloud_cover_pct
+        data_type: double
+        description: >
+          Population-weighted forecast high cloud cover, %, renormalised over the stations that have a value and added in station order.
+        config:
+          meta:
+            feature: true
+            categorical: false
+      - name: popw_forecast_middle_cloud_cover_pct
+        data_type: double
+        description: >
+          Population-weighted forecast middle cloud cover, %, renormalised over the stations that have a value and added in station order.
+        config:
+          meta:
+            feature: true
+            categorical: false
+      - name: popw_forecast_low_cloud_cover_pct
+        data_type: double
+        description: >
+          Population-weighted forecast low cloud cover, %, renormalised over the stations that have a value and added in station order.
+        config:
+          meta:
+            feature: true
+            categorical: false
+      - name: popw_forecast_wind_speed_ms
+        data_type: double
+        description: >
+          Population-weighted forecast wind speed, m/s, renormalised over the stations that have a value and added in station order. A mean of speeds, so not the speed of the weighted u/v vector.
+        config:
+          meta:
+            feature: true
+            categorical: false
+      - name: popw_forecast_u_wind_ms
+        data_type: double
+        description: >
+          Population-weighted forecast eastward wind component, m/s, renormalised over the stations that have a value and added in station order.
+        config:
+          meta:
+            feature: true
+            categorical: false
+      - name: popw_forecast_v_wind_ms
+        data_type: double
+        description: >
+          Population-weighted forecast northward wind component, m/s, renormalised over the stations that have a value and added in station order.
+        config:
+          meta:
+            feature: true
+            categorical: false
+      - name: popw_forecast_surface_pressure_hpa
+        data_type: double
+        description: >
+          Population-weighted forecast surface pressure, hPa, renormalised over the stations that have a value and added in station order. Mostly set by the stations' altitudes; sea-level pressure is the comparable one.
+        config:
+          meta:
+            feature: true
+            categorical: false
+      - name: popw_forecast_sea_level_pressure_hpa
+        data_type: double
+        description: >
+          Population-weighted forecast sea-level pressure, hPa, renormalised over the stations that have a value and added in station order.
+        config:
+          meta:
+            feature: true
+            categorical: false
       - name: available_at
         data_type: timestamp
         description: >
@@ -98,7 +170,7 @@ unit_tests:
     description: >
       Two Tokyo stations with 2020 weights 0.75 / 0.25 and a 2015 vintage that
       must be ignored; one forecast hour. The representative station's own
-      temperature, the weighted temperature, humidity and solar radiation,
+      temperature, every weighted element (cloud, wind and pressure included),
       precipitation renormalised over the one station that reports it, and the
       vintage's available_at.
     model: ftr_hour_msm
@@ -113,8 +185,8 @@ unit_tests:
           - {census_year: 2020, area_key: 1, station_id: s2, area_population_weight: 0.25}
       - input: ref('fct_jma_msm_weather_forecast_hourly')
         rows:
-          - {station_id: s1, date_key: 2025-03-10, forecast_hour_start_at: "2025-03-10 00:00:00", forecast_reference_at: "2025-03-08 21:00:00", temperature_c: 10.0, relative_humidity_pct: 40.0, precipitation_mm: 0.0, solar_radiation_mjm2: 1.0, available_at: "2025-03-09 01:00:00"}
-          - {station_id: s2, date_key: 2025-03-10, forecast_hour_start_at: "2025-03-10 00:00:00", forecast_reference_at: "2025-03-08 21:00:00", temperature_c: 20.0, relative_humidity_pct: 80.0, precipitation_mm: null, solar_radiation_mjm2: 2.0, available_at: "2025-03-09 01:00:00"}
+          - {station_id: s1, date_key: 2025-03-10, forecast_hour_start_at: "2025-03-10 00:00:00", forecast_reference_at: "2025-03-08 21:00:00", temperature_c: 10.0, relative_humidity_pct: 40.0, precipitation_mm: 0.0, solar_radiation_mjm2: 1.0, total_cloud_cover_pct: 40.0, high_cloud_cover_pct: 20.0, middle_cloud_cover_pct: 10.0, low_cloud_cover_pct: 30.0, wind_speed_ms: 2.0, u_wind_ms: 1.0, v_wind_ms: -1.0, surface_pressure_hpa: 1000.0, sea_level_pressure_hpa: 1010.0, available_at: "2025-03-09 01:00:00"}
+          - {station_id: s2, date_key: 2025-03-10, forecast_hour_start_at: "2025-03-10 00:00:00", forecast_reference_at: "2025-03-08 21:00:00", temperature_c: 20.0, relative_humidity_pct: 80.0, precipitation_mm: null, solar_radiation_mjm2: 2.0, total_cloud_cover_pct: 80.0, high_cloud_cover_pct: 60.0, middle_cloud_cover_pct: 50.0, low_cloud_cover_pct: 70.0, wind_speed_ms: 6.0, u_wind_ms: 3.0, v_wind_ms: 1.0, surface_pressure_hpa: 1004.0, sea_level_pressure_hpa: 1014.0, available_at: "2025-03-09 01:00:00"}
     expect:
       rows:
-        - {area_code: tokyo, trade_date: 2025-03-10, hour_ending: 1, forecast_reference_at: "2025-03-08 21:00:00", census_year: 2020, forecast_temperature_c: 10.0, popw_forecast_temperature_c: 12.5, popw_forecast_relative_humidity_pct: 50.0, popw_forecast_precipitation_mm: 0.0, popw_forecast_solar_radiation_mjm2: 1.25, available_at: "2025-03-09 01:00:00"}
+        - {area_code: tokyo, trade_date: 2025-03-10, hour_ending: 1, forecast_reference_at: "2025-03-08 21:00:00", census_year: 2020, forecast_temperature_c: 10.0, popw_forecast_temperature_c: 12.5, popw_forecast_relative_humidity_pct: 50.0, popw_forecast_precipitation_mm: 0.0, popw_forecast_solar_radiation_mjm2: 1.25, popw_forecast_total_cloud_cover_pct: 50.0, popw_forecast_high_cloud_cover_pct: 30.0, popw_forecast_middle_cloud_cover_pct: 20.0, popw_forecast_low_cloud_cover_pct: 40.0, popw_forecast_wind_speed_ms: 3.0, popw_forecast_u_wind_ms: 1.5, popw_forecast_v_wind_ms: -0.5, popw_forecast_surface_pressure_hpa: 1001.0, popw_forecast_sea_level_pressure_hpa: 1011.0, available_at: "2025-03-09 01:00:00"}
