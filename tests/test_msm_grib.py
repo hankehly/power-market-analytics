@@ -17,19 +17,21 @@ import datetime
 
 import pytest
 
-from power_market_analytics.ingestion.msm import (
+from power_market_analytics.ingestion.msm.elements import (
     MSM_SURFACE_ELEMENTS,
     RAW_CSV_COLUMNS,
-    VALUE_COLUMNS,
     MsmElement,
-    MsmError,
-    MsmExtractError,
-    MsmGrid,
-    MsmSourceFile,
-    MsmStation,
+)
+from power_market_analytics.ingestion.msm.errors import MsmError, MsmExtractError
+from power_market_analytics.ingestion.msm.grib import (
+    VALUE_COLUMNS,
     StationHourRecord,
     extract_station_records,
-    haversine_km,
+)
+from power_market_analytics.ingestion.msm.grid import MsmGrid, haversine_km
+from power_market_analytics.ingestion.msm.stations import MsmStation
+from power_market_analytics.ingestion.msm.vintage import (
+    MsmSourceFile,
     reference_at_for,
     source_files_for,
 )

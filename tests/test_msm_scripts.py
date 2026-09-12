@@ -1,6 +1,6 @@
 """CLI wiring tests for the ``scripts/download_jma_msm_surface_forecast.py`` /
 ``scripts/load_jma_msm_surface_forecast.py`` entry points, plus
-``power_market_analytics.ingestion.msm.default_end_date``.
+``power_market_analytics.ingestion.msm_vintage.default_end_date``.
 
 The downloader/loader classes are swapped for recording fakes in each
 script's namespace, so what is asserted is the argument plumbing (station
@@ -15,25 +15,26 @@ from pathlib import Path
 
 import pytest
 
-from power_market_analytics.ingestion import msm
 from power_market_analytics.ingestion.loader import CsvTableSchema
+from power_market_analytics.ingestion.msm import stations as msm_stations
+from power_market_analytics.ingestion.msm import vintage as msm_vintage
 from tests.support import REPO_ROOT, import_script
 
 
 class TestDefaultEndDate:
     def test_is_jst_today_plus_one_day(self, monkeypatch):
-        frozen = datetime.datetime(2026, 8, 21, 23, 59, tzinfo=msm.JST)
-        monkeypatch.setattr(msm, "_now", lambda: frozen)
+        frozen = datetime.datetime(2026, 8, 21, 23, 59, tzinfo=msm_vintage.JST)
+        monkeypatch.setattr(msm_vintage, "_now", lambda: frozen)
 
-        assert msm.default_end_date() == datetime.date(2026, 8, 22)
+        assert msm_vintage.default_end_date() == datetime.date(2026, 8, 22)
 
     def test_uses_jst_not_the_naive_calendar_date(self, monkeypatch):
         # 2026-08-21 15:30 UTC == 2026-08-22 00:30 JST, so "today" is already
         # the 22nd in JST even though a naive UTC read would still say 21st.
-        frozen = datetime.datetime(2026, 8, 22, 0, 30, tzinfo=msm.JST)
-        monkeypatch.setattr(msm, "_now", lambda: frozen)
+        frozen = datetime.datetime(2026, 8, 22, 0, 30, tzinfo=msm_vintage.JST)
+        monkeypatch.setattr(msm_vintage, "_now", lambda: frozen)
 
-        assert msm.default_end_date() == datetime.date(2026, 8, 23)
+        assert msm_vintage.default_end_date() == datetime.date(2026, 8, 23)
 
     def test_real_now_returns_a_date_in_the_future(self):
         # No monkeypatch: exercises the real _now() seam. The reference date
@@ -42,9 +43,9 @@ class TestDefaultEndDate:
         # one full day ahead of this reference, even if midnight JST falls
         # between the two reads; comparing against a *second*, later now()
         # read would be flaky right at that boundary.
-        reference_date = datetime.datetime.now(msm.JST).date()
+        reference_date = datetime.datetime.now(msm_vintage.JST).date()
 
-        assert msm.default_end_date() > reference_date
+        assert msm_vintage.default_end_date() > reference_date
 
 
 class TestDownloadJmaMsmSurfaceForecast:
@@ -53,8 +54,8 @@ class TestDownloadJmaMsmSurfaceForecast:
         module = import_script("download_jma_msm_surface_forecast")
         seen: dict = {}
         stations = [
-            msm.MsmStation(station_id="s47662", latitude=35.6, longitude=139.7),
-            msm.MsmStation(station_id="s47772", latitude=34.6, longitude=135.5),
+            msm_stations.MsmStation(station_id="s47662", latitude=35.6, longitude=139.7),
+            msm_stations.MsmStation(station_id="s47772", latitude=34.6, longitude=135.5),
         ]
 
         def fake_load_stations(stations_csv, station_areas_csv):
@@ -87,7 +88,7 @@ class TestDownloadJmaMsmSurfaceForecast:
         assert seen["stations_csv"] == REPO_ROOT / "dbt/seeds/jma_stations.csv"
         assert seen["station_areas_csv"] == REPO_ROOT / "dbt/seeds/jma_station_areas.csv"
         assert seen["data_dir"] == Path("data/jma/msm_surface_forecast")
-        assert seen["start_date"] == msm.DEFAULT_BACKFILL_START
+        assert seen["start_date"] == msm_vintage.DEFAULT_BACKFILL_START
         assert seen["end_date"] == datetime.date(2026, 8, 22)
         assert seen["stations"] == stations
         assert seen["force"] is False

@@ -12,11 +12,8 @@ from pathlib import Path
 import pytest
 from loguru import logger
 
-from power_market_analytics.ingestion.jma import (
-    SCRAPE_ELEMENTS,
-    JmaHourlyDownloader,
-    JmaStationMasterDownloader,
-)
+from power_market_analytics.ingestion.jma.hourly import SCRAPE_ELEMENTS, JmaHourlyDownloader
+from power_market_analytics.ingestion.jma.stations import JmaStationMasterDownloader
 from tests.support import REPO_ROOT, import_script
 
 TODAY = datetime.date.today()

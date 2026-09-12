@@ -12,11 +12,10 @@ import datetime
 
 import pytest
 
-from power_market_analytics.ingestion.estat import (
+from power_market_analytics.ingestion.estat.mesh import MeshBounds, decode_mesh_code
+from power_market_analytics.ingestion.estat.vintages import (
     VINTAGES,
     CensusVintage,
-    MeshBounds,
-    decode_mesh_code,
     vintage_for_stats_id,
     vintage_for_year,
 )
@@ -156,8 +155,8 @@ from pathlib import Path  # noqa: E402
 
 import requests  # noqa: E402
 
-from power_market_analytics.ingestion import estat  # noqa: E402
-from power_market_analytics.ingestion.estat import (  # noqa: E402
+from power_market_analytics.ingestion.estat import download as estat_download  # noqa: E402
+from power_market_analytics.ingestion.estat.download import (  # noqa: E402
     EstatCensusMeshDownloader,
     EstatDownloadError,
 )
@@ -546,8 +545,8 @@ class TestThrottle:
     def test_consecutive_requests_are_spaced_by_the_interval(self, tmp_path, monkeypatch):
         clock = {"now": 100.0}
         sleeps: list[float] = []
-        monkeypatch.setattr(estat.time, "monotonic", lambda: clock["now"])
-        monkeypatch.setattr(estat.time, "sleep", lambda s: sleeps.append(s))
+        monkeypatch.setattr(estat_download.time, "monotonic", lambda: clock["now"])
+        monkeypatch.setattr(estat_download.time, "sleep", lambda s: sleeps.append(s))
         session = demo_session()
         dl = EstatCensusMeshDownloader(data_dir=tmp_path, session=session, request_interval=0.5)
 

@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from power_market_analytics.ingestion.jma import JmaHourlyCsvLoader
+from power_market_analytics.ingestion.jma.load import JmaHourlyCsvLoader
 from power_market_analytics.ingestion.loader import REPORT_LIMIT, CsvTableSchema
 from tests.support import REPO_ROOT
 

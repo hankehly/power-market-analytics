@@ -15,10 +15,10 @@ from pathlib import Path
 
 import pytest
 
-from power_market_analytics.ingestion.estat import (
+from power_market_analytics.ingestion.estat.load import EstatCensusMeshCsvLoader
+from power_market_analytics.ingestion.estat.vintages import (
     VINTAGES,
     CensusVintage,
-    EstatCensusMeshCsvLoader,
     vintage_for_year,
 )
 from power_market_analytics.ingestion.loader import CsvTableSchema
