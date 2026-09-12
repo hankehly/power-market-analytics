@@ -4,7 +4,7 @@ models:
       contract:
         enforced: true
     description: >
-      The MSM forecast for each delivery-day hour per bidding zone, one row per forecast vintage: the representative station's temperature (the demand lightgbm_msm feature) and the population-weighted temperature, humidity and rain over the area's staffed stations with the latest census vintage's weights (lightgbm_msm_popw and the similar-day selector; tasks/demand/datasets.py). Grain: area_code x trade_date x hour_ending x forecast_reference_at. available_at is the vintage's: reference + 4 h.
+      The MSM forecast for each delivery-day hour per bidding zone, one row per forecast vintage: the representative station's temperature (the demand lightgbm_msm feature) and the population-weighted temperature, humidity, rain and solar radiation over the area's staffed stations with the latest census vintage's weights (lightgbm_msm_popw and the similar-day selector; tasks/demand/datasets.py). Grain: area_code x trade_date x hour_ending x forecast_reference_at. available_at is the vintage's: reference + 4 h.
     data_tests:
       - dbt_utils.unique_combination_of_columns:
           arguments:
@@ -78,6 +78,14 @@ models:
           meta:
             feature: true
             categorical: false
+      - name: popw_forecast_solar_radiation_mjm2
+        data_type: double
+        description: >
+          Population-weighted forecast global solar radiation over the hour, MJ/m2, renormalised over the stations that have a value and added in station order. MJ/m2 is the unit fct_jma_weather_hourly.solar_radiation_mjm2 observes in; the fact's shortwave_radiation_wm2 is the same field at 1 / 0.0036 the scale.
+        config:
+          meta:
+            feature: true
+            categorical: false
       - name: available_at
         data_type: timestamp
         description: >
@@ -90,9 +98,9 @@ unit_tests:
     description: >
       Two Tokyo stations with 2020 weights 0.75 / 0.25 and a 2015 vintage that
       must be ignored; one forecast hour. The representative station's own
-      temperature, the weighted temperature and humidity, precipitation
-      renormalised over the one station that reports it, and the vintage's
-      available_at.
+      temperature, the weighted temperature, humidity and solar radiation,
+      precipitation renormalised over the one station that reports it, and the
+      vintage's available_at.
     model: ftr_hour_msm
     given:
       - input: ref('dim_area')
@@ -105,8 +113,8 @@ unit_tests:
           - {census_year: 2020, area_key: 1, station_id: s2, area_population_weight: 0.25}
       - input: ref('fct_jma_msm_weather_forecast_hourly')
         rows:
-          - {station_id: s1, date_key: 2025-03-10, forecast_hour_start_at: "2025-03-10 00:00:00", forecast_reference_at: "2025-03-08 21:00:00", temperature_c: 10.0, relative_humidity_pct: 40.0, precipitation_mm: 0.0, available_at: "2025-03-09 01:00:00"}
-          - {station_id: s2, date_key: 2025-03-10, forecast_hour_start_at: "2025-03-10 00:00:00", forecast_reference_at: "2025-03-08 21:00:00", temperature_c: 20.0, relative_humidity_pct: 80.0, precipitation_mm: null, available_at: "2025-03-09 01:00:00"}
+          - {station_id: s1, date_key: 2025-03-10, forecast_hour_start_at: "2025-03-10 00:00:00", forecast_reference_at: "2025-03-08 21:00:00", temperature_c: 10.0, relative_humidity_pct: 40.0, precipitation_mm: 0.0, solar_radiation_mjm2: 1.0, available_at: "2025-03-09 01:00:00"}
+          - {station_id: s2, date_key: 2025-03-10, forecast_hour_start_at: "2025-03-10 00:00:00", forecast_reference_at: "2025-03-08 21:00:00", temperature_c: 20.0, relative_humidity_pct: 80.0, precipitation_mm: null, solar_radiation_mjm2: 2.0, available_at: "2025-03-09 01:00:00"}
     expect:
       rows:
-        - {area_code: tokyo, trade_date: 2025-03-10, hour_ending: 1, forecast_reference_at: "2025-03-08 21:00:00", census_year: 2020, forecast_temperature_c: 10.0, popw_forecast_temperature_c: 12.5, popw_forecast_relative_humidity_pct: 50.0, popw_forecast_precipitation_mm: 0.0, available_at: "2025-03-09 01:00:00"}
+        - {area_code: tokyo, trade_date: 2025-03-10, hour_ending: 1, forecast_reference_at: "2025-03-08 21:00:00", census_year: 2020, forecast_temperature_c: 10.0, popw_forecast_temperature_c: 12.5, popw_forecast_relative_humidity_pct: 50.0, popw_forecast_precipitation_mm: 0.0, popw_forecast_solar_radiation_mjm2: 1.25, available_at: "2025-03-09 01:00:00"}

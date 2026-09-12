@@ -176,7 +176,7 @@
   month / high-price days, plus bias) as markdown; needs
   `just dbt build --select +fct_spot_price_forecast_accuracy` after the runs.
 - `just python scripts/demand_backtest.py --strategy lightgbm_msm_popw_daytype --area tokyo` —
-  day-ahead area demand backtest. Strategies: the ten presets of `tasks/demand/presets.py`
+  day-ahead area demand backtest. Strategies: the eleven presets of `tasks/demand/presets.py`
   — `lightgbm`, `lightgbm_msm`, `lightgbm_msm_popw`, `lightgbm_msm_popw_daytype` (the
   script default and the Kansai baseline), `lightgbm_msm_popw_daytype_simday` (the Tokyo
   demand baseline, reference run `008868fe…`; Tokyo-only, because its
@@ -188,7 +188,9 @@
   task bullet below) and `…_simday_lags` (research `demand/R-006`: the thirteen recent-load
   features of `ftr_period_actuals` and `ftr_day_actuals`, the researcher's decision pending;
   it skips seven target days to the 2025-06-14 hole where the baseline skips one, so compare
-  it with `--common-days`). Areas: `tokyo`, `kansai` = the TSO feeds loaded into
+  it with `--common-days`) and `…_simday_lags_weather` (research `demand/R-007`: the MSM
+  forecast's population-weighted humidity, rain and solar radiation on top of that preset,
+  the researcher's decision pending). Areas: `tokyo`, `kansai` = the TSO feeds loaded into
   `fct_area_demand_generation_actual`. An area's feature marts need its representative JMA
   station's hourly weather loaded and current (`dim_area.representative_jma_station_id`:
   東京 s47662, 大阪 s47772 — both loaded and current as of the 2026-08-20 re-scope backfill;
@@ -510,7 +512,10 @@
   `assert_feature_marts_declare_available_at` lists any feature model without the column.
   Today's eight: `ftr_day_actuals` (since 2026-09-12, research `demand/R-006`: D-2's mean,
   max and max − min over its 48 periods, complete days only), `ftr_day_calendar`,
-  `ftr_day_occto`, `ftr_hour_jma_obs`, `ftr_hour_msm`, `ftr_period_actuals` (since
+  `ftr_day_occto`, `ftr_hour_jma_obs`, `ftr_hour_msm` (the representative station's
+  forecast temperature and the population-weighted temperature, humidity, rain and —
+  since 2026-09-12, research `demand/R-007` — solar radiation, `popw_forecast_solar_radiation_mjm2`
+  in MJ/m2, the unit `fct_jma_weather_hourly` observes in), `ftr_period_actuals` (since
   2026-09-12 the lags of 2, 3, 7, 9, 14, 21 and 28 days, the plain and 8:4:2:1 weighted
   means of the four weekly lags, the D-2 − D-9 change and the same two means over the last
   four complete days of D's `ftr_day_calendar` day type at or before D-2 — one union of
@@ -742,6 +747,18 @@
   `ftr_period_actuals` and `ftr_day_actuals` above but `lag_9d_demand_kwh`; the 2025-06-14
   hole reaches every lag it reads, so it skips seven target days where the baseline skips
   one (compare with `--common-days`).
+  `lightgbm_msm_popw_daytype_simday_lags_weather` (research `demand/R-007` E-001, run
+  2026-09-12 `e6d6d4ef…` against a re-run of `…_simday_lags` as baseline, `d04e9d0c…`,
+  which reproduces `34707ed6…` to the digit — the check that adding a column to
+  `ftr_hour_msm` moved none of the existing ones — on the same 723 days: MAE −2.9 %
+  (577,355 → 560,508), MAPE 3.55 % → 3.44 %, CI over days [−24,697, −8,739] excludes zero,
+  20 of 25 months lower, spring −7.4 % but summer −1.2 % and autumn +0.6 %; no single
+  element's permutation importance approaches the joint gain, so which of the three carries
+  it is unknown; the researcher's decision pending) = `…_simday_lags` +
+  `MSM_ELEMENT_FEATURES`, the three `ftr_hour_msm` columns
+  `popw_forecast_relative_humidity_pct`, `popw_forecast_precipitation_mm` and
+  `popw_forecast_solar_radiation_mjm2`. The forecast temperature is not repeated: every
+  preset since `lightgbm_msm_popw` carries it, so this adds three features, not four.
   Write-back: `pma_ml.demand_forecast` →
   `stg/std_ml__demand_forecast` →
   `fct_demand_forecast` → `fct_demand_forecast_accuracy` → Superset **Demand Forecast Analysis**
