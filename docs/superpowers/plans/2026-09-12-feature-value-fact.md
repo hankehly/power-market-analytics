@@ -73,6 +73,23 @@
 - [ ] **Step 2: Verify.** `just test` (100 %), `just lint`, `just mypy`; in the devcontainer `dbt build --select +fct_feature_value` from the worktree, then `create_forecast_dashboard.py` for both tasks; one chart over `demand_feature_values` in Superset (the proof the spec asks for); row count and build time recorded below.
 - [ ] **Step 3: PR** `feat(dbt): fct_feature_value and the feature-value Superset datasets` with Why / What / Proof, labels, the Codex loop, report ready.
 
-## Results
+## Results (2026-09-12)
 
-(filled in as the tasks complete)
+- Tasks 1 to 3 as planned; 1,543 tests pass at 100 % coverage, lint, mypy and `dbt parse`
+  clean, `generate_feature_views.py --check` current for both files.
+- `dbt build --select fct_feature_value` on the warehouse: the model and its 12 generic tests
+  in 82 s, 13 of 13 green. 34,082,628 rows, 24 features, the nine areas. Per mart: calendar
+  24,614,928 (13 features, every area, 2016-01-01 to 2027-12-31, the dim_date spine), MSM
+  4,694,976, JMA observations 1,687,824, JEPX 1,645,824, OCCTO 1,153,440, actuals 155,364,
+  similar day 130,272; no null value in any mart today. The spec's "about 5 M" counted two
+  areas and no spine; the calendar broadcast is the bulk and is fine as Parquet.
+- The singular test passes and is selected with the model (a `depends_on` ref); with
+  `holiday_degree` dropped from the generated model its compiled SQL returns
+  `ftr_day_calendar:holiday_degree`, so a stale model fails the build.
+- `create_forecast_dashboard.py` rebuilt both dashboards and registered
+  `spot_price_feature_values`, `demand_feature_values` and `feature_values_all`.
+- Proof chart 117 on `demand_feature_values`: `ftr_hour_msm:popw_forecast_temperature_c` against
+  `ftr_hour_jma_obs:wavg_temperature_c` for Tokyo, 2026-08-01 to 08-07, one line per
+  `feature_ref`; 672 rows (7 days × 48 periods × 2 features) in 0.7 s through the chart-data
+  API — the day filter pushes through the as-of window, whose partition key is the day — where
+  an unfiltered preview over the whole fact took 62 s.
