@@ -129,12 +129,15 @@ Scan the repository for markdown documentation files. Common locations include:
 - Changelog files
 - License files
 - Code of conduct files
+- **Everything under `docs/superpowers/`** - design specs and implementation plans are written once
+  and then left alone (see `docs/superpowers/README.md`). That folder is a design-history archive,
+  not documentation that is kept current
 - **Files with `disable-agentic-editing: true` in frontmatter** - These files are protected from automated editing
 
 Look for documentation files that were recently modified or are likely to benefit from cleanup.
 
-{{#if ${{ github.event.pull_request.number }}}}
-**Pull Request Context**: Since this workflow is running in the context of PR #${{ github.event.pull_request.number }}, prioritize reviewing the documentation files that were modified in this pull request. Use the GitHub API to get the list of changed files and focus on markdown files.
+{{#if ${{ github.event.issue.number }}}}
+**Pull Request Context**: Since this workflow is running in the context of PR #${{ github.event.issue.number }}, prioritize reviewing the documentation files that were modified in this pull request. Use the GitHub API to get the list of changed files and focus on markdown files.
 {{/if}}
 
 ### 3. Select ONE File to Improve
@@ -145,12 +148,14 @@ Look for documentation files that were recently modified or are likely to benefi
 - Auto-generated documentation
 - Changelog or release notes
 - License or legal files
+- **Anything under `docs/superpowers/`** - the design-history archive, excluded above
 - **Files with `disable-agentic-editing: true` in frontmatter** - These files are explicitly protected from automated editing
 
 Before selecting a file, check its frontmatter to ensure it doesn't have `disable-agentic-editing: true`:
 ````bash
-# Check if a file has disable-agentic-editing set to true
-head -20 <filename> | grep -A1 "^---" | grep "disable-agentic-editing: true"
+# Check if a file has disable-agentic-editing set to true.
+# Search the whole leading block: the flag is often not the first key.
+head -30 <filename> | grep -n "disable-agentic-editing: true"
 # If this returns a match, SKIP this file - it's protected
 ````
 
@@ -166,7 +171,7 @@ Choose the file most in need of improvement based on:
 **First, verify the file is editable**:
 ````bash
 # Check frontmatter for disable-agentic-editing flag
-head -20 <filename> | grep -A1 "^---" | grep "disable-agentic-editing: true"
+head -30 <filename> | grep -n "disable-agentic-editing: true"
 ````
 
 If this command returns a match, **STOP** - the file is protected. Select a different file.
@@ -241,8 +246,8 @@ After improving ONE file:
 1. Verify your changes preserve all essential information
 2. Update cache memory with the cleaned file
 3. Create a pull request with your improvements
-   - **IMPORTANT**: When calling the create_pull_request tool, do NOT pass a "branch" parameter - let it auto-detect the current branch you created
-   - Or if you must specify the branch, use the exact branch name you created earlier (NOT "main")
+   - **IMPORTANT**: Pass the exact branch name you created in step 7 as the `branch` parameter of
+     create_pull_request. It is a required field - a call without it is rejected. Never pass "main"
 4. Include in the PR description:
    - Which file you improved
    - What types of bloat you removed
