@@ -938,10 +938,12 @@
   `gh api graphql` mutation `resolveReviewThread(input: {threadId: "…"})`, thread ids from the
   PR's `reviewThreads(first: 100) { nodes { id isResolved comments(first: 1) { nodes {
   databaseId } } } pageInfo { hasNextPage endCursor } }` query (page with `after:` beyond
-  100 — GraphQL connections need a bound). Push if anything changed and wait for the automatic re-review as above; a round whose
+  100 — GraphQL connections need a bound). Push if anything changed, then start the next round:
+  with Codex wait for the automatic re-review as above, with Copilot **request one** — it never
+  re-reviews by itself, so waiting for it would stall for ever. A round whose
   findings were all rebutted has nothing to push and is terminal once every thread is resolved
-  (the reviewed SHA is unchanged). Repeat until a round ends with 👍 or with only rebutted,
-  resolved findings.
+  (the reviewed SHA is unchanged). Repeat until a round ends clean: Codex signals that with 👍,
+  Copilot with an `APPROVED` review. A round with only rebutted, resolved findings is clean too.
 - Then report the PR as ready — CI green, the reviewer clean, Proof filled in — and stop; the
   researcher merges unless they have explicitly asked Claude to. The repository's required
   checks must pass on the PR's *current* head, so a branch that has fallen behind `main` is
