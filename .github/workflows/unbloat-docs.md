@@ -126,31 +126,33 @@ find /tmp/gh-aw/cache-memory/ -maxdepth 1 -ls
 cat /tmp/gh-aw/cache-memory/cleaned-files.txt 2>/dev/null || echo "No previous cleanups found"
 ````
 
-Each line is `<epoch-seconds> <ISO-8601 UTC> - Cleaned: <filename>`. The first field is what the
-comparisons below use; the second is there to be readable.
+Each line records one cleanup attempt, written after the pull request was requested:
 
-**A cache entry is a cooldown, not a permanent exclusion.** This workflow runs daily, so a cache
-that only ever grows would eventually exclude every file and leave the run nothing to do. Take
-`ENTRY` as the epoch from the file's newest cache line; the file is eligible again when either:
-
-````bash
-# it changed after it was cleaned - compare instants, never calendar days, or a file edited
-# later on the same day looks unchanged
-[[ "$(git log -1 --format=%ct -- <filename>)" -gt "$ENTRY" ]]
-# or the 90-day cooldown has passed
-[[ "$(( $(date -u +%s) - ENTRY ))" -gt 7776000 ]]
+````
+<epoch-seconds> <ISO-8601 UTC> <branch> - Cleaned: <path>
 ````
 
-Both sides are plain integers, so there is no date-format or time-zone trap. Check both before you
-rule a cached file out.
+The cache is **recorded state, not something to infer from**. Three rules read it, one per concern,
+and nothing else:
 
-**And confirm the entry is real.** The cache is saved whenever the agent finishes, which is not the
-same as a pull request having been opened — a safe-output rejection (the branch already existed, a
-protected-file policy applied, the API failed) leaves an entry behind with no PR to show for it. So
-before honouring an entry, use the GitHub tools to look for a pull request in any state whose head
-branch is the name step 7 derives from that file's path. **No such PR means the entry is stale:
-ignore it and treat the file as eligible.** This works because the branch name is a deterministic
-function of the path.
+1. **Cooldown.** A file is excluded while its newest entry is under 90 days old:
+   ````bash
+   [[ "$(( $(date -u +%s) - ENTRY_EPOCH ))" -lt 7776000 ]]   # excluded
+   ````
+   Integers on both sides, so there is no date-format or time-zone trap. This is the *only*
+   time-based rule. In particular, do **not** compare the file's own commit time against the
+   entry — the cleanup PR's own merge commit is newer than the entry, so that test would make every
+   merged cleanup immediately eligible again and the cooldown would never hold.
+2. **Staleness.** The cache is saved whenever the agent finishes, which is not the same as a pull
+   request existing: a safe-output rejection leaves an entry with nothing to show for it. So look up
+   the branch **recorded in the entry** and ask whether a pull request in any state has that head.
+   No such PR means the entry is stale — ignore it and treat the file as eligible. Use the recorded
+   branch, never a name you re-derive, or a failed attempt matches an earlier successful PR.
+3. **Nothing else.** An entry under cooldown with a real PR excludes the file. That is the whole
+   protocol.
+
+Prefer a file with no entry at all. Fall back to one whose cooldown has passed rather than
+concluding there is nothing to do.
 
 ### 2. Find Documentation Files
 
@@ -273,38 +275,48 @@ Make targeted edits to improve clarity:
 
 ### 7. Create a Branch for Your Changes
 
-Before making changes, create a branch named from the file's **whole path**, not its basename:
+Every branch name must be unique — across files, and across repeated cleanups of the same file.
+Build it from the file's **whole path** plus this run's id:
+
 ````bash
-git checkout -b chore/unbloat-<path-without-extension>
+git checkout -b chore/unbloat-<path-slug>-${{ github.run_id }}
 ````
 
-Build the description from the path by lowercasing it, replacing every character that is not `a-z`
-or `0-9` with a hyphen, and collapsing runs of hyphens:
+The path slug is the path without its extension, lowercased, with every character outside `a-z0-9`
+replaced by a hyphen and runs of hyphens collapsed:
 
-- `docs/research/demand/README.md` → `chore/unbloat-docs-research-demand-readme`
-- `docs/JMA-MSM-GPV-Retrieval.md` → `chore/unbloat-docs-jma-msm-gpv-retrieval`
+- `docs/research/demand/README.md` → `chore/unbloat-docs-research-demand-readme-<run id>`
+- `docs/JMA-MSM-GPV-Retrieval.md` → `chore/unbloat-docs-jma-msm-gpv-retrieval-<run id>`
 
-The path is required because basenames are not unique — this repository has seven `README.md` files,
-so a basename branch would collide and a second cleanup could not open its PR while the first is
-still open.
+Both halves are load-bearing:
+
+- **the path**, because basenames are not unique — this repository has seven `README.md` files, and a
+  basename branch would collide between two of them
+- **the run id**, because a file cleaned again after its cooldown would otherwise ask for the branch
+  its previous cleanup already used. A still-existing branch (a closed unmerged PR, or a merged
+  branch that was never deleted) would fail `git checkout -b` and block the new PR
 
 The `chore/` prefix is required too, not stylistic: this repository allows only `feature/`, `fix/`,
 `hotfix/`, `release/` and `chore/`, and `chore/` is the one for documentation and config work. The
 description must be lowercase `a-z0-9` with single hyphens, which the rule above already gives you.
 
-**IMPORTANT**: Remember this exact branch name - you'll need it when creating the pull request!
+**IMPORTANT**: Remember this exact branch name. Step 9 passes it to create_pull_request and step 8
+records it in the cache, which is how a later run tells a real cleanup from a failed one.
 
 ### 8. Update Cache Memory
 
 Do this **last**, after the create_pull_request call in step 9 has been made — an entry written
 before it only suppresses the file for nothing if the run stops in between:
 ````bash
-echo "$(date -u +%s) $(date -u +%Y-%m-%dT%H:%M:%SZ) - Cleaned: <filename>" >> /tmp/gh-aw/cache-memory/cleaned-files.txt
+echo "$(date -u +%s) $(date -u +%Y-%m-%dT%H:%M:%SZ) <branch> - Cleaned: <path>" >> /tmp/gh-aw/cache-memory/cleaned-files.txt
 ````
 
-The epoch comes first because step 1 compares instants, not calendar days. Append, never rewrite the
-file: a later entry for the same file supersedes the earlier one, and step 1 reads the newest. That
-is what makes the 90-day cooldown work.
+Use the exact branch from step 7. All four fields are read by step 1's rules: the epoch for the
+cooldown, the branch to tell a real cleanup from a rejected one, the path to match the file, and the
+ISO stamp only so a human can read the file.
+
+Append, never rewrite: a later entry for the same file supersedes the earlier one, and step 1 reads
+the newest.
 
 ### 9. Create Pull Request
 
