@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import csv
 import gzip
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -198,3 +200,53 @@ class TestFileResolution:
             str(tmp_path / "msm_surface_20260818.csv.gz"),
         ]
         assert loader.load() == 2
+
+
+class TestEccodesIndependence:
+    """The load path must not reach the decoder, and so must not need eccodes.
+
+    Before the package split the loader lived in the same module as the ecCodes
+    decoder, so loading cached extracts needed eccodes installed. It no longer
+    does, and the retrieval doc and CLAUDE.md tell operators so — this keeps that
+    true. A fresh interpreter is used because the decoder is already imported by
+    the time this test runs.
+    """
+
+    #: Run in a subprocess with eccodes and its bindings made unimportable.
+    PROBE = """
+import importlib, importlib.abc, sys
+
+class Blocker(importlib.abc.MetaPathFinder):
+    def find_spec(self, name, path=None, target=None):
+        if name.split(".")[0] in {"eccodes", "gribapi", "eccodeslib"}:
+            raise ImportError(f"{name} blocked")
+        return None
+
+sys.meta_path.insert(0, Blocker())
+importlib.import_module("power_market_analytics.ingestion.msm.load")
+print("LOADED")
+"""
+
+    def test_loader_imports_without_eccodes(self):
+        result = subprocess.run(
+            [sys.executable, "-c", self.PROBE],
+            capture_output=True,
+            text=True,
+            cwd=REPO_ROOT,
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert "LOADED" in result.stdout
+
+    def test_decoder_still_needs_eccodes(self):
+        probe = self.PROBE.replace("msm.load", "msm.grib")
+
+        result = subprocess.run(
+            [sys.executable, "-c", probe],
+            capture_output=True,
+            text=True,
+            cwd=REPO_ROOT,
+        )
+
+        assert result.returncode != 0
+        assert "blocked" in result.stderr

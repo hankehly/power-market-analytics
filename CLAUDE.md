@@ -310,8 +310,8 @@
   files/day, deleted after a successful extract by default) →
   `data/jma/msm_surface_forecast/` (one `csv.gz` extract +
   manifest per delivery day) → `scripts/load_jma_msm_surface_forecast.py`
-  (`MsmForecastCsvLoader`, whose package imports the decoder, so it needs eccodes installed
-  too; contract
+  (`MsmForecastCsvLoader`, which imports `ingestion.loader` alone, so the load step needs
+  no eccodes; contract
   `conf/schemas/jma_msm_surface_forecast.yaml`) → `pma_raw.jma_msm_surface_forecast` →
   `stg/std_jma__msm_surface_forecast` (JST conversion, raw UTC kept as ISO strings) →
   `fct_jma_msm_weather_forecast_hourly` (grain station_id × forecast_reference_at ×
