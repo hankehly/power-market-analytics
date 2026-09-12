@@ -42,6 +42,24 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["power_market_analytics"]
 
+[tool.uv]
+# The platforms this project actually runs on, which the lock must install on:
+# macOS arm64 for host-side `just test` / `lint` / `mypy`, Linux x86_64 for the
+# CI runners, and Linux aarch64 for the devcontainer on Apple silicon. Without
+# this, uv resolves each package to its newest version regardless of wheels, so
+# a release that drops a platform is locked anyway and `uv sync` fails there.
+# That happened with eccodeslib 2.48.2.27 and eckitlib 2.2.0.27, whose `.27`
+# build ships Linux wheels only: a Dependabot group locked them and every `uv run`
+# on macOS failed before starting. The host genuinely needs the native library —
+# tests/msm_grib_support.py builds GRIB2 messages with it — so dropping it from
+# macOS is not an option. With these environments uv picks the newest version
+# with a wheel for all three, and moves forward on its own once one exists.
+required-environments = [
+    "sys_platform == 'darwin' and platform_machine == 'arm64'",
+    "sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "sys_platform == 'linux' and platform_machine == 'aarch64'",
+]
+
 [dependency-groups]
 dev = [
     "markdown-it-py>=4.2",
