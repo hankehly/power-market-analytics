@@ -82,6 +82,14 @@
   in any committed file; config in `.checkov.yaml`, version pinned in the justfile and
   `.github/workflows/ci.yml`). Exits 1 on any failed check; the `ci` workflow runs it as a
   second job on every push.
+- `just docs-links` — check that every relative Markdown link in the git-tracked `*.md` files
+  resolves (`scripts/check_docs_links.py`). A link is accepted under any of the three
+  conventions the docsify site uses — relative to the page, to the site root at `docs/`, or to
+  the repo root — and only the path is checked, never the `#anchor`. Targets carrying the
+  repo's placeholder markers (`<` for an inline `<slug>`, `XXX` for the `O-XXX` / `R-XXX`
+  research IDs) are skipped. Exits 1 naming each broken link; a `ci` job on every push, run on
+  the runner's python because the script is stdlib-only. Added because PR #74 renamed and
+  moved docs with nothing checking the links.
 - `just zizmor [zizmor args]` — audit `.github/workflows/` with zizmor (`--persona=regular`),
   version pinned in the justfile and `.github/workflows/ci.yml`. Exits non-zero on any finding;
   a `ci` job on every push. It guards the two things checkov's 8 GitHub Actions checks miss:
