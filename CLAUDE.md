@@ -882,11 +882,13 @@
 
 ## Code review (pull requests)
 
-- Every PR — docs-only ones included — is reviewed by **Codex** before it is merged. Codex is
-  the only reviewer since 2026-09-06, when the researcher dropped the Copilot step that used
-  to follow it: never request a Copilot review. Claude drives the loop and never merges on its
-  own initiative — the researcher merges, or explicitly asks Claude to (then through
-  `merge-async`, below). Open it with `gh pr create`
+- Every PR — docs-only ones included — is reviewed by a bot before it is merged. **Codex** is
+  the reviewer. **Copilot** is the fallback, for when Codex cannot review — in practice when it
+  has run out of credits. Request Copilot then, or when the researcher asks; it is not a second
+  opinion to collect on every PR (the 2026-09-06 rule that forbade it outright was relaxed on
+  2026-09-12, #77). Claude drives the loop and never merges on its own initiative — the
+  researcher merges, or explicitly asks Claude to (then through `merge-async`, below). Open it
+  with `gh pr create`
   (title `type(scope): description`; body sections *Why* / *What* / *Proof* with the measured
   numbers), then `gh pr edit <n> --add-assignee hankehly --add-label <labels>`. A PR gets one
   type label plus the areas it touches. The type follows the title's type: `fix` → `bug`,
@@ -937,9 +939,27 @@
   loop before the other posts findings. Never conclude "no findings" from silence. A bot
   *issue comment* reading "You have reached your Codex usage limits for code reviews" is the
   third, terminal outcome of a run: no review is coming for that SHA. Stop the poll and tell the
-  researcher — waiting for the reset, adding credits (the Codex usage dashboard) or merging
-  the PR unreviewed is their call, not Claude's. Once credits are back, that SHA's
-  automatic run is spent, so post the manual trigger and wait as above (#24, 2026-08-30).
+  researcher — waiting for the reset, adding credits (the Codex usage dashboard), falling back
+  to Copilot (below) or merging the PR unreviewed is their call, not Claude's. Once credits are
+  back, that SHA's automatic run is spent, so post the manual trigger and wait as above
+  (#24, 2026-08-30).
+- **Copilot** (`copilot-pull-request-reviewer[bot]`) is the fallback reviewer. Request it with
+  `gh api --method POST repos/hankehly/power-market-analytics/pulls/<n>/requested_reviewers
+  -f 'reviewers[]=copilot-pull-request-reviewer[bot]'`, then poll `pulls/<n>/reviews` for a
+  review by that login submitted after the request. It answers in about 5 min, and it reviews
+  only when asked — so request it again after every push. **An empty `requested_reviewers` is
+  not a failure**: Copilot removes itself from the list as soon as it starts, so the list never
+  tells you whether the request took, and neither does the 200. Poll for the review itself.
+  Three things differ from Codex. Its inline comments are authored by `Copilot`, not by the bot
+  login, so a poll filtered on the bot login finds none while the review says "Comments
+  generated: 3". Its review body can carry **suppressed comments** — real findings with no
+  thread to reply in, which are answered in a plain PR comment. And a review whose whole body is
+  "Copilot encountered an error and was unable to review this pull request" counts as nothing:
+  request again (#47). Replies and `resolveReviewThread` work on its threads exactly as on
+  Codex's.
+- The two miss different things, so the fallback beats merging unreviewed. On #77 nine Codex
+  rounds all reasoned about the workflow prompt; Copilot then found four defects in the gap
+  between what that prompt promised and what the compiled tool's *defaults* enforced.
 - **Address every finding**: fix it in a commit, or reply with the reason it is not being
   changed — check a finding's premise against the *installed* versions before coding for it
   (`strings` on the Spark jar, a local-session probe, a measurement: #24's `skipRows` finding
@@ -954,15 +974,17 @@
   `gh api graphql` mutation `resolveReviewThread(input: {threadId: "…"})`, thread ids from the
   PR's `reviewThreads(first: 100) { nodes { id isResolved comments(first: 1) { nodes {
   databaseId } } } pageInfo { hasNextPage endCursor } }` query (page with `after:` beyond
-  100 — GraphQL connections need a bound). Push if anything changed and wait for the automatic re-review as above; a round whose
+  100 — GraphQL connections need a bound). Push if anything changed, then start the next round:
+  with Codex wait for the automatic re-review as above, with Copilot **request one** — it never
+  re-reviews by itself, so waiting for it would stall for ever. A round whose
   findings were all rebutted has nothing to push and is terminal once every thread is resolved
-  (the reviewed SHA is unchanged). Repeat until a round ends with 👍 or with only rebutted,
-  resolved findings.
-- Then report the PR as ready — CI green, Codex clean, Proof filled in — and stop; the
+  (the reviewed SHA is unchanged). Repeat until a round ends clean: Codex signals that with 👍,
+  Copilot with an `APPROVED` review. A round with only rebutted, resolved findings is clean too.
+- Then report the PR as ready — CI green, the reviewer clean, Proof filled in — and stop; the
   researcher merges unless they have explicitly asked Claude to. The repository's required
   checks must pass on the PR's *current* head, so a branch that has fallen behind `main` is
   brought up to date first — merge `main` into it (never rebase a reviewed branch), push, and
-  take that new head through the whole loop again (Codex, CI green) before
+  take that new head through the whole loop again (the reviewer, CI green) before
   declaring it ready: every push is a new SHA to review. Stacked PRs are
   merged bottom-up through `PUT …/pulls/<n>/merge-async` (GitHub refuses the plain merge for a
   stack); deleting each merged branch retargets the next PR to `main`.
