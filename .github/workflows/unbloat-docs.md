@@ -126,16 +126,31 @@ find /tmp/gh-aw/cache-memory/ -maxdepth 1 -ls
 cat /tmp/gh-aw/cache-memory/cleaned-files.txt 2>/dev/null || echo "No previous cleanups found"
 ````
 
-Each line is `YYYY-MM-DD - Cleaned: <filename>`.
+Each line is `<epoch-seconds> <ISO-8601 UTC> - Cleaned: <filename>`. The first field is what the
+comparisons below use; the second is there to be readable.
 
 **A cache entry is a cooldown, not a permanent exclusion.** This workflow runs daily, so a cache
-that only ever grows would eventually exclude every file and leave the run nothing to do. A file
-that appears in the cache becomes eligible again when either of these is true:
+that only ever grows would eventually exclude every file and leave the run nothing to do. Take
+`ENTRY` as the epoch from the file's newest cache line; the file is eligible again when either:
 
-- its newest entry is more than **90 days** old, or
-- it has changed since that entry: `git log -1 --format=%cs -- <filename>` is a later date
+````bash
+# it changed after it was cleaned - compare instants, never calendar days, or a file edited
+# later on the same day looks unchanged
+[[ "$(git log -1 --format=%ct -- <filename>)" -gt "$ENTRY" ]]
+# or the 90-day cooldown has passed
+[[ "$(( $(date -u +%s) - ENTRY ))" -gt 7776000 ]]
+````
 
-Check both before you rule a cached file out.
+Both sides are plain integers, so there is no date-format or time-zone trap. Check both before you
+rule a cached file out.
+
+**And confirm the entry is real.** The cache is saved whenever the agent finishes, which is not the
+same as a pull request having been opened — a safe-output rejection (the branch already existed, a
+protected-file policy applied, the API failed) leaves an entry behind with no PR to show for it. So
+before honouring an entry, use the GitHub tools to look for a pull request in any state whose head
+branch is the name step 7 derives from that file's path. **No such PR means the entry is stale:
+ignore it and treat the file as eligible.** This works because the branch name is a deterministic
+function of the path.
 
 ### 2. Find Documentation Files
 
@@ -258,35 +273,45 @@ Make targeted edits to improve clarity:
 
 ### 7. Create a Branch for Your Changes
 
-Before making changes, create a new branch with a descriptive name:
+Before making changes, create a branch named from the file's **whole path**, not its basename:
 ````bash
-git checkout -b chore/unbloat-<filename-without-extension>
+git checkout -b chore/unbloat-<path-without-extension>
 ````
 
-For example, if you're cleaning `validation-timing.md`, create branch `chore/unbloat-validation-timing`.
+Build the description from the path by lowercasing it, replacing every character that is not `a-z`
+or `0-9` with a hyphen, and collapsing runs of hyphens:
 
-The `chore/` prefix is required, not stylistic: this repository allows only `feature/`, `fix/`,
+- `docs/research/demand/README.md` → `chore/unbloat-docs-research-demand-readme`
+- `docs/JMA-MSM-GPV-Retrieval.md` → `chore/unbloat-docs-jma-msm-gpv-retrieval`
+
+The path is required because basenames are not unique — this repository has seven `README.md` files,
+so a basename branch would collide and a second cleanup could not open its PR while the first is
+still open.
+
+The `chore/` prefix is required too, not stylistic: this repository allows only `feature/`, `fix/`,
 `hotfix/`, `release/` and `chore/`, and `chore/` is the one for documentation and config work. The
-description must be lowercase `a-z0-9` with single hyphens.
+description must be lowercase `a-z0-9` with single hyphens, which the rule above already gives you.
 
 **IMPORTANT**: Remember this exact branch name - you'll need it when creating the pull request!
 
 ### 8. Update Cache Memory
 
-After improving the file, update the cache memory to track the cleanup:
+Do this **last**, after the create_pull_request call in step 9 has been made — an entry written
+before it only suppresses the file for nothing if the run stops in between:
 ````bash
-echo "$(date -u +%Y-%m-%d) - Cleaned: <filename>" >> /tmp/gh-aw/cache-memory/cleaned-files.txt
+echo "$(date -u +%s) $(date -u +%Y-%m-%dT%H:%M:%SZ) - Cleaned: <filename>" >> /tmp/gh-aw/cache-memory/cleaned-files.txt
 ````
 
-Append, never rewrite the file: a later entry for the same file supersedes the earlier one, and
-step 1 reads the newest. That is what makes the 90-day cooldown work.
+The epoch comes first because step 1 compares instants, not calendar days. Append, never rewrite the
+file: a later entry for the same file supersedes the earlier one, and step 1 reads the newest. That
+is what makes the 90-day cooldown work.
 
 ### 9. Create Pull Request
 
 After improving ONE file:
 1. Verify your changes preserve all essential information
-2. Update cache memory with the cleaned file
-3. Create a pull request with your improvements
+2. Create a pull request with your improvements, then write the cache entry from step 8 - in that
+   order, so a run that never reaches the PR call leaves no cooldown behind
    - **IMPORTANT**: Pass the exact branch name you created in step 7 as the `branch` parameter of
      create_pull_request. It is a required field - a call without it is rejected. Never pass "main"
    - **Title**: `docs(<scope>): <description>` - this repository requires Conventional Commits form
@@ -295,7 +320,7 @@ After improving ONE file:
      `tepco` / `occto`, `justfile`, `docs`); use plain `docs: <description>` when no scope fits.
      The description is lowercase, imperative and has no trailing period. Nothing is prefixed to
      what you write, so the title you pass is the title that appears
-4. Include in the PR description:
+3. Include in the PR description:
    - Which file you improved
    - What types of bloat you removed
    - Estimated word count or line reduction
