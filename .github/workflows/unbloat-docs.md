@@ -94,6 +94,14 @@ safe-outputs:
     # unprotected source or config file. This workflow only ever edits prose.
     allowed-files:
       - "**/*.md"
+    # ...and never this one. `docs/Kimball-Dimensional-Modeling-Techniques.md` is the Kimball Group's
+    # reference of 81 technique definitions; CLAUDE.md makes it the authority for every
+    # dimensional-modeling decision in this repository and design plans cite its sections by title.
+    # Condensing it would change the guidance, not tighten the prose. The prompt tells the agent not
+    # to pick it; this strips it from the patch (`git format-patch :(exclude)`) if one ever does, so
+    # a wrong pick becomes an empty patch and no pull request instead of a PR against the reference.
+    excluded-files:
+      - "docs/Kimball-Dimensional-Modeling-Techniques.md"
     # The handler appends a random salt suffix to the agent's branch name unless this is set,
     # which would make the PR's head branch differ from the name the prompt records in the
     # cache - and the cache's staleness rule looks a branch up to decide whether an entry is
@@ -235,6 +243,12 @@ Scan the repository for markdown documentation files. Common locations include:
 - **Everything under `docs/superpowers/`** - design specs and implementation plans are written once
   and then left alone (see `docs/superpowers/README.md`). That folder is a design-history archive,
   not documentation that is kept current
+- **`docs/Kimball-Dimensional-Modeling-Techniques.md`** - the Kimball Group's reference of 81 short
+  technique definitions, and the authority CLAUDE.md points at for every dimensional-modeling
+  decision here; design plans cite its sections by title. Repeated one-paragraph definitions are
+  what a reference of this kind *is*, so it scores high on the bloat criteria while being exactly
+  right, and condensing it would change the guidance. `excluded-files` strips it from the patch, so
+  picking it wastes the run
 - **Files with `disable-agentic-editing: true` in frontmatter** - These files are protected from automated editing
 
 Look for documentation files that were recently modified or are likely to benefit from cleanup.
@@ -256,6 +270,7 @@ Look for documentation files that were recently modified or are likely to benefi
 - **Anything under `.github/`** - workflow configuration, excluded above
 - **`CLAUDE.md` and `AGENTS.md`** - the agent instruction files, excluded above
 - **Anything under `docs/superpowers/`** - the design-history archive, excluded above
+- **`docs/Kimball-Dimensional-Modeling-Techniques.md`** - the dimensional-modeling reference, excluded above
 - **Files with `disable-agentic-editing: true` in frontmatter** - These files are explicitly protected from automated editing
 
 Before selecting a file, check its frontmatter for `disable-agentic-editing: true`. The rule is:
