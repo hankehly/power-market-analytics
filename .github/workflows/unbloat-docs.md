@@ -85,6 +85,27 @@ safe-outputs:
     labels: [documentation]
     draft: true
     protected-files: fallback-to-issue
+    # The prompt tells the agent to clean exactly one file; without this the handler would
+    # accept a patch touching up to 100 (the default), so the reviewability promise was only
+    # an instruction. Now it is enforced.
+    max-patch-files: 1
+    # The handler appends a random salt suffix to the agent's branch name unless this is set,
+    # which would make the PR's head branch differ from the name the prompt records in the
+    # cache - and the cache's staleness rule looks a branch up to decide whether an entry is
+    # real. Every entry would read as stale and the cooldown would never apply. The branch
+    # already carries the run id, so it is unique without the salt.
+    preserve-branch-name: true
+    # A `base` other than the default is rejected unless it matches this list. The prompt
+    # passes the triggering pull request's head branch as `base` on the /unbloat path, so
+    # without this the run would edit the file and then fail to open its pull request. The
+    # patterns are the branch prefixes this repository allows.
+    allowed-base-branches:
+      - main
+      - "feature/*"
+      - "fix/*"
+      - "hotfix/*"
+      - "chore/*"
+      - "release/*"
   add-comment:
     max: 1
   messages:
