@@ -801,11 +801,11 @@
   `merge-async`, below). Open it with `gh pr create`
   (title `type(scope): description`; body sections *Why* / *What* / *Proof* with the measured
   numbers), then `gh pr edit <n> --add-assignee hankehly --add-label <labels>`. A PR gets one
-  type label plus the areas it touches. The type follows the branch type: `fix/` and
-  `hotfix/` → `bug`, `feature/` → `enhancement`, `chore/` → `chore`, `release/` → no label.
-  `documentation` is the type of a PR that changes nothing but docs; never add it beside
-  another type label — under the old rule it landed on 45 of the first 46 labeled PRs and so
-  filtered nothing. Areas, as many as apply: `ingestion` (a source's download, load,
+  type label plus the areas it touches. The type follows the title's type: `fix` → `bug`,
+  `feat` → `enhancement`, `docs` → `documentation`, `chore` / `ci` / `build` / `test` /
+  `refactor` → `chore`, `release` → no label. So a `chore/` branch whose PR only edits docs
+  is `documentation`, not `chore`. Never put `documentation` beside another type label —
+  under the old rule it landed on 45 of the first 46 labeled PRs and so filtered nothing. Areas, as many as apply: `ingestion` (a source's download, load,
   raw/staging/standardized models and its retrieval doc), `forecasting` (the tasks, the
   forecasting framework, the feature marts and Feast, the `pma_ml` models), `dashboard` (the
   Superset dashboards). Add `research` when the PR runs an experiment or writes up an
