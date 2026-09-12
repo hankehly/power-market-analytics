@@ -14,9 +14,11 @@ from tests.conftest import (
     DEMAND_HOLE_TIME_CODES,
     FORECAST_MISSING_DAY,
     HOLIDAYS_2024_SPRING,
+    RECENT_LOAD_COLUMNS,
     SECOND_STATION_FORECAST_OFFSET_C,
     popw_forecast,
     similar_day_load,
+    synthetic_day_type,
     synthetic_demand,
     synthetic_forecast_temperature,
     wavg_temperature,
@@ -49,6 +51,7 @@ class TestRegistry:
             "lightgbm_msm_popw_daytype_simday_calendarcounts",
             "lightgbm_msm_popw_daytype_simday_holidaydegree",
             "lightgbm_msm_popw_daytype_simday_holidaydistance",
+            "lightgbm_msm_popw_daytype_simday_lags",
         )
         assert STRATEGIES == tuple(PRESETS)
 
@@ -235,6 +238,49 @@ class TestBuildSimilarDayPresets:
             assert row["holiday_degree"] == 0.0
         if "day_of_month" in calendar_cols:
             assert row["day_of_month"] == 5.0
+
+    def test_lags_preset_appends_the_thirteen_recent_load_columns(self, feature_marts):
+        days = pd.date_range("2024-04-01", "2024-04-25", freq="D")
+        strategy = build_strategy(
+            "lightgbm_msm_popw_daytype_simday_lags", area_code="tokyo", days=days
+        )
+        assert type(strategy) is PresetLightGbmStrategy
+        assert strategy.feature_cols == (*SIMDAY_FEATURE_COLS, *RECENT_LOAD_COLUMNS)
+        assert strategy.categorical_feature_cols == ("day_type",)
+        frame = frame_by_period(strategy)
+        day, tc = pd.Timestamp("2024-04-05"), 10
+        row = frame.loc[(day, tc)]
+        lag = {k: synthetic_demand(day - pd.Timedelta(days=k), tc) for k in (2, 7, 9, 14, 21, 28)}
+        assert row["lag_2d_demand_kwh"] == lag[2]
+        assert row["lag_28d_demand_kwh"] == lag[28]
+        assert row["mean_weekly_lags_demand_kwh"] == (lag[7] + lag[14] + lag[21] + lag[28]) / 4
+        assert row["ewm_weekly_lags_demand_kwh"] == (
+            (8 * lag[7] + 4 * lag[14] + 2 * lag[21] + lag[28]) / 15
+        )
+        assert row["change_2d_9d_demand_kwh"] == lag[2] - lag[9]
+        # A Friday: the four weekdays at or before D-2 are 04-03, 04-02, 04-01 and 03-29.
+        window = [
+            synthetic_demand(pd.Timestamp(d), tc)
+            for d in ("2024-04-03", "2024-04-02", "2024-04-01", "2024-03-29")
+        ]
+        assert all(synthetic_day_type(pd.Timestamp(d)) == 0 for d in ("2024-04-05", "2024-03-29"))
+        assert row["mean_daytype_4d_demand_kwh"] == sum(window) / 4
+        assert row["ewm_daytype_4d_demand_kwh"] == (
+            (8 * window[0] + 4 * window[1] + 2 * window[2] + window[3]) / 15
+        )
+        d2 = [synthetic_demand(day - pd.Timedelta(days=2), p) for p in range(1, 49)]
+        assert row["lag_2d_mean_demand_kwh"] == sum(d2) / 48
+        assert row["lag_2d_max_demand_kwh"] == max(d2)
+        assert row["lag_2d_range_demand_kwh"] == max(d2) - min(d2)
+        # The hole day (periods 11-48 null) two days before 04-22: a null D-2 lag
+        # at period 11, no D-2 summaries at all, the D-7 lag untouched.
+        after_hole = DEMAND_HOLE_DAY + pd.Timedelta(days=2)
+        assert np.isnan(frame.loc[(after_hole, 11), "lag_2d_demand_kwh"])
+        assert frame.loc[(after_hole, 1), "lag_2d_demand_kwh"] == synthetic_demand(
+            DEMAND_HOLE_DAY, 1
+        )
+        assert frame.loc[after_hole, "lag_2d_mean_demand_kwh"].isna().all()
+        assert frame.loc[after_hole, "lag_7d_demand_kwh"].notna().all()
 
     def test_add_drop_and_label_change_the_preset_under_the_similar_day(self, feature_marts):
         strategy = build_strategy(

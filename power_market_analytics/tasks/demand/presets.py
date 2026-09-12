@@ -3,7 +3,7 @@
 Each preset lists its features in the order the strategy class it replaces
 used, so the models and their SHAP components read the same. The similar
 day is a mart column (``ftr_period_similar_day``, scored from the weights
-``scripts/fit_similar_day.py`` publishes), so the five similar-day presets
+``scripts/fit_similar_day.py`` publishes), so the six similar-day presets
 are plain feature lists like the others.
 """
 
@@ -51,6 +51,26 @@ CALENDAR_COUNT_FEATURES: tuple[str, ...] = tuple(
         "day_of_year",
         "fiscal_quarter",
     )
+)
+#: The thirteen recent-load features of research demand/R-006, in the
+#: researcher's bracket order: recent demand, the added weekly lags, the
+#: typical weekly profile, the recent weekly change, the recent
+#: matching-day-type load and D-2's summaries. The D-9 lag stays out: the
+#: mart carries it for the change.
+RECENT_LOAD_FEATURES: tuple[str, ...] = (
+    "ftr_period_actuals:lag_2d_demand_kwh",
+    "ftr_period_actuals:lag_3d_demand_kwh",
+    "ftr_period_actuals:lag_14d_demand_kwh",
+    "ftr_period_actuals:lag_21d_demand_kwh",
+    "ftr_period_actuals:lag_28d_demand_kwh",
+    "ftr_period_actuals:mean_weekly_lags_demand_kwh",
+    "ftr_period_actuals:ewm_weekly_lags_demand_kwh",
+    "ftr_period_actuals:change_2d_9d_demand_kwh",
+    "ftr_period_actuals:mean_daytype_4d_demand_kwh",
+    "ftr_period_actuals:ewm_daytype_4d_demand_kwh",
+    "ftr_day_actuals:lag_2d_mean_demand_kwh",
+    "ftr_day_actuals:lag_2d_max_demand_kwh",
+    "ftr_day_actuals:lag_2d_range_demand_kwh",
 )
 
 #: Calendar, the recency-weighted same-hour temperature over D-8..D-2 at the
@@ -101,6 +121,10 @@ LIGHTGBM_MSM_POPW_DAYTYPE_SIMDAY_HOLIDAYDEGREE = LIGHTGBM_MSM_POPW_DAYTYPE_SIMDA
 LIGHTGBM_MSM_POPW_DAYTYPE_SIMDAY_HOLIDAYDISTANCE = LIGHTGBM_MSM_POPW_DAYTYPE_SIMDAY.with_changes(
     name="lightgbm_msm_popw_daytype_simday_holidaydistance", add=HOLIDAY_DISTANCE_FEATURES
 )
+#: Plus the thirteen recent-load features (demand/R-006 E-001).
+LIGHTGBM_MSM_POPW_DAYTYPE_SIMDAY_LAGS = LIGHTGBM_MSM_POPW_DAYTYPE_SIMDAY.with_changes(
+    name="lightgbm_msm_popw_daytype_simday_lags", add=RECENT_LOAD_FEATURES
+)
 
 #: Every preset by name: the registry keys of the demand backtest script.
 PRESETS: dict[str, Preset] = {
@@ -115,5 +139,6 @@ PRESETS: dict[str, Preset] = {
         LIGHTGBM_MSM_POPW_DAYTYPE_SIMDAY_CALENDARCOUNTS,
         LIGHTGBM_MSM_POPW_DAYTYPE_SIMDAY_HOLIDAYDEGREE,
         LIGHTGBM_MSM_POPW_DAYTYPE_SIMDAY_HOLIDAYDISTANCE,
+        LIGHTGBM_MSM_POPW_DAYTYPE_SIMDAY_LAGS,
     )
 }
