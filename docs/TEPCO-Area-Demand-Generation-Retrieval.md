@@ -104,10 +104,9 @@ reason the loader checks the header text of every file it reads.
 The download/extract and the positional load are the shared
 `AreaActualsDownloader` / `AreaActualsCsvLoader` in
 `power_market_analytics/ingestion/tso/area_actuals.py`, driven by a per-TSO
-`AreaActualsSource` spec. `power_market_analytics/ingestion/tso/tepco/area_demand_generation.py`,
-re-exported by the `tepco` package, supplies the `TEPCO` spec: the URL
-template, 2022-04, the `AREA_JISEKI_*` member regex and the one accepted
-column-header line. It also supplies thin `TepcoAreaDownloader` and
+`AreaActualsSource` spec. `power_market_analytics/ingestion/tso/tepco/area_demand_generation.py`
+supplies the `TEPCO` spec: the URL template, 2022-04, the `AREA_JISEKI_*` member
+regex and the one accepted column-header line. It also supplies thin `TepcoAreaDownloader` and
 `TepcoAreaCsvLoader` subclasses. The Kansai feed reuses the
 same classes ([Kansai doc](Kansai-Area-Demand-Generation-Retrieval.md)).
 
