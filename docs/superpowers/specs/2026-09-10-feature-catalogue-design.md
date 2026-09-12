@@ -227,14 +227,26 @@ that serves its forecasts, is then to be settled.
 
 ## 8. Superset
 
-- `fct_feature_value` in `pma_curated`: grain area_code × trade_date × time_code × feature
-  × available_at, columns `feature_value` (double) and `is_categorical`. A macro lists the
-  tagged columns from the dbt graph and unpivots every mart with Spark `stack()`, broadcasting
-  day and hour marts to periods. About 5 M rows for today's features over two areas; tens of
-  millions at hundreds of features, fine as Parquet.
-- Two virtual datasets: `<task>_feature_values`, the as-of rows at the task's issue time
-  (one row per period × feature), and `feature_values_all`, every vintage. Registered by
-  `create_forecast_dashboard.py`. No new dashboard tab in this spec.
+- `fct_feature_value` in `pma_curated`: grain area_code × trade_date × time_code ×
+  feature_ref × available_at, with `feature_view` (the mart, also the Feast view),
+  `feature_name`, `feature_ref` = `view:column` (the name presets use), `feature_value`
+  (double; a boolean 1 or 0, null where the mart's value is), `is_categorical` and
+  `published_at` (null for a mart without one). Built 2026-09-12 (PR 3): the model SQL is
+  generated from the manifest by `scripts/generate_feature_views.py` beside the Feast views,
+  not by a macro — a model walking `graph` at parse time has no `ref` edges, so it could
+  build before its marts. Every mart's tagged columns go through Spark `stack()`; day marts
+  are broadcast to the 48 periods and hour marts to their two through `dim_delivery_period`;
+  a mart with `published_at` keeps the newest published row per key and `available_at`, the
+  row Feast serves. A singular test reads the model's SQL from the graph and fails the build
+  when a tagged column is missing from it. The Kimball guidance accepts this measure-type
+  shape when the facts run to hundreds and a query reads a handful, the catalogue's goal.
+  Built 2026-09-12 in 82 s with its tests: 34.1 M rows, 24 features, the nine areas; the
+  calendar mart alone is 24.6 M rows (every area and every dim_date day, 2016 to 2027), the
+  rest 9.5 M. Fine as Parquet.
+- Three virtual datasets, registered by `create_forecast_dashboard.py` after the dashboards:
+  `<task>_feature_values` per task, the newest vintage of every period and feature public by
+  the task's issue time (ties on `available_at` to the newest published) with `issue_time`,
+  and `feature_values_all`, every vintage. No dashboard reads them; no new tab in this spec.
 
 ## 9. Spike: go or no-go for Feast
 
@@ -277,7 +289,7 @@ in a different order when rows arrive in a different order.
 | 0 | `feature/spot-price-issue-time-0930` | issue time 09:30 for both tasks | tests, lint, parse; PR #59 | none |
 | 1 | `feature/available-at-standardized` | this spec; `available_at` in the nine standardized models and the two forecast ones; the seven facts carry it through; the lags in §3 confirmed and documented | `dbt build` green; per source, the smallest and largest lag from event time to `available_at`; done 2026-09-10 | 0 |
 | 2 | `feature/feature-marts` | `models/features/` for today's features except similar day; column tags; the `available_at` macro and generic test; dbt unit tests | every mart column equals today's Python builder's output for Tokyo over one year; done 2026-09-10 | 1 |
-| 3 | `feature/feature-value-fact` | `fct_feature_value` and the two Superset datasets | `dbt build` green; one chart in Superset | 2 |
+| 3 | `feature/feature-value-fact` | `fct_feature_value` and the Superset datasets | `dbt build` green; one chart in Superset; done 2026-09-12 | 2 |
 | 4 | `feature/feast-retrieval` | the spike (§9), then the Feast repo, generated views, staleness test and dependency; the façade instead if the spike fails | the spike's pass criteria; done 2026-09-10 | 2 |
 | 5 | `feature/spot-price-presets` | presets, `FeatureFrame`, `build_strategy` through Feast, one spot strategy, `--add`, `--drop`, `--name`; delete `LightGbmOcctoStrategy` | the spot `lightgbm_occto` run reproduced; done 2026-09-11 | 4 |
 | 6 | `feature/demand-presets` | the demand presets without similar day, one demand strategy; delete their classes | the kept R-003 Tokyo run reproduced; done 2026-09-11 | 5 |
