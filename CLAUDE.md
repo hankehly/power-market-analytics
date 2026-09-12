@@ -83,7 +83,9 @@
   `.github/workflows/ci.yml`). Exits 1 on any failed check; the `ci` workflow runs it as a
   second job on every push.
 - `just docs-links` — check that every relative Markdown link in the git-tracked `*.md` files
-  resolves (`scripts/check_docs_links.py`). A link is accepted under any of the three
+  resolves (`scripts/check_docs_links.py`), `.github/` excluded: the markdown there is agentic
+  workflow source, whose YAML frontmatter carries message templates like
+  `[{workflow_name}]({run_url})` that are strings, not links. A link is accepted under any of the three
   conventions the docsify site uses — relative to the page, to the site root at `docs/`, or to
   the repo root — and only the path is checked, never the `#anchor`. Targets carrying the
   repo's placeholder markers (`<` for an inline `<slug>`, `XXX` for the `O-XXX` / `R-XXX`

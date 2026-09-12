@@ -110,6 +110,10 @@ class TestIsCheckable:
     def test_it_skips_placeholder_targets(self, target):
         assert check_docs_links.is_checkable(target) is False
 
+    def test_it_skips_a_percent_encoded_placeholder(self):
+        # The parser encodes < and >, so the marker has to be matched decoded.
+        assert check_docs_links.is_checkable("assets/O-001-%3Cslug%3E.png") is False
+
     def test_it_checks_a_plain_relative_path(self):
         assert check_docs_links.is_checkable("research/demand/observations.md") is True
 
@@ -184,6 +188,14 @@ class TestTrackedMarkdownFiles:
         write(tmp_path, "docs/untracked.md")
         found = {p.name for p in check_docs_links.tracked_markdown_files(tmp_path)}
         assert found == {"a.md"}
+
+    def test_it_skips_workflow_source_under_dot_github(self, tmp_path):
+        write(tmp_path, "docs/a.md")
+        write(tmp_path, "README.md")
+        write(tmp_path, ".github/workflows/agent.md", "[x]({run_url})")
+        git_repo(tmp_path)
+        found = {p.name for p in check_docs_links.tracked_markdown_files(tmp_path)}
+        assert found == {"a.md", "README.md"}
 
 
 class TestBrokenLinks:
