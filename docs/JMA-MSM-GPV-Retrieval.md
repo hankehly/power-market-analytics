@@ -13,9 +13,13 @@ warehouse schemas, and how to run the pipeline
 ([§8](#8-operations)). It mirrors the depth of
 [docs/OCCTO-Demand-Forecast-Retrieval.md](OCCTO-Demand-Forecast-Retrieval.md).
 
-Source of truth for the constants and logic described here: `power_market_analytics/msm.py`
-— one module: vintage arithmetic, grid geometry, nearest-neighbour selection, unit
-conversions, the ecCodes GRIB2 decoder, the downloader and the raw loader. Load contract:
+Source of truth for the constants and logic described here:
+`power_market_analytics/ingestion/msm/` — `vintage` (run arithmetic and the archive's
+file layout), `grid` (geometry and nearest-neighbour selection), `elements` (the GRIB2
+parameters, their unit conversions and the extract's columns), `grib` (the ecCodes
+decoder), `stations`, `download` and `load`. Names below are written relative to that
+package: `msm.vintage.reference_at_for` is
+`power_market_analytics.ingestion.msm.vintage.reference_at_for`. Load contract:
 `conf/schemas/jma_msm_surface_forecast.yaml`. Every GRIB2 element/grid fact in
 [§5](#5-grib2-decoding) was verified empirically against a real archive member during the
 pipeline's one-day end-to-end run ([§9](#9-verification-results-one-day-end-to-end-2026-08-21));
@@ -46,7 +50,7 @@ if RISH or JMA changes the product, re-verify against a live file before trustin
 
   This pipeline only reads leads 28–51 ([§4](#4-file-set-and-forecast-lead-table)), so the
   2019-03 FH51 extension is the binding constraint:
-  `power_market_analytics.msm.EARLIEST_DELIVERY_DATE` is **2019-04-01**, one month after the
+  `msm.vintage.EARLIEST_DELIVERY_DATE` is **2019-04-01**, one month after the
   change, so every ingested delivery day's 12 UTC D−2 run is guaranteed to carry FH51.
   Historical backfills default to `DEFAULT_BACKFILL_START` **2022-04-01** instead, matching
   the other refresh tasks' backfill start (TEPCO/Kansai actuals, etc.). The warehouse has held **2019-04-01 →** since the 2026-09-05 backfill
@@ -84,7 +88,7 @@ under the data dir whatever the download window.
 ## 2. The RISH archive
 
 - **URL pattern**: `https://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/`
-  (`power_market_analytics.msm.BASE_URL`), one subdirectory per **reference run's date**
+  (`msm.vintage.BASE_URL`), one subdirectory per **reference run's date**
   (`YYYY/MM/DD`, always the 12 UTC run's calendar date — UTC and JST agree on the date for
   a 12:00 UTC timestamp) and one file per forecast-hour band within it, e.g.
   `.../2026/08/17/Z__C_RJTD_20260817120000_MSM_GPV_Rjp_Lsurf_FH16-33_grib2.bin` for the
@@ -108,13 +112,13 @@ under the data dir whatever the download window.
 - **RISH mtimes are not authoritative.** File modification times on the archive
   do not reliably reflect JMA's publication schedule, and this pipeline never
   uses them for freshness or resume decisions. Only the reference run's issue
-  time (`power_market_analytics.msm.reference_at_for`), computed purely from
+  time (`msm.vintage.reference_at_for`), computed purely from
   the delivery date, drives which files are fetched.
 
 ## 3. Vintage policy
 
 This pipeline ingests **a single vintage per delivery day D**: the **12 UTC run of D−2**
-(21:00 JST D−2). `power_market_analytics.msm.reference_at_for(D)` returns that instant;
+(21:00 JST D−2). `msm.vintage.reference_at_for(D)` returns that instant;
 `issue_cutoff_for(D)` returns the constraint it must satisfy — **09:30 JST D−1**, the same
 instant the demand-forecast model issues its own forecast for D
 (`docs/../CLAUDE.md`'s demand task: 09:30 JST D−1). Using a later run as a feature would let
@@ -146,7 +150,7 @@ evaluated has already been published and is safe to fetch.
 ## 4. File set and forecast-lead table
 
 Every delivery day reads exactly **three** GRIB2 archive members from the
-12 UTC D−2 run directory (`power_market_analytics.msm.source_files_for`), each
+12 UTC D−2 run directory (`msm.vintage.source_files_for`), each
 covering a band of forecast hours. Only a subset of each file's leads is used;
 the rest is decoded and discarded rather than fetched separately. RISH bands
 files this way, and splitting a band mid-file is not possible over HTTP range
@@ -174,7 +178,7 @@ FH34-39 26,238,929 bytes, FH40-51 52,477,745 bytes — **~157 MB total per deliv
 
 ## 5. GRIB2 decoding
 
-`power_market_analytics.msm.extract_station_records` walks a downloaded archive
+`msm.grib.extract_station_records` walks a downloaded archive
 member's GRIB2 messages with ecCodes, identifies each one **by metadata, never by position
 in the file**, samples the grid at the point nearest every station, and returns one record
 per station and forecast hour. The decoder is deliberately strict — see the module
@@ -202,7 +206,7 @@ records than expected and then failed the completeness check.
 
 Every message is identified by its `(discipline, parameterCategory, parameterNumber)`
 triple, looked up against a fixed table
-(`power_market_analytics.msm.MSM_SURFACE_ELEMENTS`); an unconfigured triple is skipped, not
+(`msm.elements.MSM_SURFACE_ELEMENTS`); an unconfigured triple is skipped, not
 an error (the file may carry parameters this pipeline does not use). A configured element's
 `typeOfFirstFixedSurface` is then asserted against the table's expected surface type — a
 mismatch raises (`MsmExtractError`), signalling a format change rather than being silently
@@ -287,7 +291,7 @@ in a completed record — a whole missing message is a hard failure ([§5.2](#52
 
 ### 5.4 Nearest-neighbour grid selection
 
-`power_market_analytics.msm.select_grid_point` maps a station's (latitude, longitude) to the
+`msm.grid.select_grid_point` maps a station's (latitude, longitude) to the
 nearest grid index on each axis independently, then converts to the flat row-major index the
 GRIB values array uses:
 
@@ -316,7 +320,7 @@ day (`data/jma/msm_surface_forecast/csv/msm_surface_YYYYMMDD.csv.gz` /
 
 ### 6.1 CSV columns
 
-Header is the fixed `power_market_analytics.msm.RAW_CSV_COLUMNS` tuple, 24 columns, one row
+Header is the fixed `msm.elements.RAW_CSV_COLUMNS` tuple, 24 columns, one row
 per station × used forecast lead:
 
 | # | Column | Nullable | Notes |
@@ -364,7 +368,7 @@ write order matters.
 
 ## 7. Warehouse models
 
-`MsmForecastCsvLoader` (`power_market_analytics/msm.py`, a `CsvLoader` subclass) performs a
+`MsmForecastCsvLoader` (`msm.load`, a `CsvLoader` subclass) performs a
 **full reload** (overwrite) of every `csv.gz` extract under a directory (or a single
 file/glob) into `pma_raw.jma_msm_surface_forecast`, enforcing the load contract
 `conf/schemas/jma_msm_surface_forecast.yaml` — grain
@@ -445,7 +449,7 @@ minute — 46 s for 2,716 files on 2026-09-05 — and lands in 88 parquet files
 
 Stations to extract are loaded once per invocation from
 `dbt/seeds/jma_stations.csv` and `dbt/seeds/jma_station_areas.csv`
-(`power_market_analytics.msm.load_stations`). That is every staffed station
+(`msm.stations.load_stations`). That is every staffed station
 mapped to a JEPX area, active or discontinued, sorted by `station_id`. A station
 missing its area mapping or its coordinates fails the whole run rather than
 being silently skipped.
@@ -465,9 +469,8 @@ the MSM download / load scripts can run inside it — the baked venv predates th
 happens, the download+extract step can still run **host-side**
 (`uv run python scripts/download_jma_msm_surface_forecast.py ...`, no Spark/metastore
 needed). The load step (`just python scripts/load_jma_msm_surface_forecast.py`) needs the
-rebuilt image as well: `MsmForecastCsvLoader` lives in the same `power_market_analytics/msm.py` as the
-decoder, which imports eccodes at module level. So the loader needs eccodes
-installed too.
+rebuilt image as well: `msm.load` imports the package, whose `grib` module imports
+eccodes at module level. So the loader needs eccodes installed too.
 
 ### 8.3 Resume behavior
 
@@ -498,7 +501,7 @@ fail with `unable to get local issuer certificate`. The leaf is valid until 2026
 the broken chain lasts at least until RISH's next renewal.
 
 **Built-in fix (since 2026-09-06).** The G8 intermediate is checked in as
-`power_market_analytics/certs/nii-open-domain-ca-g8-rsa.pem` — fetched from the leaf's AIA
+`power_market_analytics/ingestion/msm/certs/nii-open-domain-ca-g8-rsa.pem` — fetched from the leaf's AIA
 URL `http://repo1.secomtrust.net/sppca/nii/odca4/nii-odca4g8rsa.cer`, valid 2025-08-21 →
 2040-08-21, sha256 fingerprint
 `7A:4A:D9:E1:BA:2D:FB:08:F7:52:A1:24:03:2F:70:58:86:80:62:E9:84:17:85:62:3E:B4:13:67:83:A5:3F:FC`.

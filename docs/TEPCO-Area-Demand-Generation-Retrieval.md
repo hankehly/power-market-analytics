@@ -1,7 +1,7 @@
 # TEPCO エリア需要・発電情報 (Area Demand & Generation) Data Retrieval
 
 How TEPCO Power Grid publishes the Tokyo-area 30-minute demand / generation
-actuals, what the files look like, and how `power_market_analytics.tepco`
+actuals, what the files look like, and how `power_market_analytics.ingestion.tso.tepco`
 brings them into the warehouse.
 
 Verified against a full capture on 2026-08-16 (every daily file 2022-04-01 →
@@ -99,12 +99,12 @@ reason the loader checks the header text of every file it reads.
 - BG計画総計: published after the next-day and same-day plans are fixed;
   archived copy = last revision, same caveat.
 
-## 6. Downloading and loading with `power_market_analytics.tepco`
+## 6. Downloading and loading with `power_market_analytics.ingestion.tso.tepco`
 
 The download/extract and the positional load are the shared
 `AreaActualsDownloader` / `AreaActualsCsvLoader` in
-`power_market_analytics/area_actuals.py`, driven by a per-TSO
-`AreaActualsSource` spec. `power_market_analytics/tepco/area_demand_generation.py`,
+`power_market_analytics/ingestion/tso/area_actuals.py`, driven by a per-TSO
+`AreaActualsSource` spec. `power_market_analytics/ingestion/tso/tepco/area_demand_generation.py`,
 re-exported by the `tepco` package, supplies the `TEPCO` spec: the URL
 template, 2022-04, the `AREA_JISEKI_*` member regex and the one accepted
 column-header line. It also supplies thin `TepcoAreaDownloader` and
@@ -112,7 +112,7 @@ column-header line. It also supplies thin `TepcoAreaDownloader` and
 same classes ([Kansai doc](Kansai-Area-Demand-Generation-Retrieval.md)).
 
 ```python
-from power_market_analytics.tepco import TepcoAreaDownloader
+from power_market_analytics.ingestion.tso.tepco import TepcoAreaDownloader
 
 downloader = TepcoAreaDownloader()          # data/tepco/area_demand_generation
 downloader.download(2025, 7)                 # one month -> 31 csv/ files
