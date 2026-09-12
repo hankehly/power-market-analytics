@@ -20,7 +20,7 @@ import pandas as pd
 import pytest
 import requests
 
-from tests.support import import_script
+from tests.support import import_script, record_sleeps
 
 BASE = "http://superset.test:8088"
 DEFAULT_LABEL = "2026-08-18 09:00 | tokyo | lightgbm | abcdef12"
@@ -279,8 +279,7 @@ class TestSupersetClient:
             client._put_json("/api/v1/chart/999", {"slice_name": "x"})
 
     def test_retries_a_rate_limited_request_after_retry_after(self, script, fake, monkeypatch):
-        sleeps: list[float] = []
-        monkeypatch.setattr(script.time, "sleep", sleeps.append)
+        sleeps = record_sleeps(monkeypatch)
         fake.seed("chart", id=41, slice_name="a")
         fake.rate_limited[("PUT", "/api/v1/chart/41")] = [
             FakeResponse({"message": "429"}, 429, headers={"Retry-After": "2"}),
@@ -297,8 +296,7 @@ class TestSupersetClient:
         assert len(puts) == 3  # two 429s, then the write
 
     def test_gives_up_after_the_retry_budget(self, script, fake, monkeypatch):
-        sleeps: list[float] = []
-        monkeypatch.setattr(script.time, "sleep", sleeps.append)
+        sleeps = record_sleeps(monkeypatch)
         fake.seed("chart", id=41, slice_name="a")
         fake.rate_limited[("GET", "/api/v1/chart/")] = [
             FakeResponse({"message": "429"}, 429) for _ in range(script.RATE_LIMIT_RETRIES + 1)
@@ -313,7 +311,7 @@ class TestSupersetClient:
         assert len(gets) == script.RATE_LIMIT_RETRIES + 1
 
     def test_post_and_get_also_retry(self, script, fake, monkeypatch):
-        monkeypatch.setattr(script.time, "sleep", lambda s: None)
+        record_sleeps(monkeypatch)  # the retry waits are not the point here
         fake.rate_limited[("POST", "/api/v1/chart/")] = [FakeResponse({}, 429)]
         client = make_client(script, fake)
         created = client._post_json("/api/v1/chart/", {"slice_name": "b"})
