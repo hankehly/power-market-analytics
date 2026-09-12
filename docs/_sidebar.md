@@ -1,7 +1,20 @@
 - [Home](README.md)
-- Forecasting Research
-  - [Research Index](research/README.md)
-  - [Investigation Template](research/investigation-template.md)
+- Data sources
+  - [JMA — 過去の気象データ 時別値](JMA-Weather-Data-Retrieval.md)
+  - [JMA — MSM GPV 地上予報](JMA-MSM-GPV-Retrieval.md)
+  - [OCCTO — 需要予想・広域予備率 翌々日](OCCTO-Demand-Forecast-Retrieval.md)
+  - [TEPCO — エリア需要・発電情報 実績](TEPCO-Area-Demand-Generation-Retrieval.md)
+  - [TEPCO — でんき予報 電力使用実績](TEPCO-Power-Usage-Retrieval.md)
+  - [関西電力送配電 — エリア需給・発電 実績](Kansai-Area-Demand-Generation-Retrieval.md)
+  - [関西電力送配電 — でんき予報 電力使用実績](Kansai-Power-Usage-Retrieval.md)
+  - [e-Stat — 国勢調査 500 m メッシュ人口](eStat-Census-Population-Mesh-Retrieval.md)
+- Warehouse
+  - [Curated star schema](Curated-Star-Schema.md)
+- Forecasting
+  - [Forecast analysis](Forecast-Analysis.md)
+  - [Research index](research/README.md)
+  - [Papers](research/papers.md)
+  - [Investigation template](research/investigation-template.md)
   - Spot price
     - [Index](research/spot_price/README.md)
     - [Observation Log](research/spot_price/observations.md)
@@ -14,12 +27,7 @@
     - [R-003 — Day Type Feature](research/demand/R-003-day-type-feature.md)
     - [R-004 — Prior-Year Load Lag](research/demand/R-004-prior-year-load-lag.md)
     - [R-005 — Calendar Features](research/demand/R-005-calendar-features.md)
-- [JMA Weather Data Retrieval](JMA-Weather-Data-Retrieval.md)
-- [JMA MSM GPV Retrieval](JMA-MSM-GPV-Retrieval.md)
-- [OCCTO Demand Forecast Retrieval](OCCTO-Demand-Forecast-Retrieval.md)
-- [TEPCO Area Demand & Generation Retrieval](TEPCO-Area-Demand-Generation-Retrieval.md)
-- [TEPCO でんき予報 Power Usage Retrieval](TEPCO-Power-Usage-Retrieval.md)
-- [Kansai Area Demand & Generation Retrieval](Kansai-Area-Demand-Generation-Retrieval.md)
-- [Kansai でんき予報 Power Usage Retrieval](Kansai-Power-Usage-Retrieval.md)
-- [e-Stat Census Population Mesh Retrieval](eStat-Census-Population-Mesh-Retrieval.md)
-- [Kimball Dimensional Modeling Techniques](Kimball-Dimensional-Modeling-Techniques.md)
+- [Development and code review](Development.md)
+- Reference
+  - [Kimball dimensional modeling](Kimball-Dimensional-Modeling-Techniques.md)
+  - [Design history — specs and plans](superpowers/README.md)
