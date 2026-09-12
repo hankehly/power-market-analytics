@@ -12,7 +12,7 @@ from pathlib import Path
 
 from loguru import logger
 
-from power_market_analytics.kansai.power_usage import KansaiPowerUsageDownloader
+from power_market_analytics.ingestion.tso.kansai.power_usage import KansaiPowerUsageDownloader
 
 
 def main(argv: list[str] | None = None) -> None:

@@ -1,4 +1,4 @@
-"""Tests for the ecCodes GRIB2 decode layer of :mod:`power_market_analytics.msm`.
+"""Tests for the ecCodes GRIB2 decode layer of :mod:`power_market_analytics.ingestion.msm`.
 
 Every fixture is a real GRIB2 file encoded by ecCodes itself
 (:mod:`tests.msm_grib_support`), so the decoder is exercised against real key
@@ -17,19 +17,21 @@ import datetime
 
 import pytest
 
-from power_market_analytics.msm import (
+from power_market_analytics.ingestion.msm.elements import (
     MSM_SURFACE_ELEMENTS,
     RAW_CSV_COLUMNS,
-    VALUE_COLUMNS,
     MsmElement,
-    MsmError,
-    MsmExtractError,
-    MsmGrid,
-    MsmSourceFile,
-    MsmStation,
+)
+from power_market_analytics.ingestion.msm.errors import MsmError, MsmExtractError
+from power_market_analytics.ingestion.msm.grib import (
+    VALUE_COLUMNS,
     StationHourRecord,
     extract_station_records,
-    haversine_km,
+)
+from power_market_analytics.ingestion.msm.grid import MsmGrid, haversine_km
+from power_market_analytics.ingestion.msm.stations import MsmStation
+from power_market_analytics.ingestion.msm.vintage import (
+    MsmSourceFile,
     reference_at_for,
     source_files_for,
 )

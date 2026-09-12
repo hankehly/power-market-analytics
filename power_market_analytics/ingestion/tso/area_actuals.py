@@ -5,8 +5,8 @@ publishes the same three 30-minute series — エリア総需要量, エリア�
 エリア風力・太陽光発電量 in 30分kWh — as one CSV per day, archived in one zip
 per month on its own website. The archive URL, member names, earliest month
 and the exact column-header line differ per TSO, so those live in an
-:class:`AreaActualsSource` spec (see ``power_market_analytics.tepco`` and
-``power_market_analytics.kansai``) while the download/extract and the
+:class:`AreaActualsSource` spec (see ``power_market_analytics.ingestion.tso.tepco`` and
+``power_market_analytics.ingestion.tso.kansai``) while the download/extract and the
 positional CSV load are shared here.
 """
 
@@ -25,7 +25,7 @@ from loguru import logger
 from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql import functions as F
 
-from power_market_analytics.csv_loader import SOURCE_FILE_COL, CsvLoader, CsvTableSchema
+from power_market_analytics.ingestion.loader import SOURCE_FILE_COL, CsvLoader, CsvTableSchema
 
 
 class AreaActualsDownloadError(RuntimeError):
@@ -441,7 +441,7 @@ def sniff_metadata(file: Path | str, accepted_headers: frozenset[str]) -> Actual
 class AreaActualsCsvLoader(CsvLoader):
     """Positional full reload of daily area-actuals CSVs into a warehouse table.
 
-    Works exactly like :class:`~power_market_analytics.csv_loader.CsvLoader`
+    Works exactly like :class:`~power_market_analytics.ingestion.loader.CsvLoader`
     (same validation and write behaviour) except for how the files are read:
     they open with metadata lines before the real column header, so all of
     them are read headerless in one scan (:meth:`CsvLoader._scan_positional`)

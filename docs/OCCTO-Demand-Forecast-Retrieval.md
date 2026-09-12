@@ -7,7 +7,7 @@ browser. The 翌々日 (day-after-next) series is the one this pipeline uses.
 This document covers the portal's request framework, the bulk-download protocol
 that returns the **entire history in a single CSV**, the file format, the
 catalog of other datasets reachable through the same endpoint, and how to use
-the downloader and loader in `power_market_analytics/occto.py`.
+the downloader and loader in `power_market_analytics/ingestion/occto.py`.
 
 [§9](#9-広域予備率-エリア広域ブロック情報-翌々日-half-hourly-area-demand--supply)
 covers the second dataset the same code retrieves: the half-hourly 広域予備率
@@ -200,7 +200,7 @@ the portal's four backends (`HSERVERID` — sessions are replicated, so it
 succeeds); and two sessions that received the identical `downloadKey` in the
 same second (`YYYYMMDDHHMMSS_CF01S010C` is session-scoped, and both succeed).
 `OcctoBulkDownloader` retries such a window
-([§8](#8-downloading-and-loading-with-power_market_analyticsoccto)).
+([§8](#8-downloading-and-loading-with-power_market_analyticsingestionoccto)).
 
 ## 4. The 翌々日 CSV format
 
@@ -369,9 +369,9 @@ next morning covers rare late updates. Sources:
 - The data lives server-side per session-issued `downloadKey`; keys are cheap but
   single-use. Do not cache them.
 
-## 8. Downloading and loading with `power_market_analytics.occto`
+## 8. Downloading and loading with `power_market_analytics.ingestion.occto`
 
-`OcctoBulkDownloader` (`power_market_analytics/occto.py`) implements the three-request
+`OcctoBulkDownloader` (`power_market_analytics/ingestion/occto.py`) implements the three-request
 handshake of [§3](#3-bulk-download-情報ダウンロード-cf01s010c): fresh anonymous session,
 `reference/ok` for the key/token pair, `reference/download` for the file, then a
 header-row check so an error page can never be saved as data. It always re-downloads
@@ -395,7 +395,7 @@ raised after the last attempt with the page's message, e.g.
 each retry is logged as a warning with that message.
 
 ```python
-from power_market_analytics.occto import OcctoBulkDownloader
+from power_market_analytics.ingestion.occto import OcctoBulkDownloader
 
 downloader = OcctoBulkDownloader()  # data_dir="data/occto"
 path = downloader.download("demand_forecast_dad")

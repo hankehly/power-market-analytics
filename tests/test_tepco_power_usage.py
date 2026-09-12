@@ -11,14 +11,14 @@ from pathlib import Path
 import pytest
 import requests
 
-from power_market_analytics.area_actuals import (
+from power_market_analytics.ingestion.loader import SOURCE_FILE_COL, CsvTableSchema
+from power_market_analytics.ingestion.tso.area_actuals import (
     AreaActualsDownloader,
     AreaActualsDownloadError,
     AreaActualsSource,
 )
-from power_market_analytics.csv_loader import SOURCE_FILE_COL, CsvTableSchema
-from power_market_analytics.power_usage import PowerUsageSource
-from power_market_analytics.tepco.power_usage import (
+from power_market_analytics.ingestion.tso.power_usage import PowerUsageSource
+from power_market_analytics.ingestion.tso.tepco.power_usage import (
     DAILY_FILES_FROM,
     DAILY_HOURLY_HEADER,
     TEPCO_POWER_USAGE,

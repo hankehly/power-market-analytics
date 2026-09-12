@@ -10,7 +10,7 @@ with
   -- latitude band, BB = longitude band east of 100°E, C/D = second-level row /
   -- column (1/12° x 1/8°, 0-7), E/F = third-level row / column (1/120° x 1/80°,
   -- 0-9), G = 500 m quadrant of the third-level mesh (1 SW, 2 SE, 3 NW, 4 NE).
-  -- Reference implementation: power_market_analytics.estat.decode_mesh_code.
+  -- Reference implementation: power_market_analytics.ingestion.estat.mesh.decode_mesh_code.
   parsed as (
   select
     *,

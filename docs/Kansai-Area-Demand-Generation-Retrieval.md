@@ -2,10 +2,10 @@
 
 How 関西電力送配電 (Kansai Transmission and Distribution) publishes the
 Kansai-area 30-minute demand / generation actuals, what the files look like,
-and how `power_market_analytics.kansai` brings them into the
+and how `power_market_analytics.ingestion.tso.kansai` brings them into the
 warehouse. This is the Kansai counterpart of TEPCO's feed
 ([TEPCO doc](TEPCO-Area-Demand-Generation-Retrieval.md)); the two share the
-downloader/loader code (`power_market_analytics/area_actuals.py`) and land in
+downloader/loader code (`power_market_analytics/ingestion/tso/area_actuals.py`) and land in
 the same curated fact.
 
 Verified against a full capture on 2026-08-17 (every daily file 2022-04-01 →
@@ -112,16 +112,19 @@ style as the rows; one 2022-03 file has an unpadded hour and trailing commas
 that month's zip immediately; the live intraday copy updates every 30 min
 (コマ終了後速やかに公表, 遅くとも30分後まで, per the disclosure rule).
 
-## 6. Downloading and loading with `power_market_analytics.kansai`
+## 6. Downloading and loading with `power_market_analytics.ingestion.tso.kansai`
 
-`power_market_analytics/kansai/area_demand_generation.py` (the `kansai/` package holds
-one module per Kansai dataset and re-exports these names) supplies the `KANSAI` `AreaActualsSource`
+`power_market_analytics/ingestion/tso/kansai/area_demand_generation.py` (the `kansai/`
+package holds one module per Kansai dataset and re-exports nothing) supplies the `KANSAI`
+`AreaActualsSource`
 (URL template, 2022-04, both member-name generations, both accepted headers,
 `archive_includes_current_day`), a thin `KansaiAreaDownloader`, and
 `KansaiAreaCsvLoader`, which binds the shared positional loader to the spec.
 
 ```python
-from power_market_analytics.kansai import KansaiAreaDownloader
+from power_market_analytics.ingestion.tso.kansai.area_demand_generation import (
+    KansaiAreaDownloader,
+)
 
 downloader = KansaiAreaDownloader()          # data/kansai/area_demand_generation
 downloader.download(2025, 7)                  # one month -> 31 csv/ files

@@ -13,7 +13,11 @@ from pathlib import Path
 
 from loguru import logger
 
-from power_market_analytics.jma import HOURLY_ELEMENTS, SCRAPE_ELEMENTS, JmaHourlyDownloader
+from power_market_analytics.ingestion.jma.hourly import (
+    HOURLY_ELEMENTS,
+    SCRAPE_ELEMENTS,
+    JmaHourlyDownloader,
+)
 
 
 def main(argv: list[str] | None = None) -> None:

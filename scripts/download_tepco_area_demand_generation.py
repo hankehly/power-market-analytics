@@ -11,7 +11,7 @@ from pathlib import Path
 
 from loguru import logger
 
-from power_market_analytics.tepco import TepcoAreaDownloader
+from power_market_analytics.ingestion.tso.tepco.area_demand_generation import TepcoAreaDownloader
 
 
 def main(argv: list[str] | None = None) -> None:
