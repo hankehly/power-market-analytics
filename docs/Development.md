@@ -53,27 +53,37 @@ directly with `cd dbt && DBT_THRIFT_HOST=localhost uv run dbt <command>`.
 
 ## Code review process
 
-Every pull request is reviewed by **Codex** before it is merged, documentation-only
-ones included. Codex has been the only reviewer since 2026-09-06, when the Copilot
-review that used to follow it was dropped. Claude drives the loop and reports the PR
-as ready; the researcher merges unless they have explicitly asked Claude to.
+Every pull request is reviewed by a bot before it is merged, documentation-only ones
+included. **Codex** is the reviewer, and it reviews every push on its own. **Copilot**
+is the fallback, for when Codex cannot review — in practice when it has run out of
+credits. Claude drives the loop and reports the PR as ready; the researcher merges
+unless they have explicitly asked Claude to.
+
+Both are worth keeping, because they miss different things. Codex reads the change for
+what it is trying to do. Copilot is better at the gap between what a file promises and
+what the tool it configures actually enforces.
 
 The mechanics are in `CLAUDE.md` under *Code review (pull requests)*: the exact
 `gh api` polls and their timestamps, why the Codex trigger is never spelled out in a
-PR body or reply, resolving review threads, and stacked PRs. This is the shape of the
-loop:
+PR body or reply, how a Copilot request differs, resolving review threads, and stacked
+PRs. This is the shape of the loop:
 
 ```mermaid
 flowchart TD
     open["Open the PR<br/>gh pr create — title type(scope): description,<br/>body Why / What / Proof"]
     open --> meta["Assign the researcher, add labels<br/>fix → bug · feature → enhancement · chore → documentation<br/>(plus documentation when docs change)"]
     meta --> codex{"Codex reviews automatically<br/>👀 when it starts"}
-    codex -->|"👍 — nothing to flag"| ready["Ready: CI green on a head that is<br/>up to date with main, Codex clean<br/>→ merge"]
+    codex -->|"👍 — nothing to flag"| ready["Ready: CI green on a head that is<br/>up to date with main, reviewer clean<br/>→ merge"]
     codex -->|"review with inline findings"| fix["Address every finding:<br/>fix in a commit or rebut in the thread,<br/>reply, resolve the thread"]
     fix -->|"a fix was pushed"| codex
     fix -->|"all rebutted — nothing to push"| ready
     codex -.->|"20 min with neither 👀<br/>nor a review"| nudge["Post the manual trigger<br/>as a plain PR comment"]
     nudge -.-> codex
+    codex -.->|"out of credits:<br/>the researcher decides"| copilot{"Fallback — request Copilot"}
+    copilot -->|"APPROVED"| ready
+    copilot -->|"findings, or suppressed<br/>comments with no thread"| cpfix["Address every finding<br/>the same way"]
+    cpfix -->|"a fix was pushed —<br/>request the next review,<br/>Copilot never re-reviews itself"| copilot
+    cpfix -->|"all rebutted — nothing to push"| ready
 ```
 
 One rule the diagram compresses. The repository's required checks must pass on the
