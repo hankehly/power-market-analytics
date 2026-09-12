@@ -152,6 +152,29 @@ class TestResolves:
         write(tmp_path, "docs/some file.md")
         assert check_docs_links.resolves("some%20file.md", page, tmp_path) is True
 
+    def test_it_ignores_a_query_string(self, tmp_path):
+        page = write(tmp_path, "docs/a.md")
+        write(tmp_path, "docs/b.md")
+        assert check_docs_links.resolves("b.md?view=1", page, tmp_path) is True
+
+    def test_it_ignores_a_query_string_before_a_fragment(self, tmp_path):
+        page = write(tmp_path, "docs/a.md")
+        write(tmp_path, "docs/b.md")
+        assert check_docs_links.resolves("b.md?v=1#head", page, tmp_path) is True
+
+    def test_a_leading_slash_means_the_site_root_not_the_filesystem(self, tmp_path):
+        page = write(tmp_path, "docs/a.md")
+        write(tmp_path, "docs/guide.md")
+        assert check_docs_links.resolves("/guide.md", page, tmp_path) is True
+
+    def test_an_absolute_path_outside_the_repo_does_not_resolve(self, tmp_path):
+        page = write(tmp_path, "docs/a.md")
+        assert check_docs_links.resolves("/etc/passwd", page, tmp_path) is False
+
+    def test_a_bare_slash_resolves(self, tmp_path):
+        page = write(tmp_path, "docs/a.md")
+        assert check_docs_links.resolves("/", page, tmp_path) is True
+
 
 class TestTrackedMarkdownFiles:
     def test_it_lists_tracked_markdown_only(self, tmp_path):

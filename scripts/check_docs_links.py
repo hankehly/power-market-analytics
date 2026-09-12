@@ -161,9 +161,16 @@ def resolves(target: str, page: Path, root: Path) -> bool:
         True when the path exists relative to the page, the docs root or the
         repo root.
     """
-    # The parser normalises destinations, so a space arrives as %20; the
-    # filesystem wants it back.
-    path = unquote(target.split("#", 1)[0])
+    # A destination is a URL, not a path: drop the fragment and the query
+    # before it reaches the filesystem. The parser also normalises it, so a
+    # space arrives as %20 and the filesystem wants it back.
+    path = unquote(re.split(r"[#?]", target, maxsplit=1)[0])
+    if not path:
+        return True
+    # A leading slash means the site root to docsify, not the machine's root.
+    # Left alone, `page.parent / "/etc/passwd"` is an absolute path — pathlib
+    # discards the base — so an unrelated file on the runner would satisfy it.
+    path = path.lstrip("/")
     if not path:
         return True
     candidates = (page.parent / path, root / DOCS_DIRNAME / path, root / path)
