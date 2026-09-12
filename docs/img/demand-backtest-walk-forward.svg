@@ -100,7 +100,7 @@
 
   <!-- Notes -->
   <text font-size="11" fill="#57606a" x="24" y="478">A refit's window opens 730 calendar days before the target day and closes at the cutoff: for demand the 729 delivery days D-730 … D-2, up to 48 rows each.</text>
-  <text font-size="11" fill="#57606a" x="24" y="496">Every count here is an upper bound — a period with a null actual never enters the history, a training row missing any feature is dropped at fit, and a day</text>
-  <text font-size="11" fill="#57606a" x="24" y="514">that cannot be forecast is skipped. Refits are every 7 calendar days from the day that triggered the previous one, so the cached model scores up to 7 delivery</text>
-  <text font-size="11" fill="#57606a" x="24" y="532">days — by the last, its newest training day is at most 8 days old.</text>
+  <text font-size="11" fill="#57606a" x="24" y="496">These are the complete-data numbers — a period with a null actual never enters the history, a training row missing any feature is dropped at fit, and a day</text>
+  <text font-size="11" fill="#57606a" x="24" y="514">that cannot be forecast is skipped, so gaps only shrink the counts and age the model. Refits are every 7 calendar days from the day that triggered the previous</text>
+  <text font-size="11" fill="#57606a" x="24" y="532">one, so the cached model scores up to 7 delivery days; by the last, its newest training day is 8 days old.</text>
 </svg>

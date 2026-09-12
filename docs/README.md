@@ -546,9 +546,8 @@ The LightGBM strategies of both tasks do not fit once: they refit every 7
 **calendar** days, counted from the day that triggered the previous refit, on a
 window that opens 730 calendar days before the target day and closes at that
 task's cutoff — at most 729 delivery days for demand (D-730 … D-2), 730 for spot
-price (D-730 … D-1). Between refits the cached model scores whatever delivery
-days fall inside that cadence: up to seven, fewer when a day is missing from the
-actuals or skipped. Its newest training day is therefore at most
+price (D-730 … D-1). Between refits the cached model scores the delivery days
+that fall inside that cadence, up to seven, and its newest training day reaches
 `6 + history_lead_days` days old — 8 for demand, 7 for spot price.
 
 ![Walk-forward demand backtest: the 730-calendar-day training window, the unseen day D-1, and the up-to-seven delivery days each refit scores](img/demand-backtest-walk-forward.svg)
@@ -563,10 +562,14 @@ A day the strategy cannot forecast — a missing feature raises
 are then joined one-to-one to actuals, and a forecast point with no actual is
 dropped.
 
-Every row count above is an upper bound, because rows are dropped at three
-points: a period with a null actual never enters the demand history (a TSO hole
-like Tokyo 2025-06-14, which keeps 10 of its 48 periods), a training row missing
-any feature is dropped at fit, and a day that cannot be forecast is skipped.
+Read every number above as the complete-data case, which is what the figure
+draws. Gaps only move them one way — fewer rows, fewer scored days, an older
+model — and they enter at three points: a period with a null actual never enters
+the demand history (a TSO hole like Tokyo 2025-06-14, which keeps 10 of its 48
+periods), a training row missing any feature is dropped at fit, and a day that
+cannot be forecast is skipped. The model's age follows the same rule: the fit
+records `_trained_through` as the newest day that kept a complete row, so when
+the cutoff day keeps none, the model is older than the figures above.
 
 The numbers come from two places. Each task's `TaskSpec` fixes its cutoff and
 issue time (`history_lead_days`, `issue_offset`); the strategy fixes the window
