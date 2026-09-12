@@ -1,12 +1,21 @@
 name: ci
 
 # On every push (and on demand): the unit tests with their coverage gate, a
-# ruff lint pass, a mypy type-check, a checkov scan of the IaC, and a parse of
-# the dbt project. All the gates live in the repo config — coverage in
-# pyproject.toml ([tool.coverage.report] fail_under), ruff in [tool.ruff],
-# mypy in [tool.mypy], checkov in .checkov.yaml, the dbt project under dbt/ —
-# so `just test` / `just lint` / `just mypy` / `just checkov` / `just dbt
-# parse` locally and these jobs fail on exactly the same conditions.
+# ruff lint pass, a mypy type-check, a checkov scan of the IaC, an audit of the
+# locked dependencies, and a parse of the dbt project. All the gates live in the
+# repo config — coverage in pyproject.toml ([tool.coverage.report] fail_under),
+# ruff in [tool.ruff], mypy in [tool.mypy], checkov in .checkov.yaml, the
+# pip-audit ignore list and zizmor's persona in the justfile recipes, the dbt
+# project under dbt/ — so `just test` / `just lint` / `just mypy` /
+# `just checkov` / `just pip-audit` / `just zizmor` / `just docs-links` /
+# `just dbt parse` locally and these jobs fail on exactly the same conditions.
+#
+# Every `uses:` is pinned to a commit SHA with the version as a trailing
+# comment: a tag can be repointed by the action owner, and Dependabot
+# (.github/dependabot.yml) rewrites the SHA and the comment together so the pin
+# stays current rather than merely frozen. The zizmor job enforces both that
+# and `persist-credentials: false`, which stops checkout leaving the job token
+# in .git/config where a later step could read it.
 on:
   push:
   workflow_dispatch:
@@ -29,14 +38,16 @@ jobs:
       # bind address so the JVM never has to resolve the runner's hostname.
       SPARK_LOCAL_IP: 127.0.0.1
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with:
           distribution: temurin
           java-version: "17"
 
-      - uses: astral-sh/setup-uv@v10.0.1  # no moving major tag past v7; pin the full version
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           enable-cache: true
           python-version: "3.13"
@@ -54,9 +65,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - uses: astral-sh/setup-uv@v10.0.1  # no moving major tag past v7; pin the full version
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           enable-cache: true
           python-version: "3.13"
@@ -76,9 +89,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - uses: astral-sh/setup-uv@v10.0.1  # no moving major tag past v7; pin the full version
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           enable-cache: true
           python-version: "3.13"
@@ -98,15 +113,82 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - uses: astral-sh/setup-uv@v10.0.1  # no moving major tag past v7; pin the full version
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
 
       # Same command as `just checkov`; frameworks, skip paths and output
       # options come from .checkov.yaml. Version pinned here and in the
       # justfile — bump both together.
       - name: Run checkov
         run: uvx checkov@3.3.11
+
+  pip-audit:
+    name: pip-audit (dependency advisories)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+
+      # Unlike the other jobs this one runs the just recipe rather than
+      # repeating its command. The recipe carries the --ignore-vuln list, and
+      # that list — one entry per advisory a dbt pin puts out of reach, each
+      # with its reason — must have exactly one definition to stay honest.
+      # No dependency install: the audit reads uv.lock, not the environment.
+      - name: Run pip-audit
+        run: uvx --from rust-just@1.58.0 just pip-audit
+
+  zizmor:
+    name: zizmor (workflow hardening)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+
+      # Same command as `just zizmor`; the persona and the scanned path live in
+      # the recipe, the version is pinned in both — bump together. GH_TOKEN
+      # switches on zizmor's online audits (stale-action-refs and friends); the
+      # workflow's read-only token is all they need, and a bare local run is
+      # the weaker one, so local can only miss what this job then catches.
+      - name: Run zizmor
+        run: uvx zizmor@1.30.1 --persona=regular .github/workflows/
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  docs-links:
+    name: docs links
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # fetch-depth 0 is not needed: the check reads the working tree and asks
+      # git only which Markdown files are tracked at this commit.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          enable-cache: true
+          python-version: "3.13"
+
+      # The check parses Markdown with markdown-it-py, which is in the dev
+      # group; the project's runtime deps are not needed, like ruff's job.
+      - name: Install dev dependencies (locked)
+        run: uv sync --locked --only-group dev
+
+      # Same check as `just docs-links`.
+      - name: Check relative Markdown links
+        run: uv run --no-sync python scripts/check_docs_links.py
 
   dbt-parse:
     name: dbt parse
@@ -116,9 +198,11 @@ jobs:
       # No telemetry ping from a CI runner.
       DBT_SEND_ANONYMOUS_USAGE_STATS: "false"
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - uses: astral-sh/setup-uv@v10.0.1  # no moving major tag past v7; pin the full version
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           enable-cache: true
           python-version: "3.13"

@@ -109,3 +109,79 @@ mypy *args:
 [doc("Scan Dockerfiles, workflows and committed files with checkov (config in .checkov.yaml)")]
 checkov *args:
     uvx checkov@3.3.11 {{args}}
+
+# Unlike checkov's, this version is pinned here and nowhere else: the ci job
+# runs this recipe through `uvx --from rust-just` instead of repeating the
+# command, because the --ignore-vuln list below must have exactly one
+# definition. Exits 1 on any advisory, so it gates on its own.
+#
+# `uv export` is how the lock reaches pip-audit: `pip-audit --locked` reads only
+# a PEP 751 pylock.toml, not uv.lock. --no-emit-project drops the `-e .` entry
+# pip-audit cannot version, and --no-deps audits exactly what the lock pins
+# rather than re-resolving.
+#
+# Every --ignore-vuln below is an advisory whose fix this repo cannot reach: a
+# dbt package pins the vulnerable version, so the fix arrives with a dbt upgrade
+# (issue #84), not with a lock bump. Drop an entry the moment its fix becomes
+# reachable — the list is for advisories with nowhere to go, never for ones we
+# have not got to. Reviewed 2026-09-12, recheck by 2026-12-12.
+#
+#   sqlparse 0.5.5 -> 0.6.0 is held by dbt-core 1.11; taking it pulls dbt-core
+#   1.12 and a release-candidate parser. All five are DoS or code-generation
+#   flaws that need attacker-supplied SQL: 3696 is the Python/PHP output filters
+#   (never used here), 3697/3698/3699/3923 are parser and reindent blowups. The
+#   only SQL sqlparse sees here is this repo's own dbt models.
+#
+#   thrift 0.16.0 -> 0.24.0 is held by dbt-spark 1.10, which allows it only in a
+#   pre-release. 3927 is TLS hostname validation, 3925 data amplification, 3926
+#   an infinite loop — all against a hostile Thrift peer. The only peer here is
+#   the Spark thriftserver on the local compose network, reached without TLS.
+[doc("Audit the locked dependencies for known vulnerabilities (pip-audit over uv.lock)")]
+pip-audit *args:
+    #!/usr/bin/env bash
+    # A bash recipe for `pipefail`. Without it a linewise recipe runs under
+    # /bin/sh and the pipeline's status is pip-audit's alone, so a failed
+    # `uv export` — a stale lock — feeds it an empty stream and the gate passes
+    # reporting no vulnerabilities. Measured before the fix: export exit 1,
+    # recipe exit 0. A security check that passes on no input is worse than none.
+    set -euo pipefail
+    uv export --locked --no-hashes --no-emit-project --format requirements.txt \
+      | uvx pip-audit@2.10.1 --no-deps --disable-pip --requirement /dev/stdin \
+          --ignore-vuln PYSEC-2026-3696 --ignore-vuln PYSEC-2026-3697 \
+          --ignore-vuln PYSEC-2026-3698 --ignore-vuln PYSEC-2026-3699 \
+          --ignore-vuln PYSEC-2026-3923 \
+          --ignore-vuln PYSEC-2026-3925 --ignore-vuln PYSEC-2026-3926 \
+          --ignore-vuln PYSEC-2026-3927 "$@"
+
+# Version pinned here and in .github/workflows/ci.yml — bump both together.
+# Exits 1 on any finding, so it gates on its own.
+#
+# zizmor is a GitHub Actions analyser, and covers the one surface checkov is
+# weakest on: it reads workflows the way an attacker would. It is here rather
+# than semgrep because a measurement on 2026-09-12 (issue #33, closed) found
+# semgrep's github-actions ruleset adds only the unpinned-uses class over
+# checkov, while zizmor finds that plus artipacked, in 0.18 s against 8.2 s.
+#
+# --persona=regular is the default persona: findings the maintainer is expected
+# to act on, without the pedantic set's stylistic noise.
+#
+# zizmor reads GH_TOKEN and runs its online audits when one is set, which is
+# how the ci job runs it. Bare, it is offline and says so on stderr — a few
+# audits (stale-action-refs and friends) are skipped. To match CI exactly:
+#
+#     GH_TOKEN=$(gh auth token) just zizmor
+#
+# Offline is the weaker run, so local can only miss what CI then catches.
+[doc("Audit the GitHub Actions workflows with zizmor (pinning, injection, token handling)")]
+zizmor *args:
+    uvx zizmor@1.30.1 --persona=regular .github/workflows/ {{args}}
+
+# PR #74 renamed and moved docs with nothing checking the links; this is that
+# check. Links come from markdown-it-py (dev group) rather than a pattern of
+# our own: finding links looks like a regex job and is not, and both ways of
+# getting it wrong are silent — a missed form lets a broken link through, a
+# mis-detected one fails CI on valid prose. Two hand-written attempts managed
+# eight such mistakes between them before the parser went in.
+[doc("Check that every relative Markdown link resolves (docsify page / site-root / repo-root)")]
+docs-links *args:
+    uv run python scripts/check_docs_links.py {{args}}
