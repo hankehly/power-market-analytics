@@ -28,6 +28,14 @@ updates:
       # the signal to act is the alert itself (alerts come from the advisory
       # database and are not filtered here) or `just pip-audit` going red.
       - dependency-name: mlflow
+      # Same reasoning for pyspark, whose lockstep partner is the
+      # `ARG SPARK_VERSION` in docker/spark/Dockerfile that the thriftserver
+      # builds from. Dependabot's #101 did exactly this: moved the pin and the
+      # lock to 4.2.0 and left the cluster on 4.1.1. CI cannot catch it — the
+      # tests start a local SparkSession and no job talks to the cluster — so
+      # the exclusion is the guard. Bump both files by hand, rebuild the
+      # thriftserver, and prove it with `just dbt build`.
+      - dependency-name: pyspark
 
   # The actions used by .github/workflows/ci.yml. Dependabot updates the
   # reference in place whatever its form: for a commit-SHA pin it rewrites the
