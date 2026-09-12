@@ -12,7 +12,7 @@ models:
       passed through unchanged (population as published for every mesh,
       privacy metadata verbatim). The decoding is the JIS X 0410 formula
       documented in docs/eStat-Census-Population-Mesh-Retrieval.md and mirrored
-      by power_market_analytics.estat.decode_mesh_code (e.g. 533946114 →
+      by power_market_analytics.ingestion.estat.mesh.decode_mesh_code (e.g. 533946114 →
       centroid 35.681250 N, 139.771875 E).
     data_tests:
       - dbt_utils.unique_combination_of_columns:

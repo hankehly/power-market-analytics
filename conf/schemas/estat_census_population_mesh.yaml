@@ -9,7 +9,7 @@ description: >
   Protocol, format and privacy rules: docs/eStat-Census-Population-Mesh-Retrieval.md.
   Files are CP932 with two header rows (source codes, then Japanese labels);
   the loader drops the label row and, per file, injects the vintage
-  attributes from power_market_analytics.estat.VINTAGES (__census_year,
+  attributes from power_market_analytics.ingestion.estat.vintages.VINTAGES (__census_year,
   __census_date, __geodetic_datum, __stats_id), the primary mesh code and
   source file name parsed from the file name (__primary_mesh_code,
   __source_file) and the vintage's total-population column
