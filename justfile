@@ -136,12 +136,22 @@ checkov *args:
 #   pre-release. 3927 is TLS hostname validation, 3925 data amplification, 3926
 #   an infinite loop — all against a hostile Thrift peer. The only peer here is
 #   the Spark thriftserver on the local compose network, reached without TLS.
-# Stdlib only and no warehouse, so the ci job runs it on the runner's python
-# with no install. PR #74 renamed and moved docs with nothing checking the
-# links; this is that check.
-[doc("Check that every relative Markdown link resolves (docsify page / site-root / repo-root)")]
-docs-links *args:
-    uv run python scripts/check_docs_links.py {{args}}
+[doc("Audit the locked dependencies for known vulnerabilities (pip-audit over uv.lock)")]
+pip-audit *args:
+    #!/usr/bin/env bash
+    # A bash recipe for `pipefail`. Without it a linewise recipe runs under
+    # /bin/sh and the pipeline's status is pip-audit's alone, so a failed
+    # `uv export` — a stale lock — feeds it an empty stream and the gate passes
+    # reporting no vulnerabilities. Measured before the fix: export exit 1,
+    # recipe exit 0. A security check that passes on no input is worse than none.
+    set -euo pipefail
+    uv export --locked --no-hashes --no-emit-project --format requirements.txt \
+      | uvx pip-audit@2.10.1 --no-deps --disable-pip --requirement /dev/stdin \
+          --ignore-vuln PYSEC-2026-3696 --ignore-vuln PYSEC-2026-3697 \
+          --ignore-vuln PYSEC-2026-3698 --ignore-vuln PYSEC-2026-3699 \
+          --ignore-vuln PYSEC-2026-3923 \
+          --ignore-vuln PYSEC-2026-3925 --ignore-vuln PYSEC-2026-3926 \
+          --ignore-vuln PYSEC-2026-3927 "$@"
 
 # Version pinned here and in .github/workflows/ci.yml — bump both together.
 # Exits 1 on any finding, so it gates on its own.
@@ -166,19 +176,9 @@ docs-links *args:
 zizmor *args:
     uvx zizmor@1.30.1 --persona=regular .github/workflows/ {{args}}
 
-[doc("Audit the locked dependencies for known vulnerabilities (pip-audit over uv.lock)")]
-pip-audit *args:
-    #!/usr/bin/env bash
-    # A bash recipe for `pipefail`. Without it a linewise recipe runs under
-    # /bin/sh and the pipeline's status is pip-audit's alone, so a failed
-    # `uv export` — a stale lock — feeds it an empty stream and the gate passes
-    # reporting no vulnerabilities. Measured before the fix: export exit 1,
-    # recipe exit 0. A security check that passes on no input is worse than none.
-    set -euo pipefail
-    uv export --locked --no-hashes --no-emit-project --format requirements.txt \
-      | uvx pip-audit@2.10.1 --no-deps --disable-pip --requirement /dev/stdin \
-          --ignore-vuln PYSEC-2026-3696 --ignore-vuln PYSEC-2026-3697 \
-          --ignore-vuln PYSEC-2026-3698 --ignore-vuln PYSEC-2026-3699 \
-          --ignore-vuln PYSEC-2026-3923 \
-          --ignore-vuln PYSEC-2026-3925 --ignore-vuln PYSEC-2026-3926 \
-          --ignore-vuln PYSEC-2026-3927 "$@"
+# Stdlib only and no warehouse, so the ci job runs it on the runner's python
+# with no install. PR #74 renamed and moved docs with nothing checking the
+# links; this is that check.
+[doc("Check that every relative Markdown link resolves (docsify page / site-root / repo-root)")]
+docs-links *args:
+    uv run python scripts/check_docs_links.py {{args}}

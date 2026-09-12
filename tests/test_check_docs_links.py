@@ -26,6 +26,28 @@ def write(root, relative, text=""):
     return path
 
 
+class TestStripCode:
+    def test_it_blanks_a_fenced_block(self):
+        text = "before\n```\n[a](gone.md)\n```\nafter"
+        assert check_docs_links.strip_code(text) == "before\n\n\n\nafter"
+
+    def test_it_blanks_a_tilde_fence(self):
+        assert "gone.md" not in check_docs_links.strip_code("~~~\n[a](gone.md)\n~~~")
+
+    def test_a_longer_fence_is_not_closed_by_a_shorter_run(self):
+        text = "````\n[a](gone.md)\n```\nstill code\n````\nafter"
+        assert "gone.md" not in check_docs_links.strip_code(text)
+
+    def test_an_unclosed_fence_swallows_the_rest(self):
+        assert "gone.md" not in check_docs_links.strip_code("```\n[a](gone.md)")
+
+    def test_it_removes_inline_code_spans(self):
+        assert check_docs_links.strip_code("see `[a](gone.md)` here") == "see  here"
+
+    def test_it_leaves_ordinary_prose_alone(self):
+        assert check_docs_links.strip_code("plain [a](b.md)") == "plain [a](b.md)"
+
+
 class TestLinkTargets:
     def test_it_reads_inline_and_image_links(self):
         text = "see [a](one.md) and ![alt](assets/two.png)"
@@ -33,6 +55,47 @@ class TestLinkTargets:
 
     def test_it_stops_a_target_at_a_markdown_title(self):
         assert check_docs_links.link_targets('[a](one.md "Title")') == ["one.md"]
+
+    def test_it_reads_an_angle_bracketed_destination(self):
+        assert check_docs_links.link_targets("[a](<some file.md>)") == ["some file.md"]
+
+    def test_it_keeps_balanced_parentheses_in_a_destination(self):
+        assert check_docs_links.link_targets("[a](notes(1).md)") == ["notes(1).md"]
+
+    def test_it_resolves_a_reference_link(self):
+        text = "see [the guide][g]\n\n[g]: guide.md"
+        assert check_docs_links.link_targets(text) == ["guide.md"]
+
+    def test_it_resolves_a_collapsed_reference_link(self):
+        text = "see [guide][]\n\n[guide]: guide.md"
+        assert check_docs_links.link_targets(text) == ["guide.md"]
+
+    def test_a_reference_use_without_a_definition_yields_nothing(self):
+        assert check_docs_links.link_targets("see [the guide][missing]") == []
+
+    def test_it_ignores_links_inside_code(self):
+        assert check_docs_links.link_targets("```\n[a](gone.md)\n```") == []
+
+    def test_an_empty_destination_is_skipped(self):
+        assert check_docs_links.link_targets("[a]()") == []
+
+    def test_an_unbalanced_destination_is_skipped(self):
+        assert check_docs_links.link_targets("[a](open.md") == []
+
+    def test_a_destination_broken_across_lines_is_skipped(self):
+        assert check_docs_links.link_targets("[a](one\n.md)") == []
+
+    def test_an_unclosed_angle_destination_is_skipped(self):
+        assert check_docs_links.link_targets("[a](<one.md") == []
+
+    def test_an_angle_destination_without_a_closing_paren_is_skipped(self):
+        assert check_docs_links.link_targets("[a](<one.md>") == []
+
+    def test_an_unclosed_bracket_stops_the_scan(self):
+        assert check_docs_links.link_targets("[a(one.md)") == []
+
+    def test_a_bracket_that_is_not_a_link_is_skipped(self):
+        assert check_docs_links.link_targets("array[0] and [a](b.md)") == ["b.md"]
 
     def test_it_finds_nothing_in_prose(self):
         assert check_docs_links.link_targets("no links here") == []
@@ -43,7 +106,8 @@ class TestIsCheckable:
         "target",
         [
             "https://example.invalid/x",
-            "http://example.invalid/x",
+            "HTTPS://example.invalid/x",
+            "ftp://example.invalid/file",
             "mailto:someone@example.invalid",
             "tel:+81000000000",
             "//example.invalid/x",
@@ -59,6 +123,9 @@ class TestIsCheckable:
 
     def test_it_checks_a_plain_relative_path(self):
         assert check_docs_links.is_checkable("research/demand/observations.md") is True
+
+    def test_a_windows_style_path_is_not_mistaken_for_a_scheme(self):
+        assert check_docs_links.is_checkable("docs/a.md") is True
 
 
 class TestResolves:
@@ -112,6 +179,16 @@ class TestBrokenLinks:
         write(tmp_path, "docs/b.md")
         git_repo(tmp_path)
         assert check_docs_links.broken_links(tmp_path) == [(tmp_path / "docs/a.md", "missing.md")]
+
+    def test_a_broken_reference_link_is_reported(self, tmp_path):
+        write(tmp_path, "docs/a.md", "see [the guide][g]\n\n[g]: missing.md")
+        git_repo(tmp_path)
+        assert check_docs_links.broken_links(tmp_path) == [(tmp_path / "docs/a.md", "missing.md")]
+
+    def test_a_link_inside_a_code_fence_is_not_reported(self, tmp_path):
+        write(tmp_path, "docs/a.md", "```markdown\n[example](nowhere.md)\n```")
+        git_repo(tmp_path)
+        assert check_docs_links.broken_links(tmp_path) == []
 
     def test_it_finds_nothing_when_every_link_resolves(self, tmp_path):
         write(tmp_path, "docs/a.md", "[ok](b.md)")
