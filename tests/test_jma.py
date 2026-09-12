@@ -14,7 +14,6 @@ import pytest
 import requests
 from loguru import logger
 
-import power_market_analytics.ingestion.jma.client as jma_client
 from power_market_analytics.ingestion.jma.client import JmaDownloader
 from power_market_analytics.ingestion.jma.hourly import (
     ELEMENT_VALUE_COLUMNS,
@@ -23,6 +22,7 @@ from power_market_analytics.ingestion.jma.hourly import (
     JmaHourlyDownloader,
 )
 from power_market_analytics.ingestion.jma.stations import KANSOKU_DIGITS, JmaStationMasterDownloader
+from tests.support import record_sleeps
 
 TODAY = datetime.date(2026, 8, 18)
 
@@ -62,10 +62,8 @@ class FakeSession:
 
 @pytest.fixture
 def sleeps(monkeypatch) -> list[float]:
-    """Record ``time.sleep`` calls made by the jma module instead of sleeping."""
-    recorded: list[float] = []
-    monkeypatch.setattr(jma_client.time, "sleep", recorded.append)
-    return recorded
+    """Record this thread's ``time.sleep`` calls instead of sleeping."""
+    return record_sleeps(monkeypatch)
 
 
 # --------------------------------------------------------------------------- HTTP core

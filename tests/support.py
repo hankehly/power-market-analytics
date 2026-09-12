@@ -4,11 +4,74 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+import threading
+import time
+from collections.abc import Callable
 from pathlib import Path
 from types import ModuleType
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS_DIR = REPO_ROOT / "scripts"
+
+
+def record_sleeps(monkeypatch: pytest.MonkeyPatch) -> list[float]:
+    """Record the calling thread's ``time.sleep`` calls instead of sleeping.
+
+    A module's ``time`` attribute *is* the stdlib module, so patching
+    ``sleep`` through it reaches every thread. py4j's finalizer thread loops
+    on ``time.sleep(1)`` for as long as a SparkSession lives, and a patch that
+    returns at once makes it spin, so an unguarded recorder collects hundreds
+    of thousands of stray ``1``\\ s (issue #76). Other threads therefore get
+    the real sleep and are not recorded.
+
+    Parameters
+    ----------
+    monkeypatch : pytest.MonkeyPatch
+        The test's monkeypatch fixture; it restores ``time.sleep`` on teardown.
+
+    Returns
+    -------
+    list of float
+        The seconds passed to ``time.sleep`` on this thread, in call order.
+        Live: it fills as the code under test runs.
+    """
+    recorded: list[float] = []
+    caller = threading.current_thread()
+    real_sleep = time.sleep
+
+    def sleep(seconds: float) -> None:
+        if threading.current_thread() is caller:
+            recorded.append(seconds)
+        else:
+            real_sleep(seconds)
+
+    monkeypatch.setattr(time, "sleep", sleep)
+    return recorded
+
+
+def patch_monotonic(monkeypatch: pytest.MonkeyPatch, clock: Callable[[], float]) -> None:
+    """Make ``time.monotonic`` read ``clock`` on the calling thread only.
+
+    The patch is process-wide for the same reason :func:`record_sleeps` is, and
+    a thread polling a deadline against a frozen clock would never see it move,
+    so other threads keep the real ``time.monotonic``.
+
+    Parameters
+    ----------
+    monkeypatch : pytest.MonkeyPatch
+        The test's monkeypatch fixture; it restores ``time.monotonic`` on teardown.
+    clock : callable
+        Returns the fake reading, in seconds.
+    """
+    caller = threading.current_thread()
+    real_monotonic = time.monotonic
+
+    def monotonic() -> float:
+        return clock() if threading.current_thread() is caller else real_monotonic()
+
+    monkeypatch.setattr(time, "monotonic", monotonic)
 
 
 def import_script(name: str) -> ModuleType:
