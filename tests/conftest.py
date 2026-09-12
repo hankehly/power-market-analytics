@@ -175,6 +175,19 @@ CALENDAR_DAYS = HOURLY_LOAD_DAYS
 SECOND_STATION_FORECAST_HUMIDITY_OFFSET_PCT = 5.0
 SECOND_STATION_FORECAST_RAIN_OFFSET_MM = 0.1
 SECOND_STATION_FORECAST_SOLAR_OFFSET_MJM2 = 0.2
+#: The MSM elements ftr_hour_msm weights beyond temperature, humidity, rain and solar
+#: radiation, by source column: (level, daily amplitude, the second station's offset).
+MSM_EXTRA_ELEMENTS: dict[str, tuple[float, float, float]] = {
+    "total_cloud_cover_pct": (50.0, 40.0, 5.0),
+    "high_cloud_cover_pct": (30.0, 25.0, 4.0),
+    "middle_cloud_cover_pct": (20.0, 15.0, 3.0),
+    "low_cloud_cover_pct": (40.0, 30.0, 6.0),
+    "wind_speed_ms": (3.0, 2.0, 0.5),
+    "u_wind_ms": (0.5, 2.5, 0.3),
+    "v_wind_ms": (-0.5, 2.5, -0.3),
+    "surface_pressure_hpa": (1005.0, 6.0, 2.0),
+    "sea_level_pressure_hpa": (1013.0, 6.0, 1.5),
+}
 
 
 def synthetic_hourly_load(day: pd.Timestamp, hour_of_day: int) -> int:
@@ -370,6 +383,12 @@ def synthetic_forecast_humidity(day: pd.Timestamp, hour_ending: int) -> float:
 def synthetic_forecast_precipitation(day: pd.Timestamp, hour_ending: int) -> float:
     """MSM rain forecast: the observation scaled by 0.8 (never negative)."""
     return round(0.8 * synthetic_precipitation(day, hour_ending), 2)
+
+
+def synthetic_forecast_element(element: str, day: pd.Timestamp, hour_ending: int) -> float:
+    """An MSM_EXTRA_ELEMENTS forecast at the first station: its level plus a daily wave."""
+    level, amplitude, _ = MSM_EXTRA_ELEMENTS[element]
+    return round(level + amplitude * math.sin(2 * math.pi * hour_ending / 24 + day.dayofyear), 3)
 
 
 def synthetic_forecast_solar_radiation(day: pd.Timestamp, hour_ending: int) -> float:
@@ -987,6 +1006,12 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
                 synthetic_forecast_solar_radiation(day, hour),
                 SECOND_STATION_FORECAST_SOLAR_OFFSET_MJM2,
             ),
+            **{
+                f"popw_forecast_{element}": popw_forecast(
+                    day, hour, synthetic_forecast_element(element, day, hour), offset
+                )
+                for element, (_, _, offset) in MSM_EXTRA_ELEMENTS.items()
+            },
             # The D-2 12 UTC vintage, reference 21:00 JST, public four hours later.
             "available_at": day - pd.Timedelta(days=1) + pd.Timedelta(hours=1),
         }
@@ -1118,7 +1143,8 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
         "area_code string, trade_date date, hour_ending int, forecast_temperature_c double, "
         "popw_forecast_temperature_c double, popw_forecast_relative_humidity_pct double, "
         "popw_forecast_precipitation_mm double, popw_forecast_solar_radiation_mjm2 double, "
-        "available_at timestamp",
+        + "".join(f"popw_forecast_{element} double, " for element in MSM_EXTRA_ELEMENTS)
+        + "available_at timestamp",
     ).write.mode("overwrite").saveAsTable("pma_features.ftr_hour_msm")
     spark.createDataFrame(
         period_actuals,
