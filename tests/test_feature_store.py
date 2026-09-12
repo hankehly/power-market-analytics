@@ -11,6 +11,7 @@ from power_market_analytics.features.store import open_store, session_time_zone
 from tests.support import write_feature_store_yaml
 
 MART_NAMES = [
+    "ftr_day_actuals",
     "ftr_day_calendar",
     "ftr_day_occto",
     "ftr_hour_jma_obs",

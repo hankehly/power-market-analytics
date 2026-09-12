@@ -11,6 +11,24 @@ with
   from
     {{ ref('dim_delivery_period') }}
   ),
+  ftr_day_actuals as (
+  select
+    m.area_code,
+    m.trade_date,
+    p.time_code,
+    'ftr_day_actuals' as feature_view,
+    m.available_at,
+    cast(null as timestamp) as published_at,
+    stack(
+      3,
+      'lag_2d_mean_demand_kwh', cast(m.lag_2d_mean_demand_kwh as double), false,
+      'lag_2d_max_demand_kwh', cast(m.lag_2d_max_demand_kwh as double), false,
+      'lag_2d_range_demand_kwh', cast(m.lag_2d_range_demand_kwh as double), false
+    ) as (feature_name, feature_value, is_categorical)
+  from
+    {{ ref('ftr_day_actuals') }} m
+    cross join periods p
+  ),
   ftr_day_calendar as (
   select
     m.area_code,
@@ -101,8 +119,19 @@ with
     m.available_at,
     cast(null as timestamp) as published_at,
     stack(
-      1,
-      'lag_7d_demand_kwh', cast(m.lag_7d_demand_kwh as double), false
+      12,
+      'lag_2d_demand_kwh', cast(m.lag_2d_demand_kwh as double), false,
+      'lag_3d_demand_kwh', cast(m.lag_3d_demand_kwh as double), false,
+      'lag_7d_demand_kwh', cast(m.lag_7d_demand_kwh as double), false,
+      'lag_9d_demand_kwh', cast(m.lag_9d_demand_kwh as double), false,
+      'lag_14d_demand_kwh', cast(m.lag_14d_demand_kwh as double), false,
+      'lag_21d_demand_kwh', cast(m.lag_21d_demand_kwh as double), false,
+      'lag_28d_demand_kwh', cast(m.lag_28d_demand_kwh as double), false,
+      'mean_weekly_lags_demand_kwh', cast(m.mean_weekly_lags_demand_kwh as double), false,
+      'ewm_weekly_lags_demand_kwh', cast(m.ewm_weekly_lags_demand_kwh as double), false,
+      'change_2d_9d_demand_kwh', cast(m.change_2d_9d_demand_kwh as double), false,
+      'mean_daytype_4d_demand_kwh', cast(m.mean_daytype_4d_demand_kwh as double), false,
+      'ewm_daytype_4d_demand_kwh', cast(m.ewm_daytype_4d_demand_kwh as double), false
     ) as (feature_name, feature_value, is_categorical)
   from
     {{ ref('ftr_period_actuals') }} m
@@ -149,6 +178,8 @@ with
     m.vintage_rank = 1
   ),
   unioned as (
+  select * from ftr_day_actuals
+  union all
   select * from ftr_day_calendar
   union all
   select * from ftr_day_occto
