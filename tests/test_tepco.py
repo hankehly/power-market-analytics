@@ -4,8 +4,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from power_market_analytics.area_actuals import AreaActualsCsvLoader, AreaActualsDownloader
-from power_market_analytics.tepco import TEPCO, TepcoAreaCsvLoader, TepcoAreaDownloader
+from power_market_analytics.ingestion.tso.area_actuals import (
+    AreaActualsCsvLoader,
+    AreaActualsDownloader,
+)
+from power_market_analytics.ingestion.tso.tepco.area_demand_generation import (
+    TEPCO,
+    TepcoAreaCsvLoader,
+    TepcoAreaDownloader,
+)
 
 
 class TestTepcoSource:

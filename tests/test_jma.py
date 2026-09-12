@@ -1,4 +1,4 @@
-"""Tests for the JMA obsdl downloaders (``power_market_analytics/jma.py``).
+"""Tests for the JMA obsdl downloaders (``power_market_analytics/ingestion/jma/``).
 
 Only the HTTP boundary is faked (a recording ``requests.Session`` stand-in);
 payloads, HTML fragments, cp932 bytes and files are all real.
@@ -14,16 +14,15 @@ import pytest
 import requests
 from loguru import logger
 
-import power_market_analytics.jma as jma_module
-from power_market_analytics.jma import (
+import power_market_analytics.ingestion.jma.client as jma_client
+from power_market_analytics.ingestion.jma.client import JmaDownloader
+from power_market_analytics.ingestion.jma.hourly import (
     ELEMENT_VALUE_COLUMNS,
     HOURLY_ELEMENTS,
-    KANSOKU_DIGITS,
     SCRAPE_ELEMENTS,
     JmaHourlyDownloader,
-    JmaStationMasterDownloader,
-    _JmaDownloader,
 )
+from power_market_analytics.ingestion.jma.stations import KANSOKU_DIGITS, JmaStationMasterDownloader
 
 TODAY = datetime.date(2026, 8, 18)
 
@@ -65,7 +64,7 @@ class FakeSession:
 def sleeps(monkeypatch) -> list[float]:
     """Record ``time.sleep`` calls made by the jma module instead of sleeping."""
     recorded: list[float] = []
-    monkeypatch.setattr(jma_module.time, "sleep", recorded.append)
+    monkeypatch.setattr(jma_client.time, "sleep", recorded.append)
     return recorded
 
 
@@ -75,7 +74,7 @@ def sleeps(monkeypatch) -> list[float]:
 class TestPostWithRetry:
     def test_success_returns_after_one_call_with_headers_and_timeout(self, sleeps):
         session = FakeSession([FakeResponse(b"ok")])
-        dl = _JmaDownloader(timeout=12.5, request_interval=0.0, session=session)
+        dl = JmaDownloader(timeout=12.5, request_interval=0.0, session=session)
 
         response = dl._post_with_retry("https://example.test/x", {"pd": "44"})
 
@@ -84,7 +83,7 @@ class TestPostWithRetry:
             {
                 "url": "https://example.test/x",
                 "data": {"pd": "44"},
-                "headers": _JmaDownloader._HEADERS,
+                "headers": JmaDownloader._HEADERS,
                 "timeout": 12.5,
             }
         ]
@@ -92,13 +91,13 @@ class TestPostWithRetry:
 
     def test_headers_identify_the_browser_and_referer(self):
         assert (
-            _JmaDownloader._HEADERS["Referer"] == "https://www.data.jma.go.jp/risk/obsdl/index.php"
+            JmaDownloader._HEADERS["Referer"] == "https://www.data.jma.go.jp/risk/obsdl/index.php"
         )
-        assert _JmaDownloader._HEADERS["User-Agent"].startswith("Mozilla/5.0")
+        assert JmaDownloader._HEADERS["User-Agent"].startswith("Mozilla/5.0")
 
     def test_429_then_200_retries_once_with_base_backoff(self, sleeps):
         session = FakeSession([FakeResponse(b"", status=429), FakeResponse(b"ok")])
-        dl = _JmaDownloader(request_interval=0.0, session=session)  # backoff_base=30 default
+        dl = JmaDownloader(request_interval=0.0, session=session)  # backoff_base=30 default
 
         response = dl._post_with_retry("https://example.test/x", {})
 
@@ -110,7 +109,7 @@ class TestPostWithRetry:
         session = FakeSession(
             [FakeResponse(status=429), FakeResponse(status=503), FakeResponse(b"ok")]
         )
-        dl = _JmaDownloader(request_interval=0.0, backoff_base=7.0, session=session)
+        dl = JmaDownloader(request_interval=0.0, backoff_base=7.0, session=session)
 
         dl._post_with_retry("https://example.test/x", {})
 
@@ -119,7 +118,7 @@ class TestPostWithRetry:
 
     def test_5xx_exhausting_retries_raises_after_max_retries_plus_one_calls(self, sleeps):
         session = FakeSession([FakeResponse(b"boom", status=502)])
-        dl = _JmaDownloader(request_interval=0.0, max_retries=2, backoff_base=1.0, session=session)
+        dl = JmaDownloader(request_interval=0.0, max_retries=2, backoff_base=1.0, session=session)
 
         with pytest.raises(requests.HTTPError, match="502"):
             dl._post_with_retry("https://example.test/x", {})
@@ -129,7 +128,7 @@ class TestPostWithRetry:
 
     def test_404_is_not_retried(self, sleeps):
         session = FakeSession([FakeResponse(status=404), FakeResponse(b"never")])
-        dl = _JmaDownloader(request_interval=0.0, session=session)
+        dl = JmaDownloader(request_interval=0.0, session=session)
 
         with pytest.raises(requests.HTTPError, match="404"):
             dl._post_with_retry("https://example.test/x", {})
@@ -138,32 +137,32 @@ class TestPostWithRetry:
         assert sleeps == []
 
     def test_default_session_is_a_requests_session(self):
-        assert isinstance(_JmaDownloader().session, requests.Session)
+        assert isinstance(JmaDownloader().session, requests.Session)
 
 
 class TestThrottle:
     def test_first_request_never_sleeps(self, sleeps):
-        dl = _JmaDownloader(request_interval=5.0)
+        dl = JmaDownloader(request_interval=5.0)
         assert dl._last_request_at == 0.0
         dl._throttle()
         assert sleeps == []
         assert dl._last_request_at > 0.0
 
     def test_zero_interval_never_sleeps(self, sleeps):
-        dl = _JmaDownloader(request_interval=0.0)
+        dl = JmaDownloader(request_interval=0.0)
         dl._throttle()
         dl._throttle()
         assert sleeps == []
 
     def test_back_to_back_requests_sleep_the_remaining_interval(self, sleeps):
-        dl = _JmaDownloader(request_interval=10.0)
+        dl = JmaDownloader(request_interval=10.0)
         dl._last_request_at = time.monotonic()  # a request just went out
         dl._throttle()
         assert len(sleeps) == 1
         assert 9.0 < sleeps[0] <= 10.0
 
     def test_no_sleep_once_the_interval_has_elapsed(self, sleeps):
-        dl = _JmaDownloader(request_interval=10.0)
+        dl = JmaDownloader(request_interval=10.0)
         dl._last_request_at = time.monotonic() - 20.0
         before = dl._last_request_at
         dl._throttle()
@@ -373,7 +372,7 @@ class TestHourlyDownload:
             {
                 "url": "https://www.data.jma.go.jp/risk/obsdl/show/table",
                 "data": PAST_YEAR_PAYLOAD,
-                "headers": _JmaDownloader._HEADERS,
+                "headers": JmaDownloader._HEADERS,
                 "timeout": 9.0,
             }
         ]
@@ -705,7 +704,7 @@ class TestFetchArea:
             {
                 "url": "https://www.data.jma.go.jp/risk/obsdl/top/station",
                 "data": {"pd": pd},
-                "headers": _JmaDownloader._HEADERS,
+                "headers": JmaDownloader._HEADERS,
                 "timeout": 60.0,
             }
         ]

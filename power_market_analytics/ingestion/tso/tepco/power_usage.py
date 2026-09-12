@@ -17,7 +17,7 @@ Only the hourly table is ingested; the 5-minute table is a separate 速報
 measurement and is skipped. The yearly 2022 file also carries April–December
 2022, which the daily files cover too, so yearly rows on or after
 :data:`DAILY_FILES_FROM` are dropped at load time and the daily files win.
-The parser and loader are the shared :mod:`power_market_analytics.power_usage`;
+The parser and loader are the shared :mod:`power_market_analytics.ingestion.tso.power_usage`;
 this module holds what is TEPCO's — the source spec, the yearly files and the
 yearly-row drop. Format, quirks and the comparison against the A-1 series
 (``tepco_area_demand_generation_actual``) are documented in
@@ -33,14 +33,17 @@ from pathlib import Path
 import requests
 from loguru import logger
 
-from power_market_analytics.area_actuals import AreaActualsDownloader, AreaActualsDownloadError
-from power_market_analytics.power_usage import (
+from power_market_analytics.ingestion.tso.area_actuals import (
+    AreaActualsDownloader,
+    AreaActualsDownloadError,
+)
+from power_market_analytics.ingestion.tso.power_usage import (
     HourlyFile,
     HourlyRow,
     PowerUsageCsvLoader,
     PowerUsageSource,
 )
-from power_market_analytics.power_usage import parse_hourly as _parse_hourly
+from power_market_analytics.ingestion.tso.power_usage import parse_hourly as _parse_hourly
 
 __all__ = [
     "DAILY_FILES_FROM",
@@ -114,7 +117,7 @@ TEPCO_POWER_USAGE = PowerUsageSource(
 def parse_hourly(file: Path | str) -> HourlyFile:
     """Read the hourly table out of a yearly or daily TEPCO file.
 
-    :func:`power_market_analytics.power_usage.parse_hourly` bound to
+    :func:`power_market_analytics.ingestion.tso.power_usage.parse_hourly` bound to
     :data:`TEPCO_POWER_USAGE`.
 
     Parameters
@@ -141,7 +144,7 @@ class TepcoPowerUsageDownloader(AreaActualsDownloader):
 
     The monthly ``YYYYMM_power_usage.zip`` archives (2022-04 → the current
     month) go through the shared
-    :class:`~power_market_analytics.area_actuals.AreaActualsDownloader`:
+    :class:`~power_market_analytics.ingestion.tso.area_actuals.AreaActualsDownloader`:
     always re-downloaded, daily members extracted into ``csv/``. The yearly
     ``juyo-YYYY.csv`` files (2016 … 2022) are immutable, so they are fetched
     once into the same ``csv/`` folder and reused unless ``force`` is given.
@@ -268,7 +271,7 @@ class TepcoPowerUsageDownloader(AreaActualsDownloader):
 class TepcoPowerUsageCsvLoader(PowerUsageCsvLoader):
     """Full reload of the TEPCO でんき予報 hourly tables into a warehouse table.
 
-    The shared :class:`~power_market_analytics.power_usage.PowerUsageCsvLoader`
+    The shared :class:`~power_market_analytics.ingestion.tso.power_usage.PowerUsageCsvLoader`
     bound to :data:`TEPCO_POWER_USAGE`, dropping yearly rows on or after
     :data:`DAILY_FILES_FROM` — those days come from the daily files — so the
     two packagings never collide on the grain.
@@ -276,7 +279,7 @@ class TepcoPowerUsageCsvLoader(PowerUsageCsvLoader):
     Parameters
     ----------
     schema, filepath, table, spark
-        As for :class:`~power_market_analytics.csv_loader.CsvLoader`;
+        As for :class:`~power_market_analytics.ingestion.loader.CsvLoader`;
         ``filepath`` is the ``csv/`` folder holding both ``juyo-YYYY.csv``
         and ``YYYYMMDD_power_usage.csv``.
     """

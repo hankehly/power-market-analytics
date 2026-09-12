@@ -11,7 +11,7 @@ from pathlib import Path
 
 from loguru import logger
 
-from power_market_analytics.jepx import JepxSpotDownloader, current_fiscal_year
+from power_market_analytics.ingestion.jepx import JepxSpotDownloader, current_fiscal_year
 
 
 def main(argv: list[str] | None = None) -> None:

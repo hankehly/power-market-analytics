@@ -44,10 +44,13 @@
     ~157 MB per delivery day, ~54 GiB/yr), `load_jma_msm_surface_forecast.py`. `--start-date`
     defaults to 2022-04-01, but the warehouse holds 2019-04-01 → since the 2026-09-05 backfill;
     2019-04-01 is the earliest the downloader accepts (the archive's `FH40-51` member starts
-    with the 2019-03-05 12 UTC run), so pass it on a fresh clone. Both need a
-    devcontainer image rebuild (`docker compose build devcontainer`) for the eccodes dependency
-    before they can run in-container — `power_market_analytics/msm.py` imports eccodes at module
-    level; see [docs/JMA-MSM-GPV-Retrieval.md](docs/JMA-MSM-GPV-Retrieval.md) §8.
+    with the 2019-03-05 12 UTC run), so pass it on a fresh clone. Only the
+    downloader needs a devcontainer image rebuild (`docker compose build devcontainer`)
+    for the eccodes dependency before it can run in-container:
+    `power_market_analytics/ingestion/msm/grib.py` imports eccodes at module level, and
+    since the 2026-09-12 package split only the downloader reaches it — the loader imports
+    `ingestion.loader` alone. See
+    [docs/JMA-MSM-GPV-Retrieval.md](docs/JMA-MSM-GPV-Retrieval.md) §8.
 - `just test [pytest args]` — Python unit tests (host-side pytest, ~1 min) with a `pytest-cov`
   term-missing report over `power_market_analytics/` + `scripts/` (config in `pyproject.toml`
   `[tool.coverage.*]`; gated at 100% via `fail_under`, so a partial suite fails locally and in
@@ -266,12 +269,26 @@
 
 ## Architecture (data flow)
 
+- Package layout (`power_market_analytics/`): one package per layer, nothing else at the
+  top. `common/` (Spark session, warehouse queries, metrics, MLflow tracking, the
+  `DomainFrame` base), `ingestion/` (everything that turns a publisher's files into a
+  `pma_raw` table and nothing downstream of it: `loader.py`, the contract-driven Spark CSV
+  loader every source's loader extends, then one module or package per source),
+  `features/` (Feast retrieval), `forecasting/` (the task-agnostic framework) and `tasks/`
+  (one package per modeling problem). A source is a module until it needs more than one
+  file: `jepx.py` and `occto.py` are modules; `jma/`, `msm/` and `estat/` are packages
+  split by concern; `ingestion/tso/` holds the TSO family — the two shared dataset
+  families (`area_actuals.py`, `power_usage.py`) next to one package per TSO, which splits
+  by dataset because each TSO publishes two. No package re-exports its modules' names:
+  every name has one import path.
 - JEPX CSVs: `scripts/download_jepx_spot.py` → `data/jepx/spot/` (gitignored) →
   `scripts/load_jepx_spot.py` (`CsvLoader`, load contract in `conf/schemas/jepx_spot.yaml`) → `pma_raw.jepx_spot`.
 - JMA weather CSVs (staffed stations only since the 2026-08 re-scope, and only stations
   inside a JEPX area — Okinawa, Antarctica and 南鳥島 are excluded, so
   `dim_jma_station.area_key` is a required FK to `dim_area`):
-  `scripts/download_jma_hourly_all.py` (per-station: `download_jma_hourly.py`) →
+  `scripts/download_jma_hourly_all.py` (per-station: `download_jma_hourly.py`;
+  `power_market_analytics/ingestion/jma/` splits by concern — `client` (the throttled,
+  retrying POST base), `hourly`, `stations`, `load`) →
   `data/jma/hourly/` → `scripts/load_jma_hourly.py` (`JmaHourlyCsvLoader`, positional
   contract `conf/schemas/jma_hourly_staffed.yaml`, 27 columns) →
   `pma_raw.jma_hourly_staffed` only (over-budget station-years are fetched as 2 request
@@ -286,12 +303,15 @@
 - JMA MSM GPV surface forecast (one vintage per delivery day D — the 12 UTC D-2 run, leads
   28-51 = JST hour-endings 01:00-24:00 of D, safely before the demand model's 09:30 JST D-1
   cutoff): `scripts/download_jma_msm_surface_forecast.py` (`MsmDownloader` in
-  `power_market_analytics/msm.py` — the single MSM module: vintage/grid logic, the eccodes
-  GRIB2 decoder with per-call `codes_grib_multi_support_on()` — JMA packs many fields per
-  message — the downloader and the raw loader; three RISH GRIB2 files/day, deleted after a
-  successful extract by default) → `data/jma/msm_surface_forecast/` (one `csv.gz` extract +
+  `power_market_analytics/ingestion/msm/download.py`; the package splits by concern —
+  `vintage` (which run covers a delivery day, which files hold it), `grid`, `elements`,
+  `grib` (the eccodes decoder, with per-call `codes_grib_multi_support_on()` — JMA packs
+  many fields per message), `stations`, `download`, `load`, `errors`; three RISH GRIB2
+  files/day, deleted after a successful extract by default) →
+  `data/jma/msm_surface_forecast/` (one `csv.gz` extract +
   manifest per delivery day) → `scripts/load_jma_msm_surface_forecast.py`
-  (`MsmForecastCsvLoader`, same module, so it needs eccodes installed too; contract
+  (`MsmForecastCsvLoader`, which imports `ingestion.loader` alone, so the load step needs
+  no eccodes; contract
   `conf/schemas/jma_msm_surface_forecast.yaml`) → `pma_raw.jma_msm_surface_forecast` →
   `stg/std_jma__msm_surface_forecast` (JST conversion, raw UTC kept as ISO strings) →
   `fct_jma_msm_weather_forecast_hourly` (grain station_id × forecast_reference_at ×
@@ -300,8 +320,9 @@
   forecast-vs-observed comparisons). Protocol, GRIB2 element table and verification results:
   [docs/JMA-MSM-GPV-Retrieval.md](docs/JMA-MSM-GPV-Retrieval.md).
 - OCCTO 翌々日 demand forecast: `scripts/download_occto_demand_forecast.py`
-  (`OcctoBulkDownloader` in `power_market_analytics/occto.py`, always re-downloads the whole
-  history) → `data/occto/demand_forecast_dad/` → `scripts/load_occto_demand_forecast.py`
+  (`OcctoBulkDownloader` in `power_market_analytics/ingestion/occto.py`, always
+  re-downloads the whole history) → `data/occto/demand_forecast_dad/` →
+  `scripts/load_occto_demand_forecast.py`
   (`CsvLoader`, contract `conf/schemas/occto_demand_forecast_dad.yaml`) →
   `pma_raw.occto_demand_forecast_dad` → `stg/std_occto__demand_forecast_dad` →
   `fct_occto_demand_supply_forecast_daily` (9 JEPX areas; エリア計 totals + Okinawa stay in `std`).
@@ -321,7 +342,8 @@
   前年度4月 window) — verified identical; format + both portals in the OCCTO doc §9.
 - TSO エリア需要・発電情報 実績 (30-min area demand / generation actuals; the インバランス料金
   「系統の需給に関する情報」 items A-1/B-1/B-4, one feed per TSO): shared
-  `AreaActualsDownloader` / `AreaActualsCsvLoader` in `power_market_analytics/area_actuals.py`,
+  `AreaActualsDownloader` / `AreaActualsCsvLoader` in
+  `power_market_analytics/ingestion/tso/area_actuals.py`,
   driven by a per-TSO `AreaActualsSource` spec (URL template, earliest month, member regex,
   accepted header lines, `archive_includes_current_day`, `known_missing_days` — days the TSO never
   published, which a settled month may lack; a listed day that is published is logged) — always
@@ -329,17 +351,18 @@
   and extracts only the daily 実績 members; the loader reads every daily file positionally in one
   scan, sniffs each file's metadata line for `file_updated_at` (joined back on the file name),
   normalises `yyyy/mm/dd` dates and skips not-yet-final files.
-  - TEPCO / Tokyo: `power_market_analytics/tepco/area_demand_generation.py` (`TEPCO`,
-    `TepcoAreaDownloader`; the `tepco/` package holds one module per TEPCO dataset and
-    re-exports these names) →
+  - TEPCO / Tokyo: `power_market_analytics/ingestion/tso/tepco/area_demand_generation.py`
+    (`TEPCO`, `TepcoAreaDownloader`; the `tepco/` package holds one module per TEPCO
+    dataset and re-exports nothing) →
     `scripts/download_tepco_area_demand_generation.py` → `data/tepco/area_demand_generation/{zip,csv}/`
     → `scripts/load_tepco_area_demand_generation.py` (`TepcoAreaCsvLoader`, contract
     `conf/schemas/tepco_area_demand_generation_actual.yaml`) → `pma_raw.tepco_area_demand_generation_actual`
     → `stg/std_tepco__area_demand_generation_actual`. Format + quirks:
     [docs/TEPCO-Area-Demand-Generation-Retrieval.md](docs/TEPCO-Area-Demand-Generation-Retrieval.md).
-  - 関西電力送配電 / Kansai: `power_market_analytics/kansai/area_demand_generation.py` (`KANSAI`,
+  - 関西電力送配電 / Kansai:
+    `power_market_analytics/ingestion/tso/kansai/area_demand_generation.py` (`KANSAI`,
     `KansaiAreaDownloader`; the `kansai/` package holds one module per Kansai dataset and
-    re-exports these names) →
+    re-exports nothing) →
     `scripts/download_kansai_area_demand_generation.py` → `data/kansai/area_demand_generation/{zip,csv}/`
     → `scripts/load_kansai_area_demand_generation.py` (`KansaiAreaCsvLoader`, contract
     `conf/schemas/kansai_area_demand_generation_actual.yaml`, nullable bigint measures) →
@@ -351,7 +374,7 @@
     TSO = new spec + contract + stg/std models + one union branch.
 - TSO でんき予報 過去の電力使用実績 (hourly area 電力使用状況, 1時間平均 in 万kW — the only
   public area demand before 2022-04; a different display series from A-1, one feed per TSO):
-  the parser and loader are the shared `power_market_analytics/power_usage.py` —
+  the parser and loader are the shared `power_market_analytics/ingestion/tso/power_usage.py` —
   `PowerUsageSource` (= `AreaActualsSource` + `multi_day_headers`, the headers whose files may
   hold many dates; every other file must hold one), `parse_hourly(file, source)` (the hourly
   table under the first accepted header, ending at the first blank line; every line is read
@@ -360,7 +383,8 @@
   `createDataFrame` over the parsed rows, a per-file `_file_rows` hook, the `__`-prefixed
   contract sources). The daily files also carry a 5-minute table that is parsed past, not
   loaded.
-  - TEPCO / Tokyo: `power_market_analytics/tepco/power_usage.py` (`TEPCO_POWER_USAGE` spec,
+  - TEPCO / Tokyo: `power_market_analytics/ingestion/tso/tepco/power_usage.py`
+    (`TEPCO_POWER_USAGE` spec,
     `TepcoPowerUsageDownloader` = yearly `juyo-YYYY.csv` 2016 … 2022 cached + monthly
     `YYYYMM_power_usage.zip` 2022-04 → now via the shared downloader, `parse_hourly(file)` bound
     to the spec, `TepcoPowerUsageCsvLoader` — `_file_rows` drops yearly rows ≥ 2022-04-01 so
@@ -375,7 +399,8 @@
     `assert_std_tepco__power_usage_hourly_calendar_complete` = gapless from 2016-04-01). Format,
     quirks and the 4.4-year comparison with A-1 (incl. A-1's 18:00–19:00 defect since
     mid-2025): [docs/TEPCO-Power-Usage-Retrieval.md](docs/TEPCO-Power-Usage-Retrieval.md).
-  - 関西電力送配電 / Kansai: `power_market_analytics/kansai/power_usage.py` (`KANSAI_POWER_USAGE`
+  - 関西電力送配電 / Kansai: `power_market_analytics/ingestion/tso/kansai/power_usage.py`
+    (`KANSAI_POWER_USAGE`
     spec: monthly `…/yamasou/YYYYMM_jisseki.zip` 2016-04 → now — same archive name as the A-1
     feed's, different data dir —, members `YYYYMMDD_juyo1_kansai.csv` → `juyo_06_YYYYMMDD.csv`
     from 2025-12, three hourly headers — `供給力想定値` added 2019-09-12, renamed `供給力`
@@ -400,17 +425,19 @@
     per `hour_of_day`. Adding a TSO = new spec + contract + stg/std models + one union branch.
 - e-Stat census 500 m population mesh (国勢調査 4次メッシュ, one CP932 text file per 第１次地域区画):
   `scripts/download_estat_census_population_mesh.py` (`EstatCensusMeshDownloader` in
-  `power_market_analytics/estat.py`; per-vintage `CensusVintage` config in `VINTAGES` — stats id,
+  `power_market_analytics/ingestion/estat/download.py`; per-vintage `CensusVintage` config
+  in `vintages.VINTAGES` — stats id,
   population column, census date, datum, listing URL, expected file count; the listing rows come
   from the `search_detail` JSON endpoint, not the HTML page; zips validated before caching, member
   extracted byte-for-byte) → `data/estat/census_population_mesh/{year}/{zip,txt}/` →
-  `scripts/load_estat_census_population_mesh.py` (`EstatCensusMeshCsvLoader`, also in `estat.py`:
+  `scripts/load_estat_census_population_mesh.py` (`EstatCensusMeshCsvLoader`, in the same
+  package's `load.py`:
   vintage from the file name, reads each vintage's files in one scan (grouped by exact header line),
   selects that vintage's population column, injects vintage attributes, validates mesh codes /
   population / HTKSYORI per file in one grouped pass before casting; contract
   `conf/schemas/estat_census_population_mesh.yaml`) → `pma_raw.estat_census_population_mesh` →
   `stg_estat__census_population_mesh` → `std_estat__census_population_mesh` (+ bounding box /
-  centroid decoded from the mesh code; Python reference `estat.decode_mesh_code`) →
+  centroid decoded from the mesh code; Python reference `estat.mesh.decode_mesh_code`) →
   `dim_population_mesh_500m` (one row per mesh across vintages) + `fct_census_population_mesh`
   (`census_year × mesh_code`, `population_total` as published at every mesh — the 秘匿処理 folds only
   the `*`-suppressed detail columns, never the total; additive across meshes, not across years) →
@@ -700,8 +727,10 @@
   first field. RISH's TLS chain has served a stale intermediate since its leaf cert's
   2026-05-28 renewal (still so on 2026-09-06; the leaf runs to 2026-12-12); `requests`/certifi
   rejects it (browsers/curl tolerate it via AIA chasing). Since 2026-09-06 the missing G8
-  intermediate is vendored at `power_market_analytics/certs/nii-open-domain-ca-g8-rsa.pem` and
-  `msm.default_session()` — `MsmDownloader`'s default session — trusts it on top of certifi
+  intermediate is vendored at
+  `power_market_analytics/ingestion/msm/certs/nii-open-domain-ca-g8-rsa.pem` and
+  `msm.download.default_session()` — `MsmDownloader`'s default session — trusts it on top
+  of certifi
   (partial-chain trust; `certifi` and `urllib3` are declared direct dependencies for it), so the
   download verifies with nothing to configure: in the devcontainer, host-side and under
   `just refresh-all`, which until then could not pass the MSM step because the manual

@@ -8,8 +8,8 @@ in later layouts, supply capacity — and after it a 5-minute table. TEPCO and
 Kansai publish the same four hourly measures in that shape; only the column
 names (per TSO and per era, hence a source's ``accepted_headers``), the URLs
 and extra packagings such as TEPCO's yearly files differ, and those live in
-each TSO's :class:`PowerUsageSource` (``power_market_analytics.tepco.power_usage``,
-``power_market_analytics.kansai.power_usage``). Only the hourly table is
+each TSO's :class:`PowerUsageSource` (``power_market_analytics.ingestion.tso.tepco.power_usage``,
+``power_market_analytics.ingestion.tso.kansai.power_usage``). Only the hourly table is
 ingested; the 5-minute table is parsed past.
 
 Two rules cover the quirks seen in the archives. Every line is read with its
@@ -32,8 +32,8 @@ from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql import functions as F
 from pyspark.sql.types import StringType, StructField, StructType
 
-from power_market_analytics.area_actuals import AreaActualsSource
-from power_market_analytics.csv_loader import SOURCE_FILE_COL, CsvLoader, CsvTableSchema
+from power_market_analytics.ingestion.loader import SOURCE_FILE_COL, CsvLoader, CsvTableSchema
+from power_market_analytics.ingestion.tso.area_actuals import AreaActualsSource
 
 __all__ = [
     "CORRECTION_MARKER",
@@ -57,9 +57,9 @@ _TIME_RE = re.compile(r"^(\d{1,2}):(\d{2})$")
 class PowerUsageSource(AreaActualsSource):
     """Where and how a TSO publishes its でんき予報 hourly archive.
 
-    Everything of :class:`~power_market_analytics.area_actuals.AreaActualsSource`
+    Everything of :class:`~power_market_analytics.ingestion.tso.area_actuals.AreaActualsSource`
     applies — the monthly zips go through the shared
-    :class:`~power_market_analytics.area_actuals.AreaActualsDownloader` — with
+    :class:`~power_market_analytics.ingestion.tso.area_actuals.AreaActualsDownloader` — with
     ``accepted_headers`` naming the hourly table's header line in every
     layout the TSO has used.
 
@@ -286,7 +286,7 @@ _SOURCE_COLUMNS = (
 class PowerUsageCsvLoader(CsvLoader):
     """Full reload of でんき予報 hourly tables into a warehouse table.
 
-    Works like :class:`~power_market_analytics.csv_loader.CsvLoader` (same
+    Works like :class:`~power_market_analytics.ingestion.loader.CsvLoader` (same
     validation and write behaviour) except for how each file is read: the
     files are multi-section, so :func:`parse_hourly` extracts the hourly
     table in Python and the contract addresses the parsed values by the

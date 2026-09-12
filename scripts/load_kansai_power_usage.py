@@ -11,8 +11,8 @@ from pathlib import Path
 
 from loguru import logger
 
-from power_market_analytics.csv_loader import CsvTableSchema
-from power_market_analytics.kansai.power_usage import KansaiPowerUsageCsvLoader
+from power_market_analytics.ingestion.loader import CsvTableSchema
+from power_market_analytics.ingestion.tso.kansai.power_usage import KansaiPowerUsageCsvLoader
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 

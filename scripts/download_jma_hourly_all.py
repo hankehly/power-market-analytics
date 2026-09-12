@@ -36,11 +36,8 @@ from pathlib import Path
 
 from loguru import logger
 
-from power_market_analytics.jma import (
-    SCRAPE_ELEMENTS,
-    JmaHourlyDownloader,
-    JmaStationMasterDownloader,
-)
+from power_market_analytics.ingestion.jma.hourly import SCRAPE_ELEMENTS, JmaHourlyDownloader
+from power_market_analytics.ingestion.jma.stations import JmaStationMasterDownloader
 
 #: Consecutive failures after which the run aborts (server refusing us).
 MAX_CONSECUTIVE_FAILURES = 10
