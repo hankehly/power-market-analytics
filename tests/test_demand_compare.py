@@ -327,7 +327,7 @@ class TestDailyPairedComparison:
 
 class TestMarkdown:
     def test_segment_table_renders_whole_kwh_and_signed_relative_change(self, tables):
-        text = to_markdown(tables["day_part"], metric="MAE")
+        text = to_markdown(tables["day_part"], metric="MAE", unit="kWh", decimals=0)
         lines = text.splitlines()
         assert lines[0] == (
             "| Segment | n | Baseline MAE (kWh) | Candidate MAE (kWh) | Absolute change | "
@@ -342,7 +342,7 @@ class TestMarkdown:
             to_markdown(tables["mape"], metric="MAPE", unit="%", decimals=2).splitlines()[2]
             == "| all | 96 | 15.00 | 11.25 | −3.75 | −25.0 % |"
         )
-        bias = to_markdown(tables["bias"], metric="bias").splitlines()
+        bias = to_markdown(tables["bias"], metric="bias", unit="kWh", decimals=0).splitlines()
         assert bias[2] == "| all | 96 | +2,000,000 | −1,000,000 | −3,000,000 | — |"
 
     def test_paired_summary_lines(self):
