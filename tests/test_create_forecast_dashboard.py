@@ -16,6 +16,7 @@ import json
 import re
 from urllib.parse import urlsplit
 
+import pandas as pd
 import pytest
 import requests
 
@@ -1237,6 +1238,77 @@ class TestDashboardSpecs:
         assert demand.p90_metric["sqlExpression"] == "percentile(abs_error_mwh, 0.90)"
         assert spot.p90_metric["optionName"] == "metric_p90_abs_error"
 
+    def test_feature_values_identity(self, script, spot, demand):
+        assert spot.feature_values_dataset_name == "spot_price_feature_values"
+        assert demand.feature_values_dataset_name == "demand_feature_values"
+        assert (
+            spot.issue_time_sql
+            == demand.issue_time_sql
+            == "timestampadd(MINUTE, -870, timestamp(f.trade_date))"
+        )
+        assert script.FEATURE_VALUES_ALL_DATASET == "feature_values_all"
+
+    def test_feature_values_sql(self, script, spec):
+        sql = spec.feature_values_sql
+        assert sql.startswith(
+            "with asof as (\n  select\n    f.*,\n"
+            "    timestampadd(MINUTE, -870, timestamp(f.trade_date)) as issue_time,\n"
+        )
+        assert (
+            "      partition by f.area_code, f.trade_date, f.time_code, f.feature_ref\n"
+            "      order by f.available_at desc, f.published_at desc\n"
+            "    ) as vintage_rank\n"
+            "  from pma_curated.fct_feature_value f\n"
+            "  where f.available_at <= timestampadd(MINUTE, -870, timestamp(f.trade_date))\n"
+            ")\nselect\n  f.trade_date,\n"
+        ) in sql
+        assert "  f.published_at,\n  f.issue_time\nfrom asof f\n" in sql
+        assert sql.endswith(
+            "join pma_curated.dim_area a on f.area_code = a.area_code\n"
+            "join pma_curated.dim_delivery_period p on f.time_code = p.time_code\n"
+            "join pma_curated.dim_date d on f.trade_date = d.date_key\n"
+            "where f.vintage_rank = 1\n"
+        )
+        everything = script.FEATURE_VALUES_ALL_SQL
+        assert everything.startswith(
+            "select\n  f.trade_date,\n"
+            "  timestampadd(MINUTE, p.start_minute_of_day, timestamp(f.trade_date)) as trade_datetime,\n"
+        )
+        assert (
+            "  f.published_at\nfrom pma_curated.fct_feature_value f\njoin pma_curated.dim_area a"
+            in (everything)
+        )
+        assert "vintage_rank" not in everything and "issue_time" not in everything
+        assert everything.endswith("join pma_curated.dim_date d on f.trade_date = d.date_key\n")
+
+    def test_feature_values_columns_match_the_select_lists_in_order(self, script, spec):
+        cases = (
+            (
+                spec.feature_values_sql.split(")\nselect\n", 1)[1],
+                script.FEATURE_VALUES_ASOF_COLUMNS,
+            ),
+            (
+                script.FEATURE_VALUES_ALL_SQL.split("select\n", 1)[1],
+                script.FEATURE_VALUES_ALL_COLUMNS,
+            ),
+        )
+        for select_body, columns in cases:
+            output_names = []
+            for line in select_body.split("\nfrom ", 1)[0].splitlines():
+                if m := re.fullmatch(r"\s+[fpda]\.(\w+),?", line):
+                    output_names.append(m.group(1))
+                elif m := re.search(r"\bas (\w+),?$", line):
+                    output_names.append(m.group(1))
+            assert [name for name, _, _ in columns] == output_names
+            assert [n for n, _, is_dttm in columns if is_dttm] == [
+                "trade_date",
+                "trade_datetime",
+                "available_at",
+                "published_at",
+                *(["issue_time"] if columns is script.FEATURE_VALUES_ASOF_COLUMNS else []),
+            ]
+        assert script.FEATURE_VALUES_ASOF_COLUMNS[:-1] == script.FEATURE_VALUES_ALL_COLUMNS
+
     def test_explanation_identity(self, spot, demand):
         assert spot.explanation_dataset_name == "spot_price_forecast_explanation"
         assert spot.contribution_table == "pma_curated.fct_spot_price_forecast_contribution"
@@ -1723,6 +1795,58 @@ class TestUpsertDataset:
 
 
 # --------------------------------------------------------------------------- run label
+class TestIssueTimeSql:
+    def test_minutes_of_the_issue_offset(self, script):
+        assert (
+            script.issue_time_sql(pd.Timedelta(days=-1, hours=9, minutes=30))
+            == "timestampadd(MINUTE, -870, timestamp(f.trade_date))"
+        )
+        assert script.issue_time_sql(pd.Timedelta(hours=1)) == (
+            "timestampadd(MINUTE, 60, timestamp(f.trade_date))"
+        )
+
+    def test_a_fraction_of_a_minute_is_rejected(self, script):
+        with pytest.raises(ValueError, match="not a whole number of minutes"):
+            script.issue_time_sql(pd.Timedelta(seconds=30))
+
+
+class TestBuildFeatureValueDatasets:
+    def test_registers_one_asof_dataset_per_task_and_the_shared_one(
+        self, script, fake, spot, demand
+    ):
+        client = make_client(script, fake)
+        ids = script.build_feature_value_datasets(client, 3, [spot, demand])
+        assert list(ids) == [
+            "spot_price_feature_values",
+            "demand_feature_values",
+            "feature_values_all",
+        ]
+        rows = {r["table_name"]: r for r in fake.rows["dataset"].values()}
+        assert set(rows) == set(ids)
+        assert all(rows[name]["id"] == dataset_id for name, dataset_id in ids.items())
+        assert rows["spot_price_feature_values"]["sql"] == spot.feature_values_sql
+        assert rows["demand_feature_values"]["sql"] == demand.feature_values_sql
+        assert rows["feature_values_all"]["sql"] == script.FEATURE_VALUES_ALL_SQL
+        assert all(r["database"] == 3 for r in rows.values())
+        assert all(r["main_dttm_col"] == "trade_datetime" for r in rows.values())
+        assert [
+            (c["column_name"], c["type"], c["is_dttm"])
+            for c in rows["demand_feature_values"]["columns"]
+        ] == list(script.FEATURE_VALUES_ASOF_COLUMNS)
+        assert [
+            (c["column_name"], c["type"], c["is_dttm"])
+            for c in rows["feature_values_all"]["columns"]
+        ] == list(script.FEATURE_VALUES_ALL_COLUMNS)
+
+    def test_a_rerun_updates_without_creating(self, script, fake, demand):
+        client = make_client(script, fake)
+        first = script.build_feature_value_datasets(client, 3, [demand])
+        assert script.build_feature_value_datasets(client, 3, [demand]) == first
+        posts = [c for c in fake.calls if c[0] == "POST" and c[1].endswith("/api/v1/dataset/")]
+        assert len(posts) == 2
+        assert len(fake.rows["dataset"]) == 2
+
+
 class TestRunDefaults:
     def test_newest_run_its_last_day_and_the_matched_window_baseline(self, script, fake, spec):
         client = make_client(script, fake)
@@ -3548,6 +3672,9 @@ class TestMain:
             "demand_forecast_comparison",
             "demand_forecast_explanation_comparison",
             "demand_forecast_importance",
+            "spot_price_feature_values",
+            "demand_feature_values",
+            "feature_values_all",
         ]
         assert len(superset.rows["chart"]) == 114
         assert method_counts(superset.calls, "database") == {"GET": 1}
@@ -3565,6 +3692,8 @@ class TestMain:
             "demand_forecast_comparison",
             "demand_forecast_explanation_comparison",
             "demand_forecast_importance",
+            "demand_feature_values",
+            "feature_values_all",
         ]
         assert [c["slice_name"] for c in superset.rows["chart"].values()] == (
             EXPECTED_DEMAND_CHART_NAMES

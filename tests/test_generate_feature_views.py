@@ -1,4 +1,5 @@
-"""scripts/generate_feature_views.py: the dbt manifest → the Feast views module."""
+"""scripts/generate_feature_views.py: the dbt manifest → the Feast views module and the
+feature-value fact."""
 
 from __future__ import annotations
 
@@ -142,31 +143,128 @@ class TestRender:
             generate.render(bad)
 
 
+def cte(text: str, name: str) -> str:
+    """The body of the named CTE of a rendered fact."""
+    return text.split(f"  {name} as (\n")[1].split("\n  ),\n")[0]
+
+
+class TestRenderFact:
+    def test_day_marts_broadcast_hour_marts_join_and_period_marts_pass(self):
+        text = generate.render_fact(manifest())
+        assert text.startswith("-- fct_feature_value:")
+        assert (
+            "  periods as (\n  select\n    time_code,\n    hour_of_day + 1 as hour_ending\n"
+            "  from\n    {{ ref('dim_delivery_period') }}\n  ),\n"
+        ) in text
+        day = cte(text, "ftr_day_y")
+        assert "    p.time_code,\n" in day
+        assert "{{ ref('ftr_day_y') }} m\n    cross join periods p" in day
+        assert (
+            "    stack(\n      1,\n      'y', cast(m.y as double), true\n"
+            "    ) as (feature_name, feature_value, is_categorical)\n"
+        ) in day
+        assert "'ftr_day_y' as feature_view," in day
+        hour = cte(text, "ftr_hour_z")
+        assert "    join periods p on p.hour_ending = m.hour_ending" in hour
+        assert "'z', cast(m.z as double), false" in hour
+        assert "note" not in hour
+        period = cte(text, "ftr_period_x")
+        assert "    m.time_code,\n" in period
+        assert "periods" not in period
+        assert "'x', cast(m.x as double), false" in period
+        assert (
+            text.index("ftr_day_y as (")
+            < text.index("ftr_hour_z as (")
+            < text.index("ftr_period_x as (")
+        )
+        assert "fct_other" not in text
+        assert (
+            "  unioned as (\n  select * from ftr_day_y\n  union all\n  select * from ftr_hour_z\n"
+            "  union all\n  select * from ftr_period_x\n  ),\n"
+        ) in text
+        assert "concat(feature_view, ':', feature_name) as feature_ref" in text
+        assert text.endswith("select * from final\n")
+
+    def test_a_mart_with_published_at_keeps_the_newest_published_vintage(self):
+        text = generate.render_fact(manifest())
+        hour = cte(text, "ftr_hour_z")
+        assert (
+            "      row_number() over (\n"
+            "        partition by area_code, trade_date, hour_ending, available_at\n"
+            "        order by published_at desc\n      ) as vintage_rank"
+        ) in hour
+        assert "    m.published_at,\n" in hour
+        assert "  where\n    m.vintage_rank = 1" in hour
+        assert "cast(null as timestamp) as published_at" in cte(text, "ftr_day_y")
+        assert "vintage_rank" not in cte(text, "ftr_period_x")
+
+    def test_booleans_cast_through_int_and_other_types_are_rejected(self):
+        bad = manifest()
+        columns = bad["nodes"]["model.pma.ftr_day_y"]["columns"]
+        columns["b"] = {"name": "b", **column("boolean", "B.", {"feature": True})}
+        text = generate.render_fact(bad)
+        assert "    stack(\n      2,\n" in text
+        assert "'b', cast(cast(m.b as int) as double), false" in text
+        columns["b"]["data_type"] = "string"
+        with pytest.raises(ValueError, match="ftr_day_y.b: data type 'string' has no numeric"):
+            generate.render_fact(bad)
+
+    def test_a_mart_without_a_tagged_column_is_left_out(self):
+        thin = manifest()
+        del thin["nodes"]["model.pma.ftr_hour_z"]["columns"]["z"]
+        text = generate.render_fact(thin)
+        assert "ftr_hour_z" not in text
+        assert (
+            "  unioned as (\n  select * from ftr_day_y\n  union all\n  select * from ftr_period_x"
+            in text
+        )
+        for node in thin["nodes"].values():
+            node["columns"] = {
+                name: col
+                for name, col in node["columns"].items()
+                if not generate.column_meta(col).get("feature")
+            }
+        with pytest.raises(ValueError, match="no feature mart has a tagged column"):
+            generate.render_fact(thin)
+
+
 class TestMain:
     def test_writes_the_module_then_check_passes_and_detects_staleness(self, tmp_path, capsys):
         manifest_path = tmp_path / "manifest.json"
         manifest_path.write_text(json.dumps(manifest()))
         output = tmp_path / "views.py"
-        args = ["--manifest", str(manifest_path), "--output", str(output)]
+        fact = tmp_path / "fct_feature_value.sql"
+        args = [
+            "--manifest",
+            str(manifest_path),
+            "--output",
+            str(output),
+            "--fact-output",
+            str(fact),
+        ]
         assert generate.main(args) == 0
         assert output.read_text() == generate.render(manifest())
+        assert fact.read_text() == generate.render_fact(manifest())
         assert generate.main([*args, "--check"]) == 0
-        assert "is current" in capsys.readouterr().out
+        out = capsys.readouterr().out
+        assert "views.py is current" in out and "fct_feature_value.sql is current" in out
+        # Either output stale fails the check and is named.
+        fact.write_text(fact.read_text() + "-- edited\n")
+        assert generate.main([*args, "--check"]) == 1
+        err = capsys.readouterr().err
+        assert "fct_feature_value.sql is stale" in err and "views.py" not in err
         output.write_text(output.read_text() + "# edited\n")
         assert generate.main([*args, "--check"]) == 1
-        assert "is stale" in capsys.readouterr().err
+        err = capsys.readouterr().err
+        assert "views.py is stale" in err and "fct_feature_value.sql is stale" in err
 
     def test_check_fails_when_the_output_is_missing(self, tmp_path):
         manifest_path = tmp_path / "manifest.json"
         manifest_path.write_text(json.dumps(manifest()))
-        assert (
-            generate.main(
-                ["--manifest", str(manifest_path), "--output", str(tmp_path / "none.py"), "--check"]
-            )
-            == 1
-        )
+        args = ["--manifest", str(manifest_path), "--output", str(tmp_path / "none.py")]
+        assert generate.main([*args, "--fact-output", str(tmp_path / "none.sql"), "--check"]) == 1
 
-    def test_the_checked_in_module_is_current(self):
+    def test_the_checked_in_outputs_are_current(self):
         if not generate.DEFAULT_MANIFEST.exists():
             pytest.skip("no dbt manifest: run dbt parse first")
         assert generate.main(["--check"]) == 0
