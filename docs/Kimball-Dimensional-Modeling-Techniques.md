@@ -4,840 +4,636 @@
 
 ### Gather Business Requirements and Data Realities
 
-Before launching a dimensional modeling effort, the team needs to understand the needs of the
-business, as well as the realities of the underlying source data. You uncover the requirements via
-sessions with business representatives to understand their objectives based on key performance
-indicators, compelling business issues, decision-making processes, and supporting analytic needs. At
-the same time, data realities are uncovered by meeting with source system experts and doing high-level
-data profiling to assess data feasibilities.
+Before launching a dimensional modeling effort, understand both the needs of the business and
+the realities of the underlying source data. Uncover requirements in sessions with business
+representatives, covering their objectives, KPIs, compelling business issues, decision-making
+processes, and analytic needs. In parallel, meet with source system experts and profile the data
+at a high level to assess feasibility.
 
 ### Collaborative Dimensional Modeling Workshops
 
-Dimensional models should be designed in collaboration with subject matter experts and data
-governance representatives from the business. The data modeler is in charge, but the model should
-unfold via a series of highly interactive workshops with business representatives. These workshops
-provide another opportunity to flesh out the requirements with the business. Dimensional models should
-not be designed in isolation by folks who don’t fully understand the business and their needs;
-collaboration is critical!
+Design dimensional models in collaboration with subject matter experts and data governance
+representatives from the business, in a series of interactive workshops led by the data modeler.
+Never design in isolation by people who don't fully understand the business and its needs.
 
 ### Four-Step Dimensional Design Process
 
-The four key decisions made during the design of a dimensional model include:
-
-1. Select the business process.
-2. Declare the grain.
-3. Identify the dimensions.
-4. Identify the facts
-
-The answers to these questions are determined by considering the needs of the business along with the
-realities of the underlying source data during the collaborative modeling sessions. Following the
-business process, grain, dimension, and fact declarations, the design team determines the table and
-column names, sample domain values, and business rules. Business data governance representatives
-must participate in this detailed design activity to ensure business buy-in.
+Four key decisions drive the design of a dimensional model: select the business process, declare
+the grain, identify the dimensions, and identify the facts. Business needs and source-data
+realities, surfaced in the collaborative sessions above, answer these questions; the design team
+then settles table and column names, sample domain values, and business rules, with data
+governance representatives present to secure business buy-in.
 
 ### Business Processes
 
-_Business processes_ are the operational activities performed by your organization, such as taking an
-order, processing an insurance claim, registering students for a class, or snapshotting every account
-each month. Business process events generate or capture performance metrics that translate into facts
-in a fact table. Most fact tables focus on the results of a single business process. Choosing the process
-is important because it defines a specific design target and allows the grain, dimensions, and facts to be
-declared. Each business process corresponds to a row in the enterprise data warehouse bus matrix.
+_Business processes_ are the operational activities an organization performs — taking an order,
+processing an insurance claim, registering students for a class, snapshotting an account each
+month. They generate performance metrics that become fact-table facts. Most fact tables focus on
+a single business process; choosing it defines the design target and lets grain, dimensions, and
+facts be declared. Each business process is a row in the enterprise data warehouse bus matrix.
 
 ### Grain
 
-Declaring the grain is the pivotal step in a dimensional design. The grain establishes exactly what a
-single fact table row represents. The grain declaration becomes a binding contract on the design. The
-grain must be declared before choosing dimensions or facts because every candidate dimension or fact
-must be consistent with the grain. This consistency enforces a uniformity on all dimensional designs that
-is critical to BI application performance and ease of use. Atomic grain refers to the lowest level at which
-data is captured by a given business process. We strongly encourage you to start by focusing on atomic-
-grained data because it withstands the assault of unpredictable user queries; rolled-up summary grains
-are important for performance tuning, but they pre-suppose the business’s common questions. Each
-proposed fact table grain results in a separate physical table; different grains must not be mixed in the
-same fact table.
+Declaring the grain — exactly what a single fact table row represents — is the pivotal, binding step
+in a dimensional design, made before choosing dimensions or facts so every candidate stays
+consistent with it. Start with atomic-grained data: it withstands unpredictable user queries, while
+rolled-up summary grains help performance but presuppose the business's common questions.
+Different grains require separate physical fact tables.
 
 ### Dimensions for Descriptive Context
 
-Dimensions provide the “who, what, where, when, why, and how” context surrounding a business
-process event. Dimension tables contain the descriptive attributes used by BI applications for filtering
-and grouping the facts. With the grain of a fact table firmly in mind, all the possible dimensions can be
-identified. Whenever possible, a dimension should be single valued when associated with a given fact
-row. Dimension tables are sometimes called the “soul” of the data warehouse because they contain the
-entry points and descriptive labels that enable the DW/BI system to be leveraged for business analysis.
-A disproportionate amount of effort is put into the data governance and development of dimension tables
-because they are the drivers of the user’s BI experience.
+Dimensions supply the who/what/where/when/why/how context around a business process event,
+holding the descriptive attributes BI applications use to filter and group facts. A dimension should
+be single-valued per fact row wherever possible. Dimension tables are called the "soul" of the
+warehouse because their entry points and descriptive labels drive the BI experience, which is why
+disproportionate governance and development effort goes into them.
 
 ### Facts for Measurements
 
-_Facts_ are the measurements that result from a business process event and are almost always numeric. A
-single fact table row has a one-to-one relationship to a measurement event as described by the fact
-table’s grain. Thus a fact table corresponds to a physical observable event, and not to the demands of a
-particular report. Within a fact table, only facts consistent with the declared grain are allowed. For
-example, in a retail sales transaction, the quantity of a product sold and its extended price are good
-facts, whereas the store manager’s salary is disallowed.
+_Facts_ are the numeric measurements from a business process event, with a one-to-one
+relationship to a measurement event at the fact table's grain — the table reflects a physical
+observable event, not a particular report's demands. Only facts consistent with the declared grain
+belong in the table (a retail sale's quantity and extended price qualify; the store manager's salary
+does not).
 
 ### Star Schemas and OLAP cubes
 
-_Star schemas_ are dimensional structures deployed in a relational database management system
-(RDBMS). They characteristically consist of fact tables linked to associated dimension tables via primary/
-foreign key relationships. An _online analytical processing (OLAP) cube_ is a dimensional structure
-implemented in a multidimensional database; it can be equivalent in content to, or more often derived
-from, a relational star schema. An OLAP cube contains dimensional attributes and facts, but it is
-accessed through languages with more analytic capabilities than SQL, such as XMLA. OLAP cubes are
-included in this list of basic techniques because an OLAP cube is often the final step in the deployment
-of a dimensional DW/BI system, or may exist as an aggregate structure based on a more atomic
-relational star schema.
+_Star schemas_ are dimensional structures in an RDBMS: fact tables linked to dimension tables via
+primary/foreign keys. An _OLAP cube_ is the equivalent structure in a multidimensional database,
+usually derived from a relational star schema and accessed through richer analytic languages (e.g.
+XMLA) than SQL. A cube is often the final deployment step of a dimensional DW/BI system, or an
+aggregate structure atop a more atomic star schema.
 
 ### Grace Extensions to Dimensional Modeling
 
-Dimensional models are resilient when data relationships change. All the following changes can be
-implemented without altering any existing BI query or application, and without any change in query
-results.
-
-```
-* Facts consistent with the grain of an existing fact table can be added by creating new columns.
-* Dimensions can be added to an existing fact table by creating new foreign key columns, presuming they don’t alter the fact table’s grain.
-* Attributes can be added to an existing dimension table by creating new columns.
-* The grain of a fact table can be made more atomic by adding attributes to an existing dimension table, and then restating the fact table at the lower grain, being careful to preserve the existing column names in the fact and dimension tables.
-```
+Dimensional models absorb these changes without altering any existing BI query, application, or
+result: adding facts consistent with an existing fact table's grain as new columns; adding
+dimensions to a fact table as new foreign keys, provided the grain is unchanged; adding attributes
+to an existing dimension as new columns; and restating a fact table at a lower grain by adding
+attributes to a dimension, while preserving existing column names.
 
 ## Basic Fact Table Techniques
 
 ### Fact Table Structure
 
-A _fact table_ contains the numeric measures produced by an operational measurement event in the
-real world. At the lowest grain, a fact table row corresponds to a measurement event and vice versa.
-Thus the fundamental design of a fact table is entirely based on a physical activity and is not
-influenced by the eventual reports that may be produced. In addition to numeric measures, a fact
-table always contains foreign keys for each of its associated dimensions, as well as optional
-degenerate dimension keys and date/time stamps. Fact tables are the primary target of computations
-and dynamic aggregations arising from queries.
+A _fact table_ holds the numeric measures from an operational measurement event; at the lowest
+grain, one row corresponds to one event and vice versa, so the design follows the real-world
+activity rather than eventual reports. Besides measures, a fact table carries a foreign key per
+associated dimension, plus optional degenerate dimension keys and date/time stamps. It is the
+primary target of query computation and dynamic aggregation.
 
 ### Additive, Semi-Additive, and Non-Additive Facts
 
-The numeric measures in a fact table fall into three categories. The most flexible and useful facts are
-fully _additive_ ; additive measures can be summed across any of the dimensions associated with the
-fact table. _Semi-additive_ measures can be summed across some dimensions, but not all; balance
-amounts are common semi-additive facts because they are additive across all dimensions except
-time. Finally, some measures are completely _non-additive_ , such as ratios. A good approach for non-
-additive facts is, where possible, to store the fully additive components of the non-additive measure
-and sum these components into the final answer set before calculating the final non-additive fact.
-This final calculation is often done in the BI layer or OLAP cube.
+_Additive_ measures — the most useful — sum across any dimension of the fact table.
+_Semi-additive_ measures sum across some dimensions but not all (balance amounts are additive
+across everything except time). _Non-additive_ measures, such as ratios, are not summable at all;
+where possible, store the fully additive components of a non-additive measure and compute the
+final ratio after summing the components, often in the BI layer or OLAP cube.
 
 ### Nulls in Fact Tables
 
-Null-valued measurements behave gracefully in fact tables. The aggregate functions (SUM, COUNT,
-MIN, MAX, and AVG) all do the “right thing” with null facts. However, nulls must be avoided in the
-fact table’s foreign keys because these nulls would automatically cause a referential integrity
-violation. Rather than a null foreign key, the associated dimension table must have a default row (and
-surrogate key) representing the unknown or not applicable condition.
+Null measurements behave gracefully — SUM, COUNT, MIN, MAX, and AVG all do the right thing
+with them. Nulls must, however, be avoided in a fact table's foreign keys, since they would violate
+referential integrity; give the dimension a default row and surrogate key for the unknown/not
+applicable condition instead.
 
 ### Conformed Facts
 
-If the same measurement appears in separate fact tables, care must be taken to make sure the
-technical definitions of the facts are identical if they are to be compared or computed together. If the
-separate fact definitions are consistent, _the conformed facts_ should be identically named; but if they
-are incompatible, they should be differently named to alert the business users and BI applications.
+When the same measurement appears in separate fact tables, its technical definition must be
+identical for it to be compared or combined across them. Give consistent facts the same name;
+give inconsistent ones different names so business users and BI applications aren't misled.
 
 ### Transaction Fact Tables
 
-A row in a _transaction fact table_ corresponds to a measurement event at a point in space and time.
-Atomic transaction grain fact tables are the most dimensional and expressive fact tables; this robust
-dimensionality enables the maximum slicing and dicing of transaction data. Transaction fact tables
-may be dense or sparse because rows exist only if measurements take place. These fact tables
-always contain a foreign key for each associated dimension, and optionally contain precise time
-stamps and degenerate dimension keys. The measured numeric facts must be consistent with the
-transaction grain.
+A row in a _transaction fact table_ is a measurement event at a point in space and time. Being the
+most dimensional and expressive kind, these tables enable maximum slicing and dicing, and may
+be dense or sparse since rows exist only when a measurement occurs. They carry a foreign key
+per dimension, and optionally precise timestamps and degenerate dimensions, with facts
+consistent with the transaction grain.
 
 ### Periodic Snapshot Fact Tables
 
-A row in a _periodic snapshot fact table_ summarizes many measurement events occurring over a
-standard period, such as a day, a week, or a month. The grain is the period, not the individual
-transaction. Periodic snapshot fact tables often contain many facts because any measurement event
-consistent with the fact table grain is permissible. These fact tables are uniformly dense in their
-foreign keys because even if no activity takes place during the period, a row is typically inserted in
-the fact table containing a zero or null for each fact.
+A row in a _periodic snapshot fact table_ summarizes many measurement events over a standard
+period (day, week, month); the grain is the period, not the individual transaction. These tables
+often carry many facts — any measurement consistent with the grain is permissible — and are
+uniformly dense in their foreign keys, typically inserting a zero or null row even when no activity
+occurred in the period.
 
 ### Accumulating Snapshot Fact Tables
 
-A row in an _accumulating snapshot fact table_ summarizes the measurement events occurring at
-predictable steps between the beginning and the end of a process. Pipeline or workflow processes,
-such as order fulfillment or claim processing, that have a defined start point, standard intermediate
-steps, and defined end point can be modeled with this type of fact table. There is a date foreign key
-in the fact table for each critical milestone in the process. An individual row in an accumulating
-snapshot fact table, corresponding for instance to a line on an order, is initially inserted when the
-order line is created. As pipeline progress occurs, the accumulating fact table row is revisited and
-updated. This consistent updating of accumulating snapshot fact rows is unique among the three
-types of fact tables. In addition to the date foreign keys associated with each critical process step,
-accumulating snapshot fact tables contain foreign keys for other dimensions and optionally contain
-degenerate dimensions. They often include numeric lag measurements consistent with the grain,
-along with milestone completion counters.
+A row in an _accumulating snapshot fact table_ summarizes the measurement events at predictable
+steps of a process with a defined start, standard intermediate steps, and defined end (e.g. order
+fulfillment, claim processing). The table has a date foreign key per critical milestone, and a row —
+created when the process begins, e.g. an order line — is revisited and updated as the pipeline
+progresses; this ongoing update is unique to this fact table type. Besides milestone date keys,
+these tables carry other dimensional foreign keys, optional degenerate dimensions, numeric lag
+measurements at the grain, and milestone completion counters.
 
 ### Factless Fact Tables
 
-Although most measurement events capture numerical results, it is possible that the event merely
-records a set of dimensional entities coming together at a moment in time. For example, an event of
-a student attending a class on a given day may not have a recorded numeric fact, but a fact row with
-foreign keys for calendar day, student, teacher, location, and class is well-defined. Likewise,
-customer communications are events, but there may be no associated metrics. _Factless fact tables_
-can also be used to analyze what didn’t happen. These queries always have two parts: a factless
-coverage table that contains all the possibilities of events that might happen and an activity table that
-contains the events that did happen. When the activity is subtracted from the coverage, the result is
-the set of events that did not happen.
+Some events record only a set of dimensional entities coming together at a moment in time, with
+no numeric result — a student attending a class, or a customer communication — yet a row with
+foreign keys for calendar day, student, teacher, location, and class (say) is well-defined. _Factless
+fact tables_ can also analyze what *didn't* happen: a factless coverage table listing every possible
+event, and an activity table listing the events that did occur; subtracting activity from coverage
+yields the events that never happened.
 
 ### Aggregate Fact Tables or Cubes
 
-_Aggregate fact tables_ are simple numeric rollups of atomic fact table data built solely to accelerate
-query performance. These aggregate fact tables should be available to the BI layer at the same time
-as the atomic fact tables so that BI tools smoothly choose the appropriate aggregate level at query
-time. This process, known as _aggregate navigation_ , must be _open_ so that every report writer, query
-tool, and BI application harvests the same performance benefits. A properly designed set of
-aggregates should behave like database indexes, which accelerate query performance but are not
-encountered directly by the BI applications or business users. Aggregate fact tables contain foreign
-keys to shrunken conformed dimensions, as well as aggregated facts created by summing measures
-from more atomic fact tables. Finally, _aggregate OLAP cubes_ with summarized measures are
-frequently built in the same way as relational aggregates, but the OLAP cubes are meant to be
-accessed directly by the business users.
+_Aggregate fact tables_ are numeric rollups of atomic fact data, built solely to speed up queries, and
+should be available to the BI layer alongside the atomic tables so BI tools can smoothly pick the
+right aggregate level at query time (_aggregate navigation_). This navigation must be _open_ so every
+report writer, query tool, and BI application benefits equally — aggregates should behave like
+database indexes, accelerating queries without being encountered directly by users. They carry
+foreign keys to shrunken conformed dimensions and facts summed from the more atomic tables.
+_Aggregate OLAP cubes_ are built the same way but are meant for direct user access.
 
 ### Consolidated Fact Tables
 
-It is often convenient to combine facts from multiple processes together into a single _consolidated
-fact table_ if they can be expressed at the same grain. For example, sales actuals can be consolidated
-with sales forecasts in a single fact table to make the task of analyzing actuals versus forecasts
-simple and fast, as compared to assembling a drill-across application using separate fact tables.
-Consolidated fact tables add burden to the ETL processing, but ease the analytic burden on the BI
-applications. They should be considered for cross-process metrics that are frequently analyzed
-together.
+It is often convenient to combine facts from multiple processes at the same grain into a single
+_consolidated fact table_ — e.g. sales actuals with sales forecasts — to make actual-vs-forecast
+analysis simple and fast versus drilling across separate fact tables. This adds ETL burden but eases
+the analytic burden for cross-process metrics that are frequently analyzed together.
 
 ## Basic Dimension Table Techniques
 
 ### Dimension Table Structure
 
-Every dimension table has a single primary key column. This primary key is embedded as a foreign
-key in any associated fact table where the dimension row’s descriptive context is exactly correct for
-that fact table row. Dimension tables are usually wide, flat denormalized tables with many low-
-cardinality text attributes. While operational codes and indicators can be treated as attributes, the
-most powerful dimension attributes are populated with verbose descriptions. Dimension table
-attributes are the primary target of constraints and grouping specifications from queries and BI
-applications. The descriptive labels on reports are typically dimension attribute domain values.
+Every dimension table has a single primary key, embedded as a foreign key wherever that
+dimension row's context correctly describes a fact row. Dimension tables are usually wide, flat,
+denormalized, with many low-cardinality text attributes — the most powerful ones carry verbose
+descriptions — and are the primary target of query constraints and grouping; report labels are
+typically dimension attribute values.
 
 ### Dimension Surrogate Keys
 
-A dimension table is designed with one column serving as a unique primary key. This primary key
-cannot be the operational system’s natural key because there will be multiple dimension rows for that
-natural key when changes are tracked over time. In addition, natural keys for a dimension may be
-created by more than one source system, and these natural keys may be incompatible or poorly
-administered. The DW/BI system needs to claim control of the primary keys of all dimensions; rather
-than using explicit natural keys or natural keys with appended dates, you should create anonymous
-integer primary keys for every dimension. These _dimension surrogate keys_ are simple integers,
-assigned in sequence, starting with the value 1, every time a new key is needed. The date dimension
-is exempt from the surrogate key rule; this highly predictable and stable dimension can use a more
-meaningful primary key.
+A dimension's primary key cannot be the operational system's natural key, because change
+tracking over time produces multiple rows per natural key, and natural keys from different source
+systems may be incompatible or poorly administered. Instead, claim control with anonymous
+integer _dimension surrogate keys_, assigned in sequence from 1 whenever a new key is needed.
+The date dimension is exempt: its more meaningful, predictable, and stable primary key is fine as
+is.
 
 ### Natural, Durable, and Supernatural Keys
 
-_Natural keys_ created by operational source systems are subject to business rules outside the control
-of the DW/BI system. For instance, an employee number (natural key) may be changed if the
-employee resigns and then is rehired. When the data warehouse wants to have a single key for that
-employee, a new _durable key_ must be created that is persistent and does not change in this situation.
-This key is sometimes referred to as a _durable supernatural key_. The best durable keys have a
-format that is independent of the original business process and thus should be simple integers
-assigned in sequence beginning with 1. While multiple surrogate keys may be associated with an
-employee over time as their profile changes, the durable key never changes.
+_Natural keys_ from operational source systems are subject to business rules outside the DW/BI
+system's control (e.g. an employee number reused after a resignation and rehire). A _durable key_ —
+persistent and unchanging in such cases — solves this; it is sometimes called a _durable
+supernatural key_. The best durable keys are simple sequential integers, independent of the
+originating business process. Multiple surrogate keys may attach to an entity as its profile
+changes, but the durable key never does.
 
 ### Drilling Down
 
-_Drilling down_ is the most fundamental way data is analyzed by business users. Drilling down simply
-means adding a row header to an existing query; the new row header is a dimension attribute
-appended to the GROUP BY expression in an SQL query. The attribute can come from any
-dimension attached to the fact table in the query. Drilling down does not require the definition of
-predetermined hierarchies or drill-down paths.
+_Drilling down_ — the most fundamental analysis pattern — simply adds a row header, i.e. a
+dimension attribute, to the GROUP BY of an existing query. The attribute can come from any
+dimension attached to the fact table; no predetermined hierarchy or drill-down path is required.
 
 ### Degenerate Dimensions
 
-Sometimes a dimension is defined that has no content except for its primary key. For example, when
-an invoice has multiple line items, the line item fact rows inherit all the descriptive dimension foreign
-keys of the invoice, and the invoice is left with no unique content. But the invoice number remains a
-valid dimension key for fact tables at the line item level. This _degenerate dimension_ is placed
-in the fact table with the explicit acknowledgment that there is no associated dimension table.
-Degenerate dimensions are most common with transaction and accumulating snapshot fact tables.
+A dimension can be defined with no content beyond its primary key — an invoice number, say, once
+line-item facts inherit every descriptive foreign key from the invoice. This _degenerate dimension_ sits
+in the fact table with the explicit acknowledgment that no dimension table backs it. Degenerate
+dimensions are most common on transaction and accumulating snapshot fact tables.
 
 ### Denormalized Flattened Dimensions
 
-In general, dimensional designers must resist the normalization urges caused by years of operational
-database designs and instead denormalize the many-to-one fixed depth hierarchies into separate
-attributes on a flattened dimension row. Dimension denormalization supports dimensional modeling’s
-twin objectives of simplicity and speed.
+Resist the normalization instincts of operational database design: denormalize many-to-one fixed
+depth hierarchies into separate attributes on a flattened dimension row, in service of dimensional
+modeling's twin goals of simplicity and speed.
 
 ### Multiple Hierarchies in Dimensions
 
-Many dimensions contain more than one natural hierarchy. For example, calendar date dimensions
-may have a day to week to fiscal period hierarchy, as well as a day to month to year hierarchy.
-Location intensive dimensions may have multiple geographic hierarchies. In all of these cases, the
-separate hierarchies can gracefully coexist in the same dimension table.
+Many dimensions hold more than one natural hierarchy — a calendar date's day-week-fiscal-period
+hierarchy alongside its day-month-year one, or a location dimension's several geographic
+hierarchies. Separate hierarchies coexist gracefully in the same dimension table.
 
 ### Flags and Indicators as Textual Dimension Attributes
 
-Cryptic abbreviations, true/false flags, and operational indicators should be supplemented in
-dimension tables with full text words that have meaning when independently viewed. Operational
-codes with embedded meaning within the code value should be broken down with each part of the
-code expanded into its own separate descriptive dimension attribute.
+Supplement cryptic abbreviations, true/false flags, and operational indicators in dimension tables
+with full text words that carry meaning on their own. Break down operational codes with embedded
+meaning into separate descriptive attributes, one per part of the code.
 
 ### Null Attributes in Dimensions
 
-Null-valued dimension attributes result when a given dimension row has not been fully populated, or
-when there are attributes that are not applicable to all the dimension’s rows. In both cases, we
-recommend substituting a descriptive string, such as Unknown or Not Applicable in place of the null
-value. Nulls in dimension attributes should be avoided because different databases handle grouping
-and constraining on nulls inconsistently.
+Null-valued dimension attributes arise from incomplete population, or from attributes that don't
+apply to every row. Substitute a descriptive string such as "Unknown" or "Not Applicable" instead,
+since databases handle null grouping and constraining inconsistently.
 
 ### Calendar Date Dimensions
 
-_Calendar date dimensions_ are attached to virtually every fact table to allow navigation of the fact
-table through familiar dates, months, fiscal periods, and special days on the calendar. You would
-never want to compute Easter in SQL, but rather want to look it up in the calendar date dimension.
-The calendar date dimension typically has many attributes describing characteristics such as week
-number, month name, fiscal period, and national holiday indicator. To facilitate partitioning, the
-primary key of a date dimension can be more meaningful, such as an integer representing
-YYYYMMDD, instead of a sequentially-assigned surrogate key. However, the date dimension table
-needs a special row to represent unknown or to-be-determined dates. Filtering and grouping should
-be based on the date dimension’s attributes, not the smart key. When further precision is needed, a
-separate date/time stamp can be added to the fact table. The date/time stamp is not a foreign key to
-a dimension table, but rather is a standalone column. If business users constrain or group on time-of-
-day attributes, such as day part grouping or shift number, then you would add a separate time-of-day
-dimension foreign key to the fact table.
+_Calendar date dimensions_ attach to virtually every fact table, letting users navigate by familiar
+dates, months, fiscal periods, and special days — you'd never compute Easter in SQL, but you
+would look it up here. It typically carries many attributes (week number, month name, fiscal period,
+national holiday indicator). Its primary key can be a meaningful integer (YYYYMMDD) rather than a
+sequential surrogate, to aid partitioning, but still needs a special row for unknown/to-be-determined
+dates. Filter and group on the dimension's attributes, not the smart key; when finer precision is
+needed, add a standalone date/time stamp to the fact table (not a dimension foreign key). Add a
+separate time-of-day dimension foreign key only if users constrain or group on time-of-day
+attributes like day part or shift number.
 
 ### Role-Playing Dimensions
 
-A single physical dimension can be referenced multiple times in a fact table, with each reference
-linking to a logically distinct role for the dimension. For instance, a fact table can have several dates,
-each of which is represented by a foreign key to the date dimension. It is essential that each foreign
-key refers to a separate view of the date dimension so that the references are independent. These
-separate dimension views (with unique attribute column names) are called roles.
+A single physical dimension can be referenced multiple times in one fact table, each reference a
+logically distinct role — several dates in a fact table, each a foreign key to the date dimension.
+Each foreign key needs its own independent view of the dimension, with uniquely named attribute
+columns; these views are called roles.
 
 ### Junk Dimensions
 
-Transactional business processes typically produce a number of miscellaneous, low-cardinality flags
-and indicators. Rather than making separate dimensions for each flag and attribute, you can create a
-single _junk dimension_ combining them together. This dimension, frequently labeled as a _transaction
-profile dimension_ in a schema, does not need to be the Cartesian product of all the attributes’
-possible values, but should only contain the combination of values that actually occur in the source
-data.
+Transactional processes often produce several miscellaneous, low-cardinality flags and indicators.
+Rather than a separate dimension per flag, combine them into a single _junk dimension_ (often
+called a _transaction profile dimension_), holding only the combinations of values that actually occur
+in the source data, not their full Cartesian product.
 
 ### Snowflaked Dimensions
 
-When a hierarchical relationship in a dimension table is normalized, low-cardinality attributes appear
-as secondary tables connected to the base dimension table by an attribute key. When this process is
-repeated with all the dimension table’s hierarchies, a characteristic multilevel structure is created that
-is called a _snowflake_. Although the snowflake represents hierarchical data accurately, you should
-avoid snowflakes because it is difficult for business users to understand and navigate snowflakes.
-They can also negatively impact query performance. A flattened denormalized dimension table
-contains exactly the same information as a snowflaked dimension.
+Normalizing a dimension's hierarchical relationships produces low-cardinality secondary tables
+linked by attribute keys; repeating this across every hierarchy yields a multilevel _snowflake_.
+Accurate as it is, avoid snowflaking — it is hard for business users to navigate and can hurt query
+performance. A flattened, denormalized dimension table holds the same information more usably.
 
 ### Outrigger Dimensions
 
-A dimension can contain a reference to another dimension table. For instance, a bank account
-dimension can reference a separate dimension representing the date the account was opened.
-These secondary dimension references are called _outrigger dimensions_. Outrigger dimensions are
-permissible, but should be used sparingly. In most cases, the correlations between dimensions
-should be demoted to a fact table, where both dimensions are represented as separate foreign keys.
+A dimension can reference another dimension table — a bank account dimension referencing the
+date the account was opened, say. These _outrigger dimensions_ are permissible but should be used
+sparingly; in most cases, demote the correlation to the fact table instead, with both dimensions as
+separate foreign keys.
 
 ## Integration via Conformed Dimensions
 
 ### Conformed Dimensions
 
-Dimension tables _conform_ when attributes in separate dimension tables have the same column
-names and domain contents. Information from separate fact tables can be combined in a single
-report by using conformed dimension attributes that are associated with each fact table. When a
-conformed attribute is used as the row header (that is, the grouping column in the SQL query), the
-results from the separate fact tables can be aligned on the same rows in a drill-across report. This is
-the essence of integration in an enterprise DW/ BI system. _Conformed dimensions_ , defined once in
-collaboration with the business’s data governance representatives, are reused across fact tables;
-they deliver both analytic consistency and reduced future development costs because the wheel is
-not repeatedly re-created
+Dimension tables _conform_ when their attributes share column names and domain contents across
+tables, letting separate fact tables be combined in a single report on that shared attribute — the
+essence of DW/BI integration. When a conformed attribute drives the GROUP BY, results from
+separate fact tables align on the same rows in a drill-across report. _Conformed dimensions_, defined
+once with business data governance, are then reused across fact tables, delivering consistency and
+avoiding repeated redevelopment.
 
 ### Shrunken Rollup Dimensions
 
-_Shrunken dimensions_ are conformed dimensions that are a _subset_ of rows and /or columns of a base
-dimension. _Shrunken rollup_ dimensions are required when constructing aggregate fact tables. They
-are also necessary for business processes that naturally capture data at a higher level of granularity,
-such as a forecast by month and brand (instead of the more atomic date and product associated with
-sales data). Another case of conformed dimension subsetting occurs when two dimensions are at the
-same level of detail, but one represents only a subset of rows.
+_Shrunken dimensions_ are conformed dimensions holding a subset of a base dimension's rows and/or
+columns. _Shrunken rollup_ dimensions are required for aggregate fact tables, and for business
+processes captured at a higher grain than a related process (e.g. a forecast by month and brand,
+versus sales at date and product). Another case: two dimensions at the same level of detail, one a
+subset of the other's rows.
 
 ### Drilling Across
 
-_Drilling across_ simply means making separate queries against two or more fact tables where the row
-headers of each query consist of identical conformed attributes. The answer sets from the two
-queries are aligned by performing a sort-merge operation on the common dimension attribute row
-headers. BI tool vendors refer to this functionality by various names, including stitch and multipass
-query.
+_Drilling across_ issues separate queries against two or more fact tables, each with row headers of
+identical conformed attributes, then aligns the answer sets by sort-merging on the common
+attribute — variously called stitch or multipass query by BI vendors.
 
 ### Value Chain
 
-A _value chain_ identifies the natural flow of an organization’s primary business processes. For
-example, a retailer’s value chain may consist of purchasing to ware- housing to retail sales. A general
-ledger value chain may consist of budgeting to commitments to payments. Operational source
-systems typically produce transactions or snapshots at each step of the value chain. Because each
-process produces unique metrics at unique time intervals with unique granularity and dimensionality,
-each process typically spawns at least one atomic fact table.
+A _value chain_ is an organization's natural sequence of primary business processes — purchasing
+to warehousing to retail sales for a retailer, or budgeting to commitments to payments for a general
+ledger. Each step's operational source systems typically produce transactions or snapshots with
+unique metrics, time intervals, and granularity, so each process usually spawns at least one atomic
+fact table.
 
 ### Enterprise Data Warehouse Bus Architecture
 
-The _enterprise data warehouse bus architecture_ provides an incremental approach to building the
-enterprise DW/BI system. This architecture decomposes the DW/ BI planning process into
-manageable pieces by focusing on business processes, while delivering integration via standardized
-conformed dimensions that are reused across processes. It provides an architectural framework,
-while also decomposing the program to encourage manageable agile implementations corresponding
-to the rows on the enterprise data warehouse bus matrix. The bus architecture is technology and
-database platform independent; both relational and OLAP dimensional structures can participate.
+The _bus architecture_ builds the DW/BI system incrementally by decomposing planning into
+manageable pieces focused on business processes, while integrating via standardized conformed
+dimensions reused across them. It is technology- and platform-independent — relational and OLAP
+structures both participate — and it decomposes the program to encourage manageable agile
+implementations matching the rows of the bus matrix.
 
 ### Enterprise Data Warehouse Bus Matrix
 
-The _enterprise data warehouse bus matrix_ is the essential tool for designing and communicating the
-enterprise data warehouse bus architecture. The rows of the matrix are business processes and the
-columns are dimensions. The shaded cells of the matrix indicate whether a dimension is associated
-with a given business process. The design team scans each row to test whether a candidate
-dimension is well-defined for the business process and also scans each column to see where a
-dimension should be conformed across multiple business processes. Besides the technical design
-considerations, the bus matrix is used as input to prioritize DW/BI projects with business
-management as teams should implement one row of the matrix at a time.
-
-The _detailed implementation bus matrix_ is a more granular bus matrix where each business process
-row has been expanded to show specific fact tables or OLAP cubes. At this level of detail, the precise
-grain statement and list of facts can be documented.
+The _bus matrix_ is the essential design and communication tool for the bus architecture: rows are
+business processes, columns are dimensions, and shaded cells mark whether a dimension applies
+to a process. The design team scans each row to validate a candidate dimension and each column
+to find dimensions needing conformance across processes; the matrix also helps prioritize DW/BI
+projects, implemented one row at a time. A _detailed implementation bus matrix_ expands each row to
+specific fact tables or cubes, with the precise grain and fact list documented at that level.
 
 ### Opportunity/Stakeholder Matrix
 
-After the enterprise data warehouse bus matrix rows have been identified, you can draft a different
-matrix by replacing the dimension columns with business functions, such as marketing, sales, and
-finance, and then shading the matrix cells to indicate which business functions are interested in
-which business process rows. The _opportunity/stakeholder matrix_ helps identify which business
-groups should be invited to the collaborative design sessions for each process-centric row.
+Once the bus matrix rows are set, draft a second matrix replacing the dimension columns with
+business functions (marketing, sales, finance), shading cells to show which functions care about
+which process rows. This _opportunity/stakeholder matrix_ helps identify who should join the
+collaborative design sessions for each process.
 
 ## Slowly Changing Dimension Techniques
 
 ### Type 0: Retain Original
 
-With slowly changing dimension _type 0_ , the dimension attribute value never changes, so facts are
-always grouped by this original value. Type 0 is appropriate for any attribute labeled “original,” such
-as a customer’s original credit score or a durable identifier. It also applies to most attributes in a date
-dimension.
+_Type 0_: the attribute value never changes, so facts always group by the original value.
+Appropriate for anything labeled "original" (e.g. a customer's original credit score, a durable
+identifier) and for most date dimension attributes.
 
 ### Type 1: Overwrite
 
-With slowly changing dimension _type 1_ , the old attribute value in the dimension row is overwritten
-with the new value; type 1 attributes always reflects the most recent assignment, and therefore this
-technique destroys history. Although this approach is easy to implement and does not create
-additional dimension rows, you must be careful that aggregate fact tables and OLAP cubes affected
-by this change are recomputed.
+_Type 1_: the old value is overwritten with the new one, so the attribute always reflects the latest
+assignment and destroys history. Easy to implement and adds no rows, but any aggregate fact
+table or OLAP cube built on it must be recomputed.
 
 ### Type 2: Add New Row
 
-Slowly changing dimension _type 2_ changes add a new row in the dimension with the updated
-attribute values. This requires generalizing the primary key of the dimension beyond the natural or
-durable key because there will potentially be multiple rows describing each member. When a new
-row is created for a dimension member, a new primary surrogate key is assigned and used as a
-foreign key in all fact tables from the moment of the update until a subsequent change creates a new
-dimension key and updated dimension row. A minimum of three additional columns should be added
-to the dimension row with type 2 changes: 1) row effective date or date/time stamp; 2) row expiration
-date or date/time stamp; and 3) current row indicator.
+_Type 2_: a change adds a new dimension row with the updated attributes, so the primary key must
+generalize beyond the natural/durable key to allow multiple rows per member. A new surrogate key
+is assigned and used in fact tables from the update onward, until the next change. Add at least
+three columns: row effective date/timestamp, row expiration date/timestamp, and a current-row
+indicator.
 
 ### Type 3: Add New Attribute
 
-Slowly changing dimension _type 3_ changes add a new attribute in the dimension to preserve the old
-attribute value; the new value overwrites the main attribute as in a type 1 change. This kind of type 3
-change is sometimes called an alternate reality. A business user can group and filter fact data by
-either the current value or alternate reality. This slowly changing dimension technique is used
-relatively infrequently.
+_Type 3_: a new attribute preserves the old value while the main attribute is overwritten as in type 1
+(sometimes called an "alternate reality"), letting users group or filter by either the current or the
+prior value. Used relatively infrequently.
 
 ### Type 4: Add Mini-Dimension
 
-Slowly changing dimension _type 4_ is used when a group of attributes in a dimension rapidly changes
-and is split off to a _mini-dimension._ This situation is sometimes called a rapidly _changing monster
-dimension_. Frequently used attributes in multimillion-row dimension tables are mini-dimension design
-candidates, even if they don’t frequently change. The type 4 mini-dimension requires its own unique
-primary key; the primary keys of both the base dimension and mini-dimension are captured in the
-associated fact tables.
+_Type 4_: a group of rapidly changing attributes ("a rapidly changing monster dimension") is split off
+into a _mini-dimension_ with its own primary key, carried in fact tables alongside the base
+dimension's key. Good candidates are frequently used attributes on multimillion-row dimensions,
+even if they don't change often.
 
 ### Type 5: Add Mini-Dimension and Type 1 Outrigger
 
-Slowly changing dimension _type 5_ is used to accurately preserve historical attribute values, plus
-report historical facts according to current attribute values. Type 5 builds on the type 4 mini-
-dimension by also embedding a current type 1 reference to the mini-dimension in the base
-dimension. This enables the currently-assigned mini- dimension attributes to be accessed along with
-the others in the base dimension without linking through a fact table. Logically, you’d represent the
-base dimension and mini-dimension outrigger as a single table in the presentation area. The ETL
-team must overwrite this type 1 mini-dimension reference whenever the current mini-dimension
-assignment changes.
+_Type 5_ preserves historical attribute values while also reporting historical facts by current attribute
+values: it builds on type 4 by embedding a current type 1 reference to the mini-dimension in the
+base dimension, so currently assigned mini-dimension attributes are visible alongside the base
+dimension's without a fact-table join. The base dimension and mini-dimension outrigger present
+logically as one table; ETL must overwrite the type 1 reference whenever the current assignment
+changes.
 
 ### Type 6: Add Type 1 Attributes to Type 2 Dimension
 
-Like type 5, slowly changing dimension _type 6_ also delivers both historical and current dimension
-attribute values. Type 6 builds on the type 2 technique by also embedding current type 1 versions of
-the same attributes in the dimension row so that fact rows can be filtered or grouped by either the
-type 2 attribute value in effect when the measurement occurred or the attribute’s current value. In this
-case, the type 1 attribute is systematically overwritten on all rows associated with a particular durable
-key whenever the attribute is updated.
+_Type 6_ also delivers both historical and current values, by building on type 2 with current type 1
+copies of the same attributes embedded in the row, so fact rows can be filtered or grouped by the
+value at the time of measurement or by today's value. The type 1 attribute is overwritten across
+every row of a durable key whenever it's updated.
 
 ### Type 7: Dual Type 1 and Type 2 Dimensions
 
-Slowly changing dimension _type 7_ is the final hybrid technique used to support both as-was and as-is
-reporting. A fact table can be accessed through a dimension modeled both as a type 1 dimension
-showing only the most current attribute values, or as a type 2 dimension showing correct
-contemporary historical profiles. The same dimension table enables both perspectives. Both the
-durable key and primary surrogate key of the dimension are placed in the fact table. For the type 1
-perspective, the current flag in the dimension is constrained to be current, and the fact table is joined
-via the durable key. For the type 2 perspective, the current flag is not constrained, and the fact table
-is joined via the surrogate primary key. These two perspectives would be deployed as separate views
-to the BI applications.
+_Type 7_, the final hybrid, supports both as-was and as-is reporting from a single dimension table
+modeled both ways, with both the durable key and the surrogate key placed in the fact table. The
+type 1 perspective constrains the current flag and joins via the durable key; the type 2 perspective
+joins via the surrogate key without constraining the flag. Each perspective is deployed to BI
+applications as a separate view.
 
 ## Dealing with Dimension Hierarchies
 
 ### Fixed Depth Positional Hierarchies
 
-A _fixed depth hierarchy_ is a series of many-to-one relationships, such as product to brand to category
-to department. When a fixed depth hierarchy is defined and the hierarchy levels have agreed upon
-names, the hierarchy levels should appear as separate positional attributes in a dimension table. A
-fixed depth hierarchy is by far the easiest to understand and navigate as long as the above criteria
-are met. It also delivers predictable and fast query performance. When the hierarchy is not a series of
-many-to-one relationships or the number of levels varies such that the levels do not have agreed
-upon names, a ragged hierarchy technique must be used.
+A _fixed depth hierarchy_ is a series of many-to-one relationships (product → brand → category →
+department) with agreed-upon level names; model it as separate positional attributes in the
+dimension table. This is the easiest hierarchy to understand, navigate, and query at predictable,
+fast performance — use it whenever the criteria hold. When depth varies or level names aren't
+agreed, use a ragged hierarchy technique instead.
 
 ### Slightly Ragged/Variable Depth Hierarchies
 
-_Slightly ragged_ hierarchies don’t have a fixed number of levels, but the range in depth is small.
-Geographic hierarchies often range in depth from perhaps three levels to six levels. Rather than
-using the complex machinery for unpredictably variable hierarchies, you can force-fit slightly ragged
-hierarchies into a fixed depth positional design with separate dimension attributes for the maximum
-number of levels, and then populate the attribute value based on rules from the business.
+_Slightly ragged_ hierarchies vary in depth but only a little — geographic hierarchies often range
+three to six levels. Rather than the machinery for unpredictable variable hierarchies, force-fit them
+into a fixed depth positional design sized to the maximum depth, populating attributes per business
+rules.
 
 ### Ragged/Variable Depth Hierarchies
 
-_Ragged hierarchies_ of indeterminate depth are difficult to model and query in a relational database.
-Although SQL extensions and OLAP access languages provide some support for recursive parent/
-child relationships, these approaches have limitations. With SQL extensions, alternative ragged
-hierarchies cannot be substituted at query time, shared ownership structures are not supported, and
-time varying ragged hierarchies are not supported. All these objections can be overcome in relational
-databases by modeling a ragged hierarchy with a specially constructed _bridge table_. This bridge table
-contains a row for every possible path in the ragged hierarchy and enables all forms of hierarchy
-traversal to be accomplished with standard SQL rather than using special language extensions.
-
-The use of a bridge table for ragged variable depth hierarchies can be avoided by implementing a
-_pathstring attribute_ in the dimension. For each row in the dimension, the pathstring attribute contains
-a specially encoded text string containing the complete path description from the supreme node of a
-hierarchy down to the node described by the particular dimension row. Many of the standard
-hierarchy analysis requests can then be handled by standard SQL, without resorting to SQL
-language extensions. However, the pathstring approach does not enable rapid substitution of
-alternative hierarchies or shared ownership hierarchies. The pathstring approach may also be
-vulnerable to structure changes in the ragged hierarchy that could force the entire hierarchy to be
-relabeled.
+_Ragged hierarchies_ of indeterminate depth are hard to model and query relationally; SQL
+extensions and OLAP languages offer limited recursive parent/child support (no substituting
+alternative hierarchies at query time, no shared ownership structures, no time-varying hierarchies).
+A specially constructed _bridge table_, with one row per possible path, overcomes these limits and
+supports every form of traversal in standard SQL. Alternatively, a _pathstring attribute_ on the
+dimension — a specially encoded string describing the full path from the hierarchy's root to that
+row — handles most standard analysis requests in plain SQL, though it can't substitute alternative
+or shared-ownership hierarchies and is vulnerable to relabeling if the hierarchy's structure changes.
 
 ## Advanced Fact Table Techniques
 
 ### Fact Table Surrogate Keys
 
-Surrogate keys are used to implement the primary keys of almost all dimension tables. In addition,
-single column surrogate fact keys can be useful, albeit not required. _Fact table surrogate keys_ , which
-are not associated with any dimension, are assigned sequentially during the ETL load process and
-are used 1) as the single column primary key of the fact table; 2) to serve as an immediate identifier
-of a fact table row without navigating multiple dimensions for ETL purposes; 3) to allow an interrupted
-load process to either back out or resume; 4) to allow fact table update operations to be decomposed
-into less risky inserts plus deletes.
+Beyond dimension primary keys, a single-column _fact table surrogate key_ — not tied to any
+dimension, assigned sequentially during ETL — is optional but useful: as the fact table's primary
+key, as an immediate row identifier for ETL without navigating every dimension, to let an
+interrupted load back out or resume, and to decompose fact table updates into safer insert-plus-
+delete pairs.
 
 ### Centipede Fact Tables
 
-Some designers create separate normalized dimensions for each level of a many-to- one hierarchy,
-such as a date dimension, month dimension, quarter dimension, and year dimension, and then
-include all these foreign keys in a fact table. This results in a _centipede fact table_ with dozens of
-hierarchically related dimensions. Centipede fact tables should be avoided. All these fixed depth,
-many-to-one hierarchically related dimensions should be collapsed back to their unique lowest
-grains, such as the date for the example mentioned. Centipede fact tables also result when designers
-embed numerous foreign keys to individual low-cardinality dimension tables rather than creating a
-junk dimension.
+Avoid _centipede fact tables_, which arise from separately normalizing each level of a many-to-one
+hierarchy (date, month, quarter, year dimensions) and including all their foreign keys in one fact
+table, or from embedding many low-cardinality dimension foreign keys instead of a junk dimension.
+Collapse hierarchically related dimensions back to their unique lowest grain.
 
 ### Numeric Values as Attributes or Facts
 
-Designers sometimes encounter numeric values that don’t clearly fall into either the fact or dimension
-attribute categories. A classic example is a product’s standard list price. If the numeric value is used
-primarily for calculation purposes, it likely belongs in the fact table. If a stable numeric value is used
-predominantly for filtering and grouping, it should be treated as a dimension attribute; the discrete
-numeric values can be supplemented with value band attributes (such as $0-50). In some cases, it is
-useful to model the numeric value as both a fact and dimension attribute, such as a quantitative on-
-time delivery metric and qualitative textual descriptor.
+A numeric value like a product's standard list price may fit either fact or dimension attribute. If it's
+used mainly for calculation, put it in the fact table; if a stable value is used mainly for filtering and
+grouping, make it a dimension attribute (optionally supplemented with value bands like $0–50). It
+can sometimes usefully be both — e.g. a quantitative on-time-delivery metric and its qualitative
+textual descriptor.
 
 ### Lag/Duration Facts
 
-Accumulating snapshot fact tables capture multiple process milestones, each with a date foreign key
-and possibly a date/time stamp. Business users often want to analyze the lags or durations between
-these milestones; sometimes these lags are just the differences between dates, but other times the
-lags are based on more complicated business rules. If there are dozens of steps in a pipeline, there
-could be hundreds of possible lags. Rather than forcing the user’s query to calculate each possible
-lag from the date/time stamps or date dimension foreign keys, just one time lag can be stored for
-each step measured against the process’s start point. Then every possible lag between two steps
-can be calculated as a simple subtraction between the two lags stored in the fact table.
+Accumulating snapshot fact tables capture multiple milestones, and users often want the lags or
+durations between them — sometimes plain date differences, sometimes governed by more
+complex business rules. Rather than making every query recompute each of the potentially many
+possible lags, store one time lag per step measured against the process's start point; any lag
+between two steps is then a simple subtraction of two stored values.
 
 ### Header/Line Fact Tables
 
-Operational transaction systems often consist of a transaction header row that’s associated with
-multiple transaction lines. With _header/line_ schemas (also known as _parent/child_ schemas), all the
-header-level dimension foreign keys and degenerate dimensions should be included on the line-level
-fact table.
+Operational systems often pair a transaction header row with multiple lines. In these _header/line_
+(_parent/child_) schemas, put all header-level dimension foreign keys and degenerate dimensions on
+the line-level fact table.
 
 ### Allocated Facts
 
-It is quite common in header/line transaction data to encounter facts of differing granularity, such as a
-header freight charge. You should strive to _allocate_ the header facts down to the line level based on
-rules provided by the business, so the allocated facts can be sliced and rolled up by all the
-dimensions. In many cases, you can avoid creating a header-level fact table, unless this aggregation
-delivers query performance advantages.
+Header/line data often mixes granularities — a header freight charge, say. Allocate header facts
+down to the line level per business rules so the allocated facts can be sliced and rolled up by every
+dimension; a header-level fact table is usually unnecessary unless it aids query performance.
 
 ### Profit and Loss Fact Tables Using Allocations
 
-Fact tables that expose the full equation of _profit_ are among the most powerful deliverables of an
-enterprise DW/BI system. The equation of profit is (revenue) – (costs) = (profit). Fact tables ideally
-implement the profit equation at the grain of the atomic revenue transaction and contain many
-components of cost. Because these tables are at the atomic grain, numerous rollups are possible,
-including customer profitability, product profitability, promotion profitability, channel profitability, and
-others. However, these fact tables are difficult to build because the cost components must be
-allocated from their original sources to the fact table’s grain. This allocation step is often a major ETL
-subsystem and is a politically charged step that requires high- level executive support. For these
-reasons, profit and loss fact tables are typically not tackled during the early implementation phases of
-a DW/BI program.
+Fact tables implementing the full profit equation — revenue minus costs equals profit — at the
+atomic revenue-transaction grain, with many cost components, are among a DW/BI system's most
+powerful deliverables, enabling rollups by customer, product, promotion, and channel profitability.
+They are hard to build because cost components must be allocated from their original sources to
+the fact grain — often a major, politically charged ETL subsystem needing high-level executive
+support — so they are typically not tackled early in a program.
 
 ### Multiple Currency Facts
 
-Fact tables that record financial transactions in multiple currencies should contain a pair of columns
-for every financial fact in the row. One column contains the fact expressed in the true currency of the
-transaction, and the other contains the same fact expressed in a single standard currency that is
-used throughout the fact table. The standard currency value is created in an ETL process according
-to an approved business rule for currency conversion. This fact table also must have a currency
-dimension to identify the transaction’s true currency.
+A fact table recording multi-currency financial transactions should carry a pair of columns per
+financial fact: one in the transaction's true currency, one converted to a single standard currency
+per an approved ETL business rule. The table also needs a currency dimension identifying the true
+transaction currency.
 
 ### Multiple Units of Measure Facts
 
-Some business processes require facts to be stated simultaneously in several units of measure. For
-example, depending on the perspective of the business user, a supply chain may need to report the
-same facts as pallets, ship cases, retail cases, or individual scan units. If the fact table contains a
-large number of facts, each of which must be expressed in all units of measure, a convenient
-technique is to store the facts once in the table at an agreed standard unit of measure, but also
-simultaneously store conversion factors between the standard measure and all the others. This fact
-table could be deployed through views to each user constituency, using an appropriate selected
-conversion factor. The conversion factors must reside in the underlying fact table row to ensure the
-view calculation is simple and correct, while minimizing query complexity.
+Some processes must report facts simultaneously in several units — pallets, ship cases, retail
+cases, individual scan units in a supply chain. Store facts once at an agreed standard unit, plus
+conversion factors between it and every other unit, and deploy views per user constituency using
+the right factor. Keep the conversion factors in the underlying fact row so view calculations stay
+simple and correct without adding query complexity.
 
 ### Year-to-Date Facts
 
-Business users often request year-to-date (YTD) values in a fact table. It is hard to argue against a
-single request, but YTD requests can easily morph into “YTD at the close of the fiscal period” or
-“fiscal period to date.” A more reliable, extensible way to handle these assorted requests is to
-calculate the YTD metrics in the BI applications or OLAP cube rather than storing YTD facts in the
-fact table.
-
+Business users often ask for year-to-date values, but a single request easily grows into "YTD at
+fiscal period close" or "fiscal period to date." Compute YTD metrics in the BI application or OLAP
+cube instead of storing them as facts — more reliable and extensible than baking a fixed YTD into
+the fact table.
 
 ### Multipass SQL to Avoid Fact-to-Fact Table Joins
 
-A BI application must never issue SQL that joins two fact tables together across the fact table’s
-foreign keys. It is impossible to control the cardinality of the answer set of such a join in a relational
-database, and incorrect results will be returned to the BI tool. For instance, if two fact tables contain
-customer’s product shipments and returns, these two fact tables must not be joined directly across
-the customer and product foreign keys. Instead, the technique of drilling across two fact tables should
-be used, where the answer sets from shipments and returns are separately created, and the results
-sort-merged on the common row header attribute values to produce the correct result.
+A BI application must never join two fact tables directly across their foreign keys — the join's
+cardinality can't be controlled in a relational database and will return incorrect results (e.g. joining
+shipments and returns fact tables directly on customer and product). Instead, drill across: query
+each fact table separately and sort-merge the results on the common row-header attributes.
 
 ### Timespan Tracking in Fact Tables
 
-There are three basic fact table grains: transaction, periodic snapshot, and accumulating snapshot. In
-isolated cases, it is useful to add a row effective date, row expiration date, and current row indicator
-to the fact table, much like you do with type 2 slowly changing dimensions, to capture a _timespan_
-when the fact row was effective. Although an unusual pattern, this pattern addresses scenarios such
-as slowly changing inventory balances where a frequent periodic snapshot would load identical rows
-with each snapshot.
+In isolated cases it helps to add a row effective date, row expiration date, and current-row indicator
+to a fact table — the type 2 SCD pattern applied to facts — capturing the timespan a fact row was
+effective. Unusual, but useful for scenarios like slowly changing inventory balances, where a plain
+periodic snapshot would load identical rows every time.
 
 ### Late Arriving Facts
 
-A fact row is _late arriving_ if the most current dimensional context for new fact rows does not match
-the incoming row. This happens when the fact row is delayed. In this case, the relevant dimensions
-must be searched to find the dimension keys that were effective when the late arriving measurement
-event occurred.
+A fact row is _late arriving_ if the current dimensional context doesn't match it because the row itself
+was delayed. Search the relevant dimensions for the keys that were in effect when the
+measurement event actually occurred, rather than using today's dimension state.
 
 ## Advanced Dimension Table Techniques
 
 ### Dimension-to-Dimension Table Joins
 
-Dimensions can contain references to other dimensions. Although these relationships can be
-modeled with outrigger dimensions, in some cases, the existence of a foreign key to the outrigger
-dimension in the base dimension can result in explosive growth of the base dimension because type
-2 changes in the outrigger force corresponding type 2 processing in the base dimension. This
-explosive growth can often be avoided if you demote the correlation between dimensions by placing
-the foreign key of the outrigger in the fact table rather than in the base dimension. This means the
-correlation between the dimensions can be discovered only by traversing the fact table, but this may
-be acceptable, especially if the fact table is a periodic snapshot where all the keys for all the
-dimensions are guaranteed to be present for each reporting period.
+Dimensions can reference other dimensions. Modeling this as an outrigger can cause explosive
+growth in the base dimension, since a type 2 change in the outrigger forces type 2 processing in
+the base too. Demoting the correlation — putting the outrigger's foreign key in the fact table instead
+of the base dimension — often avoids this; the correlation is then discoverable only by traversing
+the fact table, which is acceptable especially for a periodic snapshot where every dimension key is
+guaranteed present each period.
 
 ### Multivalued Dimensions and Bridge Tables
 
-In a classic dimensional schema, each dimension attached to a fact table has a single value
-consistent with the fact table’s grain. But there are a number of situations in which a dimension is
-legitimately _multivalued_. For example, a patient receiving a healthcare treatment may have multiple
-simultaneous diagnoses. In these cases, the multivalued dimension must be attached to the fact
-table through a group dimension key to a bridge table with one row for each simultaneous diagnosis
-in a group.
-
-A _multivalued bridge table_ may need to be based on a type 2 slowly changing dimension. For
-example, the bridge table that implements the many-to-many relationship between bank accounts
-and individual customers usually must be based on type 2 account and customer dimensions. In this
-case, to prevent incorrect linkages between accounts and customers, the bridge table must include
-effective and expiration date/time stamps, and the requesting application must constrain the bridge
-table to a specific moment in time to produce a consistent snapshot.
+A dimension is legitimately _multivalued_ when a fact row can have more than one value for it — a
+patient with multiple simultaneous diagnoses, say. Attach it through a group dimension key to a
+bridge table with one row per simultaneous value. A _multivalued bridge table_ may itself need to be
+based on a type 2 SCD — e.g. the bridge implementing the many-to-many relationship between
+bank accounts and customers usually needs type 2 account and customer dimensions, with
+effective/expiration timestamps on the bridge and the querying application constrained to a specific
+moment for a consistent snapshot.
 
 ### Behavior Tag Time Series
 
-Almost all text in a data warehouse is descriptive text in dimension tables. Data mining customer
-cluster analyses typically results in textual _behavior tags_ , often identified on a periodic basis. In this
-case, the customers’ behavior measurements over time become a sequence of these behavior tags;
-this time series should be stored as positional attributes in the customer dimension, along with an
-optional text string for the complete sequence of tags. The behavior tags are modeled in a positional
-design because the behavior tags are the target of complex simultaneous queries rather than
-numeric computations.
+Nearly all warehouse text lives in dimension attributes. Periodic data-mining cluster analyses often
+produce textual _behavior tags_; store the resulting time series of tags as positional attributes in the
+customer dimension, plus an optional full-sequence text string. This positional design suits complex
+simultaneous queries on the tags better than numeric computation would.
 
 ### Behavior Study Groups
 
-Complex customer behavior can sometimes be discovered only by running lengthy iterative analyses.
-In these cases, it is impractical to embed the behavior analyses inside every BI application that wants
-to constrain all the members of the customer dimension who exhibit the complex behavior. The
-results of the complex behavior analyses, however, can be captured in a simple table, called a _study
-group_ , consisting only of the customers’ durable keys. This static table can then be used as a kind of
-filter on any dimensional schema with a customer dimension by constraining the study group column
-to the customer dimension’s durable key in the target schema at query time. Multiple study groups
-can be defined and derivative study groups can be created with intersections, unions, and set
-differences.
+Complex customer behavior sometimes requires lengthy iterative analysis that's impractical to
+embed in every BI application wanting to filter on it. Capture the analysis's result as a simple table
+of customers' durable keys — a _study group_ — usable as a filter on any schema with a customer
+dimension by constraining to the group's keys at query time. Multiple study groups can combine via
+intersection, union, and set difference.
 
 ### Aggregated Facts as Dimension Attributes
 
-Business users are often interested in constraining the customer dimension based on aggregated
-performance metrics, such as filtering on all customers who spent over a certain dollar amount during
-last year or perhaps over the customer’s lifetime. Selected _aggregated facts_ can be placed in a
-dimension as targets for constraining and as row labels for reporting. The metrics are often presented
-as banded ranges in the dimension table. Dimension attributes representing aggregated performance
-metrics add burden to the ETL processing, but ease the analytic burden in the BI layer.
+Users often want to constrain a customer dimension on aggregated performance — total spend last
+year, or over the customer's lifetime. Place selected _aggregated facts_ in the dimension as
+constraint targets and report row labels, often banded into ranges. This adds ETL burden but eases
+the BI layer's analytic burden.
 
 ### Dynamic Value Banding
 
-A _dynamic value banding report_ is organized as a series of report row headers that define a
-progressive set of varying-sized ranges of a target numeric fact. For instance, a common value
-banding report in a bank has many rows with labels such as “Balance from 0 to $10,” “Balance from
-$10.01 to $25,” and so on. This kind of report is dynamic because the specific row headers are
-defined at query time, not during the ETL processing. The row definitions can be implemented in a
-small value banding dimension table that is joined via greater-than/less-than joins to the fact table, or
-the definitions can exist only in an SQL CASE statement. The value banding dimension approach is
-probably higher performing, especially in a columnar database, because the CASE statement
-approach involves an almost unconstrained relation scan of the fact table.
+A _dynamic value banding report_ presents row headers as a progressive series of ranges over a
+numeric fact — "Balance from $0 to $10," "Balance from $10.01 to $25," and so on — defined at
+query time rather than during ETL. Implement the bands either as a small value-banding dimension
+joined via greater-than/less-than to the fact table, or as an SQL CASE statement; the dimension join
+is likely higher-performing, especially on a columnar database, since a CASE statement forces an
+almost unconstrained scan of the fact table.
 
 ### Text Comments
 
-Rather than treating freeform comments as textual metrics in a fact table, they should be stored
-outside the fact table in a separate comments dimension (or as attributes in a dimension with one
-row per transaction if the comments’ cardinality matches the number of unique transactions) with a
-corresponding foreign key in the fact table.
+Store freeform comments outside the fact table, in a separate comments dimension (or as
+attributes of a dimension with one row per transaction, if the comments' cardinality matches
+transaction count), with a corresponding fact-table foreign key — not as textual metrics inside the
+fact table itself.
 
 ### Multiple Time Zones
 
-To capture both universal standard time, as well as local times in _multi-time zone_ applications, dual
-foreign keys should be placed in the affected fact tables that join to two role-playing date (and
-potentially time-of-day) dimension tables.
+To capture both universal standard time and local time in multi-time-zone applications, place dual
+foreign keys in the affected fact tables, joining to two role-playing date (and potentially time-of-day)
+dimensions.
 
 ### Measure Type Dimensions
 
-Sometimes when a fact table has a long list of facts that is sparsely populated in any individual row, it
-is tempting to create a _measure type dimension_ that collapses the fact table row down to a single
-generic fact identified by the measure type dimension. We generally do not recommend this
-approach. Although it removes all the empty fact columns, it multiplies the size of the fact table by the
-average number of occupied columns in each row, and it makes intra-column computations much
-more difficult. This technique is acceptable when the number of potential facts is extreme (in the
-hundreds), but less than a handful would be applicable to any given fact table row.
+When a fact table has a long, sparsely populated list of facts, it's tempting to collapse it to a single
+generic fact identified by a _measure type dimension_. Generally avoid this: while it removes empty
+columns, it multiplies the fact table's row count by the average number of occupied columns per
+row and makes intra-column computation much harder. It's acceptable only when the number of
+potential facts is extreme (hundreds), with few applicable to any given row.
 
 ### Step Dimensions
 
-Sequential processes, such as web page events, normally have a separate row in a transaction fact table for each step in a process. To tell where the individual step fits into the overall session, a _step dimension_ is used that shows what step number is represented by the current step and how many more steps were required to complete the session.
+Sequential processes like web page events normally get a separate transaction fact row per step. A
+_step dimension_ marks where a step sits in the overall process — its step number and how many
+more steps remained to complete the session.
 
 ### Hot Swappable Dimensions
 
-_Hot swappable dimensions_ are used when the same fact table is alternatively paired with different
-copies of the same dimension. For example, a single fact table containing stock ticker quotes could
-be simultaneously exposed to multiple separate investors, each of whom has unique and proprietary
-attributes assigned to different stocks.
+_Hot swappable dimensions_ pair the same fact table with different copies of an otherwise identical
+dimension — for example, a stock-ticker-quote fact table exposed to multiple investors, each with
+unique, proprietary attributes on the same stocks.
 
 ### Abstract Generic Dimensions
 
-Some modelers are attracted to abstract generic dimensions. For example, their schemas include a
-single generic location dimension rather than embedded geographic attributes in the store,
-warehouse, and customer dimensions. Similarly, their person dimension includes rows for
-employees, customers, and vendor contacts because they are all human beings, regardless that
-significantly different attributes are collected for each type. Abstract generic dimensions should be
-avoided in dimensional models. The attribute sets associated with each type often differ. If the
-attributes are common, such as a geographic state, then they should be uniquely labeled to
-distinguish a store’s state from a customer’s. Finally, dumping all varieties of locations, people, or
-products into a single dimension invariably results in a larger dimension table. Data abstraction may
-be appropriate in the operational source system or ETL processing, but it negatively impacts query
-performance and legibility in the dimensional model.
+Avoid abstract generic dimensions — a single generic location dimension instead of separate
+geographic attributes on store, warehouse, and customer dimensions, or one person dimension for
+employees, customers, and vendor contacts because they're all human beings. Attribute sets
+usually differ by type; common attributes (a geographic state) should still be uniquely labeled per
+role (a store's state vs. a customer's). Merging every location, person, or product variety into one
+dimension only produces a larger table. Such abstraction may suit the operational source or ETL
+process, but it hurts query performance and legibility in the dimensional model.
 
 ### Audit Dimensions
 
-When a fact table row is created in the ETL back room, it is helpful to create an _audit dimension_
-containing the ETL processing metadata known at the time. A simple audit dimension row could
-contain one or more basic indicators of data quality, perhaps derived from examining an error event
-schema that records data quality violations encountered while processing the data. Other useful audit
-dimension attributes could include environment variables describing the versions of ETL code used
-to create the fact rows or the ETL process execution time stamps. These environment variables are
-especially useful for compliance and auditing purposes because they enable BI tools to drill down to
-determine which rows were created with what versions of the ETL software.
+When ETL creates a fact row, an _audit dimension_ can capture the processing metadata known at
+that time — basic data-quality indicators (perhaps derived from an error event schema), the ETL
+code version, and process execution timestamps. These attributes help compliance and auditing by
+letting BI tools drill down to which software version produced which rows.
 
 ### Late Arriving Dimensions
 
-Sometimes the facts from an operational business process arrive minutes, hours, days, or weeks
-before the associated dimension context. For example, in a real-time data delivery situation, an
-inventory depletion row may arrive showing the natural key of a customer committing to purchase a
-particular product. In a real-time ETL system, this row must be posted to the BI layer, even if the
-identity of the customer or product cannot be immediately determined. In these cases, special
-dimension rows are created with the unresolved natural keys as attributes. Of course, these
-dimension rows must contain generic unknown values for most of the descriptive columns;
-presumably the proper dimensional context will follow from the source at a later time. When this
-dimensional context is eventually supplied, the placeholder dimension rows are updated with type 1
-overwrites. Late arriving dimension data also occurs when retroactive changes are made to type 2
-dimension attributes. In this case, a new row needs to be inserted in the dimension table, and then
-the associated fact rows must be restated.
+Sometimes facts arrive minutes, hours, days, or weeks before their dimensional context — a
+real-time inventory-depletion row may show a customer's natural key before that customer's
+identity can be resolved. Post the row anyway with a special dimension row holding the unresolved
+natural key as an attribute and generic "unknown" values elsewhere; when the real context arrives,
+update the placeholder row with type 1 overwrites. Late arriving dimension data also occurs on
+retroactive changes to type 2 attributes, which instead insert a new dimension row and require
+restating the associated fact rows.
 
 ## Special Purpose Schemas
 
 ### Supertype and Subtype Schemas for Heterogeneous Products
 
-Financial services and other businesses frequently offer a wide variety of products in disparate lines
-of business. For example, a retail bank may offer dozens of types of accounts ranging from checking
-accounts to mortgages to business loans, but all are examples of an account. Attempts to build a
-single, consolidated fact table with the union of all possible facts, linked to dimension tables with all
-possible attributes of these divergent products, will fail because there can be hundreds of
-incompatible facts and attributes. The solution is to build a single _supertype fact table_ that has the
-intersection of the facts from all the account types (along with a supertype dimension table containing
-the common attributes), and then systematically build separate fact tables (and associated dimension
-tables) for each of the subtypes. _Supertype_ and _subtype_ fact tables are also called _core_ and _custom
-fact tables._
+Businesses with many disparate product lines — a retail bank's checking accounts, mortgages,
+and business loans, all examples of "account" — can't build one consolidated fact table with the
+union of every possible fact and dimension attribute; there can be hundreds of incompatible facts
+and attributes. Instead build a single _supertype fact table_ with the intersection of facts across all
+product types (plus a supertype dimension of common attributes), and separate _subtype_ fact
+(and dimension) tables per product type. These are also called _core_ and _custom_ fact tables.
 
 ### Real-Time Fact Tables
 
-_Real-time fact tables_ need to be updated more frequently than the more traditional nightly batch
-process. There are many techniques for supporting this requirement, depending on the capabilities of
-the DBMS or OLAP cube used for final deployment to the BI reporting layer. For example, a “hot
-partition” can be defined on a fact table that is pinned in physical memory. Aggregations and indexes
-are deliberately not built on this partition. Other DBMSs or OLAP cubes may support deferred
-updating that allows existing queries to run to completion but then perform the updates.
+_Real-time fact tables_ need updates more often than a traditional nightly batch, via techniques
+depending on the DBMS or OLAP cube's capabilities — e.g. a "hot partition" pinned in memory
+without aggregations or indexes, or deferred updating that lets running queries finish before
+applying updates.
 
 ### Error Event Schemas
 
-Managing data quality in a data warehouse requires a comprehensive system of data quality screens
-or filters that test the data as it flows from the source systems to the BI platform. When a data quality
-screen detects an error, this event is recorded in a special dimensional schema that is available only
-in the ETL back room. This schema consists of an error event fact table whose grain is the individual
-error event and an associated error event detail fact table whose grain is each column in each table
-that participates in an error event.
+Managing data quality requires screens that test data as it flows from source systems to the BI
+platform; a screen that detects an error records the event in a dimensional schema available only
+in the ETL back room. This schema has an error event fact table at the grain of the individual error
+event, and an associated error event detail fact table at the grain of each column in each table
+involved in that event.
