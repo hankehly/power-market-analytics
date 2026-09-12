@@ -192,6 +192,18 @@ and nothing else:
 Prefer a file with no entry at all. Fall back to one whose cooldown has passed rather than
 concluding there is nothing to do.
 
+### 1b. On a `/unbloat` run, stop early if the pull request is from a fork
+
+Before doing any work on a `/unbloat` run, read the triggering pull request and compare its **head
+repository** with this one. If they differ, the pull request comes from a fork: **stop now.** Post
+your one comment saying that this workflow cannot clean a fork-backed pull request and that the
+cleanup should be run after the PR merges, then emit `noop` and do nothing else.
+
+The reason is that step 9 passes the pull request's head branch as `base`, and `base` is resolved in
+*this* repository — a fork's branch does not exist here, so the call would be rejected after the work
+was done. Checking first turns a wasted run and a confusing failure into one clear comment. A
+scheduled or `workflow_dispatch` run has no triggering pull request and skips this step.
+
 ### 2. Find Documentation Files
 
 Scan the repository for markdown documentation files. Common locations include:
@@ -204,6 +216,11 @@ Scan the repository for markdown documentation files. Common locations include:
 - Changelog files
 - License files
 - Code of conduct files
+- **The docsify site files** — any markdown whose name starts with an underscore, which for this
+  repository means `docs/_sidebar.md` (and `_navbar.md` / `_coverpage.md` if they are ever added).
+  These are site navigation and configuration, not prose. `docs/_sidebar.md` is 33 lines of which
+  all 33 are bullets, so it is the strongest possible match for "excessive bullet points" and a 20 %
+  reduction — and condensing it would delete navigation links from the published docs
 - **Every `README.md`, at any path.** Safe outputs match protected files **by basename**, and
   `README.md` is in the protected set, so a patch touching any of them falls back to an issue and
   never becomes a PR. The run would then be recorded, read as stale next time because no PR exists,
@@ -234,6 +251,7 @@ Look for documentation files that were recently modified or are likely to benefi
 - Auto-generated documentation
 - Changelog or release notes
 - License or legal files
+- **Any underscore-prefixed markdown** (`docs/_sidebar.md`) - docsify site files, excluded above
 - **Any `README.md`** - protected by basename, so it can only ever produce an issue, excluded above
 - **Anything under `.github/`** - workflow configuration, excluded above
 - **`CLAUDE.md` and `AGENTS.md`** - the agent instruction files, excluded above
@@ -377,13 +395,14 @@ After improving ONE file:
    order, so a run that never reaches the PR call leaves no cooldown behind
    - **IMPORTANT**: Pass the exact branch name you created in step 7 as the `branch` parameter of
      create_pull_request. It is a required field - a call without it is rejected. Never pass "main"
-   - **`base`, when this run was triggered by `/unbloat` on a pull request**: pass that pull
-     request's **head branch**, which you can read from its number in the GitHub context above. The
-     safe-output job that applies your patch checks the repository out at the default branch, so
-     without a `base` your patch is applied to `main` - where a file the triggering PR only just
-     added does not exist, and a file it modified is the older version. Stacking the cleanup on the
-     branch it came from is also this repository's rule for work that depends on an unmerged PR.
-     On a scheduled run there is no triggering PR: leave `base` unset and it defaults correctly
+   - **`base`, when this run was triggered by `/unbloat` on a pull request in this repository**:
+     pass that pull request's **head branch**, which you can read from its number in the GitHub
+     context above. The safe-output job that applies your patch checks the repository out at the
+     default branch, so without a `base` your patch is applied to `main` - where a file the
+     triggering PR only just added does not exist, and a file it modified is the older version.
+     Stacking the cleanup on the branch it came from is also this repository's rule for work that
+     depends on an unmerged PR. On a scheduled run there is no triggering PR: leave `base` unset and
+     it defaults correctly. Step 1b has already stopped the run if the pull request came from a fork
    - **Title**: `docs(<scope>): <description>` - this repository requires Conventional Commits form
      for PR titles, with the type `docs` for a documentation change. The scope is the area the file
      belongs to (`dbt`, `dashboard`, `forecasting`, `demand`, `spot-price`, a source such as `jma` /
