@@ -307,6 +307,10 @@ The `chore/` prefix is required too, not stylistic: this repository allows only 
 `hotfix/`, `release/` and `chore/`, and `chore/` is the one for documentation and config work. The
 description must be lowercase `a-z0-9` with single hyphens, which the rule above already gives you.
 
+On a `/unbloat` run the workspace is already checked out at the triggering pull request's head, so
+`git checkout -b` branches from it — which is what you want, and step 9 pairs it with a matching
+`base`.
+
 **IMPORTANT**: Remember this exact branch name. Step 9 passes it to create_pull_request and step 8
 records it in the cache, which is how a later run tells a real cleanup from a failed one.
 
@@ -333,6 +337,13 @@ After improving ONE file:
    order, so a run that never reaches the PR call leaves no cooldown behind
    - **IMPORTANT**: Pass the exact branch name you created in step 7 as the `branch` parameter of
      create_pull_request. It is a required field - a call without it is rejected. Never pass "main"
+   - **`base`, when this run was triggered by `/unbloat` on a pull request**: pass that pull
+     request's **head branch**, which you can read from its number in the GitHub context above. The
+     safe-output job that applies your patch checks the repository out at the default branch, so
+     without a `base` your patch is applied to `main` - where a file the triggering PR only just
+     added does not exist, and a file it modified is the older version. Stacking the cleanup on the
+     branch it came from is also this repository's rule for work that depends on an unmerged PR.
+     On a scheduled run there is no triggering PR: leave `base` unset and it defaults correctly
    - **Title**: `docs(<scope>): <description>` - this repository requires Conventional Commits form
      for PR titles, with the type `docs` for a documentation change. The scope is the area the file
      belongs to (`dbt`, `dashboard`, `forecasting`, `demand`, `spot-price`, a source such as `jma` /
