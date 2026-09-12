@@ -18,6 +18,7 @@ import argparse
 import numpy as np
 from loguru import logger
 
+from power_market_analytics.forecasting.compare import uncommon_days
 from power_market_analytics.tasks.demand.compare import (
     SegmentComparison,
     compare_runs,
@@ -81,6 +82,14 @@ def main(argv: list[str] | None = None) -> None:
     )
     parser.add_argument("--baseline-label", default="Baseline", help="Legend label.")
     parser.add_argument("--candidate-label", default="Candidate", help="Legend label.")
+    parser.add_argument(
+        "--common-days",
+        action="store_true",
+        help=(
+            "Compare on the delivery days both runs scored: a day only one run scored is "
+            "dropped and listed. Without it the runs must have scored identical points."
+        ),
+    )
     args = parser.parse_args(argv)
 
     errors = load_run_errors([args.baseline, args.candidate])
@@ -90,6 +99,7 @@ def main(argv: list[str] | None = None) -> None:
         candidate_run_id=args.candidate,
         high_demand_quantile=args.high_demand_quantile,
         band_mwh=args.band_mwh,
+        common_days=args.common_days,
     )
     paired = daily_paired_comparison(
         errors,
@@ -98,9 +108,18 @@ def main(argv: list[str] | None = None) -> None:
         resamples=args.resamples,
         seed=args.seed,
         top_days=args.top_days,
+        common_days=args.common_days,
     )
     print(f"Baseline run: `{args.baseline}`  ")
     print(f"Candidate run: `{args.candidate}`\n")
+    if args.common_days:
+        only = uncommon_days(errors.df, args.baseline, args.candidate)
+        print("### Common days\n")
+        print(f"- compared on the {paired.n_days} delivery days both runs scored")
+        for role in ("baseline", "candidate"):
+            days = ", ".join(day.strftime("%Y-%m-%d") for day in only[role]) or "none"
+            print(f"- dropped {role}-only days ({len(only[role])}): {days}")
+        print()
     for key, (title, metric, unit, decimals) in SECTIONS.items():
         print(f"### {title}\n")
         print(to_markdown(tables[key], metric=metric, unit=unit, decimals=decimals))

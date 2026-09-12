@@ -20,6 +20,7 @@ from tests.conftest import (
     DEMAND_CANDIDATE_RUN_ID,
     DEMAND_HOLE_DAY,
     DEMAND_HOLE_TIME_CODES,
+    DEMAND_UNMATCHED_RUN_ID,
     FORECAST_MISSING_DAY,
     similar_day_load,
 )
@@ -111,6 +112,25 @@ class TestCompareScript:
         assert "- candidate lower on 100.0 % of days (21 of 21)" in lines
         assert "(10,000 resamples, seed 0)" in out
         assert "- the 10 most-improved day(s) account for" in out
+
+    def test_common_days_compares_the_days_both_runs_scored(self, spark, curated_warehouse, capsys):
+        script = import_script("compare_demand_runs")
+        args = ["--baseline", DEMAND_BASELINE_RUN_ID, "--candidate", DEMAND_UNMATCHED_RUN_ID]
+        with pytest.raises(ValueError, match="Runs are not matched"):
+            script.main(args)
+        script.main([*args, "--common-days"])
+        lines = capsys.readouterr().out.splitlines()
+        assert lines[3] == "### Common days"
+        assert lines[5] == "- compared on the 6 delivery days both runs scored"
+        # The baseline's 21 days less the six both scored: 04-10 to 04-14 and 04-21 to 04-30.
+        assert lines[6].startswith("- dropped baseline-only days (15): 2024-04-10, 2024-04-11, ")
+        assert lines[6].endswith(
+            "2024-04-14, 2024-04-21, 2024-04-22, 2024-04-23, 2024-04-24, "
+            "2024-04-25, 2024-04-26, 2024-04-27, 2024-04-28, 2024-04-29, "
+            "2024-04-30"
+        )
+        assert lines[7] == "- dropped candidate-only days (0): none"
+        assert "| all | 288 |" in "\n".join(lines)
 
     def test_options_reach_the_comparison(self, spark, curated_warehouse, capsys, tmp_path):
         script = import_script("compare_demand_runs")
