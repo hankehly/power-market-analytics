@@ -59,9 +59,9 @@ is the fallback, for when Codex cannot review — in practice when it has run ou
 credits. Claude drives the loop and reports the PR as ready; the researcher merges
 unless they have explicitly asked Claude to.
 
-The two are worth keeping both of, because they miss different things. Codex reads the
-change for what it is trying to do. Copilot is better at the gap between what a file
-promises and what the tool it configures actually enforces.
+Both are worth keeping, because they miss different things. Codex reads the change for
+what it is trying to do. Copilot is better at the gap between what a file promises and
+what the tool it configures actually enforces.
 
 The mechanics are in `CLAUDE.md` under *Code review (pull requests)*: the exact
 `gh api` polls and their timestamps, why the Codex trigger is never spelled out in a
