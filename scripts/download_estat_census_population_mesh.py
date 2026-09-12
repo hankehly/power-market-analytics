@@ -1,6 +1,6 @@
 """Download the e-Stat census 500 m population-mesh archives and extract the text files.
 
-For every configured census vintage (power_market_analytics.ingestion.estat.VINTAGES:
+For every configured census vintage (power_market_analytics.ingestion.estat.vintages.VINTAGES:
 2015 = T000847, 2020 = T001101 JGD2000) the 第１次地域区画 listing is read
 (151 primary-mesh archives each, ~1 MB apiece), every archive is downloaded
 into ``{data-dir}/{year}/zip/`` unless it is already cached, and its single

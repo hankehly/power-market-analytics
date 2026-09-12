@@ -112,7 +112,9 @@ column-header line. It also supplies thin `TepcoAreaDownloader` and
 same classes ([Kansai doc](Kansai-Area-Demand-Generation-Retrieval.md)).
 
 ```python
-from power_market_analytics.ingestion.tso.tepco import TepcoAreaDownloader
+from power_market_analytics.ingestion.tso.tepco.area_demand_generation import (
+    TepcoAreaDownloader,
+)
 
 downloader = TepcoAreaDownloader()          # data/tepco/area_demand_generation
 downloader.download(2025, 7)                 # one month -> 31 csv/ files
