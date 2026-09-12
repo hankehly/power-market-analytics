@@ -14,6 +14,7 @@ from tests.conftest import (
     DEMAND_HOLE_TIME_CODES,
     FORECAST_MISSING_DAY,
     HOLIDAYS_2024_SPRING,
+    MSM_EXTRA_ELEMENTS,
     RECENT_LOAD_COLUMNS,
     SECOND_STATION_FORECAST_HUMIDITY_OFFSET_PCT,
     SECOND_STATION_FORECAST_OFFSET_C,
@@ -23,6 +24,7 @@ from tests.conftest import (
     similar_day_load,
     synthetic_day_type,
     synthetic_demand,
+    synthetic_forecast_element,
     synthetic_forecast_humidity,
     synthetic_forecast_precipitation,
     synthetic_forecast_solar_radiation,
@@ -171,9 +173,34 @@ class TestBuildPreset:
                 ),
             ):
                 assert row[column] == pytest.approx(popw_forecast(day, hour, value, offset))
-        assert frame.loc[(day, 17), "popw_forecast_solar_radiation_mjm2"] > frame.loc[
-            (day, 2), "popw_forecast_solar_radiation_mjm2"
-        ]
+        assert (
+            frame.loc[(day, 17), "popw_forecast_solar_radiation_mjm2"]
+            > frame.loc[(day, 2), "popw_forecast_solar_radiation_mjm2"]
+        )
+
+    def test_the_msm_cloud_wind_and_pressure_columns_can_be_added(self, feature_marts):
+        columns = tuple(f"popw_forecast_{element}" for element in MSM_EXTRA_ELEMENTS)
+        days = pd.date_range("2024-04-26", "2024-04-30", freq="D")
+        strategy = build_strategy(
+            "lightgbm_msm_popw",
+            area_code="tokyo",
+            days=days,
+            add=tuple(f"ftr_hour_msm:{column}" for column in columns),
+            label="lightgbm_msm_extra",
+        )
+        assert strategy.feature_cols[-len(columns) :] == columns
+        assert strategy.categorical_feature_cols == ()
+        # Retrieved through the generated Feast source query, so a column the
+        # generator left out of its select fails here, not at backtest time.
+        frame = frame_by_period(strategy)
+        day, time_code = pd.Timestamp("2024-04-29"), 17
+        hour = (time_code + 1) // 2
+        row = frame.loc[(day, time_code)]
+        for element, (_, _, offset) in MSM_EXTRA_ELEMENTS.items():
+            value = synthetic_forecast_element(element, day, hour)
+            assert row[f"popw_forecast_{element}"] == pytest.approx(
+                popw_forecast(day, hour, value, offset)
+            )
 
     def test_add_drop_and_label_compose_a_named_set(self, feature_marts):
         strategy = build_strategy(

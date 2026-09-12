@@ -100,12 +100,21 @@ with
     m.available_at,
     cast(null as timestamp) as published_at,
     stack(
-      5,
+      14,
       'forecast_temperature_c', cast(m.forecast_temperature_c as double), false,
       'popw_forecast_temperature_c', cast(m.popw_forecast_temperature_c as double), false,
       'popw_forecast_relative_humidity_pct', cast(m.popw_forecast_relative_humidity_pct as double), false,
       'popw_forecast_precipitation_mm', cast(m.popw_forecast_precipitation_mm as double), false,
-      'popw_forecast_solar_radiation_mjm2', cast(m.popw_forecast_solar_radiation_mjm2 as double), false
+      'popw_forecast_solar_radiation_mjm2', cast(m.popw_forecast_solar_radiation_mjm2 as double), false,
+      'popw_forecast_total_cloud_cover_pct', cast(m.popw_forecast_total_cloud_cover_pct as double), false,
+      'popw_forecast_high_cloud_cover_pct', cast(m.popw_forecast_high_cloud_cover_pct as double), false,
+      'popw_forecast_middle_cloud_cover_pct', cast(m.popw_forecast_middle_cloud_cover_pct as double), false,
+      'popw_forecast_low_cloud_cover_pct', cast(m.popw_forecast_low_cloud_cover_pct as double), false,
+      'popw_forecast_wind_speed_ms', cast(m.popw_forecast_wind_speed_ms as double), false,
+      'popw_forecast_u_wind_ms', cast(m.popw_forecast_u_wind_ms as double), false,
+      'popw_forecast_v_wind_ms', cast(m.popw_forecast_v_wind_ms as double), false,
+      'popw_forecast_surface_pressure_hpa', cast(m.popw_forecast_surface_pressure_hpa as double), false,
+      'popw_forecast_sea_level_pressure_hpa', cast(m.popw_forecast_sea_level_pressure_hpa as double), false
     ) as (feature_name, feature_value, is_categorical)
   from
     {{ ref('ftr_hour_msm') }} m
