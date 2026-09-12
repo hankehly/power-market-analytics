@@ -27,9 +27,12 @@ on:
       run: |
         MAX_OPEN_PRS=8
         if [[ "$GITHUB_EVENT_NAME" != "schedule" ]]; then exit 0; fi
-        COUNT=$(gh pr list --repo ${{ github.repository }} --state open --search 'in:title "[docs]"' --json number --jq 'length')
+        COUNT=$(gh pr list --repo ${{ github.repository }} --state open --label documentation --json number --jq 'length')
         [[ "$COUNT" -lt "$MAX_OPEN_PRS" ]]
-      # exits 0 if not scheduled or <MAX_OPEN_PRS open PRs, 1 if ≥MAX_OPEN_PRS
+      # exits 0 if not scheduled or <MAX_OPEN_PRS open PRs, 1 if ≥MAX_OPEN_PRS.
+      # Counts by label, not by a title prefix: the titles have to stay in the repository's
+      # `type(scope): description` form. Human docs PRs carry the same label, so the count can run
+      # high — that only pauses the schedule earlier, which is the safe direction.
 
 if: needs.pre_activation.outputs.check_result == 'success'
 
@@ -73,8 +76,11 @@ tools:
 safe-outputs:
   create-pull-request:
     expires: 2d
-    title-prefix: "[docs] "
-    labels: [documentation, automation]
+    # No title-prefix: this repository requires PR titles in the plain
+    # `type(scope): description` form, and a prefix would break it. The prompt sets the title.
+    # One type label only, per the repository's label rule: a docs-only PR is `documentation`,
+    # and `documentation` never sits beside another type label.
+    labels: [documentation]
     draft: true
     protected-files: fallback-to-issue
   add-comment:
@@ -243,10 +249,14 @@ Make targeted edits to improve clarity:
 
 Before making changes, create a new branch with a descriptive name:
 ````bash
-git checkout -b docs/unbloat-<filename-without-extension>
+git checkout -b chore/unbloat-<filename-without-extension>
 ````
 
-For example, if you're cleaning `validation-timing.md`, create branch `docs/unbloat-validation-timing`.
+For example, if you're cleaning `validation-timing.md`, create branch `chore/unbloat-validation-timing`.
+
+The `chore/` prefix is required, not stylistic: this repository allows only `feature/`, `fix/`,
+`hotfix/`, `release/` and `chore/`, and `chore/` is the one for documentation and config work. The
+description must be lowercase `a-z0-9` with single hyphens.
 
 **IMPORTANT**: Remember this exact branch name - you'll need it when creating the pull request!
 
@@ -267,11 +277,20 @@ After improving ONE file:
 3. Create a pull request with your improvements
    - **IMPORTANT**: Pass the exact branch name you created in step 7 as the `branch` parameter of
      create_pull_request. It is a required field - a call without it is rejected. Never pass "main"
+   - **Title**: `docs(<scope>): <description>` - this repository requires Conventional Commits form
+     for PR titles, with the type `docs` for a documentation change. The scope is the area the file
+     belongs to (`dbt`, `dashboard`, `forecasting`, `demand`, `spot-price`, a source such as `jma` /
+     `tepco` / `occto`, `justfile`, `docs`); use plain `docs: <description>` when no scope fits.
+     The description is lowercase, imperative and has no trailing period. Nothing is prefixed to
+     what you write, so the title you pass is the title that appears
 4. Include in the PR description:
    - Which file you improved
    - What types of bloat you removed
    - Estimated word count or line reduction
    - Summary of changes made
+
+   Use the repository's PR body sections: **Why** / **What** / **Proof**, with the measured
+   reduction under Proof.
 
 ## Example Improvements
 
