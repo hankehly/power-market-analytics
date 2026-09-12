@@ -1329,9 +1329,14 @@ Expected: PASS.
 - [ ] **Step 4: The comparisons**
 
 ```bash
-just python scripts/compare_demand_runs.py --baseline $BASELINE --candidate $CANDIDATE --mae-by-month-png docs/research/demand/assets/R-006-E-001-mae-by-month.png > /tmp/r006-e001.md
+just python scripts/compare_demand_runs.py --baseline $BASELINE --candidate $CANDIDATE --common-days --mae-by-month-png docs/research/demand/assets/R-006-E-001-mae-by-month.png > /tmp/r006-e001.md
 just python scripts/compare_demand_runs.py --baseline 429eca360efe4c3b9e89e1258b932cc7 --candidate $BASELINE > /tmp/r006-mart-shift.md
 ```
+
+`--common-days` on the first: the candidate skips six days the baseline scores, and the
+script refuses unmatched runs without it (the option was added during execution, commit
+`88c5e39`; the plan as first written assumed the script already compared on common
+periods). The second pair scored the same days.
 
 Expected: two markdown reports. The second is the mart-change shift: expect a small MAE difference with the CI over days including zero; if it is large (more than ±1 %), stop and report before writing R-006 — the availability change moved more than the December-2022 rows. Keep both files for Task 7. Also read the candidate's `permutation_importance.csv` from its MLflow run (`http://localhost:5005/#/experiments/2/runs/$CANDIDATE`) for the importance table.
 

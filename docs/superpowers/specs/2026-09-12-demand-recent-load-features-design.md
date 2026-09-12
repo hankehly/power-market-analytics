@@ -212,10 +212,12 @@ Runs, in the devcontainer, both with the reference window and no `--train-start`
 just python scripts/demand_backtest.py --strategy lightgbm_msm_popw_daytype_simday --area tokyo --start-date 2024-08-18 --end-date 2026-08-17
 just python scripts/demand_backtest.py --strategy lightgbm_msm_popw_daytype_simday_lags --area tokyo --start-date 2024-08-18 --end-date 2026-08-17
 just dbt build --select +fct_demand_forecast_accuracy +fct_demand_forecast_contribution +fct_demand_forecast_importance
-just python scripts/compare_demand_runs.py --baseline <fresh baseline> --candidate <candidate> --mae-by-month-png docs/research/demand/assets/R-006-E-001-mae-by-month.png
+just python scripts/compare_demand_runs.py --baseline <fresh baseline> --candidate <candidate> --common-days --mae-by-month-png docs/research/demand/assets/R-006-E-001-mae-by-month.png
 ```
 
-plus `compare_demand_runs.py --baseline 429eca36… --candidate <fresh baseline>` for §6.
+`--common-days` because the two runs skip different days (§6); without it the script
+exits with `Runs are not matched`. The §6 pair scored the same days, so
+`compare_demand_runs.py --baseline 429eca36… --candidate <fresh baseline>` needs no flag.
 
 ## 8. Research record
 
