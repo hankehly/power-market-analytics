@@ -6,7 +6,7 @@ import re
 
 import pytest
 
-from power_market_analytics.area_actuals import AreaActualsSource, month_range
+from power_market_analytics.ingestion.tso.area_actuals import AreaActualsSource, month_range
 
 SOURCE = AreaActualsSource(
     code="demo",
@@ -68,7 +68,7 @@ from pathlib import Path  # noqa: E402
 import requests  # noqa: E402
 from loguru import logger  # noqa: E402
 
-from power_market_analytics.area_actuals import (  # noqa: E402
+from power_market_analytics.ingestion.tso.area_actuals import (  # noqa: E402
     AreaActualsDownloader,
     AreaActualsDownloadError,
 )
@@ -310,11 +310,11 @@ class TestAreaActualsDownloader:
 
 
 # --------------------------------------------------------------------------- loader
-from power_market_analytics.area_actuals import (  # noqa: E402
+from power_market_analytics.ingestion.loader import REPORT_LIMIT, CsvTableSchema  # noqa: E402
+from power_market_analytics.ingestion.tso.area_actuals import (  # noqa: E402
     AreaActualsCsvLoader,
     sniff_metadata,
 )
-from power_market_analytics.csv_loader import REPORT_LIMIT, CsvTableSchema  # noqa: E402
 
 TEPCO_HEADER = (
     "日付,時間コマ,時間帯＿自,時間帯＿至,エリア総需要量,エリア総発電量,エリア風力・太陽光発電量"

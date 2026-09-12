@@ -12,9 +12,9 @@ from 2025-12-25). The archive holds finished days only (day D appears on D+1
 at 01:10); 2024-03-31 was never published (site maintenance). Format, quirks
 and the comparison against the A-1 series: docs/Kansai-Power-Usage-Retrieval.md.
 
-The parser and loader are the shared :mod:`power_market_analytics.power_usage`;
+The parser and loader are the shared :mod:`power_market_analytics.ingestion.tso.power_usage`;
 this module only supplies the Kansai
-:class:`~power_market_analytics.power_usage.PowerUsageSource` and convenience
+:class:`~power_market_analytics.ingestion.tso.power_usage.PowerUsageSource` and convenience
 subclasses bound to it.
 """
 
@@ -26,8 +26,8 @@ from pathlib import Path
 
 import requests
 
-from power_market_analytics.area_actuals import AreaActualsDownloader
-from power_market_analytics.power_usage import PowerUsageCsvLoader, PowerUsageSource
+from power_market_analytics.ingestion.tso.area_actuals import AreaActualsDownloader
+from power_market_analytics.ingestion.tso.power_usage import PowerUsageCsvLoader, PowerUsageSource
 
 __all__ = [
     "HOURLY_HEADER_2016",
@@ -93,11 +93,11 @@ class KansaiPowerUsageDownloader(AreaActualsDownloader):
 class KansaiPowerUsageCsvLoader(PowerUsageCsvLoader):
     """Full reload of the Kansai でんき予報 hourly tables into a warehouse table.
 
-    The shared :class:`~power_market_analytics.power_usage.PowerUsageCsvLoader`
+    The shared :class:`~power_market_analytics.ingestion.tso.power_usage.PowerUsageCsvLoader`
     bound to :data:`KANSAI_POWER_USAGE`: every file holds one date and all
     rows are kept (contract ``conf/schemas/kansai_power_usage_hourly.yaml``).
 
-    Same constructor as :class:`~power_market_analytics.csv_loader.CsvLoader`
+    Same constructor as :class:`~power_market_analytics.ingestion.loader.CsvLoader`
     (``schema``, ``filepath``, ``table``, optional ``spark``).
     """
 

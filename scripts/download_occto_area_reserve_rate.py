@@ -11,7 +11,7 @@ from pathlib import Path
 
 from loguru import logger
 
-from power_market_analytics.occto import OcctoBulkDownloader
+from power_market_analytics.ingestion.occto import OcctoBulkDownloader
 
 
 def main(argv: list[str] | None = None) -> None:

@@ -4,12 +4,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from power_market_analytics.area_actuals import AreaActualsCsvLoader, AreaActualsDownloader
-from power_market_analytics.kansai import (
+from power_market_analytics.ingestion.tso.area_actuals import (
+    AreaActualsCsvLoader,
+    AreaActualsDownloader,
+)
+from power_market_analytics.ingestion.tso.kansai import area_demand_generation
+from power_market_analytics.ingestion.tso.kansai.area_demand_generation import (
     KANSAI,
     KansaiAreaCsvLoader,
     KansaiAreaDownloader,
-    area_demand_generation,
 )
 
 

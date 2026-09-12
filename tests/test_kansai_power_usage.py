@@ -7,9 +7,12 @@ from pathlib import Path
 
 import pytest
 
-from power_market_analytics.area_actuals import AreaActualsDownloader, AreaActualsDownloadError
-from power_market_analytics.csv_loader import CsvTableSchema
-from power_market_analytics.kansai.power_usage import (
+from power_market_analytics.ingestion.loader import CsvTableSchema
+from power_market_analytics.ingestion.tso.area_actuals import (
+    AreaActualsDownloader,
+    AreaActualsDownloadError,
+)
+from power_market_analytics.ingestion.tso.kansai.power_usage import (
     HOURLY_HEADER_2016,
     HOURLY_HEADER_2019,
     HOURLY_HEADER_2025,
@@ -19,7 +22,7 @@ from power_market_analytics.kansai.power_usage import (
     KansaiPowerUsageCsvLoader,
     KansaiPowerUsageDownloader,
 )
-from power_market_analytics.power_usage import (
+from power_market_analytics.ingestion.tso.power_usage import (
     CORRECTION_MARKER,
     PowerUsageCsvLoader,
     PowerUsageSource,
