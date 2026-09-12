@@ -87,9 +87,13 @@
   conventions the docsify site uses — relative to the page, to the site root at `docs/`, or to
   the repo root — and only the path is checked, never the `#anchor`. Targets carrying the
   repo's placeholder markers (`<` for an inline `<slug>`, `XXX` for the `O-XXX` / `R-XXX`
-  research IDs) are skipped. Exits 1 naming each broken link; a `ci` job on every push, run on
-  the runner's python because the script is stdlib-only. Added because PR #74 renamed and
-  moved docs with nothing checking the links.
+  research IDs) are skipped. Exits 1 naming each broken link; a `ci` job on every push,
+  installing the dev group only. Links are found with **markdown-it-py** (a dev dependency
+  since 2026-09-12), not a pattern of our own: two hand-written attempts made eight parsing
+  mistakes between them (code fences and spans, fence run length, reference definitions plain
+  and angle-bracketed, parenthesised destinations, URI schemes), and both directions fail
+  silently — a missed form lets a broken link through, a mis-detected one fails CI on valid
+  prose. Added because PR #74 renamed and moved docs with nothing checking the links.
 - `just zizmor [zizmor args]` — audit `.github/workflows/` with zizmor (`--persona=regular`),
   version pinned in the justfile and `.github/workflows/ci.yml`. Exits non-zero on any finding;
   a `ci` job on every push. It guards the two things checkov's 8 GitHub Actions checks miss:

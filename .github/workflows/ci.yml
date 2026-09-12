@@ -176,10 +176,19 @@ jobs:
         with:
           persist-credentials: false
 
-      # Same check as `just docs-links`, minus the uv wrapper: the script is
-      # stdlib-only, so the runner's python needs no install at all.
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          enable-cache: true
+          python-version: "3.13"
+
+      # The check parses Markdown with markdown-it-py, which is in the dev
+      # group; the project's runtime deps are not needed, like ruff's job.
+      - name: Install dev dependencies (locked)
+        run: uv sync --locked --only-group dev
+
+      # Same check as `just docs-links`.
       - name: Check relative Markdown links
-        run: python3 scripts/check_docs_links.py
+        run: uv run --no-sync python scripts/check_docs_links.py
 
   dbt-parse:
     name: dbt parse

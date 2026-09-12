@@ -176,9 +176,12 @@ pip-audit *args:
 zizmor *args:
     uvx zizmor@1.30.1 --persona=regular .github/workflows/ {{args}}
 
-# Stdlib only and no warehouse, so the ci job runs it on the runner's python
-# with no install. PR #74 renamed and moved docs with nothing checking the
-# links; this is that check.
+# PR #74 renamed and moved docs with nothing checking the links; this is that
+# check. Links come from markdown-it-py (dev group) rather than a pattern of
+# our own: finding links looks like a regex job and is not, and both ways of
+# getting it wrong are silent — a missed form lets a broken link through, a
+# mis-detected one fails CI on valid prose. Two hand-written attempts managed
+# eight such mistakes between them before the parser went in.
 [doc("Check that every relative Markdown link resolves (docsify page / site-root / repo-root)")]
 docs-links *args:
     uv run python scripts/check_docs_links.py {{args}}
