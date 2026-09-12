@@ -175,6 +175,25 @@ class TestResolves:
         page = write(tmp_path, "docs/a.md")
         assert check_docs_links.resolves("/etc/passwd", page, tmp_path) is False
 
+    def test_a_site_root_link_is_not_resolved_page_relative(self, tmp_path):
+        # /only-here.md must mean the site root, not "next to this page".
+        page = write(tmp_path, "docs/sub/page.md")
+        write(tmp_path, "docs/sub/only-here.md")
+        assert check_docs_links.resolves("/only-here.md", page, tmp_path) is False
+
+    def test_a_site_root_link_resolves_at_the_docs_root(self, tmp_path):
+        page = write(tmp_path, "docs/sub/page.md")
+        write(tmp_path, "docs/guide.md")
+        assert check_docs_links.resolves("/guide.md", page, tmp_path) is True
+
+    def test_dot_dot_cannot_escape_the_repository(self, tmp_path):
+        page = write(tmp_path, "docs/a.md")
+        outside = tmp_path.parent / "outside-the-repo.md"
+        outside.write_text("x", encoding="utf-8")
+        depth = len(page.parent.parts) - 1
+        assert check_docs_links.resolves("../outside-the-repo.md", page, tmp_path) is False
+        assert check_docs_links.resolves("../" * depth + "etc/passwd", page, tmp_path) is False
+
     def test_a_bare_slash_resolves(self, tmp_path):
         page = write(tmp_path, "docs/a.md")
         assert check_docs_links.resolves("/", page, tmp_path) is True
