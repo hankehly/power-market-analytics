@@ -531,8 +531,17 @@ records the results in two places, linked by the MLflow `run_id`:
 ### Walk-forward backtest
 
 Both tasks run on one engine, `run_backtest`. It steps through the window one
-delivery day at a time and hands the strategy only the history published by the
-issue time, keeping the 48 forecasts it returns for day D.
+delivery day at a time, hands the strategy the history dated on or before the
+task's cutoff, and keeps the 48 forecasts it returns for day D.
+
+That cutoff is a date, not a publication time, and the target and the features
+are not held to the same standard. The target history is whatever the warehouse
+now holds for those dates: `load_area_demand` reads the current value, so a day
+the TSO revised later trains on the revised value. Feature values are retrieved
+as of the issue time instead, because Feast joins them on `available_at` — which
+is why the delivery days 2022-12-08 and 2022-12-09 get no D-7 lag from
+`ftr_period_actuals`: TEPCO re-issued the files behind them on 2022-12-14, days
+after those forecasts were due.
 
 Both are issued at 09:30 JST on D-1, but they do not see the same history, so
 every statement below names its task:
