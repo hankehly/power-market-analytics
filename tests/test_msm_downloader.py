@@ -36,6 +36,7 @@ from power_market_analytics.ingestion.msm.vintage import (
     source_files_for,
 )
 from tests.msm_grib_support import build_message, day_messages
+from tests.support import patch_monotonic, record_sleeps
 
 DELIVERY_DATE = datetime.date(2026, 8, 19)
 REFERENCE_AT = reference_at_for(DELIVERY_DATE)
@@ -411,10 +412,8 @@ class TestRetryBackoff:
             clock["t"] += 1000.0
             return clock["t"]
 
-        sleeps: list[float] = []
-        monkeypatch.setattr(msm_download.time, "monotonic", fake_monotonic)
-        monkeypatch.setattr(msm_download.time, "sleep", lambda s: sleeps.append(s))
-        return sleeps
+        patch_monotonic(monkeypatch, fake_monotonic)
+        return record_sleeps(monkeypatch)
 
     def test_one_retry_sleeps_interval_times_one(self, tmp_path, no_throttle_sleeps):
         sleeps = no_throttle_sleeps
@@ -454,9 +453,8 @@ class TestRetryBackoff:
 class TestThrottle:
     def test_consecutive_requests_are_spaced_by_the_interval(self, tmp_path, monkeypatch):
         clock = {"now": 100.0}
-        sleeps: list[float] = []
-        monkeypatch.setattr(msm_download.time, "monotonic", lambda: clock["now"])
-        monkeypatch.setattr(msm_download.time, "sleep", lambda s: sleeps.append(s))
+        patch_monotonic(monkeypatch, lambda: clock["now"])
+        sleeps = record_sleeps(monkeypatch)
         sf0, sf1, sf2 = SOURCE_FILES
         session = FakeSession(
             {
