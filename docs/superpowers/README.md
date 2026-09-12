@@ -13,6 +13,7 @@ applied without one.
 
 | Date | Work | Spec | Plan |
 |---|---|---|---|
+| 2026-09-12 | Recent load features — thirteen features from the area's last four weeks of demand in the feature marts, one preset and a matched run (demand R-006) | [spec](superpowers/specs/2026-09-12-demand-recent-load-features-design.md) | [plan](superpowers/plans/2026-09-12-demand-recent-load-features.md) |
 | 2026-09-12 | Feature-value fact — every tagged mart column unpivoted to the period grain, generated from the dbt manifest, as the Superset surface of the feature catalogue | — | [plan](superpowers/plans/2026-09-12-feature-value-fact.md) |
 | 2026-09-11 | The demand similar day moved out of the strategy into a walk-forward fit-and-score job that writes `pma_ml.similar_day` | — | [plan](superpowers/plans/2026-09-11-similar-day-feature.md) |
 | 2026-09-11 | Demand presets — the nine demand strategies became named feature lists read through Feast, and the strategy classes were deleted | — | [plan](superpowers/plans/2026-09-11-demand-presets.md) |
@@ -21,7 +22,6 @@ applied without one.
 | 2026-09-08 | Permutation feature importance — walk-forward ΔMAE per feature, published to `fct_<task>_forecast_importance` and shown on the Explanation tab | [spec](superpowers/specs/2026-09-08-permutation-feature-importance-design.md) | [plan](superpowers/plans/2026-09-08-permutation-feature-importance.md) |
 | 2026-09-06 | Compare tab — a candidate run against a baseline run over the periods both scored, on both forecast dashboards | [spec](superpowers/specs/2026-09-06-forecast-dashboard-compare-tab-design.md) | [plan](superpowers/plans/2026-09-06-forecast-dashboard-compare-tab.md) |
 | 2026-09-05 | Kansai でんき予報 過去の電力使用実績 — the hourly 電力使用状況 series for 関西電力送配電, on the shared power-usage parser | [spec](superpowers/specs/2026-09-05-kansai-power-usage-design.md) | [plan](superpowers/plans/2026-09-06-kansai-power-usage.md) |
-| 2026-09-12 | Recent load features — thirteen features from the area's last four weeks of demand in the feature marts, one preset and a matched run (demand R-006) | [spec](superpowers/specs/2026-09-12-demand-recent-load-features-design.md) | [plan](superpowers/plans/2026-09-12-demand-recent-load-features.md) |
 | 2026-09-05 | Holiday degree on `dim_date` — the graded 休日度合い of patent JP 4448226 B2 in place of a 0/1 holiday flag | [spec](superpowers/specs/2026-09-05-dim-date-holiday-degree-design.md) | — |
 | 2026-09-05 | Learned similar-day reference load — the weighted-distance selector of demand R-004 E-002, with least-squares weights | [spec](superpowers/specs/2026-09-05-demand-similar-day-reference-design.md) | [plan](superpowers/plans/2026-09-05-demand-similar-day-reference.md) |
 | 2026-08-30 | CsvLoader header groups — group files by their first header line and let Spark verify every header, replacing the Python preflight | [spec](superpowers/specs/2026-08-30-csv-loader-spark-verified-header-groups-design.md) | [plan](superpowers/plans/2026-08-30-csv-loader-spark-verified-header-groups.md) |

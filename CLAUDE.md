@@ -137,7 +137,7 @@
   month / high-price days, plus bias) as markdown; needs
   `just dbt build --select +fct_spot_price_forecast_accuracy` after the runs.
 - `just python scripts/demand_backtest.py --strategy lightgbm_msm_popw_daytype --area tokyo` —
-  day-ahead area demand backtest. Strategies: the nine presets of `tasks/demand/presets.py`
+  day-ahead area demand backtest. Strategies: the ten presets of `tasks/demand/presets.py`
   — `lightgbm`, `lightgbm_msm`, `lightgbm_msm_popw`, `lightgbm_msm_popw_daytype` (the
   script default and the Kansai baseline), `lightgbm_msm_popw_daytype_simday` (the Tokyo
   demand baseline, reference run `008868fe…`; Tokyo-only, because its
@@ -146,7 +146,10 @@
   calendar variants `…_simday_calendar`, `…_simday_holidaydegree`,
   `…_simday_holidaydistance` and `…_simday_calendarcounts` (research `demand/R-005`, all
   rejected, kept as reference presets; their feature lists and numbers are in the Demand
-  task bullet below). Areas: `tokyo`, `kansai` = the TSO feeds loaded into
+  task bullet below) and `…_simday_lags` (research `demand/R-006`: the thirteen recent-load
+  features of `ftr_period_actuals` and `ftr_day_actuals`, the researcher's decision pending;
+  it skips seven target days to the 2025-06-14 hole where the baseline skips one, so compare
+  it with `--common-days`). Areas: `tokyo`, `kansai` = the TSO feeds loaded into
   `fct_area_demand_generation_actual`. An area's feature marts need its representative JMA
   station's hourly weather loaded and current (`dim_area.representative_jma_station_id`:
   東京 s47662, 大阪 s47772 — both loaded and current as of the 2026-08-20 re-scope backfill;
