@@ -1,10 +1,14 @@
-"""Matched comparison of two backtest runs on the warehouse's error rows.
+"""Matched comparison of two spot price backtest runs on the warehouse's error rows.
 
 Reads ``fct_spot_price_forecast_accuracy`` for a baseline and a candidate
 run, checks that both scored exactly the same (delivery day, time code)
 points, and summarizes MAE and bias overall and by the segments the research
 log's decision rules use: day part, the periods around the OCCTO forecast
 peak-demand hour, calendar month, and high-price days.
+
+The machinery — matching, the per-segment tables and the markdown — is the
+shared :mod:`power_market_analytics.forecasting.compare`; this module owns
+only what is specific to the spot task.
 """
 
 from __future__ import annotations
@@ -16,8 +20,31 @@ from pyspark.sql import SparkSession
 
 from power_market_analytics.common.frames import DomainFrame
 from power_market_analytics.common.warehouse import query_pandas
+from power_market_analytics.forecasting.compare import (
+    DAY_PARTS,
+    SegmentComparison,
+    assert_matched,
+    matched_rows,
+    run_errors_from_pandas,
+    segment_bias,
+    segment_mae,
+    segment_overall,
+    to_markdown,
+)
+from power_market_analytics.tasks.spot_price import TASK
 
-DAY_PARTS = ("Overnight", "Morning", "Daytime", "Evening")
+__all__ = [
+    "DAY_PARTS",
+    "RunErrors",
+    "SegmentComparison",
+    "assert_matched",
+    "compare_runs",
+    "load_run_errors",
+    "to_markdown",
+]
+
+#: Value columns the accuracy query returns as floats.
+_FLOAT_COLS = ["max_demand_hour_ending", TASK.actual_col, TASK.forecast_col]
 
 
 class RunErrors(DomainFrame):
@@ -41,27 +68,6 @@ class RunErrors(DomainFrame):
     }
     keys = ["run_id", "trade_date", "time_code"]
     non_null_cols = ["day_part", "actual_price_jpy_kwh", "forecast_price_jpy_kwh"]
-
-
-class SegmentComparison(DomainFrame):
-    """One metric compared between a baseline and a candidate run per segment.
-
-    ``rel_change_pct`` is NaN where a relative change is meaningless (bias,
-    which can be zero or change sign).
-
-    Grain: (segment).
-    """
-
-    schema = {
-        "segment": "object",
-        "n": "int64",
-        "baseline": "float64",
-        "candidate": "float64",
-        "abs_change": "float64",
-        "rel_change_pct": "float64",
-    }
-    keys = ["segment"]
-    non_null_cols = ["n", "baseline", "candidate", "abs_change"]
 
 
 def load_run_errors(run_ids: list[str], spark: SparkSession | None = None) -> RunErrors:
@@ -104,18 +110,7 @@ def load_run_errors(run_ids: list[str], spark: SparkSession | None = None) -> Ru
         """,
         spark=spark,
     )
-    missing = sorted(set(run_ids) - set(pdf["run_id"].unique()))
-    if missing:
-        raise ValueError(f"No accuracy rows for run ids {missing}; publish + dbt build first?")
-    pdf = pdf.assign(trade_date=pd.to_datetime(pdf["trade_date"])).astype(
-        {
-            "time_code": "int64",
-            "max_demand_hour_ending": "float64",
-            "actual_price_jpy_kwh": "float64",
-            "forecast_price_jpy_kwh": "float64",
-        }
-    )
-    return RunErrors.from_df(pdf)
+    return run_errors_from_pandas(pdf, run_ids=run_ids, frame_cls=RunErrors, float_cols=_FLOAT_COLS)
 
 
 def compare_runs(
@@ -157,12 +152,10 @@ def compare_runs(
         If the two runs do not cover exactly the same points, or no row has
         an OCCTO peak hour to define the near-peak segment.
     """
-    df = errors.df[errors.df["run_id"].isin([baseline_run_id, candidate_run_id])]
-    _assert_matched(df, baseline_run_id, candidate_run_id)
+    df = matched_rows(
+        errors, task=TASK, baseline_run_id=baseline_run_id, candidate_run_id=candidate_run_id
+    )
     df = df.assign(
-        role=np.where(df["run_id"] == baseline_run_id, "baseline", "candidate"),
-        error=df["forecast_price_jpy_kwh"] - df["actual_price_jpy_kwh"],
-        abs_error=(df["forecast_price_jpy_kwh"] - df["actual_price_jpy_kwh"]).abs(),
         month=df["trade_date"].dt.strftime("%Y-%m"),
         # Hour-ending H covers hour-of-day H-1; NaN peak hours compare False.
         near_peak=(
@@ -172,9 +165,7 @@ def compare_runs(
     )
     if not df["near_peak"].any():
         raise ValueError("No rows carry an OCCTO peak hour; the near-peak segment is undefined")
-    daily_mean = (
-        df.loc[df["role"] == "baseline"].groupby("trade_date")["actual_price_jpy_kwh"].mean()
-    )
+    daily_mean = df.loc[df["role"] == "baseline"].groupby("trade_date")[TASK.actual_col].mean()
     threshold = daily_mean.quantile(high_price_quantile)
     high_days = set(daily_mean.index[daily_mean >= threshold])
     pct = round(100 * (1 - high_price_quantile))
@@ -197,126 +188,16 @@ def compare_runs(
         else f"within ±{near_peak_hours} h of forecast peak hour"
     )
     return {
-        "overall": _mae_by(df, pd.Series("all", index=df.index)),
-        "day_part": _mae_by(df, df["day_part"], order=DAY_PARTS),
-        "near_peak": _mae_by(
+        "overall": segment_overall(df),
+        "day_part": segment_mae(df, df["day_part"], order=DAY_PARTS),
+        "near_peak": segment_mae(
             df,
             pd.Series(np.where(df["near_peak"], peak_label, "other periods"), index=df.index),
             order=(peak_label, "other periods"),
         ),
-        "bias": _bias_by(df),
-        "month": _mae_by(df, df["month"]),
-        "price_band": _mae_by(df, df["price_band"], order=sorted(df["price_band"].unique())[::-1]),
+        "bias": segment_bias(df),
+        "month": segment_mae(df, df["month"]),
+        "price_band": segment_mae(
+            df, df["price_band"], order=sorted(df["price_band"].unique())[::-1]
+        ),
     }
-
-
-def _assert_matched(df: pd.DataFrame, baseline_run_id: str, candidate_run_id: str) -> None:
-    keys = ["trade_date", "time_code"]
-    base = df.loc[df["run_id"] == baseline_run_id, keys]
-    cand = df.loc[df["run_id"] == candidate_run_id, keys]
-    if base.empty or cand.empty:
-        raise ValueError("Both runs must be present in the error rows")
-    merged = base.merge(cand, how="outer", on=keys, indicator=True, validate="one_to_one")
-    unmatched = merged["_merge"] != "both"
-    if unmatched.any():
-        counts = merged.loc[unmatched, "_merge"].value_counts().to_dict()
-        raise ValueError(
-            f"Runs are not matched: {counts} points are not in both "
-            f"(left_only = baseline only, right_only = candidate only)"
-        )
-
-
-def _mae_by(
-    df: pd.DataFrame, segment: pd.Series, order: tuple[str, ...] | list[str] | None = None
-) -> SegmentComparison:
-    grouped = (
-        df.assign(segment=segment.to_numpy())
-        .groupby(["segment", "role"], sort=False)["abs_error"]
-        .agg(["mean", "size"])
-        .unstack("role")
-    )
-    grouped = (
-        grouped.sort_index()
-        if order is None
-        else grouped.reindex([s for s in order if s in grouped.index])
-    )
-    return _comparison(
-        n=grouped[("size", "baseline")],
-        baseline=grouped[("mean", "baseline")],
-        candidate=grouped[("mean", "candidate")],
-        relative=True,
-    )
-
-
-def _bias_by(df: pd.DataFrame) -> SegmentComparison:
-    segment = pd.Series(
-        np.where(df["day_part"] == "Daytime", "Daytime", "other day parts"), index=df.index
-    )
-    frames = []
-    for label, part in (("all", df), ("Daytime", df[segment == "Daytime"])):
-        grouped = part.groupby("role")["error"].agg(["mean", "size"])
-        frames.append(
-            pd.DataFrame(
-                {
-                    "n": [grouped.loc["baseline", "size"]],
-                    "baseline": [grouped.loc["baseline", "mean"]],
-                    "candidate": [grouped.loc["candidate", "mean"]],
-                },
-                index=[label],
-            )
-        )
-    stacked = pd.concat(frames)
-    return _comparison(
-        n=stacked["n"], baseline=stacked["baseline"], candidate=stacked["candidate"], relative=False
-    )
-
-
-def _comparison(
-    *, n: pd.Series, baseline: pd.Series, candidate: pd.Series, relative: bool
-) -> SegmentComparison:
-    out = pd.DataFrame(
-        {
-            "segment": n.index.astype(str),
-            "n": n.to_numpy().astype("int64"),
-            "baseline": baseline.to_numpy().astype("float64"),
-            "candidate": candidate.to_numpy().astype("float64"),
-        }
-    )
-    out["abs_change"] = out["candidate"] - out["baseline"]
-    out["rel_change_pct"] = 100 * out["abs_change"] / out["baseline"] if relative else np.nan
-    return SegmentComparison.from_df(out.astype({"rel_change_pct": "float64"}))
-
-
-def to_markdown(table: SegmentComparison, *, metric: str, unit: str = "JPY/kWh") -> str:
-    """Render a segment comparison as a GitHub-flavored markdown table.
-
-    Parameters
-    ----------
-    table : SegmentComparison
-    metric : str
-        Metric name for the header, e.g. ``MAE``.
-    unit : str, optional
-        Unit appended to the value columns' header.
-
-    Returns
-    -------
-    str
-    """
-    header = [
-        "Segment",
-        "n",
-        f"Baseline {metric} ({unit})",
-        f"Candidate {metric} ({unit})",
-        "Absolute change",
-        "Relative change",
-    ]
-    lines = ["| " + " | ".join(header) + " |", "|---|---:|---:|---:|---:|---:|"]
-    # Plain tuples in schema order (the frame contract fixes the column order).
-    for segment, n, baseline, candidate, abs_change, rel_change_pct in table.df.itertuples(
-        index=False, name=None
-    ):
-        rel = "—" if pd.isna(rel_change_pct) else f"{rel_change_pct:+.1f}%"
-        lines.append(
-            f"| {segment} | {n:,} | {baseline:.3f} | {candidate:.3f} | {abs_change:+.3f} | {rel} |"
-        )
-    return "\n".join(lines)

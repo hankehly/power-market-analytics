@@ -93,8 +93,9 @@ class TestCompareScript:
         )
         assert out.count("|---|---:|---:|---:|---:|---:|") == 6
         # fixture errors: baseline +1.0/-0.5 alternating (MAE 0.75), candidate half of that
-        assert "| all | 1,008 | 0.750 | 0.375 | -0.375 | -50.0% |" in lines
-        assert "| all | 1,008 | 0.250 | 0.125 | -0.125 | — |" in lines
+        assert "| all | 1,008 | 0.750 | 0.375 | −0.375 | −50.0 % |" in lines
+        # bias has no relative change, so its values print with their sign
+        assert "| all | 1,008 | +0.250 | +0.125 | −0.125 | — |" in lines
         assert "| within ±1 h of forecast peak hour |" in out
         assert "| top 10% price days (daily mean >=" in out
         assert "| 2024-04 | 1,008 |" in out
