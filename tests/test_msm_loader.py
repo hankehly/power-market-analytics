@@ -17,7 +17,8 @@ from pathlib import Path
 import pytest
 
 from power_market_analytics.ingestion.loader import CsvTableSchema
-from power_market_analytics.ingestion.msm import RAW_CSV_COLUMNS, MsmForecastCsvLoader
+from power_market_analytics.ingestion.msm.elements import RAW_CSV_COLUMNS
+from power_market_analytics.ingestion.msm.load import MsmForecastCsvLoader
 from tests.support import REPO_ROOT
 
 CONTRACT = CsvTableSchema.from_yaml(REPO_ROOT / "conf/schemas/jma_msm_surface_forecast.yaml")

@@ -17,7 +17,7 @@ from pathlib import Path
 
 from loguru import logger
 
-from power_market_analytics.ingestion.jma import JmaStationMasterDownloader
+from power_market_analytics.ingestion.jma.stations import JmaStationMasterDownloader
 
 SEED_PATH = Path(__file__).resolve().parents[1] / "dbt/seeds/jma_stations.csv"
 

@@ -13,7 +13,7 @@ from pathlib import Path
 
 from loguru import logger
 
-from power_market_analytics.ingestion.jma import (
+from power_market_analytics.ingestion.jma.hourly import (
     HOURLY_ELEMENTS,
     SCRAPE_ELEMENTS,
     JmaHourlyDownloader,

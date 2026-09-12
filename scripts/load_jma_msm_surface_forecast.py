@@ -12,7 +12,7 @@ from pathlib import Path
 from loguru import logger
 
 from power_market_analytics.ingestion.loader import CsvTableSchema
-from power_market_analytics.ingestion.msm import MsmForecastCsvLoader
+from power_market_analytics.ingestion.msm.load import MsmForecastCsvLoader
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 

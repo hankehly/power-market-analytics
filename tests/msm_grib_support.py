@@ -34,13 +34,10 @@ from pathlib import Path
 
 import eccodes
 
-from power_market_analytics.ingestion.msm import (
-    HOUR_STEP_UNIT,
-    MSM_SURFACE_ELEMENTS,
-    MsmElement,
-    MsmGrid,
-    MsmSourceFile,
-)
+from power_market_analytics.ingestion.msm.elements import MSM_SURFACE_ELEMENTS, MsmElement
+from power_market_analytics.ingestion.msm.grib import HOUR_STEP_UNIT
+from power_market_analytics.ingestion.msm.grid import MsmGrid
+from power_market_analytics.ingestion.msm.vintage import MsmSourceFile
 
 #: ecCodes sample the GRIB2 fixtures are built from.
 GRIB2_SAMPLE = "regular_ll_sfc_grib2"

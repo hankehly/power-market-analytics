@@ -14,7 +14,8 @@ from pathlib import Path
 
 from loguru import logger
 
-from power_market_analytics.ingestion.estat import VINTAGES, EstatCensusMeshDownloader
+from power_market_analytics.ingestion.estat.download import EstatCensusMeshDownloader
+from power_market_analytics.ingestion.estat.vintages import VINTAGES
 
 CONFIGURED_YEARS = [vintage.census_year for vintage in VINTAGES]
 
