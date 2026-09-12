@@ -1,4 +1,6 @@
-ARG SPARK_VERSION=4.1.1
+# Keep in lockstep with the pyspark pin in pyproject.toml: the devcontainer's
+# client and this cluster share a metastore and warehouse, so they move together.
+ARG SPARK_VERSION=4.2.0
 FROM apache/spark:${SPARK_VERSION}
 
 ARG POSTGRES_JDBC_VERSION=42.7.13
