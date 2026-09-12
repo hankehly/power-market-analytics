@@ -1,3 +1,21 @@
+{#- The MSM elements weighted over the area's stations, in output order. Each gets
+    the same station-ordered weighted mean, named popw_forecast_<element>. #}
+{%- set weighted_elements = [
+  'temperature_c',
+  'relative_humidity_pct',
+  'precipitation_mm',
+  'solar_radiation_mjm2',
+  'total_cloud_cover_pct',
+  'high_cloud_cover_pct',
+  'middle_cloud_cover_pct',
+  'low_cloud_cover_pct',
+  'wind_speed_ms',
+  'u_wind_ms',
+  'v_wind_ms',
+  'surface_pressure_hpa',
+  'sea_level_pressure_hpa',
+] -%}
+
 with
   areas as (
   select area_key, area_code, representative_jma_station_id
@@ -18,10 +36,9 @@ with
     date_key as trade_date,
     hour(forecast_hour_start_at) + 1 as hour_ending,
     forecast_reference_at,
-    temperature_c,
-    relative_humidity_pct,
-    precipitation_mm,
-    solar_radiation_mjm2,
+    {%- for element in weighted_elements %}
+    {{ element }},
+    {%- endfor %}
     available_at
   from {{ ref('fct_jma_msm_weather_forecast_hourly') }}
   ),
@@ -39,7 +56,7 @@ with
     inner join areas on areas.representative_jma_station_id = forecasts.station_id
   ),
 
-  -- Each measure's stations that have a value for the hour, in station order: a
+  -- Each element's stations that have a value for the hour, in station order: a
   -- fixed order whatever order Spark reads the rows in, so the sums below are the
   -- same on every build.
   station_terms as (
@@ -49,42 +66,17 @@ with
     forecasts.hour_ending,
     forecasts.forecast_reference_at,
     weights.census_year,
+    {%- for element in weighted_elements %}
     array_sort(collect_list(
-      case when forecasts.temperature_c is not null
+      case when forecasts.{{ element }} is not null
         then named_struct(
           'station_id', forecasts.station_id,
           'weight', weights.area_population_weight,
-          'value', forecasts.temperature_c
+          'value', forecasts.{{ element }}
         )
       end
-    )) as temperature_terms,
-    array_sort(collect_list(
-      case when forecasts.relative_humidity_pct is not null
-        then named_struct(
-          'station_id', forecasts.station_id,
-          'weight', weights.area_population_weight,
-          'value', forecasts.relative_humidity_pct
-        )
-      end
-    )) as humidity_terms,
-    array_sort(collect_list(
-      case when forecasts.precipitation_mm is not null
-        then named_struct(
-          'station_id', forecasts.station_id,
-          'weight', weights.area_population_weight,
-          'value', forecasts.precipitation_mm
-        )
-      end
-    )) as precipitation_terms,
-    array_sort(collect_list(
-      case when forecasts.solar_radiation_mjm2 is not null
-        then named_struct(
-          'station_id', forecasts.station_id,
-          'weight', weights.area_population_weight,
-          'value', forecasts.solar_radiation_mjm2
-        )
-      end
-    )) as solar_terms,
+    )) as {{ element }}_terms,
+    {%- endfor %}
     max(forecasts.available_at) as available_at
   from
     forecasts
@@ -94,7 +86,7 @@ with
     areas.area_code, forecasts.trade_date, forecasts.hour_ending, forecasts.forecast_reference_at, weights.census_year
   ),
 
-  -- Each measure added in station order, renormalised over the stations present.
+  -- Each element added in station order, renormalised over the stations present.
   weighted as (
   select
     area_code,
@@ -102,10 +94,9 @@ with
     hour_ending,
     forecast_reference_at,
     census_year,
-    {{ ordered_weighted_mean('temperature_terms') }} as popw_forecast_temperature_c,
-    {{ ordered_weighted_mean('humidity_terms') }} as popw_forecast_relative_humidity_pct,
-    {{ ordered_weighted_mean('precipitation_terms') }} as popw_forecast_precipitation_mm,
-    {{ ordered_weighted_mean('solar_terms') }} as popw_forecast_solar_radiation_mjm2,
+    {%- for element in weighted_elements %}
+    {{ ordered_weighted_mean(element ~ '_terms') }} as popw_forecast_{{ element }},
+    {%- endfor %}
     available_at
   from
     station_terms
@@ -119,10 +110,9 @@ with
     coalesce(representative.forecast_reference_at, weighted.forecast_reference_at) as forecast_reference_at,
     weighted.census_year,
     representative.forecast_temperature_c,
-    weighted.popw_forecast_temperature_c,
-    weighted.popw_forecast_relative_humidity_pct,
-    weighted.popw_forecast_precipitation_mm,
-    weighted.popw_forecast_solar_radiation_mjm2,
+    {%- for element in weighted_elements %}
+    weighted.popw_forecast_{{ element }},
+    {%- endfor %}
     {{ available_at(['representative.available_at', 'weighted.available_at']) }} as available_at
   from
     representative
