@@ -543,13 +543,15 @@ every statement below names its task:
   publishes the previous day's auction result before 09:30.
 
 The LightGBM strategies of both tasks do not fit once: they refit every 7
-delivery days on a window that opens 730 calendar days before the target day
-and closes at that task's cutoff — at most 729 delivery days for demand
-(D-730 … D-2), 730 for spot price (D-730 … D-1). Between refits the cached model scores the
-next days, so by the seventh its newest training day is `6 + history_lead_days`
-days old: 8 days for demand, 7 for spot price.
+**calendar** days, counted from the day that triggered the previous refit, on a
+window that opens 730 calendar days before the target day and closes at that
+task's cutoff — at most 729 delivery days for demand (D-730 … D-2), 730 for spot
+price (D-730 … D-1). Between refits the cached model scores whatever delivery
+days fall inside that cadence: up to seven, fewer when a day is missing from the
+actuals or skipped. Its newest training day is therefore at most
+`6 + history_lead_days` days old — 8 for demand, 7 for spot price.
 
-![Walk-forward demand backtest: the 730-calendar-day training window, the unseen day D-1, and the seven delivery days each refit scores](img/demand-backtest-walk-forward.svg)
+![Walk-forward demand backtest: the 730-calendar-day training window, the unseen day D-1, and the up-to-seven delivery days each refit scores](img/demand-backtest-walk-forward.svg)
 
 The figure is the **demand** task: 48 half-hourly periods per delivery day, the
 D-2 cutoff and the unseen D-1. The spot-price loop has the same shape with that
