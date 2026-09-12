@@ -9,7 +9,7 @@ the fixtures deterministic and cheap:
   values round-trip bit-exactly, so a test can assert ``15.0`` and not an
   approximation of it (the sample's default ``grid_simple`` packing is lossy).
 * The grid is tiny (a handful of points); its geometry comes from an
-  :class:`~power_market_analytics.ingestion.msm.MsmGrid` whose *signed* steps decide the
+  :class:`~power_market_analytics.ingestion.msm.grid.MsmGrid` whose *signed* steps decide the
   scan flags, so a north-to-south or east-to-west fixture is just a grid with
   a negative step.
 * A GRIB file is a plain concatenation of messages, so :func:`build_file`
