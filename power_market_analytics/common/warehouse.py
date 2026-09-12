@@ -6,7 +6,7 @@ import pandas as pd
 from loguru import logger
 from pyspark.sql import SparkSession
 
-from power_market_analytics.spark import get_spark_session
+from power_market_analytics.common.spark import get_spark_session
 
 
 def query_pandas(sql: str, spark: SparkSession | None = None) -> pd.DataFrame:
@@ -18,7 +18,7 @@ def query_pandas(sql: str, spark: SparkSession | None = None) -> pd.DataFrame:
         Spark SQL statement.
     spark : pyspark.sql.SparkSession, optional
         Existing session; defaults to
-        :func:`power_market_analytics.spark.get_spark_session`.
+        :func:`power_market_analytics.common.spark.get_spark_session`.
 
     Returns
     -------

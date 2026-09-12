@@ -71,7 +71,7 @@ from loguru import logger
 from requests.adapters import HTTPAdapter
 from urllib3.util.ssl_ import create_urllib3_context
 
-from power_market_analytics.csv_loader import CsvLoader
+from power_market_analytics.ingestion.loader import CsvLoader
 
 BASE_URL = "https://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original"
 #: 12 UTC runs only reach forecast hour 51 (needed for the full delivery day)

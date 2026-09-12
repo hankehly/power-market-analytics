@@ -28,7 +28,7 @@ from pyspark.sql import Column, DataFrame, SparkSession
 from pyspark.sql import functions as F
 from pyspark.sql.types import StringType, StructField, StructType
 
-from power_market_analytics.spark import get_spark_session
+from power_market_analytics.common.spark import get_spark_session
 
 #: Hidden per-row column naming the file a row came from (base name only).
 #: :meth:`CsvLoader._scan_positional` attaches it, :meth:`CsvLoader._validate`

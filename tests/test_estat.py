@@ -12,7 +12,7 @@ import datetime
 
 import pytest
 
-from power_market_analytics.estat import (
+from power_market_analytics.ingestion.estat import (
     VINTAGES,
     CensusVintage,
     MeshBounds,
@@ -156,8 +156,8 @@ from pathlib import Path  # noqa: E402
 
 import requests  # noqa: E402
 
-from power_market_analytics import estat  # noqa: E402
-from power_market_analytics.estat import (  # noqa: E402
+from power_market_analytics.ingestion import estat  # noqa: E402
+from power_market_analytics.ingestion.estat import (  # noqa: E402
     EstatCensusMeshDownloader,
     EstatDownloadError,
 )

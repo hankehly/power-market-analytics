@@ -22,7 +22,7 @@ apart and retried with exponential backoff.
 
 ``JmaHourlyCsvLoader`` brings the downloaded hourly CSVs into a raw
 warehouse table. They cannot go through the generic header-name mapping of
-:class:`~power_market_analytics.csv_loader.CsvLoader`: they open with a
+:class:`~power_market_analytics.ingestion.loader.CsvLoader`: they open with a
 download-timestamp line, a blank line and multiple header rows whose labels
 repeat per element (e.g. ``気温(℃)`` three times), and the station id
 appears only in the file name. The loader therefore reads all files
@@ -52,7 +52,7 @@ from loguru import logger
 from pyspark.sql import DataFrame
 from pyspark.sql import functions as F
 
-from power_market_analytics.csv_loader import SOURCE_FILE_COL, CsvLoader
+from power_market_analytics.ingestion.loader import SOURCE_FILE_COL, CsvLoader
 
 #: Hourly (時別値, ``aggrgPeriod=9``) element codes accepted by the
 #: ``show/table`` endpoint. Elements marked (官署のみ) only have values at

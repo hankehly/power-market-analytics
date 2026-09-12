@@ -24,8 +24,8 @@ import pytest
 import requests
 from requests.adapters import HTTPAdapter
 
-from power_market_analytics import msm
-from power_market_analytics.msm import (
+from power_market_analytics.ingestion import msm
+from power_market_analytics.ingestion.msm import (
     EARLIEST_DELIVERY_DATE,
     MSM_SURFACE_ELEMENTS,
     RAW_CSV_COLUMNS,

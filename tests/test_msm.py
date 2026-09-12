@@ -14,8 +14,8 @@ from pathlib import Path
 
 import pytest
 
-from power_market_analytics.csv_loader import CsvTableSchema
-from power_market_analytics.msm import (
+from power_market_analytics.ingestion.loader import CsvTableSchema
+from power_market_analytics.ingestion.msm import (
     BASE_URL,
     DEFAULT_BACKFILL_START,
     EARLIEST_DELIVERY_DATE,

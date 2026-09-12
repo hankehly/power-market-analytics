@@ -1,11 +1,15 @@
-"""Tests for the SparkSession factory (``power_market_analytics.spark``)."""
+"""Tests for the SparkSession factory (``power_market_analytics.common.spark``)."""
 
 from __future__ import annotations
 
 import pytest
 from loguru import logger
 
-from power_market_analytics.spark import SparkSettings, get_spark_session, spark_session_builder
+from power_market_analytics.common.spark import (
+    SparkSettings,
+    get_spark_session,
+    spark_session_builder,
+)
 
 #: The Arrow settings every builder gets, independent of the environment.
 PYSPARK_ONLY = {

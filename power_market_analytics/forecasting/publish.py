@@ -20,6 +20,7 @@ from loguru import logger
 from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql import functions as F
 
+from power_market_analytics.common.spark import get_spark_session
 from power_market_analytics.forecasting.frames import (
     GRAIN_COLS,
     BacktestResult,
@@ -30,7 +31,6 @@ from power_market_analytics.forecasting.frames import (
     PermutationImportance,
 )
 from power_market_analytics.forecasting.task import TaskSpec
-from power_market_analytics.spark import get_spark_session
 
 
 def create_run_partitioned_table(spark: SparkSession, table: str, columns_ddl: str) -> None:
@@ -133,7 +133,7 @@ def publish_forecast_records(
         Validated records for a single run.
     spark : pyspark.sql.SparkSession, optional
         Existing session; defaults to
-        :func:`power_market_analytics.spark.get_spark_session`.
+        :func:`power_market_analytics.common.spark.get_spark_session`.
 
     Returns
     -------
@@ -253,7 +253,7 @@ def publish_contribution_records(
         Validated records for a single run.
     spark : pyspark.sql.SparkSession, optional
         Existing session; defaults to
-        :func:`power_market_analytics.spark.get_spark_session`.
+        :func:`power_market_analytics.common.spark.get_spark_session`.
 
     Returns
     -------
@@ -353,7 +353,7 @@ def publish_importance_records(
         Validated records for a single run.
     spark : pyspark.sql.SparkSession, optional
         Existing session; defaults to
-        :func:`power_market_analytics.spark.get_spark_session`.
+        :func:`power_market_analytics.common.spark.get_spark_session`.
 
     Returns
     -------

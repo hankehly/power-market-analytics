@@ -1,6 +1,6 @@
 """CLI wiring tests for the ``scripts/download_jma_msm_surface_forecast.py`` /
 ``scripts/load_jma_msm_surface_forecast.py`` entry points, plus
-``power_market_analytics.msm.default_end_date``.
+``power_market_analytics.ingestion.msm.default_end_date``.
 
 The downloader/loader classes are swapped for recording fakes in each
 script's namespace, so what is asserted is the argument plumbing (station
@@ -15,8 +15,8 @@ from pathlib import Path
 
 import pytest
 
-from power_market_analytics import msm
-from power_market_analytics.csv_loader import CsvTableSchema
+from power_market_analytics.ingestion import msm
+from power_market_analytics.ingestion.loader import CsvTableSchema
 from tests.support import REPO_ROOT, import_script
 
 
