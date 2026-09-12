@@ -540,8 +540,8 @@ every statement below names its task:
 
 The LightGBM strategies of both tasks do not fit once: they refit every 7
 delivery days on a window that opens 730 calendar days before the target day
-and closes at that task's cutoff — 729 delivery days for demand (D-730 … D-2),
-730 for spot price (D-730 … D-1). Between refits the cached model scores the
+and closes at that task's cutoff — at most 729 delivery days for demand
+(D-730 … D-2), 730 for spot price (D-730 … D-1). Between refits the cached model scores the
 next days, so by the seventh its newest training day is `6 + history_lead_days`
 days old: 8 days for demand, 7 for spot price.
 
@@ -557,13 +557,20 @@ A day the strategy cannot forecast — a missing feature raises
 are then joined one-to-one to actuals, and a forecast point with no actual is
 dropped.
 
+Every row count above is an upper bound, because rows are dropped at three
+points: a period with a null actual never enters the demand history (a TSO hole
+like Tokyo 2025-06-14, which keeps 10 of its 48 periods), a training row missing
+any feature is dropped at fit, and a day that cannot be forecast is skipped.
+
 The numbers come from two places. Each task's `TaskSpec` fixes its cutoff and
 issue time (`history_lead_days`, `issue_offset`); the strategy fixes the window
 and the cadence, shared by both tasks (`DEFAULT_TRAIN_WINDOW_DAYS = 730` and
 `refit_every_days = 7` on `SlidingWindowLightGbmStrategy`). `--train-start`
-clips the window's left edge,
-which is how a baseline is fitted on exactly the rows a feature-limited
-candidate can use.
+clips the window's left edge, which is how a baseline is matched to a candidate
+whose feature only begins partway through the history. It aligns that boundary,
+not the rows themselves: each strategy drops training rows on its own feature
+list, so a candidate feature with scattered nulls still leaves the two fitted on
+different rows.
 
 ### Strategies and feature experiments (spot price)
 
