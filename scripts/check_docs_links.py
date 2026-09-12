@@ -44,6 +44,11 @@ DOCS_DIRNAME = "docs"
 SCHEME = re.compile(r"^[A-Za-z][A-Za-z0-9+.\-]*:")
 #: Markers the repo uses for a name to be filled in, never a real path.
 PLACEHOLDER_MARKERS = ("<", "XXX")
+#: The docs are ``docs/`` plus the root README and CLAUDE.md. A Markdown file
+#: under ``.github/`` is workflow source, not prose: ``unbloat-docs.md`` is an
+#: agentic workflow whose YAML frontmatter carries message templates like
+#: ``[{workflow_name}]({run_url})``, which are strings rather than links.
+EXCLUDED_PREFIXES = (".github/",)
 #: CommonMark, no docsify extensions: only the link syntax matters here.
 PARSER = MarkdownIt("commonmark")
 
@@ -70,7 +75,9 @@ def tracked_markdown_files(root: Path) -> list[Path]:
         text=True,
         check=True,
     ).stdout
-    return [root / name for name in out.split("\0") if name]
+    return [
+        root / name for name in out.split("\0") if name and not name.startswith(EXCLUDED_PREFIXES)
+    ]
 
 
 def _walk(tokens: list[Token]) -> list[Token]:
@@ -140,7 +147,10 @@ def is_checkable(target: str) -> bool:
     """
     if target.startswith(("#", "//")) or SCHEME.match(target):
         return False
-    return not any(marker in target for marker in PLACEHOLDER_MARKERS)
+    # The parser percent-encodes the destination, so an inline <slug> arrives
+    # as %3Cslug%3E; compare the markers against the decoded form.
+    decoded = unquote(target)
+    return not any(marker in decoded for marker in PLACEHOLDER_MARKERS)
 
 
 def resolves(target: str, page: Path, root: Path) -> bool:
