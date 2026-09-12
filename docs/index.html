@@ -15,6 +15,15 @@
       name: 'power-market-analytics',
       loadSidebar: true,
       subMaxLevel: 3,
+      // Full-text search over the pages reachable from _sidebar.md
+      // ('auto' discovers them from the sidebar). depth: 3 matches
+      // subMaxLevel, so a hit lands on the nearest ### heading.
+      search: {
+        paths: 'auto',
+        depth: 3,
+        placeholder: 'Search the docs',
+        noData: 'No matches.',
+      },
       markdown: {
         renderer: {
           code: function (code, lang) {
@@ -35,5 +44,6 @@
     };
   </script>
   <script src="//cdn.jsdelivr.net/npm/docsify@4"></script>
+  <script src="//cdn.jsdelivr.net/npm/docsify@4/lib/plugins/search.min.js"></script>
 </body>
 </html>
