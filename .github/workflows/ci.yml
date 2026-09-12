@@ -7,8 +7,8 @@ name: ci
 # ruff in [tool.ruff], mypy in [tool.mypy], checkov in .checkov.yaml, the
 # pip-audit ignore list and zizmor's persona in the justfile recipes, the dbt
 # project under dbt/ — so `just test` / `just lint` / `just mypy` /
-# `just checkov` / `just pip-audit` / `just zizmor` / `just dbt parse` locally
-# and these jobs fail on exactly the same conditions.
+# `just checkov` / `just pip-audit` / `just zizmor` / `just docs-links` /
+# `just dbt parse` locally and these jobs fail on exactly the same conditions.
 #
 # Every `uses:` is pinned to a commit SHA with the version as a trailing
 # comment: a tag can be repointed by the action owner, and Dependabot
@@ -164,6 +164,22 @@ jobs:
         run: uvx zizmor@1.30.1 --persona=regular .github/workflows/
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  docs-links:
+    name: docs links
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # fetch-depth 0 is not needed: the check reads the working tree and asks
+      # git only which Markdown files are tracked at this commit.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Same check as `just docs-links`, minus the uv wrapper: the script is
+      # stdlib-only, so the runner's python needs no install at all.
+      - name: Check relative Markdown links
+        run: python3 scripts/check_docs_links.py
 
   dbt-parse:
     name: dbt parse

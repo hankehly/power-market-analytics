@@ -136,6 +136,13 @@ checkov *args:
 #   pre-release. 3927 is TLS hostname validation, 3925 data amplification, 3926
 #   an infinite loop — all against a hostile Thrift peer. The only peer here is
 #   the Spark thriftserver on the local compose network, reached without TLS.
+# Stdlib only and no warehouse, so the ci job runs it on the runner's python
+# with no install. PR #74 renamed and moved docs with nothing checking the
+# links; this is that check.
+[doc("Check that every relative Markdown link resolves (docsify page / site-root / repo-root)")]
+docs-links *args:
+    uv run python scripts/check_docs_links.py {{args}}
+
 # Version pinned here and in .github/workflows/ci.yml — bump both together.
 # Exits 1 on any finding, so it gates on its own.
 #
