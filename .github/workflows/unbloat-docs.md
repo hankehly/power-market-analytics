@@ -167,6 +167,9 @@ Scan the repository for markdown documentation files. Common locations include:
 - Changelog files
 - License files
 - Code of conduct files
+- **Everything under `.github/`**, this workflow's own `unbloat-docs.md` included. It is markdown,
+  and it is large, but it is workflow configuration rather than prose — and safe outputs protect
+  top-level dot folders, so a run that picked it would open an issue instead of the PR it meant to
 - **`CLAUDE.md` and `AGENTS.md`** - these are the agent instruction files, not prose documentation.
   `AGENTS.md` is a symlink to `CLAUDE.md`, so they are one file: the repository's operating manual of
   commands, architecture and rules. Every line is load-bearing and density is deliberate, so the
@@ -190,6 +193,7 @@ Look for documentation files that were recently modified or are likely to benefi
 - Auto-generated documentation
 - Changelog or release notes
 - License or legal files
+- **Anything under `.github/`** - workflow configuration, excluded above
 - **`CLAUDE.md` and `AGENTS.md`** - the agent instruction files, excluded above
 - **Anything under `docs/superpowers/`** - the design-history archive, excluded above
 - **Files with `disable-agentic-editing: true` in frontmatter** - These files are explicitly protected from automated editing
@@ -213,9 +217,10 @@ Choose the file most in need of improvement based on:
 - Recent modification date
 - File size (larger files may have more bloat)
 - Number of bullet points or repetitive patterns
-- **Files whose cleaned-files.txt cooldown has passed** - not in the cache at all, or last cleaned
-  more than 90 days ago, or changed since it was cleaned (step 1). Prefer an uncached file when one
-  is available; fall back to an expired entry rather than having nothing to do
+- **Files the cache does not exclude**, judged only by step 1's three rules. Prefer a file with no
+  entry at all; fall back to one whose 90-day cooldown has passed, or whose entry is stale, rather
+  than having nothing to do. Never bring back a rule step 1 does not have — in particular, do not
+  compare the file's commit time against its entry
 - **Files WITHOUT `disable-agentic-editing: true` in frontmatter** (respect protection flag)
 
 ### 4. Analyze the File
