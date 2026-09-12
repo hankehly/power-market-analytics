@@ -383,7 +383,7 @@ file/glob) into `pma_raw.jma_msm_surface_forecast`, enforcing the load contract
 
 **JST conversion**: JST is a fixed UTC+9 offset (no daylight saving), so
 `timestampadd(hour, 9, to_timestamp(..., "yyyy-MM-dd'T'HH:mm:ss'Z'"))` is exact and auditable
-— no timezone-database lookup, matching the fixed-offset `JST` constant in `msm.py`.
+— no timezone-database lookup, matching the fixed-offset `JST` constant in `msm.vintage`.
 
 **`forecast_valid_at` marks the END of the represented weather hour** — the same convention
 `fct_jma_weather_hourly.observed_at` uses (`std_jma__hourly`/`jma_hourly_staffed`, hour 24:00
@@ -510,10 +510,11 @@ the broken chain lasts at least until RISH's next renewal.
 URL `http://repo1.secomtrust.net/sppca/nii/odca4/nii-odca4g8rsa.cer`, valid 2025-08-21 →
 2040-08-21, sha256 fingerprint
 `7A:4A:D9:E1:BA:2D:FB:08:F7:52:A1:24:03:2F:70:58:86:80:62:E9:84:17:85:62:3E:B4:13:67:83:A5:3F:FC`.
-`msm.default_session()`, the session `MsmDownloader` uses when none is injected, mounts an
-HTTPS adapter whose `ssl.SSLContext` holds certifi's roots plus that certificate, so the
-leaf verifies with G8 as a trust anchor. This relies on partial-chain verification: G8's own
-root ("SECOM TLS RSA Root CA 2024") is not in certifi 2026.06.17 either, but Python 3.13's
+`msm.download.default_session()`, the session `MsmDownloader` uses when none is
+injected, mounts an HTTPS adapter whose `ssl.SSLContext` holds certifi's roots plus that
+certificate, so the leaf verifies with G8 as a trust anchor. This relies on partial-chain
+verification: G8's own root ("SECOM TLS RSA Root CA 2024") is not in certifi 2026.06.17
+either, but Python 3.13's
 and urllib3's default contexts set `VERIFY_X509_PARTIAL_CHAIN`, which accepts an
 intermediate in the trust store as an anchor. Nothing to configure: `just refresh-all`, the
 script in the devcontainer and a host-side run all verify. `REQUESTS_CA_BUNDLE`, if set, is
@@ -542,8 +543,12 @@ verify return code 21; a plain `requests` call with stock `certifi` 2026.06.17 f
 same error); that backfill ran with the manual bundle. Re-checked 2026-09-06: still broken;
 the built-in fix was verified end to end in the devcontainer with `REQUESTS_CA_BUNDLE`
 unset — delivery day 2026-09-07, 3 files, 3,576 records, the same sha256s as the host-side
-download. Probe with `REQUESTS_CA_BUNDLE` unset: with the variable exported, every call in
-the process verifies and the probe reports a false fix.
+download. Re-checked 2026-09-12: still broken — `openssl` verify return code 21, certificate
+1 still G7. With `REQUESTS_CA_BUNDLE` unset, a stock `requests` session fails on the FH16-33
+file of the 2026-08-22 12 UTC run with `unable to get local issuer certificate`, while
+`default_session()` returns 200 for it (`Content-Length` 78,716,561). Probe with
+`REQUESTS_CA_BUNDLE` unset: with the variable exported, every call in the process verifies
+and the probe reports a false fix.
 
 ## 9. Verification results (one-day end-to-end, 2026-08-21)
 
@@ -605,7 +610,7 @@ stations × 2,716 delivery days, 9,712,416 rows.
 
 ### 9.3 Downloader/loader
 
-The 100%-coverage unit test suites for `msm.py`
+The 100%-coverage unit test suites for the MSM ingestion code
 (`tests/test_msm.py`, `tests/test_msm_grib.py`, `tests/test_msm_downloader.py`,
 `tests/test_msm_loader.py`, `tests/test_msm_scripts.py`) all remained green through this
 verification, alongside the real-file run.
