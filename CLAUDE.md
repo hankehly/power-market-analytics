@@ -800,10 +800,17 @@
   own initiative — the researcher merges, or explicitly asks Claude to (then through
   `merge-async`, below). Open it with `gh pr create`
   (title `type(scope): description`; body sections *Why* / *What* / *Proof* with the measured
-  numbers), then `gh pr edit <n> --add-assignee hankehly --add-label <labels>`. Labels are
-  GitHub's defaults, mapped from the branch type: `fix/` and `hotfix/` → `bug`, `feature/` →
-  `enhancement`, `chore/` → `documentation`, `release/` → no label; add `documentation` next
-  to `bug`/`enhancement` when the PR also changes docs. A stage that depends on an unmerged PR
+  numbers), then `gh pr edit <n> --add-assignee hankehly --add-label <labels>`. A PR gets one
+  type label plus the areas it touches. The type follows the branch type: `fix/` and
+  `hotfix/` → `bug`, `feature/` → `enhancement`, `chore/` → `chore`, `release/` → no label.
+  `documentation` is the type of a PR that changes nothing but docs; never add it beside
+  another type label — under the old rule it landed on 45 of the first 46 labeled PRs and so
+  filtered nothing. Areas, as many as apply: `ingestion` (a source's download, load,
+  raw/staging/standardized models and its retrieval doc), `forecasting` (the tasks, the
+  forecasting framework, the feature marts and Feast, the `pma_ml` models), `dashboard` (the
+  Superset dashboards). Add `research` when the PR runs an experiment or writes up an
+  investigation under `docs/research/`. The labels were backfilled over PRs 1-69 on
+  2026-09-12. A stage that depends on an unmerged PR
   is stacked on that branch (`--base <branch>`); GitHub retargets it to `main` when the base
   merges.
 - **Never spell out the Codex mention** — the bot's handle followed by `review` — in a PR
