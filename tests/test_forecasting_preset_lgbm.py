@@ -122,6 +122,14 @@ def training_rows(strategy: PresetLightGbmStrategy) -> int:
     return root["internal_count"] if "internal_count" in root else root["leaf_count"]
 
 
+def _nodes(node: dict):
+    """Every split node of a dumped LightGBM tree, depth first."""
+    if "split_feature" in node:
+        yield node
+        yield from _nodes(node["left_child"])
+        yield from _nodes(node["right_child"])
+
+
 @pytest.fixture(scope="module")
 def prices() -> SpotPrices:
     return make_prices()
@@ -137,16 +145,17 @@ class TestPresetEvalSetCls:
         assert cls.feature_cols == ("time_code", "month", "day_of_week", "lag_1d_price")
         assert cls.target_col == "actual_price_jpy_kwh"
         assert cls.forecast_col == "forecast_price_jpy_kwh"
+        # A feature may be null, so an integer feature is pandas' nullable Int64.
         assert cls.schema == {
             "trade_date": "datetime64[ns]",
             "time_code": "int64",
-            "month": "int64",
-            "day_of_week": "int64",
+            "month": "Int64",
+            "day_of_week": "Int64",
             "lag_1d_price": "float64",
             "actual_price_jpy_kwh": "float64",
             "forecast_price_jpy_kwh": "float64",
         }
-        assert cls.non_null_cols == [*cls.feature_cols, cls.target_col, cls.forecast_col]
+        assert cls.non_null_cols == [cls.target_col, cls.forecast_col]
         assert "lightgbm" in (cls.__doc__ or "")
 
     def test_to_eval_frame_drops_trade_date_and_casts_to_float(self):
@@ -155,8 +164,8 @@ class TestPresetEvalSetCls:
                 {
                     "trade_date": pd.to_datetime(["2024-04-10", "2024-04-10"]),
                     "time_code": [1, 2],
-                    "month": [4, 4],
-                    "day_of_week": [2, 2],
+                    "month": pd.array([4, 4], dtype="Int64"),
+                    "day_of_week": pd.array([2, None], dtype="Int64"),
                     "lag_1d_price": [10.5, 11.0],
                     "actual_price_jpy_kwh": [10.0, 12.0],
                     "forecast_price_jpy_kwh": [10.25, 11.5],
@@ -173,23 +182,40 @@ class TestPresetEvalSetCls:
             "forecast_price_jpy_kwh",
         ]
         assert set(frame.dtypes.astype(str)) == {"float64"}
-        assert frame.iloc[1].tolist() == [2.0, 4.0, 2.0, 11.0, 12.0, 11.5]
+        assert frame.iloc[0].tolist() == [1.0, 4.0, 2.0, 10.5, 10.0, 10.25]
+        assert np.isnan(frame.iloc[1]["day_of_week"])
 
-    def test_an_int_feature_with_a_nan_is_rejected(self):
-        with pytest.raises(ValueError, match="PresetEvalSet: dtype mismatch"):
-            preset_eval_set_cls(TASK, LIGHTGBM_OCCTO, DTYPES).from_df(
+    def test_a_null_feature_is_accepted(self):
+        eval_set = preset_eval_set_cls(TASK, LIGHTGBM_OCCTO, DTYPES).from_df(
+            pd.DataFrame(
+                {
+                    "trade_date": pd.to_datetime(["2024-04-10"]),
+                    "time_code": [1],
+                    "month": pd.array([4], dtype="Int64"),
+                    "day_of_week": pd.array([2], dtype="Int64"),
+                    "lag_1d_price": [np.nan],
+                    "max_demand_hour_ending": pd.array([18], dtype="Int64"),
+                    "max_demand_mw": pd.array([None], dtype="Int64"),
+                    "max_supply_capacity_mw": pd.array([46_000], dtype="Int64"),
+                    "actual_price_jpy_kwh": [10.0],
+                    "forecast_price_jpy_kwh": [10.25],
+                }
+            )
+        )
+        assert eval_set.df[["lag_1d_price", "max_demand_mw"]].isna().all().all()
+
+    def test_a_null_forecast_is_rejected(self):
+        with pytest.raises(ValueError, match="'forecast_price_jpy_kwh' has 1 null values"):
+            preset_eval_set_cls(TASK, LIGHTGBM, DTYPES).from_df(
                 pd.DataFrame(
                     {
                         "trade_date": pd.to_datetime(["2024-04-10"]),
                         "time_code": [1],
-                        "month": [4],
-                        "day_of_week": [2],
+                        "month": pd.array([4], dtype="Int64"),
+                        "day_of_week": pd.array([2], dtype="Int64"),
                         "lag_1d_price": [10.5],
-                        "max_demand_hour_ending": [18],
-                        "max_demand_mw": [np.nan],
-                        "max_supply_capacity_mw": [46_000],
                         "actual_price_jpy_kwh": [10.0],
-                        "forecast_price_jpy_kwh": [10.25],
+                        "forecast_price_jpy_kwh": [np.nan],
                     }
                 )
             )
@@ -308,33 +334,49 @@ class TestPredict:
             reconstructed.to_numpy(), forecast.df["forecast_price_jpy_kwh"].to_numpy(), atol=1e-6
         )
 
-    def test_a_feature_missing_for_the_target_day_is_unforecastable(self, prices):
+    def test_a_feature_missing_for_the_target_day_is_forecast_with_the_null(self, prices):
         # The frame has no D-1 lag for D (the previous day never happened).
         features = make_features(lag_days=HISTORY_DAYS[HISTORY_DAYS < D - pd.Timedelta(days=1)])
         strategy = strategy_for(features=features, train_window_days=30)
-        with pytest.raises(
-            ForecastUnavailableError,
-            match=r"lightgbm: features \['lag_1d_price'\] unavailable for 2024-04-10",
-        ):
-            strategy.predict(D, history_before(prices, D))
+        forecast = strategy.predict(D, history_before(prices, D))
+        assert len(forecast) == 48
+        assert np.isfinite(forecast.df["forecast_price_jpy_kwh"]).all()
+        record = strategy._shap_records[D]
+        assert record["lag_1d_price"].isna().all()
+        reconstructed = record[list(strategy.shap_cols)].sum(axis=1) + record["shap_expected_value"]
+        np.testing.assert_allclose(
+            reconstructed.to_numpy(), forecast.df["forecast_price_jpy_kwh"].to_numpy(), atol=1e-6
+        )
 
-    def test_occto_features_missing_for_the_target_day(self, prices):
+    def test_occto_features_missing_for_the_target_day_are_forecast_with_the_nulls(self, prices):
         features = make_features(
             occto_days=HISTORY_DAYS[HISTORY_DAYS < D], columns=LIGHTGBM_OCCTO.columns
         )
         strategy = strategy_for(LIGHTGBM_OCCTO, features=features, train_window_days=30)
-        with pytest.raises(
-            ForecastUnavailableError,
-            match=(
-                r"lightgbm_occto: features \['max_demand_hour_ending', 'max_demand_mw', "
-                r"'max_supply_capacity_mw'\] unavailable for 2024-04-10"
-            ),
-        ):
-            strategy.predict(D, history_before(prices, D))
+        forecast = strategy.predict(D, history_before(prices, D))
+        assert np.isfinite(forecast.df["forecast_price_jpy_kwh"]).all()
+
+    def test_a_missing_feature_is_not_read_as_zero(self, prices):
+        # Training rows with the lag missing teach the trees where a missing
+        # lag goes. Dropping them would leave LightGBM no missing branch, and
+        # it would then score a missing lag as 0.0.
+        gap = pd.Timestamp("2024-03-20")
+        features = make_features(lag_days=HISTORY_DAYS[HISTORY_DAYS != gap - pd.Timedelta(days=1)])
+        strategy = strategy_for(features=features, train_window_days=30)
+        strategy.predict(D, history_before(prices, D))
+        splits = [
+            node
+            for tree in strategy._model.booster_.dump_model()["tree_info"]
+            for node in _nodes(tree["tree_structure"])
+            if node.get("split_feature") == strategy.feature_cols.index("lag_1d_price")
+        ]
+        assert splits and {node["missing_type"] for node in splits} == {"NaN"}
 
     def test_a_target_day_outside_the_frame_is_unforecastable(self, prices):
         strategy = strategy_for(features=make_features(HISTORY_DAYS[HISTORY_DAYS < D]))
-        with pytest.raises(ForecastUnavailableError, match="unavailable for 2024-04-10"):
+        with pytest.raises(
+            ForecastUnavailableError, match="lightgbm: no feature values for 2024-04-10"
+        ):
             strategy.predict(D, history_before(prices, D))
 
 
@@ -373,17 +415,28 @@ class TestEnsureFitted:
 
     def test_train_start_date_after_the_history_raises(self, prices):
         strategy = strategy_for(train_window_days=30, train_start_date=D)
-        with pytest.raises(ForecastUnavailableError, match="no complete training rows"):
+        with pytest.raises(
+            ForecastUnavailableError,
+            match="lightgbm: no training rows with a feature value in the 30 days before 2024-04-10",
+        ):
             strategy.predict(D, history_before(prices, D))
 
-    def test_training_rows_without_a_feature_are_dropped(self, prices):
-        # No lag for the first history day: 29 of the 30 window days train.
+    def test_training_rows_with_a_missing_feature_are_kept(self, prices):
+        # No lag for the window's first day: all 30 window days still train.
         strategy = strategy_for(
             features=make_features(lag_days=HISTORY_DAYS[1:]), train_window_days=30
         )
         first = HISTORY_START + pd.Timedelta(days=31)
         strategy.predict(first, history_before(prices, first))
-        assert training_rows(strategy) == 29 * 48
+        assert training_rows(strategy) == 30 * 48
+
+    def test_training_rows_without_any_feature_value_are_dropped(self, prices):
+        # The frame starts on 2024-03-06: the window's first four days (03-02 .. 03-05)
+        # have no feature at all and carry nothing but the period.
+        strategy = strategy_for(features=make_features(HISTORY_DAYS[5:]), train_window_days=30)
+        first = HISTORY_START + pd.Timedelta(days=31)
+        strategy.predict(first, history_before(prices, first))
+        assert training_rows(strategy) == 26 * 48
 
 
 # --------------------------------------------------------------------------- build_eval_set
@@ -420,8 +473,8 @@ def one_row_eval_set() -> LightGbmEvalSetBase:
             {
                 "trade_date": pd.to_datetime(["2024-04-10"]),
                 "time_code": [1],
-                "month": [4],
-                "day_of_week": [2],
+                "month": pd.array([4], dtype="Int64"),
+                "day_of_week": pd.array([2], dtype="Int64"),
                 "lag_1d_price": [10.5],
                 "actual_price_jpy_kwh": [10.0],
                 "forecast_price_jpy_kwh": [10.25],
@@ -435,15 +488,12 @@ class TestBuildEvalSet:
         with pytest.raises(ValueError, match="lightgbm: build_eval_set requires the backtest run"):
             strategy_for().build_eval_set(prices, WINDOW_START, WINDOW_END)
 
-    def test_window_with_only_incomplete_rows_raises(self, prices):
-        # The first history day has no D-1 lag in the frame.
+    def test_window_with_only_skipped_days_raises(self, prices):
+        skipped = BacktestRun(result=hand_backtest_run().result, skipped_days=(WINDOW_START,))
         with pytest.raises(
-            ValueError,
-            match="lightgbm: no complete feature rows between 2024-03-01 and 2024-03-01",
+            ValueError, match="lightgbm: no scored rows between 2024-04-01 and 2024-04-01"
         ):
-            strategy_for().build_eval_set(
-                prices, HISTORY_START, HISTORY_START, run=hand_backtest_run()
-            )
+            strategy_for().build_eval_set(prices, WINDOW_START, WINDOW_START, run=skipped)
 
     def test_replays_the_backtest_forecasts_onto_the_feature_rows(self, backtested, prices):
         strategy, run = backtested
@@ -545,3 +595,59 @@ class TestEvaluate:
         assert params["lgbm_feature_cols"] == "time_code,month,day_of_week,lag_1d_price"
         assert params["feature_refs"].startswith("ftr_day_calendar:month,")
         assert "mean_absolute_error" in evaluation.metrics
+
+
+# --------------------------------------------------------------------------- a feature gap
+
+#: 2024-04-05 has no D-1 lag, nor has its month (a calendar row missing), in the frame.
+GAP_DAY = pd.Timestamp("2024-04-05")
+
+
+@pytest.fixture(scope="module")
+def backtested_with_a_gap(prices: SpotPrices) -> tuple[PresetLightGbmStrategy, BacktestRun]:
+    features = make_features(lag_days=HISTORY_DAYS[HISTORY_DAYS != GAP_DAY - pd.Timedelta(days=1)])
+    df = features.df.copy()
+    df.loc[(df["trade_date"] == GAP_DAY) & (df["time_code"] <= 24), "month"] = np.nan
+    strategy = strategy_for(features=type(features).from_df(df), train_window_days=30)
+    return strategy, run_backtest(strategy, prices, WINDOW_START, WINDOW_END)
+
+
+class TestFeatureGap:
+    def test_every_day_is_scored(self, backtested_with_a_gap):
+        _, run = backtested_with_a_gap
+        assert run.skipped_days == ()
+        assert run.result.df["trade_date"].nunique() == 14
+        assert np.isfinite(run.result.df["forecast_price_jpy_kwh"]).all()
+
+    def test_contributions_carry_the_null_feature_values(self, backtested_with_a_gap):
+        strategy, run = backtested_with_a_gap
+        df = strategy.contributions().df
+        on_gap = df[df["trade_date"] == GAP_DAY]
+        assert on_gap.loc[on_gap["component"] == "lag_1d_price", "feature_value"].isna().all()
+        assert on_gap.loc[on_gap["component"] == "month", "feature_value"].isna().sum() == 24
+        per_period = df.groupby(["trade_date", "time_code"])["contribution"].sum().reset_index()
+        merged = per_period.merge(run.result.df, on=["trade_date", "time_code"], validate="1:1")
+        np.testing.assert_allclose(
+            merged["contribution"], merged["forecast_price_jpy_kwh"], atol=1e-6
+        )
+
+    def test_importance_scores_the_gap_rows(self, backtested_with_a_gap):
+        strategy, run = backtested_with_a_gap
+        importance = strategy.permutation_importance(run, n_repeats=1)
+        assert set(importance.df["n_periods"]) == {14 * 48}
+        assert np.isfinite(importance.df["permuted_mae"]).all()
+
+    def test_eval_set_keeps_the_rows_with_nulls_and_evaluates(self, backtested_with_a_gap, prices):
+        strategy, run = backtested_with_a_gap
+        eval_set = strategy.build_eval_set(prices, WINDOW_START, WINDOW_END, run=run)
+        assert len(eval_set) == 14 * 48
+        assert eval_set.df.dtypes.astype(str).to_dict() == strategy.eval_set_cls.schema
+        on_gap = eval_set.df[eval_set.df["trade_date"] == GAP_DAY]
+        assert on_gap["lag_1d_price"].isna().all() and on_gap["month"].isna().sum() == 24
+        with mlflow.start_run():
+            evaluation = strategy.evaluate(eval_set, explainability_nsamples=20)
+        assert evaluation.metrics["mean_absolute_error"] == pytest.approx(
+            (run.result.df["forecast_price_jpy_kwh"] - run.result.df["actual_price_jpy_kwh"])
+            .abs()
+            .mean()
+        )

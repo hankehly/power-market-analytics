@@ -204,11 +204,14 @@ class SlidingWindowLightGbmStrategy(ForecastStrategy[HalfHourlySeries, LightGbmE
         DayAheadForecast
             An instance of ``task.forecast_cls``.
 
+        A missing feature is passed to LightGBM as NaN, which sends it down
+        each split's learned missing-value branch.
+
         Raises
         ------
         ForecastUnavailableError
-            If any feature is unavailable for the target day, or the
-            training window contains no complete rows.
+            If no period of the target day has any feature value, or the
+            training window has no row with one.
         """
         # A string-parsed Timestamp carries second resolution; normalize so
         # the assigned trade_date column is datetime64[ns] per the contract.
@@ -219,11 +222,9 @@ class SlidingWindowLightGbmStrategy(ForecastStrategy[HalfHourlySeries, LightGbmE
             {"trade_date": target_date, "time_code": np.arange(1, N_PERIODS + 1, dtype="int64")}
         )
         featured = self._features(points, history.df)
-        missing = featured[list(self.feature_cols)].isna().any()
-        if missing.any():
+        if not self._has_feature_value(featured).any():
             raise ForecastUnavailableError(
-                f"{self.name}: features {list(missing[missing].index)} unavailable for "
-                f"{target_date.date()}"
+                f"{self.name}: no feature values for {target_date.date()}"
             )
         features = featured[list(self.feature_cols)].astype("float64")
         forecast = featured[GRAIN_COLS].assign(**{self.forecast_col: model.predict(features)})
@@ -256,10 +257,9 @@ class SlidingWindowLightGbmStrategy(ForecastStrategy[HalfHourlySeries, LightGbmE
 
         Joins the backtest's walk-forward forecasts onto the feature rows;
         the frame contract then enforces that every eval point has exactly
-        one forecast. Points missing any feature — the first days of history,
-        the days after a gap, a day without exogenous data — and the days
-        the backtest skipped are dropped, since MLflow needs a complete
-        numeric matrix and skipped days have nothing to replay.
+        one forecast. A point missing a feature keeps it null, as the model
+        saw it; the days the backtest skipped are dropped, since they have
+        nothing to replay.
 
         Parameters
         ----------
@@ -280,8 +280,8 @@ class SlidingWindowLightGbmStrategy(ForecastStrategy[HalfHourlySeries, LightGbmE
         Raises
         ------
         ValueError
-            If ``run`` is missing, no complete rows remain in the window,
-            or the forecasts do not cover every eval row.
+            If ``run`` is missing, every day of the window was skipped, or the
+            forecasts do not cover every eval row.
         """
         if run is None:
             raise ValueError(
@@ -289,36 +289,25 @@ class SlidingWindowLightGbmStrategy(ForecastStrategy[HalfHourlySeries, LightGbmE
                 "run run_backtest over the same window first"
             )
         featured = self._design_matrix(history.df)
-        window = featured[featured["trade_date"].between(start_date, end_date)]
-        complete = window.dropna(subset=[*self.feature_cols, self.target_col])
-        n_dropped = len(window) - len(complete)
-        if n_dropped:
-            logger.info(
-                "{} eval set: dropped {} of {} rows with incomplete features",
-                self.name,
-                n_dropped,
-                len(window),
-            )
+        scored = featured[featured["trade_date"].between(start_date, end_date)]
         if run.skipped_days:
-            n_before = len(complete)
-            complete = complete[~complete["trade_date"].isin(run.skipped_days)]
+            n_before = len(scored)
+            scored = scored[~scored["trade_date"].isin(run.skipped_days)]
             logger.info(
                 "{} eval set: dropped {} rows on {} skipped days",
                 self.name,
-                n_before - len(complete),
+                n_before - len(scored),
                 len(run.skipped_days),
             )
-        if complete.empty:
+        if scored.empty:
             raise ValueError(
-                f"{self.name}: no complete feature rows between "
-                f"{start_date.date()} and {end_date.date()}"
+                f"{self.name}: no scored rows between {start_date.date()} and {end_date.date()}"
             )
-        # A left-joined feature is float64 whenever any row of the full
-        # history lacked it; restore the contract dtype now that only
-        # complete rows remain.
+        # A left-joined feature is float64 whenever any row lacks it; restore
+        # the contract dtype (an integer one nullable).
         schema = self.eval_set_cls.schema
-        complete = complete.astype({col: schema[col] for col in self.feature_cols})
-        merged = complete.merge(
+        scored = scored.astype({col: schema[col] for col in self.feature_cols})
+        merged = scored.merge(
             run.result.df[[*GRAIN_COLS, self.forecast_col]],
             how="left",
             on=GRAIN_COLS,
@@ -576,6 +565,12 @@ class SlidingWindowLightGbmStrategy(ForecastStrategy[HalfHourlySeries, LightGbmE
         leak the future). The window never reaches back before
         ``train_start_date``.
 
+        A training row may miss features: LightGBM learns a missing-value
+        branch for each split on a feature that is missing somewhere in the
+        window. Without such rows it would have none, and would score a
+        missing value as 0.0. Only a row with no feature value at all is
+        dropped.
+
         Parameters
         ----------
         history : pandas.DataFrame
@@ -592,7 +587,7 @@ class SlidingWindowLightGbmStrategy(ForecastStrategy[HalfHourlySeries, LightGbmE
         Raises
         ------
         ForecastUnavailableError
-            If the training window contains no complete rows.
+            If no row of the training window has a feature value.
         """
         cached = self._model
         if (
@@ -611,12 +606,11 @@ class SlidingWindowLightGbmStrategy(ForecastStrategy[HalfHourlySeries, LightGbmE
             history["trade_date"] >= window_start - pd.Timedelta(days=self.lookback_days)
         ]
         train = self._design_matrix(recent)
-        train = train[train["trade_date"] >= window_start].dropna(
-            subset=[*self.feature_cols, self.target_col]
-        )
+        train = train[train["trade_date"] >= window_start]
+        train = train[self._has_feature_value(train)]
         if train.empty:
             raise ForecastUnavailableError(
-                f"{self.name}: no complete training rows in the "
+                f"{self.name}: no training rows with a feature value in the "
                 f"{self.train_window_days} days before {target_date.date()}"
             )
         model = lightgbm.LGBMRegressor(**LGBM_PARAMS)
@@ -643,11 +637,30 @@ class SlidingWindowLightGbmStrategy(ForecastStrategy[HalfHourlySeries, LightGbmE
         )
         return model
 
+    def _has_feature_value(self, featured: pd.DataFrame) -> pd.Series:
+        """Whether each row has a value for at least one feature besides the grain.
+
+        A row without one (a day outside the retrieved frame) tells the model
+        nothing but the period.
+
+        Parameters
+        ----------
+        featured : pandas.DataFrame
+            Rows carrying ``feature_cols``, as :meth:`_features` returns them.
+
+        Returns
+        -------
+        pandas.Series of bool
+            Aligned with ``featured``.
+        """
+        informative = [col for col in self.feature_cols if col not in GRAIN_COLS]
+        return featured[informative].notna().any(axis=1)
+
     def _design_matrix(self, history: pd.DataFrame) -> pd.DataFrame:
         """Features and target for every (trade_date, time_code) point of ``history``.
 
         Rows missing a feature (no lag day, no exogenous row) keep NaN
-        there; callers decide whether to drop them.
+        there.
 
         Parameters
         ----------
