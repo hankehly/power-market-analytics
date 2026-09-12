@@ -49,3 +49,13 @@ updates:
       actions-minor-and-patch:
         patterns: ["*"]
         update-types: ["minor", "patch"]
+    ignore:
+      # The gh-aw actions appear only in unbloat-docs.lock.yml, which the gh-aw
+      # compiler generates ("DO NOT EDIT") from unbloat-docs.md and
+      # .github/aw/actions-lock.json. Dependabot edits the output directly, so
+      # its bump disagrees with the lock and the next `gh aw compile` reverts it.
+      # It also cannot tell a pre-release from a release — that flag lives on
+      # the GitHub Release, not the tag it follows — which is how #93 moved this
+      # workflow from v0.88.7, the latest stable, onto the v0.89.0 pre-release.
+      # Move these with the toolchain instead: `gh aw upgrade`, then review.
+      - dependency-name: "github/gh-aw-actions/*"
