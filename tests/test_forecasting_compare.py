@@ -29,6 +29,7 @@ from power_market_analytics.forecasting.compare import (
     segment_mape,
     segment_overall,
     to_markdown,
+    uncommon_days,
 )
 from power_market_analytics.tasks.demand import TASK as DEMAND_TASK
 from power_market_analytics.tasks.spot_price import TASK as SPOT_TASK
@@ -152,6 +153,49 @@ class TestMatchedRows:
             candidate_run_id=CAND,
         )
         assert set(out["run_id"]) == {BASE, CAND}
+
+    def test_common_days_drops_the_days_only_one_run_scored(self):
+        df = demand_errors().df
+        trimmed = MinimalRunErrors.from_df(
+            df[~((df["run_id"] == CAND) & (df["trade_date"] == DAY_2))]
+        )
+        with pytest.raises(ValueError, match="Runs are not matched"):
+            matched_rows(trimmed, task=DEMAND_TASK, baseline_run_id=BASE, candidate_run_id=CAND)
+        out = matched_rows(
+            trimmed,
+            task=DEMAND_TASK,
+            baseline_run_id=BASE,
+            candidate_run_id=CAND,
+            common_days=True,
+        )
+        assert set(out["trade_date"]) == {DAY_1}
+        assert out["role"].value_counts().to_dict() == {"baseline": 2, "candidate": 2}
+
+    def test_common_days_still_requires_every_period_of_a_common_day(self):
+        df = demand_errors().df
+        # One period of DAY_2 missing from the candidate: the day is common, the point is not.
+        first = df[(df["run_id"] == CAND) & (df["trade_date"] == DAY_2)].index[0]
+        trimmed = MinimalRunErrors.from_df(df.drop(index=first))
+        with pytest.raises(ValueError, match=r"\{'left_only': 1\}"):
+            matched_rows(
+                trimmed,
+                task=DEMAND_TASK,
+                baseline_run_id=BASE,
+                candidate_run_id=CAND,
+                common_days=True,
+            )
+
+
+class TestUncommonDays:
+    def test_lists_the_days_only_one_run_scored(self):
+        df = demand_errors().df
+        no_cand_day_2 = df[~((df["run_id"] == CAND) & (df["trade_date"] == DAY_2))]
+        assert uncommon_days(no_cand_day_2, BASE, CAND) == {"baseline": [DAY_2], "candidate": []}
+        no_base_day_1 = df[~((df["run_id"] == BASE) & (df["trade_date"] == DAY_1))]
+        assert uncommon_days(no_base_day_1, BASE, CAND) == {"baseline": [], "candidate": [DAY_1]}
+
+    def test_empty_when_both_scored_the_same_days(self):
+        assert uncommon_days(demand_errors().df, BASE, CAND) == {"baseline": [], "candidate": []}
 
 
 class TestAssertMatched:
