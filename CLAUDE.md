@@ -802,17 +802,17 @@
   (title `type(scope): description`; body sections *Why* / *What* / *Proof* with the measured
   numbers), then `gh pr edit <n> --add-assignee hankehly --add-label <labels>`. A PR gets one
   type label plus the areas it touches. The type follows the title's type: `fix` → `bug`,
-  `feat` → `enhancement`, `docs` → `documentation`, `chore` / `ci` / `build` / `test` /
-  `refactor` → `chore`, `release` → no label. So a `chore/` branch whose PR only edits docs
-  is `documentation`, not `chore`. Never put `documentation` beside another type label —
-  under the old rule it landed on 45 of the first 46 labeled PRs and so filtered nothing.
-  Areas, as many as apply: `ingestion` (a source's download, load, raw/staging/standardized
-  models and its retrieval doc), `forecasting` (the tasks, the forecasting framework, the
-  feature marts and Feast, the `pma_ml` models), `dashboard` (the Superset dashboards). Add
-  `research` when the PR runs an experiment or writes up an investigation under
-  `docs/research/`. The labels were backfilled over PRs 1-69 on 2026-09-12. A stage that
-  depends on an unmerged PR is stacked on that branch (`--base <branch>`); GitHub retargets
-  it to `main` when the base merges.
+  `feat` and `perf` → `enhancement`, `docs` → `documentation`, `chore` / `ci` / `build` /
+  `test` / `refactor` / `style` → `chore`, a `release/` branch → no label. So a `chore/`
+  branch whose PR only edits docs is `documentation`, not `chore`. Never put `documentation`
+  beside another type label — under the old rule it landed on 45 of the first 46 labeled PRs
+  and so filtered nothing. Areas, as many as apply: `ingestion` (a source's download, load,
+  raw/staging/standardized models and its retrieval doc), `forecasting` (the tasks, the
+  forecasting framework, the feature marts and Feast, the `pma_ml` models), `dashboard` (the
+  Superset dashboards). Add `research` when the PR runs an experiment or writes up an
+  investigation under `docs/research/`. The labels were backfilled over PRs 1-70 on
+  2026-09-12. A stage that depends on an unmerged PR is stacked on that branch
+  (`--base <branch>`); GitHub retargets it to `main` when the base merges.
 - **Never spell out the Codex mention** — the bot's handle followed by `review` — in a PR
   body, a commit message, a review reply or a file that will show up in a diff: Codex acts on
   that literal text wherever it appears on the PR and, anywhere but a plain PR comment,
