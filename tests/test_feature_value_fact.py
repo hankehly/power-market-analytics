@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
-from pyspark.sql import SparkSession
+from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql import functions as F
 
 MODEL_PATH = (
@@ -25,6 +25,18 @@ STACK_ROW = re.compile(
 )
 KEY = ["area_code", "trade_date", "time_code", "feature_ref", "available_at"]
 SIMILAR_DAY_MART = "ftr_period_similar_day"
+COLUMNS = [
+    "area_code",
+    "trade_date",
+    "time_code",
+    "feature_view",
+    "feature_name",
+    "feature_ref",
+    "feature_value",
+    "is_categorical",
+    "available_at",
+    "published_at",
+]
 
 
 def model_sql(tables: dict[str, str] | None = None) -> str:
@@ -47,15 +59,23 @@ def stacked_columns(text: str) -> dict[str, tuple[int, list[tuple[str, bool]]]]:
 
 
 @pytest.fixture
-def fact(spark: SparkSession, feature_marts) -> pd.DataFrame:
-    return spark.sql(model_sql()).toPandas()
+def fact(spark: SparkSession, feature_marts) -> DataFrame:
+    """The model over the fixture marts, left unevaluated.
+
+    It is 650k rows, 203 MB collected. Pulling it whole into the driver needs a
+    task-result block the test session's 1 GB heap has no room for once the rest
+    of the suite is resident, which is how it ran a CI runner out of heap. The
+    tests below count and filter in Spark and collect only what they assert on.
+    """
+    return spark.sql(model_sql())
 
 
 class TestFeatureValueFact:
     def test_every_tagged_cell_appears_once_at_its_periods(self, spark, fact):
         marts = stacked_columns(MODEL_PATH.read_text())
+        counts = fact.groupBy("feature_view", "feature_name").count().toPandas()
         assert (
-            set(fact["feature_view"])
+            set(counts["feature_view"])
             == set(marts)
             == {
                 "ftr_day_calendar",
@@ -69,9 +89,8 @@ class TestFeatureValueFact:
         )
         for mart, (multiplier, columns) in marts.items():
             rows = spark.table(f"pma_features.{mart}").toPandas()
-            subset = fact[fact["feature_view"] == mart]
-            assert len(subset) == len(rows) * len(columns) * multiplier, mart
-            assert set(subset["feature_name"]) == {col for col, _ in columns}, mart
+            per_column = counts[counts["feature_view"] == mart].set_index("feature_name")["count"]
+            assert per_column.to_dict() == {col: len(rows) * multiplier for col, _ in columns}, mart
             # The mart's first row, at every period it covers.
             row = rows.iloc[0]
             if multiplier == 48:
@@ -80,13 +99,16 @@ class TestFeatureValueFact:
                 periods = [2 * int(row["hour_ending"]) - 1, 2 * int(row["hour_ending"])]
             else:
                 periods = [int(row["time_code"])]
+            day = fact.filter(
+                (F.col("feature_view") == mart)
+                & (F.col("trade_date") == str(pd.Timestamp(row["trade_date"]).date()))
+                & F.col("time_code").isin(periods)
+            ).toPandas()
             for col, categorical in columns:
-                got = subset[
-                    (subset["area_code"] == row["area_code"])
-                    & (subset["trade_date"] == row["trade_date"])
-                    & (subset["feature_name"] == col)
-                    & (subset["available_at"] == row["available_at"])
-                    & (subset["time_code"].isin(periods))
+                got = day[
+                    (day["area_code"] == row["area_code"])
+                    & (day["feature_name"] == col)
+                    & (day["available_at"] == row["available_at"])
                 ].set_index("time_code")
                 assert sorted(got.index) == periods, (mart, col)
                 expected = None if pd.isna(row[col]) else float(row[col])
@@ -97,23 +119,17 @@ class TestFeatureValueFact:
                     assert bool(got.loc[time_code, "is_categorical"]) is categorical
 
     def test_the_key_is_unique_and_the_flags_come_from_the_tags(self, fact):
-        assert not fact.duplicated(KEY).any()
-        assert set(fact.loc[fact["is_categorical"], "feature_ref"]) == {"ftr_day_calendar:day_type"}
-        assert list(fact.columns) == [
-            "area_code",
-            "trade_date",
-            "time_code",
-            "feature_view",
-            "feature_name",
-            "feature_ref",
-            "feature_value",
-            "is_categorical",
-            "available_at",
-            "published_at",
-        ]
-        with_published = fact["published_at"].notna()
-        assert set(fact.loc[with_published, "feature_view"]) == {SIMILAR_DAY_MART}
-        assert (fact.loc[~with_published, "feature_view"] != SIMILAR_DAY_MART).all()
+        assert fact.groupBy(*KEY).count().where("count > 1").count() == 0
+        categorical = fact.where("is_categorical").select("feature_ref").distinct().collect()
+        assert {r["feature_ref"] for r in categorical} == {"ftr_day_calendar:day_type"}
+        assert fact.columns == COLUMNS
+        views = (
+            fact.select("feature_view", F.col("published_at").isNotNull().alias("published"))
+            .distinct()
+            .toPandas()
+        )
+        assert set(views.loc[views["published"], "feature_view"]) == {SIMILAR_DAY_MART}
+        assert (views.loc[~views["published"], "feature_view"] != SIMILAR_DAY_MART).all()
 
     def test_a_mart_with_two_vintages_keeps_the_newest_published(self, spark, feature_marts):
         # A second, older run of the similar day with doubled values: the fact keeps
@@ -125,8 +141,8 @@ class TestFeatureValueFact:
             .withColumn("published_at", F.col("published_at") - F.expr("interval 1 day"))
         )
         mart.unionByName(older).createOrReplaceTempView("similar_day_two_runs")
-        fact = spark.sql(model_sql({SIMILAR_DAY_MART: "similar_day_two_runs"})).toPandas()
-        subset = fact[fact["feature_view"] == SIMILAR_DAY_MART]
+        fact = spark.sql(model_sql({SIMILAR_DAY_MART: "similar_day_two_runs"}))
+        subset = fact.where(F.col("feature_view") == SIMILAR_DAY_MART).toPandas()
         assert len(subset) == mart.count()
         expected = mart.toPandas()
         merged = subset.merge(
