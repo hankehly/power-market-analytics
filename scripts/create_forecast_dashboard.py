@@ -49,6 +49,12 @@ The two dashboards share chart names (a chart is identified by its name
 *within its dataset*), differing only where the quantity shows through: the
 unit, number formats, and the two actual-value-level charts.
 
+Every chart labels a feature by its expression (``LAG(demand_kwh, 2d)``), read
+from ``pma_curated.dim_feature`` in the dataset SQL; the facts store the column
+name. After the dashboards come the feature-value datasets and the **Feature
+Catalogue** dashboard: one searchable table of every feature under its
+expression, over the same dimension.
+
 Run inside the devcontainer (needs the compose network):
 
     python scripts/create_forecast_dashboard.py                 # every dashboard
@@ -102,6 +108,15 @@ concat(
     ' | ', substring({f}.run_id, 1, 8)
   )"""
 
+# A feature's label on every chart: its expression from the feature dimension
+# (LAG(demand_kwh, 2d)), or the stored name where the dimension has no row (the
+# SHAP base, time_code). The facts keep the column name; only the label reads
+# the dimension. One definition, formatted with the dimension's alias ``e`` and
+# the column holding the name, next to the left join that brings the dimension in.
+FEATURE_DIMENSION = "pma_curated.dim_feature"
+FEATURE_EXPRESSION_SQL = "coalesce({e}.feature_expression, {name})"
+FEATURE_JOIN_SQL = "left join " + FEATURE_DIMENSION + " {e} on {e}.feature_name = {name}"
+
 #: The every-vintage feature-value dataset (one for both tasks); the as-of
 #: datasets are ``<task>_feature_values``.
 FEATURE_VALUES_ALL_DATASET = "feature_values_all"
@@ -133,6 +148,7 @@ select
   a.area_name_en,
   f.feature_view,
   f.feature_name,
+  {feature_expression} as feature_expression,
   f.feature_ref,
   f.feature_value,
   f.is_categorical,
@@ -141,8 +157,14 @@ select
 from {source} f
 join pma_curated.dim_area a on f.area_code = a.area_code
 join pma_curated.dim_delivery_period p on f.time_code = p.time_code
-join pma_curated.dim_date d on f.trade_date = d.date_key{where}
+join pma_curated.dim_date d on f.trade_date = d.date_key
+{feature_join}{where}
 """
+#: The feature-value datasets' label and dimension join, over fct_feature_value's name.
+FEATURE_VALUES_LABEL = {
+    "feature_expression": FEATURE_EXPRESSION_SQL.format(e="e", name="f.feature_name"),
+    "feature_join": FEATURE_JOIN_SQL.format(e="e", name="f.feature_name"),
+}
 
 # The as-of dataset: the newest vintage of every period and feature that was
 # public by the task's issue time, the row Feast serves a backtest; ties on
@@ -160,11 +182,14 @@ with asof as (
   where f.available_at <= {issue_time}
 )
 """ + FEATURE_VALUES_SELECT_TEMPLATE.format(
-    extra_columns=",\n  f.issue_time", source="asof", where="\nwhere f.vintage_rank = 1"
+    extra_columns=",\n  f.issue_time",
+    source="asof",
+    where="\nwhere f.vintage_rank = 1",
+    **FEATURE_VALUES_LABEL,
 )
 
 FEATURE_VALUES_ALL_SQL = FEATURE_VALUES_SELECT_TEMPLATE.format(
-    extra_columns="", source="pma_curated.fct_feature_value", where=""
+    extra_columns="", source="pma_curated.fct_feature_value", where="", **FEATURE_VALUES_LABEL
 )
 
 # (column_name, generic type, is temporal) of the every-vintage dataset, in
@@ -187,6 +212,7 @@ FEATURE_VALUES_ALL_COLUMNS = (
     ("area_name_en", "STRING", False),
     ("feature_view", "STRING", False),
     ("feature_name", "STRING", False),
+    ("feature_expression", "STRING", False),
     ("feature_ref", "STRING", False),
     ("feature_value", "DOUBLE", False),
     ("is_categorical", "BOOLEAN", False),
@@ -321,8 +347,9 @@ select
   c.strategy,
   c.published_at,
   c.component,
+  {feature_expression_sql} as feature_expression,
   c.component_order,
-  concat(lpad(cast(c.component_order as string), 2, '0'), ' ', c.component) as component_label,
+  concat(lpad(cast(c.component_order as string), 2, '0'), ' ', {feature_expression_sql}) as component_label,
   c.is_base,
   c.feature_value,
 {explanation_value_columns_sql}
@@ -330,6 +357,7 @@ from {contribution_table} c
 join pma_curated.dim_area a on c.area_key = a.area_key
 join pma_curated.dim_delivery_period p on c.time_code = p.time_code
 join pma_curated.dim_date d on c.date_key = d.date_key
+{feature_join_sql}
 left join {accuracy_table} f
   on c.run_id = f.run_id
   and c.date_key = f.date_key
@@ -353,6 +381,7 @@ COMMON_EXPLANATION_COLUMNS = (
     ("strategy", "STRING", False),
     ("published_at", "TIMESTAMP", True),
     ("component", "STRING", False),
+    ("feature_expression", "STRING", False),
     ("component_order", "INT", False),
     ("component_label", "STRING", False),
     ("is_base", "BOOLEAN", False),
@@ -362,7 +391,8 @@ COMMON_EXPLANATION_COLUMNS = (
 # Shared skeleton of every task's importance dataset: the permutation feature
 # importance fact (one row per run x feature x repeat) with the run label and
 # area context. feature_label carries the model's feature order as a sortable
-# prefix like component_label. No delivery-day axis: importance describes a run.
+# prefix like component_label, before the feature's expression. No delivery-day
+# axis: importance describes a run.
 IMPORTANCE_DATASET_SQL_TEMPLATE = """\
 select
   a.area_code,
@@ -372,13 +402,15 @@ select
   i.strategy,
   i.published_at,
   i.feature,
+  {feature_expression_sql} as feature_expression,
   i.feature_order,
-  concat(lpad(cast(i.feature_order as string), 2, '0'), ' ', i.feature) as feature_label,
+  concat(lpad(cast(i.feature_order as string), 2, '0'), ' ', {feature_expression_sql}) as feature_label,
   i.repeat_index,
   i.n_periods,
 {importance_value_columns_sql}
 from {importance_table} i
 join pma_curated.dim_area a on i.area_key = a.area_key
+{feature_join_sql}
 """
 
 COMMON_IMPORTANCE_COLUMNS = (
@@ -389,6 +421,7 @@ COMMON_IMPORTANCE_COLUMNS = (
     ("strategy", "STRING", False),
     ("published_at", "TIMESTAMP", True),
     ("feature", "STRING", False),
+    ("feature_expression", "STRING", False),
     ("feature_order", "INT", False),
     ("feature_label", "STRING", False),
     ("repeat_index", "INT", False),
@@ -618,8 +651,9 @@ select
   {% if candidate %}'{{ candidate[0] | replace("'", "''") }}'{% else %}cast(null as string){% endif %} as run_label,
   {% if baseline %}'{{ baseline[0] | replace("'", "''") }}'{% else %}cast(null as string){% endif %} as baseline_run_label,
   m.component,
+  $feature_expression_sql as feature_expression,
   m.component_order,
-  concat(lpad(cast(m.component_order as string), 3, '0'), ' ', m.component) as component_label,
+  concat(lpad(cast(m.component_order as string), 3, '0'), ' ', $feature_expression_sql) as component_label,
   m.is_base,
   m.feature_value,
   m.baseline_feature_value,
@@ -628,6 +662,7 @@ from matched m
 join pma_curated.dim_area a on m.area_key = a.area_key
 join pma_curated.dim_delivery_period p on m.time_code = p.time_code
 join pma_curated.dim_date d on m.date_key = d.date_key
+$feature_join_sql
 """)
 
 COMMON_EXPLANATION_COMPARISON_COLUMNS = (
@@ -644,6 +679,7 @@ COMMON_EXPLANATION_COMPARISON_COLUMNS = (
     ("run_label", "STRING", False),
     ("baseline_run_label", "STRING", False),
     ("component", "STRING", False),
+    ("feature_expression", "STRING", False),
     ("component_order", "INT", False),
     ("component_label", "STRING", False),
     ("is_base", "BOOLEAN", False),
@@ -889,6 +925,8 @@ class DashboardSpec:
             contribution_table=self.contribution_table,
             accuracy_table=self.accuracy_table,
             run_label_sql=RUN_LABEL_SQL.format(f="c", a="a"),
+            feature_expression_sql=FEATURE_EXPRESSION_SQL.format(e="e", name="c.component"),
+            feature_join_sql=FEATURE_JOIN_SQL.format(e="e", name="c.component"),
         )
 
     @property
@@ -977,6 +1015,8 @@ class DashboardSpec:
         task's value block."""
         return EXPLANATION_COMPARISON_DATASET_SQL_TEMPLATE.substitute(
             run_label_sql=RUN_LABEL_SQL.format(f="c", a="a"),
+            feature_expression_sql=FEATURE_EXPRESSION_SQL.format(e="e", name="m.component"),
+            feature_join_sql=FEATURE_JOIN_SQL.format(e="e", name="m.component"),
             contribution_table=self.contribution_table,
             accuracy_table=self.accuracy_table,
             explanation_comparison_value_columns_sql=self.explanation_comparison_value_columns_sql,
@@ -1050,6 +1090,8 @@ class DashboardSpec:
             importance_value_columns_sql=self.importance_value_columns_sql,
             importance_table=self.importance_table,
             run_label_sql=RUN_LABEL_SQL.format(f="i", a="a"),
+            feature_expression_sql=FEATURE_EXPRESSION_SQL.format(e="e", name="i.feature"),
+            feature_join_sql=FEATURE_JOIN_SQL.format(e="e", name="i.feature"),
         )
 
     @property
@@ -1614,7 +1656,7 @@ def upsert_dataset(
     sql: str,
     columns: list[tuple[str, str, bool]],
     *,
-    main_dttm_col: str = "trade_datetime",
+    main_dttm_col: str | None = "trade_datetime",
 ) -> int:
     """Create or update a virtual dataset and return its id.
 
@@ -1630,10 +1672,10 @@ def upsert_dataset(
     columns : list of (str, str, bool)
         (column_name, generic type, is temporal) for every output column, in
         select order; overrides any stale column metadata on reruns.
-    main_dttm_col : str, optional
+    main_dttm_col : str or None, optional
         The dataset's main temporal column: ``trade_datetime`` for the
         period-grain datasets, ``published_at`` for the run-grain importance
-        dataset.
+        dataset, None for the feature catalogue, which has no time axis.
 
     Returns
     -------
@@ -2635,7 +2677,7 @@ def importance_bar_params(spec: DashboardSpec, dataset_id: int) -> dict:
     """
     return _horizontal_bar_params(
         dataset_id,
-        x_axis="feature",
+        x_axis="feature_expression",
         metric=spec.importance_metric,
         adhoc_filters=[],
         y_axis_format=spec.axis_format,
@@ -2658,7 +2700,7 @@ def mean_abs_shap_params(spec: DashboardSpec, dataset_id: int) -> dict:
     """
     return _horizontal_bar_params(
         dataset_id,
-        x_axis="component",
+        x_axis="feature_expression",
         metric=spec.mean_abs_shap_metric,
         adhoc_filters=[NOT_BASE_FILTER],
         y_axis_format=spec.axis_format,
@@ -2820,7 +2862,7 @@ def upsert_chart(client: SupersetClient, name: str, dataset_id: int, params: dic
     return chart_id
 
 
-def build_position_json(spec: DashboardSpec, tabs: list[dict]) -> dict:
+def build_position_json(title: str, tabs: list[dict]) -> dict:
     """Dashboard layout: top-level tabs, each a list of optionally headed sections of rows.
 
     Emits the shape Superset itself writes for a tabbed dashboard: the tabs
@@ -2830,8 +2872,8 @@ def build_position_json(spec: DashboardSpec, tabs: list[dict]) -> dict:
 
     Parameters
     ----------
-    spec : DashboardSpec
-        Supplies the dashboard header text.
+    title : str
+        The dashboard header text.
     tabs : list of dict
         Each ``{"title": str, "sections": [...]}``; a section is
         ``{"header": str | None, "rows": [[(chart_id, name, width, height),
@@ -2854,7 +2896,7 @@ def build_position_json(spec: DashboardSpec, tabs: list[dict]) -> dict:
             "meta": {},
         },
         "GRID_ID": {"type": "GRID", "id": "GRID_ID", "children": [], "parents": ["ROOT_ID"]},
-        "HEADER_ID": {"type": "HEADER", "id": "HEADER_ID", "meta": {"text": spec.dashboard_title}},
+        "HEADER_ID": {"type": "HEADER", "id": "HEADER_ID", "meta": {"text": title}},
     }
     for t, tab in enumerate(tabs):
         tab_key = f"TAB-{t}"
@@ -3109,7 +3151,8 @@ def build_chart_configuration(emitters: dict[int, list[int]], all_charts: list[i
 
 def upsert_dashboard(
     client: SupersetClient,
-    spec: DashboardSpec,
+    title: str,
+    slug: str,
     position: dict,
     native_filters: list[dict],
     chart_configuration: dict,
@@ -3119,8 +3162,8 @@ def upsert_dashboard(
     Parameters
     ----------
     client : SupersetClient
-    spec : DashboardSpec
-        Supplies the title and slug.
+    title, slug : str
+        The dashboard title (matched on reruns) and URL slug.
     position : dict
         ``position_json`` layout from :func:`build_position_json`.
     native_filters : list of dict
@@ -3133,11 +3176,10 @@ def upsert_dashboard(
     -------
     int
     """
-    dashboard_id = client.find_one("dashboard", dashboard_title=spec.dashboard_title)
+    dashboard_id = client.find_one("dashboard", dashboard_title=title)
     if dashboard_id is None:
         dashboard_id = client._post_json(
-            "/api/v1/dashboard/",
-            {"dashboard_title": spec.dashboard_title, "slug": spec.dashboard_slug},
+            "/api/v1/dashboard/", {"dashboard_title": title, "slug": slug}
         )["id"]
     json_metadata = {
         "native_filter_configuration": native_filters,
@@ -3152,8 +3194,8 @@ def upsert_dashboard(
     client._put_json(
         f"/api/v1/dashboard/{dashboard_id}",
         {
-            "dashboard_title": spec.dashboard_title,
-            "slug": spec.dashboard_slug,
+            "dashboard_title": title,
+            "slug": slug,
             "position_json": json.dumps(position),
             "json_metadata": json.dumps(json_metadata),
             "published": True,
@@ -3784,8 +3826,9 @@ def build_dashboard(
     )
     dashboard_id = upsert_dashboard(
         client,
-        spec,
-        build_position_json(spec, [tab.layout for tab in tabs]),
+        spec.dashboard_title,
+        spec.dashboard_slug,
+        build_position_json(spec.dashboard_title, [tab.layout for tab in tabs]),
         build_native_filters(
             dataset_id=dataset_id,
             run_excluded=[leaderboard],
@@ -3848,8 +3891,122 @@ def build_feature_value_datasets(
     return ids
 
 
+#: The feature catalogue: every feature by the name people read, one row each.
+FEATURE_CATALOGUE_DATASET = "feature_catalogue"
+FEATURE_CATALOGUE_TITLE = "Feature Catalogue"
+FEATURE_CATALOGUE_SLUG = "feature-catalogue"
+FEATURE_CATALOGUE_CHART = "Features"
+FEATURE_CATALOGUE_SQL = f"""\
+select
+  feature_expression,
+  feature_view,
+  feature_name,
+  feature_ref,
+  grain,
+  data_type,
+  is_categorical,
+  is_retired,
+  feature_description
+from {FEATURE_DIMENSION}
+"""
+FEATURE_CATALOGUE_COLUMNS = (
+    ("feature_expression", "STRING", False),
+    ("feature_view", "STRING", False),
+    ("feature_name", "STRING", False),
+    ("feature_ref", "STRING", False),
+    ("grain", "STRING", False),
+    ("data_type", "STRING", False),
+    ("is_categorical", "BOOLEAN", False),
+    ("is_retired", "BOOLEAN", False),
+    ("feature_description", "STRING", False),
+)
+
+
+def feature_catalogue_params(dataset_id: int) -> dict:
+    """Params for the catalogue table: one row per feature, expression first, with a search box.
+
+    Rows sort by feature view, then expression, so a mart's features sit
+    together; the search box matches any column, the expression included.
+
+    Parameters
+    ----------
+    dataset_id : int
+        The feature catalogue dataset.
+
+    Returns
+    -------
+    dict
+    """
+    return {
+        "datasource": f"{dataset_id}__table",
+        "viz_type": "table",
+        "query_mode": "raw",
+        "all_columns": [name for name, _, _ in FEATURE_CATALOGUE_COLUMNS],
+        "order_by_cols": [
+            json.dumps(["feature_view", True]),
+            json.dumps(["feature_expression", True]),
+        ],
+        "adhoc_filters": [],
+        "row_limit": 10000,
+        "server_pagination": False,
+        "page_length": 100,
+        "include_search": True,
+        "table_timestamp_format": "smart_date",
+        "extra_form_data": {},
+    }
+
+
+def build_feature_catalogue(client: SupersetClient, database_id: int) -> int:
+    """Build or refresh the Feature Catalogue dashboard over ``dim_feature`` and return its id.
+
+    The browsable list of every feature under its expression: the
+    ``feature_catalogue`` dataset, one table chart and a one-tab dashboard.
+    It does not depend on a task.
+
+    Parameters
+    ----------
+    client : SupersetClient
+    database_id : int
+        Superset id of the Spark Thriftserver connection.
+
+    Returns
+    -------
+    int
+    """
+    dataset_id = upsert_dataset(
+        client,
+        database_id,
+        FEATURE_CATALOGUE_DATASET,
+        FEATURE_CATALOGUE_SQL,
+        list(FEATURE_CATALOGUE_COLUMNS),
+        main_dttm_col=None,
+    )
+    logger.info("dataset {}: id={}", FEATURE_CATALOGUE_DATASET, dataset_id)
+    chart_id = upsert_chart(
+        client, FEATURE_CATALOGUE_CHART, dataset_id, feature_catalogue_params(dataset_id)
+    )
+    logger.info("chart {}: {}", chart_id, FEATURE_CATALOGUE_CHART)
+    layout = {
+        "title": FEATURE_CATALOGUE_CHART,
+        "sections": [{"header": None, "rows": [[(chart_id, FEATURE_CATALOGUE_CHART, 12, 150)]]}],
+    }
+    dashboard_id = upsert_dashboard(
+        client,
+        FEATURE_CATALOGUE_TITLE,
+        FEATURE_CATALOGUE_SLUG,
+        build_position_json(FEATURE_CATALOGUE_TITLE, [layout]),
+        [],
+        {},
+    )
+    attach_charts(client, dashboard_id, [chart_id])
+    logger.info("dashboard: id={}", dashboard_id)
+    logger.info("open: http://localhost:8088/superset/dashboard/{}/", FEATURE_CATALOGUE_SLUG)
+    return dashboard_id
+
+
 def main(argv: list[str] | None = None) -> None:
-    """Build or refresh the selected dashboards end to end, then the feature-value datasets.
+    """Build or refresh the selected dashboards end to end, then the feature-value datasets
+    and the Feature Catalogue.
 
     Parameters
     ----------
@@ -3894,6 +4051,7 @@ def main(argv: list[str] | None = None) -> None:
     for spec in specs:
         build_dashboard(client, database_id, spec, baseline_run=args.baseline_run)
     build_feature_value_datasets(client, database_id, specs)
+    build_feature_catalogue(client, database_id)
 
 
 if __name__ == "__main__":
