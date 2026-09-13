@@ -207,7 +207,10 @@ def error_heatmaps(task: TaskSpec, result: BacktestResult, title: str) -> go.Fig
 
 
 def permutation_importance_plot(
-    task: TaskSpec, summary: PermutationImportanceSummary, title: str
+    task: TaskSpec,
+    summary: PermutationImportanceSummary,
+    title: str,
+    label: Callable[[str], str] | None = None,
 ) -> Figure:
     """Horizontal bars of each feature's permutation importance, largest on top.
 
@@ -220,6 +223,9 @@ def permutation_importance_plot(
         Labels the axis with ``task.unit``.
     summary : PermutationImportanceSummary
     title : str
+    label : callable, optional
+        The name each bar shows for a feature column (the strategy's
+        ``feature_label``: its expression); the column name when omitted.
 
     Returns
     -------
@@ -231,7 +237,7 @@ def permutation_importance_plot(
     fig.patch.set_facecolor(SURFACE)
     ax.set_facecolor(SURFACE)
     ax.barh(
-        df["feature"],
+        df["feature"] if label is None else df["feature"].map(label),
         df["importance_mae"],
         xerr=df["importance_std"],
         color=SEQUENTIAL_BLUES[7],

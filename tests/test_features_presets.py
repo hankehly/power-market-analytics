@@ -1,4 +1,4 @@
-"""Presets: named feature lists, their dtypes and categoricals off the views, and their services."""
+"""Presets: named feature lists, their dtypes, categoricals and expressions off the views, and their services."""
 
 from __future__ import annotations
 
@@ -17,6 +17,7 @@ from power_market_analytics.features.presets import (
     categorical_columns,
     feature_column,
     feature_dtypes,
+    feature_expressions,
     feature_service,
 )
 from power_market_analytics.features.store import open_store
@@ -140,6 +141,43 @@ class TestCategoricalColumns:
         fake_view = SimpleNamespace(schema=[Field(name="n", dtype=Int64, tags=None)], join_keys=[])
         monkeypatch.setattr(presets_module, "_views_by_name", lambda: {"ftr_x": fake_view})
         assert categorical_columns(preset(features=("ftr_x:n",))) == ()
+
+
+class TestFeatureExpressions:
+    def test_reads_the_views_tag_in_feature_order(self):
+        assert feature_expressions(preset(features=(LAG, DAY_TYPE, CALENDAR))) == {
+            "lag_1d_price": "LAG(area_price_jpy_kwh, 1d)",
+            "day_type": "day_type",
+            "month": "month",
+        }
+        assert list(feature_expressions(preset(features=(CALENDAR, LAG)))) == [
+            "month",
+            "lag_1d_price",
+        ]
+
+    def test_every_registered_feature_has_an_expression(self):
+        for view in views.VIEWS:
+            for field in view.schema:
+                if field.name not in view.join_keys:
+                    assert field.tags.get("expression"), f"{view.name}:{field.name}"
+
+    def test_a_field_without_the_tag_is_left_out(self, monkeypatch):
+        fake_view = SimpleNamespace(
+            schema=[
+                Field(name="n", dtype=Int64, tags=None),
+                Field(name="m", dtype=Int64, tags={"categorical": "false"}),
+                Field(name="e", dtype=Int64, tags={"expression": "LAG(e, 1d)"}),
+            ],
+            join_keys=[],
+        )
+        monkeypatch.setattr(presets_module, "_views_by_name", lambda: {"ftr_x": fake_view})
+        assert feature_expressions(preset(features=("ftr_x:n", "ftr_x:m", "ftr_x:e"))) == {
+            "e": "LAG(e, 1d)"
+        }
+
+    def test_unknown_reference(self):
+        with pytest.raises(ValueError, match="unknown feature view 'ftr_x'"):
+            feature_expressions(preset(features=("ftr_x:y",)))
 
 
 class TestFeatureService:

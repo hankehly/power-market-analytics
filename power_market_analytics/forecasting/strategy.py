@@ -130,6 +130,24 @@ class ForecastStrategy[HistoryT: HalfHourlySeries, EvalSetT: DomainFrame](ABC):
         mlflow.models.EvaluationResult
         """
 
+    def feature_label(self, feature: str) -> str:
+        """The name a chart or table shows for one of the strategy's features.
+
+        Code, the published rows and MLflow params keep the feature's column
+        name; a figure or artifact meant for reading labels it with this. The
+        default is the column name itself.
+
+        Parameters
+        ----------
+        feature : str
+            A feature column name.
+
+        Returns
+        -------
+        str
+        """
+        return feature
+
     def contributions(self) -> ForecastContributions | None:
         """Additive per-component decomposition of every forecast made so far.
 

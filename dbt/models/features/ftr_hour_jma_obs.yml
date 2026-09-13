@@ -43,6 +43,7 @@ models:
           meta:
             feature: true
             categorical: false
+            expression: "EWA(temperature_c, gap=2d, window=7, step=1d, halflife=1)"
       - name: available_at
         data_type: timestamp
         description: >
