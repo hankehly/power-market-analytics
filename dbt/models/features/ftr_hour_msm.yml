@@ -54,6 +54,7 @@ models:
           meta:
             feature: true
             categorical: false
+            expression: "forecast_temperature_c"
       - name: popw_forecast_temperature_c
         data_type: double
         description: >
@@ -62,6 +63,7 @@ models:
           meta:
             feature: true
             categorical: false
+            expression: "WEIGHTED_MEAN(forecast_temperature_c, weight=population)"
       - name: popw_forecast_relative_humidity_pct
         data_type: double
         description: >
@@ -70,6 +72,7 @@ models:
           meta:
             feature: true
             categorical: false
+            expression: "WEIGHTED_MEAN(forecast_relative_humidity_pct, weight=population)"
       - name: popw_forecast_precipitation_mm
         data_type: double
         description: >
@@ -78,6 +81,7 @@ models:
           meta:
             feature: true
             categorical: false
+            expression: "WEIGHTED_MEAN(forecast_precipitation_mm, weight=population)"
       - name: popw_forecast_solar_radiation_mjm2
         data_type: double
         description: >
@@ -86,6 +90,7 @@ models:
           meta:
             feature: true
             categorical: false
+            expression: "WEIGHTED_MEAN(forecast_solar_radiation_mjm2, weight=population)"
       - name: popw_forecast_total_cloud_cover_pct
         data_type: double
         description: >
@@ -94,6 +99,7 @@ models:
           meta:
             feature: true
             categorical: false
+            expression: "WEIGHTED_MEAN(forecast_total_cloud_cover_pct, weight=population)"
       - name: popw_forecast_high_cloud_cover_pct
         data_type: double
         description: >
@@ -102,6 +108,7 @@ models:
           meta:
             feature: true
             categorical: false
+            expression: "WEIGHTED_MEAN(forecast_high_cloud_cover_pct, weight=population)"
       - name: popw_forecast_middle_cloud_cover_pct
         data_type: double
         description: >
@@ -110,6 +117,7 @@ models:
           meta:
             feature: true
             categorical: false
+            expression: "WEIGHTED_MEAN(forecast_middle_cloud_cover_pct, weight=population)"
       - name: popw_forecast_low_cloud_cover_pct
         data_type: double
         description: >
@@ -118,6 +126,7 @@ models:
           meta:
             feature: true
             categorical: false
+            expression: "WEIGHTED_MEAN(forecast_low_cloud_cover_pct, weight=population)"
       - name: popw_forecast_wind_speed_ms
         data_type: double
         description: >
@@ -126,6 +135,7 @@ models:
           meta:
             feature: true
             categorical: false
+            expression: "WEIGHTED_MEAN(forecast_wind_speed_ms, weight=population)"
       - name: popw_forecast_u_wind_ms
         data_type: double
         description: >
@@ -134,6 +144,7 @@ models:
           meta:
             feature: true
             categorical: false
+            expression: "WEIGHTED_MEAN(forecast_u_wind_ms, weight=population)"
       - name: popw_forecast_v_wind_ms
         data_type: double
         description: >
@@ -142,6 +153,7 @@ models:
           meta:
             feature: true
             categorical: false
+            expression: "WEIGHTED_MEAN(forecast_v_wind_ms, weight=population)"
       - name: popw_forecast_surface_pressure_hpa
         data_type: double
         description: >
@@ -150,6 +162,7 @@ models:
           meta:
             feature: true
             categorical: false
+            expression: "WEIGHTED_MEAN(forecast_surface_pressure_hpa, weight=population)"
       - name: popw_forecast_sea_level_pressure_hpa
         data_type: double
         description: >
@@ -158,6 +171,7 @@ models:
           meta:
             feature: true
             categorical: false
+            expression: "WEIGHTED_MEAN(forecast_sea_level_pressure_hpa, weight=population)"
       - name: available_at
         data_type: timestamp
         description: >
