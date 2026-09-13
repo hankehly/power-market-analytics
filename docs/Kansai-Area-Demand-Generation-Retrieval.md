@@ -111,6 +111,9 @@ style as the rows; one 2022-03 file has an unpadded hour and trailing commas
 実績 files are written ~00:13 the morning after the target day and appear in
 that month's zip immediately; the live intraday copy updates every 30 min
 (コマ終了後速やかに公表, 遅くとも30分後まで, per the disclosure rule).
+`std_kansai__area_demand_generation_actual` dates every row at **00:30 on the
+next day** (`available_at`), the same rule as TEPCO's, not by the file's stamp;
+`file_updated_at` is kept for reference.
 
 ## 6. Downloading and loading with `power_market_analytics.ingestion.tso.kansai`
 

@@ -25,12 +25,12 @@ That cutoff is a date, not a publication time, and the target and the features
 are not held to the same standard. The target history is whatever the warehouse
 now holds for those dates: `load_area_demand` reads the current value, so a day
 the TSO revised later trains on the revised value. Feature values are retrieved
-as of the issue time instead, because Feast joins them on `available_at` — which
-is why ten Tokyo delivery days of December 2022 (12-03 to 12-11 and 12-15) get
-no row from `ftr_period_actuals`: TEPCO re-issued the 2022-12-01 and 12-02 files
-on 2022-12-14, days after those forecasts were due, and since 2026-09-12 the
-mart's row is usable only once every lag it carries is public (before, only the
-D-7 lag counted, and two days were hidden).
+as of the issue time instead, because Feast joins them on `available_at`. For
+the TSO actuals that is 00:30 on the day after the delivery day, a rule rather
+than the daily file's own stamp: TEPCO replaced the 2022-12-01 and 12-02 files
+on 2022-12-14, and while the stamp was used (until 2026-09-13) it hid ten Tokyo
+delivery days of December 2022 (12-03 to 12-11 and 12-15) from
+`ftr_period_actuals`.
 
 Both are issued at 09:30 JST on D-1, but they do not see the same history, so
 every statement below names its task:
