@@ -73,13 +73,18 @@ models:
                 min_value: 0
       - name: file_updated_at
         data_type: timestamp
+        description: >
+          The file's own ファイル更新日/時間, naive JST: when the version held was
+          written. Kept for reference; available_at does not use it.
         data_tests:
           - not_null
       - name: available_at
         data_type: timestamp
         description: >
-          When the row became public, naive JST: the daily file's file_updated_at,
-          but never before the period ends. Observed lag 0.2 h to 23.7 h, median 12
-          h, no frozen file; the floor is kept for symmetry with the TEPCO model.
+          When the row became public, naive JST: 00:30 on the day after
+          delivery_date, for every row. Kansai writes each day's file at 00:13 the
+          next day (every loaded file, 2022-04-01 → 2026-09-05); the rule rounds
+          that up to the half-hour, as std_tepco__area_demand_generation_actual
+          does.
         data_tests:
           - not_null
