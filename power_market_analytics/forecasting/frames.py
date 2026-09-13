@@ -156,8 +156,9 @@ class ForecastContributions(DomainFrame):
     contributions sum to the forecast: ``base + Σ features = forecast``.
     ``component_order`` is 0 for the base and ``i + 1`` for the strategy's
     ``feature_cols[i]``, so consumers can keep the model's feature order.
-    ``feature_value`` is the feature as the model saw it, null on the base
-    row only (a prediction exists only when every feature does).
+    ``feature_value`` is the feature as the model saw it: null on the base
+    row, and on a feature row whose feature was missing (the model forecasts
+    with it missing, and the feature still contributes).
     Contributions are in the task's forecast unit.
 
     Grain: (trade_date, time_code, component).
@@ -187,8 +188,8 @@ class ForecastContributions(DomainFrame):
             )
         if (is_base != (df["component_order"] == 0)).any():
             raise ValueError(f"{cls.__name__}: component_order must be 0 exactly on the base rows")
-        if (is_base != df["feature_value"].isna()).any():
-            raise ValueError(f"{cls.__name__}: feature_value must be null exactly on the base rows")
+        if df.loc[is_base, "feature_value"].notna().any():
+            raise ValueError(f"{cls.__name__}: feature_value must be null on the base rows")
 
 
 class ForecastContributionRecords(DomainFrame):
