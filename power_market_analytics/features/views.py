@@ -12,9 +12,9 @@ from power_market_analytics.features.entities import GRAIN_ENTITIES
 
 FTR_DAY_ACTUALS_SOURCE = SparkSource(
     name="ftr_day_actuals",
-    query="select area_code, cast(date_format(trade_date, 'yyyyMMdd') as int) as trade_date_key, lag_2d_mean_demand_kwh, lag_2d_max_demand_kwh, lag_2d_range_demand_kwh, available_at from pma_features.ftr_day_actuals",
+    query="select area_code, cast(date_format(trade_date, 'yyyyMMdd') as int) as trade_date_key, lag_2d_mean_demand_kwh, lag_2d_max_demand_kwh, lag_2d_min_demand_kwh, lag_2d_range_demand_kwh, available_at from pma_features.ftr_day_actuals",
     timestamp_field="available_at",
-    description="The previous complete day's demand summaries for each delivery day: D-2's mean, maximum and maximum-minus-minimum over its 48 periods of fct_area_demand_generation_actual (research demand/R-006). Grain: area_code x trade_date. A day with a hole (a null period) is not complete and gives no row. available_at is the newest of D-2's rows.",
+    description="The previous complete day's demand summaries for each delivery day: D-2's mean, maximum, minimum and maximum-minus-minimum over its 48 periods of fct_area_demand_generation_actual (research demand/R-006; the minimum added 2026-09-13). Grain: area_code x trade_date. A day with a hole (a null period) is not complete and gives no row. available_at is the newest of D-2's rows.",
 )
 FTR_DAY_ACTUALS = FeatureView(
     name="ftr_day_actuals",
@@ -33,6 +33,12 @@ FTR_DAY_ACTUALS = FeatureView(
             tags={"categorical": "false", "expression": "LAG(DAILY_MAX(demand_kwh), 2d)"},
         ),
         Field(
+            name="lag_2d_min_demand_kwh",
+            dtype=Int64,
+            description="D-2's minimum half-hourly demand, kWh per period.",
+            tags={"categorical": "false", "expression": "LAG(DAILY_MIN(demand_kwh), 2d)"},
+        ),
+        Field(
             name="lag_2d_range_demand_kwh",
             dtype=Int64,
             description="D-2's maximum minus minimum half-hourly demand, kWh per period.",
@@ -41,7 +47,7 @@ FTR_DAY_ACTUALS = FeatureView(
     ],
     source=FTR_DAY_ACTUALS_SOURCE,
     online=False,
-    description="The previous complete day's demand summaries for each delivery day: D-2's mean, maximum and maximum-minus-minimum over its 48 periods of fct_area_demand_generation_actual (research demand/R-006). Grain: area_code x trade_date. A day with a hole (a null period) is not complete and gives no row. available_at is the newest of D-2's rows.",
+    description="The previous complete day's demand summaries for each delivery day: D-2's mean, maximum, minimum and maximum-minus-minimum over its 48 periods of fct_area_demand_generation_actual (research demand/R-006; the minimum added 2026-09-13). Grain: area_code x trade_date. A day with a hole (a null period) is not complete and gives no row. available_at is the newest of D-2's rows.",
     tags={"grain": "day"},
 )
 
@@ -218,79 +224,79 @@ FTR_HOUR_MSM = FeatureView(
             name="popw_forecast_temperature_c",
             dtype=Float64,
             description="Population-weighted forecast temperature over the area's stations, C, renormalised over the stations that have a value; the terms are added in station order, so the value is the same on every build (the ordered_weighted_mean macro).",
-            tags={"categorical": "false", "expression": "WEIGHTED_MEAN(forecast_temperature_c, weight=population)"},
+            tags={"categorical": "false", "expression": "MEAN(forecast_temperature_c, weight=population)"},
         ),
         Field(
             name="popw_forecast_relative_humidity_pct",
             dtype=Float64,
             description="Population-weighted forecast relative humidity, %, renormalised over the stations that have a value and added in station order.",
-            tags={"categorical": "false", "expression": "WEIGHTED_MEAN(forecast_relative_humidity_pct, weight=population)"},
+            tags={"categorical": "false", "expression": "MEAN(forecast_relative_humidity_pct, weight=population)"},
         ),
         Field(
             name="popw_forecast_precipitation_mm",
             dtype=Float64,
             description="Population-weighted forecast precipitation over the hour, mm, renormalised over the stations that have a value and added in station order.",
-            tags={"categorical": "false", "expression": "WEIGHTED_MEAN(forecast_precipitation_mm, weight=population)"},
+            tags={"categorical": "false", "expression": "MEAN(forecast_precipitation_mm, weight=population)"},
         ),
         Field(
             name="popw_forecast_solar_radiation_mjm2",
             dtype=Float64,
             description="Population-weighted forecast global solar radiation over the hour, MJ/m2, renormalised over the stations that have a value and added in station order. MJ/m2 is the unit fct_jma_weather_hourly.solar_radiation_mjm2 observes in; the fact's shortwave_radiation_wm2 is the same field at 1 / 0.0036 the scale.",
-            tags={"categorical": "false", "expression": "WEIGHTED_MEAN(forecast_solar_radiation_mjm2, weight=population)"},
+            tags={"categorical": "false", "expression": "MEAN(forecast_solar_radiation_mjm2, weight=population)"},
         ),
         Field(
             name="popw_forecast_total_cloud_cover_pct",
             dtype=Float64,
             description="Population-weighted forecast total cloud cover, %, renormalised over the stations that have a value and added in station order.",
-            tags={"categorical": "false", "expression": "WEIGHTED_MEAN(forecast_total_cloud_cover_pct, weight=population)"},
+            tags={"categorical": "false", "expression": "MEAN(forecast_total_cloud_cover_pct, weight=population)"},
         ),
         Field(
             name="popw_forecast_high_cloud_cover_pct",
             dtype=Float64,
             description="Population-weighted forecast high cloud cover, %, renormalised over the stations that have a value and added in station order.",
-            tags={"categorical": "false", "expression": "WEIGHTED_MEAN(forecast_high_cloud_cover_pct, weight=population)"},
+            tags={"categorical": "false", "expression": "MEAN(forecast_high_cloud_cover_pct, weight=population)"},
         ),
         Field(
             name="popw_forecast_middle_cloud_cover_pct",
             dtype=Float64,
             description="Population-weighted forecast middle cloud cover, %, renormalised over the stations that have a value and added in station order.",
-            tags={"categorical": "false", "expression": "WEIGHTED_MEAN(forecast_middle_cloud_cover_pct, weight=population)"},
+            tags={"categorical": "false", "expression": "MEAN(forecast_middle_cloud_cover_pct, weight=population)"},
         ),
         Field(
             name="popw_forecast_low_cloud_cover_pct",
             dtype=Float64,
             description="Population-weighted forecast low cloud cover, %, renormalised over the stations that have a value and added in station order.",
-            tags={"categorical": "false", "expression": "WEIGHTED_MEAN(forecast_low_cloud_cover_pct, weight=population)"},
+            tags={"categorical": "false", "expression": "MEAN(forecast_low_cloud_cover_pct, weight=population)"},
         ),
         Field(
             name="popw_forecast_wind_speed_ms",
             dtype=Float64,
             description="Population-weighted forecast wind speed, m/s, renormalised over the stations that have a value and added in station order. A mean of speeds, so not the speed of the weighted u/v vector.",
-            tags={"categorical": "false", "expression": "WEIGHTED_MEAN(forecast_wind_speed_ms, weight=population)"},
+            tags={"categorical": "false", "expression": "MEAN(forecast_wind_speed_ms, weight=population)"},
         ),
         Field(
             name="popw_forecast_u_wind_ms",
             dtype=Float64,
             description="Population-weighted forecast eastward wind component, m/s, renormalised over the stations that have a value and added in station order.",
-            tags={"categorical": "false", "expression": "WEIGHTED_MEAN(forecast_u_wind_ms, weight=population)"},
+            tags={"categorical": "false", "expression": "MEAN(forecast_u_wind_ms, weight=population)"},
         ),
         Field(
             name="popw_forecast_v_wind_ms",
             dtype=Float64,
             description="Population-weighted forecast northward wind component, m/s, renormalised over the stations that have a value and added in station order.",
-            tags={"categorical": "false", "expression": "WEIGHTED_MEAN(forecast_v_wind_ms, weight=population)"},
+            tags={"categorical": "false", "expression": "MEAN(forecast_v_wind_ms, weight=population)"},
         ),
         Field(
             name="popw_forecast_surface_pressure_hpa",
             dtype=Float64,
             description="Population-weighted forecast surface pressure, hPa, renormalised over the stations that have a value and added in station order. Mostly set by the stations' altitudes; sea-level pressure is the comparable one.",
-            tags={"categorical": "false", "expression": "WEIGHTED_MEAN(forecast_surface_pressure_hpa, weight=population)"},
+            tags={"categorical": "false", "expression": "MEAN(forecast_surface_pressure_hpa, weight=population)"},
         ),
         Field(
             name="popw_forecast_sea_level_pressure_hpa",
             dtype=Float64,
             description="Population-weighted forecast sea-level pressure, hPa, renormalised over the stations that have a value and added in station order.",
-            tags={"categorical": "false", "expression": "WEIGHTED_MEAN(forecast_sea_level_pressure_hpa, weight=population)"},
+            tags={"categorical": "false", "expression": "MEAN(forecast_sea_level_pressure_hpa, weight=population)"},
         ),
     ],
     source=FTR_HOUR_MSM_SOURCE,
@@ -301,9 +307,9 @@ FTR_HOUR_MSM = FeatureView(
 
 FTR_PERIOD_ACTUALS_SOURCE = SparkSource(
     name="ftr_period_actuals",
-    query="select area_code, cast(date_format(trade_date, 'yyyyMMdd') as int) as trade_date_key, time_code, lag_2d_demand_kwh, lag_3d_demand_kwh, lag_7d_demand_kwh, lag_9d_demand_kwh, lag_14d_demand_kwh, lag_21d_demand_kwh, lag_28d_demand_kwh, mean_weekly_lags_demand_kwh, ewm_weekly_lags_demand_kwh, change_2d_9d_demand_kwh, mean_daytype_4d_demand_kwh, ewm_daytype_4d_demand_kwh, available_at from pma_features.ftr_period_actuals",
+    query="select area_code, cast(date_format(trade_date, 'yyyyMMdd') as int) as trade_date_key, time_code, lag_2d_demand_kwh, lag_3d_demand_kwh, lag_7d_demand_kwh, lag_9d_demand_kwh, lag_14d_demand_kwh, lag_21d_demand_kwh, lag_28d_demand_kwh, mean_weekly_lags_demand_kwh, ewm_weekly_lags_demand_kwh, trend_weekly_lags_demand_kwh, std_weekly_lags_demand_kwh, median_weekly_lags_demand_kwh, zscore_7d_vs_14d_28d_demand_kwh, change_2d_9d_demand_kwh, mean_daytype_4d_demand_kwh, ewm_daytype_4d_demand_kwh, ewm_5d_demand_kwh, ewm_5d_minus_ewm_weekly_lags_demand_kwh, available_at from pma_features.ftr_period_actuals",
     timestamp_field="available_at",
-    description="The area's own recent demand for each delivery period, from fct_area_demand_generation_actual: the demand 2, 3, 7, 9, 14, 21 and 28 days before, a plain and an exponentially weighted mean over the four weekly lags, the D-2 minus D-9 change, and a plain and an exponentially weighted mean over the same period of the last four complete days of D's day type (the lag_7d_demand_kwh of research demand/R-001 to R-005; the rest research demand/R-006). Grain: area_code x trade_date x time_code. A row exists wherever at least one lag exists; a column is null where its input is absent (a TSO hole, or a day before the history starts). Both exponentially weighted means use the weights 8, 4, 2, 1 from the newest input back, tied to the input's position and renormalised over the inputs present. A complete day has all 48 periods non-null. available_at is the greatest over the rows the row used, so the whole row is usable only once its newest input is public.",
+    description="The area's own recent demand for each delivery period, from fct_area_demand_generation_actual: the demand 2, 3, 7, 9, 14, 21 and 28 days before, a plain and an exponentially weighted mean, a least-squares trend, a sample standard deviation and a median over the four weekly lags, D-7's z-score against D-14, D-21 and D-28, the D-2 minus D-9 change, an exponentially weighted mean over D-2 to D-6 and its difference from the weekly one, and a plain and an exponentially weighted mean over the same period of the last four complete days of D's day type (the lag_7d_demand_kwh of research demand/R-001 to R-005; ewm_5d_demand_kwh, the weekly lags' trend, standard deviation and median, the D-7 z-score and the EWA difference added 2026-09-13; the rest research demand/R-006). Grain: area_code x trade_date x time_code. A row exists wherever at least one lag exists, D-4 to D-6 included; a column is null where its input is absent (a TSO hole, or a day before the history starts). The two four-input exponentially weighted means use the weights 8, 4, 2, 1 from the newest input back, and ewm_5d_demand_kwh the weights 16, 8, 4, 2, 1, tied to the input's position and renormalised over the inputs present. A complete day has all 48 periods non-null. available_at is the greatest over the rows the row used, so the whole row is usable only once its newest input is public.",
 )
 FTR_PERIOD_ACTUALS = FeatureView(
     name="ftr_period_actuals",
@@ -364,6 +370,30 @@ FTR_PERIOD_ACTUALS = FeatureView(
             tags={"categorical": "false", "expression": "EWA(demand_kwh, gap=7d, window=4, step=7d, halflife=1)"},
         ),
         Field(
+            name="trend_weekly_lags_demand_kwh",
+            dtype=Float64,
+            description="Least-squares slope of the D-7, D-14, D-21 and D-28 lags present against time in weeks, kWh per week: positive when demand in this period has been rising. With all four lags it is (3 x D-7 + D-14 - D-21 - 3 x D-28) / 10. Null with fewer than two lags.",
+            tags={"categorical": "false", "expression": "ROLLING_TREND(demand_kwh, gap=7d, window=4, step=7d)"},
+        ),
+        Field(
+            name="std_weekly_lags_demand_kwh",
+            dtype=Float64,
+            description="Sample standard deviation (n - 1 in the denominator) of the D-7, D-14, D-21 and D-28 lags present, kWh. Null with fewer than two lags.",
+            tags={"categorical": "false", "expression": "ROLLING_STD(demand_kwh, gap=7d, window=4, step=7d)"},
+        ),
+        Field(
+            name="median_weekly_lags_demand_kwh",
+            dtype=Float64,
+            description="Median of the D-7, D-14, D-21 and D-28 lags present, kWh: the mean of the middle two when an even number is present. Null when none is.",
+            tags={"categorical": "false", "expression": "ROLLING_MEDIAN(demand_kwh, gap=7d, window=4, step=7d)"},
+        ),
+        Field(
+            name="zscore_7d_vs_14d_28d_demand_kwh",
+            dtype=Float64,
+            description="How unusual D-7 was against the three weeks before it: (D-7 - mean) / s, where mean and s are the mean and sample standard deviation (n - 1 in the denominator) of the D-14, D-21 and D-28 lags present. Unitless. Null when D-7 is absent, fewer than two of the three weeks are present, or s is 0.",
+            tags={"categorical": "false", "expression": "ROLLING_ZSCORE(demand_kwh, 7d, gap=14d, window=3, step=7d)"},
+        ),
+        Field(
             name="change_2d_9d_demand_kwh",
             dtype=Int64,
             description="The D-2 lag minus the D-9 lag, kWh: the week-on-week change of the newest complete day. Null when either is absent.",
@@ -381,10 +411,22 @@ FTR_PERIOD_ACTUALS = FeatureView(
             description="The same four days with weights 8, 4, 2, 1 from the newest back, renormalised over the days present, kWh.",
             tags={"categorical": "false", "expression": "EWA(demand_kwh, gap=2d, window=4, halflife=1) by day_type"},
         ),
+        Field(
+            name="ewm_5d_demand_kwh",
+            dtype=Float64,
+            description="Exponentially weighted mean of the D-2, D-3, D-4, D-5 and D-6 demand over the same period with weights 16, 8, 4, 2, 1, renormalised over the days present, kWh; null when none is. The part of the past week that is public at 09:30 on D-1.",
+            tags={"categorical": "false", "expression": "EWA(demand_kwh, gap=2d, window=5, step=1d, halflife=1)"},
+        ),
+        Field(
+            name="ewm_5d_minus_ewm_weekly_lags_demand_kwh",
+            dtype=Float64,
+            description="ewm_5d_demand_kwh minus ewm_weekly_lags_demand_kwh, kWh: the recent weighted level of this period against its weighted level on the same weekday over the last four weeks. Null when either is.",
+            tags={"categorical": "false", "expression": "EWA(demand_kwh, gap=2d, window=5, step=1d, halflife=1) - EWA(demand_kwh, gap=7d, window=4, step=7d, halflife=1)"},
+        ),
     ],
     source=FTR_PERIOD_ACTUALS_SOURCE,
     online=False,
-    description="The area's own recent demand for each delivery period, from fct_area_demand_generation_actual: the demand 2, 3, 7, 9, 14, 21 and 28 days before, a plain and an exponentially weighted mean over the four weekly lags, the D-2 minus D-9 change, and a plain and an exponentially weighted mean over the same period of the last four complete days of D's day type (the lag_7d_demand_kwh of research demand/R-001 to R-005; the rest research demand/R-006). Grain: area_code x trade_date x time_code. A row exists wherever at least one lag exists; a column is null where its input is absent (a TSO hole, or a day before the history starts). Both exponentially weighted means use the weights 8, 4, 2, 1 from the newest input back, tied to the input's position and renormalised over the inputs present. A complete day has all 48 periods non-null. available_at is the greatest over the rows the row used, so the whole row is usable only once its newest input is public.",
+    description="The area's own recent demand for each delivery period, from fct_area_demand_generation_actual: the demand 2, 3, 7, 9, 14, 21 and 28 days before, a plain and an exponentially weighted mean, a least-squares trend, a sample standard deviation and a median over the four weekly lags, D-7's z-score against D-14, D-21 and D-28, the D-2 minus D-9 change, an exponentially weighted mean over D-2 to D-6 and its difference from the weekly one, and a plain and an exponentially weighted mean over the same period of the last four complete days of D's day type (the lag_7d_demand_kwh of research demand/R-001 to R-005; ewm_5d_demand_kwh, the weekly lags' trend, standard deviation and median, the D-7 z-score and the EWA difference added 2026-09-13; the rest research demand/R-006). Grain: area_code x trade_date x time_code. A row exists wherever at least one lag exists, D-4 to D-6 included; a column is null where its input is absent (a TSO hole, or a day before the history starts). The two four-input exponentially weighted means use the weights 8, 4, 2, 1 from the newest input back, and ewm_5d_demand_kwh the weights 16, 8, 4, 2, 1, tied to the input's position and renormalised over the inputs present. A complete day has all 48 periods non-null. available_at is the greatest over the rows the row used, so the whole row is usable only once its newest input is public.",
     tags={"grain": "period"},
 )
 
