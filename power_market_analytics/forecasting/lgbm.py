@@ -14,6 +14,8 @@ here.
 from __future__ import annotations
 
 from abc import abstractmethod
+from collections.abc import Mapping
+from types import MappingProxyType
 from typing import Any, ClassVar
 
 import lightgbm
@@ -129,6 +131,11 @@ class SlidingWindowLightGbmStrategy(ForecastStrategy[HalfHourlySeries, LightGbmE
         (integer codes, held as float64 like every feature; LightGBM casts
         them to int32 and splits on category sets rather than on an ordinal
         threshold). Empty by default.
+    feature_expressions : Mapping of str to str
+        The expression of a feature column (``LAG(demand_kwh, 2d)``), the
+        label :meth:`feature_label` gives it in the SHAP plots and the
+        importance artifacts; a column without one is labelled by its name.
+        Empty by default.
 
     Parameters
     ----------
@@ -148,6 +155,7 @@ class SlidingWindowLightGbmStrategy(ForecastStrategy[HalfHourlySeries, LightGbmE
     eval_set_cls: type[LightGbmEvalSetBase]
     lookback_days: int
     categorical_feature_cols: tuple[str, ...] = ()
+    feature_expressions: Mapping[str, str] = MappingProxyType({})
 
     def __init__(
         self,
@@ -169,6 +177,20 @@ class SlidingWindowLightGbmStrategy(ForecastStrategy[HalfHourlySeries, LightGbmE
         self._fit_anchor: pd.Timestamp | None = None
         self._n_fits = 0
         self._shap_records: dict[pd.Timestamp, pd.DataFrame] = {}
+
+    def feature_label(self, feature: str) -> str:
+        """The feature's expression, or its column name when it has none.
+
+        Parameters
+        ----------
+        feature : str
+            A feature column name.
+
+        Returns
+        -------
+        str
+        """
+        return self.feature_expressions.get(feature, feature)
 
     @property
     def shap_cols(self) -> tuple[str, ...]:
@@ -541,13 +563,17 @@ class SlidingWindowLightGbmStrategy(ForecastStrategy[HalfHourlySeries, LightGbmE
             )
         feature_cols = list(self.feature_cols)
         shap_cols = list(self.shap_cols)
+        labels = [self.feature_label(col) for col in feature_cols]
         sample = aligned.sample(n=min(nsamples, len(aligned)), random_state=0)
-        shap.summary_plot(sample[shap_cols].to_numpy(), sample[feature_cols], show=False)
+        shap.summary_plot(
+            sample[shap_cols].to_numpy(), sample[feature_cols], feature_names=labels, show=False
+        )
         mlflow.log_figure(plt.gcf(), "shap_beeswarm_plot.png")
         plt.close("all")
         shap.summary_plot(
             aligned[shap_cols].to_numpy(),
             aligned[feature_cols],
+            feature_names=labels,
             plot_type="bar",
             show=False,
         )

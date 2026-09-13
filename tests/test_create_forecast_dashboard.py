@@ -553,8 +553,9 @@ select
   c.strategy,
   c.published_at,
   c.component,
+  coalesce(e.feature_expression, c.component) as feature_expression,
   c.component_order,
-  concat(lpad(cast(c.component_order as string), 2, '0'), ' ', c.component) as component_label,
+  concat(lpad(cast(c.component_order as string), 2, '0'), ' ', coalesce(e.feature_expression, c.component)) as component_label,
   c.is_base,
   c.feature_value,
 """
@@ -566,6 +567,7 @@ from {contribution_table} c
 join pma_curated.dim_area a on c.area_key = a.area_key
 join pma_curated.dim_delivery_period p on c.time_code = p.time_code
 join pma_curated.dim_date d on c.date_key = d.date_key
+left join pma_curated.dim_feature e on e.feature_name = c.component
 left join {accuracy_table} f
   on c.run_id = f.run_id
   and c.date_key = f.date_key
@@ -614,6 +616,7 @@ EXPLANATION_COLUMNS_HEAD = [
     ("strategy", "STRING", False),
     ("published_at", "TIMESTAMP", True),
     ("component", "STRING", False),
+    ("feature_expression", "STRING", False),
     ("component_order", "INT", False),
     ("component_label", "STRING", False),
     ("is_base", "BOOLEAN", False),
@@ -644,8 +647,9 @@ select
   i.strategy,
   i.published_at,
   i.feature,
+  coalesce(e.feature_expression, i.feature) as feature_expression,
   i.feature_order,
-  concat(lpad(cast(i.feature_order as string), 2, '0'), ' ', i.feature) as feature_label,
+  concat(lpad(cast(i.feature_order as string), 2, '0'), ' ', coalesce(e.feature_expression, i.feature)) as feature_label,
   i.repeat_index,
   i.n_periods,
 """
@@ -655,6 +659,7 @@ def importance_sql_tail(importance_table: str) -> str:
     return f"""\
 from {importance_table} i
 join pma_curated.dim_area a on i.area_key = a.area_key
+left join pma_curated.dim_feature e on e.feature_name = i.feature
 """
 
 
@@ -682,6 +687,7 @@ IMPORTANCE_COLUMNS_HEAD = [
     ("strategy", "STRING", False),
     ("published_at", "TIMESTAMP", True),
     ("feature", "STRING", False),
+    ("feature_expression", "STRING", False),
     ("feature_order", "INT", False),
     ("feature_label", "STRING", False),
     ("repeat_index", "INT", False),
@@ -1016,8 +1022,9 @@ select
   {{% if candidate %}}'{{{{ candidate[0] | replace("'", "''") }}}}'{{% else %}}cast(null as string){{% endif %}} as run_label,
   {{% if baseline %}}'{{{{ baseline[0] | replace("'", "''") }}}}'{{% else %}}cast(null as string){{% endif %}} as baseline_run_label,
   m.component,
+  coalesce(e.feature_expression, m.component) as feature_expression,
   m.component_order,
-  concat(lpad(cast(m.component_order as string), 3, '0'), ' ', m.component) as component_label,
+  concat(lpad(cast(m.component_order as string), 3, '0'), ' ', coalesce(e.feature_expression, m.component)) as component_label,
   m.is_base,
   m.feature_value,
   m.baseline_feature_value,
@@ -1026,6 +1033,7 @@ from matched m
 join pma_curated.dim_area a on m.area_key = a.area_key
 join pma_curated.dim_delivery_period p on m.time_code = p.time_code
 join pma_curated.dim_date d on m.date_key = d.date_key
+left join pma_curated.dim_feature e on e.feature_name = m.component
 """
 SPOT_EXPLANATION_COMPARISON_VALUES = """\
   coalesce(c.contribution_price_jpy_kwh, 0) as contribution_price_jpy_kwh,
@@ -1100,6 +1108,7 @@ EXPLANATION_COMPARISON_COLUMNS_HEAD = [
     ("run_label", "STRING", False),
     ("baseline_run_label", "STRING", False),
     ("component", "STRING", False),
+    ("feature_expression", "STRING", False),
     ("component_order", "INT", False),
     ("component_label", "STRING", False),
     ("is_base", "BOOLEAN", False),
@@ -1265,6 +1274,7 @@ class TestDashboardSpecs:
             "join pma_curated.dim_area a on f.area_code = a.area_code\n"
             "join pma_curated.dim_delivery_period p on f.time_code = p.time_code\n"
             "join pma_curated.dim_date d on f.trade_date = d.date_key\n"
+            "left join pma_curated.dim_feature e on e.feature_name = f.feature_name\n"
             "where f.vintage_rank = 1\n"
         )
         everything = script.FEATURE_VALUES_ALL_SQL
@@ -1277,7 +1287,15 @@ class TestDashboardSpecs:
             in (everything)
         )
         assert "vintage_rank" not in everything and "issue_time" not in everything
-        assert everything.endswith("join pma_curated.dim_date d on f.trade_date = d.date_key\n")
+        assert everything.endswith(
+            "join pma_curated.dim_date d on f.trade_date = d.date_key\n"
+            "left join pma_curated.dim_feature e on e.feature_name = f.feature_name\n"
+        )
+        assert (
+            "  f.feature_name,\n"
+            "  coalesce(e.feature_expression, f.feature_name) as feature_expression,\n"
+            "  f.feature_ref,\n"
+        ) in everything
 
     def test_feature_values_columns_match_the_select_lists_in_order(self, script, spec):
         cases = (
@@ -1845,6 +1863,86 @@ class TestBuildFeatureValueDatasets:
         assert len(fake.rows["dataset"]) == 2
 
 
+class TestFeatureCatalogue:
+    def test_the_dataset_lists_the_dimension_expression_first(self, script):
+        assert script.FEATURE_CATALOGUE_SQL == (
+            "select\n"
+            "  feature_expression,\n"
+            "  feature_view,\n"
+            "  feature_name,\n"
+            "  feature_ref,\n"
+            "  grain,\n"
+            "  data_type,\n"
+            "  is_categorical,\n"
+            "  is_retired,\n"
+            "  feature_description\n"
+            "from pma_curated.dim_feature\n"
+        )
+        select_list = script.FEATURE_CATALOGUE_SQL.split("\nfrom ", 1)[0].splitlines()[1:]
+        assert [name for name, _, _ in script.FEATURE_CATALOGUE_COLUMNS] == [
+            line.strip().rstrip(",") for line in select_list
+        ]
+
+    def test_the_table_is_a_searchable_raw_list_by_view_then_expression(self, script):
+        p = script.feature_catalogue_params(7)
+        assert p["datasource"] == "7__table"
+        assert p["viz_type"] == "table"
+        assert p["query_mode"] == "raw"
+        assert p["all_columns"][0] == "feature_expression"
+        assert p["all_columns"] == [name for name, _, _ in script.FEATURE_CATALOGUE_COLUMNS]
+        assert [json.loads(c) for c in p["order_by_cols"]] == [
+            ["feature_view", True],
+            ["feature_expression", True],
+        ]
+        assert p["include_search"] is True
+        assert p["server_pagination"] is False
+        assert p["row_limit"] >= 1000
+        # one line per feature: every text column truncates instead of wrapping
+        assert p["column_config"] == {
+            name: {"truncateLongCells": True}
+            for name in (
+                "feature_expression",
+                "feature_view",
+                "feature_name",
+                "feature_ref",
+                "grain",
+                "data_type",
+                "feature_description",
+            )
+        }
+
+    def test_builds_the_dataset_chart_and_dashboard_then_reruns_in_place(self, script, fake):
+        client = make_client(script, fake)
+        dashboard_id = script.build_feature_catalogue(client, 3)
+        (dataset,) = fake.rows["dataset"].values()
+        assert dataset["table_name"] == "feature_catalogue"
+        assert dataset["sql"] == script.FEATURE_CATALOGUE_SQL
+        assert dataset["database"] == 3
+        assert dataset["main_dttm_col"] is None
+        assert [(c["column_name"], c["type"], c["is_dttm"]) for c in dataset["columns"]] == list(
+            script.FEATURE_CATALOGUE_COLUMNS
+        )
+        (chart,) = fake.rows["chart"].values()
+        assert chart["slice_name"] == "Features"
+        assert chart["datasource_id"] == dataset["id"]
+        assert json.loads(chart["params"]) == script.feature_catalogue_params(dataset["id"])
+        assert chart["dashboards"] == [dashboard_id]
+        dashboard = fake.rows["dashboard"][dashboard_id]
+        assert dashboard["dashboard_title"] == "Feature Catalogue"
+        assert dashboard["slug"] == "feature-catalogue"
+        position = json.loads(dashboard["position_json"])
+        assert position["HEADER_ID"]["meta"] == {"text": "Feature Catalogue"}
+        assert position[f"CHART-{chart['id']}"]["meta"]["sliceName"] == "Features"
+        assert position[f"CHART-{chart['id']}"]["meta"]["width"] == 12
+        metadata = json.loads(dashboard["json_metadata"])
+        assert metadata["native_filter_configuration"] == []
+        assert metadata["chart_configuration"] == {}
+
+        assert script.build_feature_catalogue(client, 3) == dashboard_id
+        assert len(fake.rows["dataset"]) == len(fake.rows["chart"]) == 1
+        assert len(fake.rows["dashboard"]) == 1
+
+
 class TestRunDefaults:
     def test_newest_run_its_last_day_and_the_matched_window_baseline(self, script, fake, spec):
         client = make_client(script, fake)
@@ -2179,7 +2277,8 @@ class TestChartParams:
         assert p["datasource"] == "7__table"
         assert p["viz_type"] == "echarts_timeseries_bar"
         assert p["orientation"] == "horizontal"
-        assert p["x_axis"] == "feature"
+        # one bar per feature, labelled with its expression
+        assert p["x_axis"] == "feature_expression"
         assert p["metrics"] == [spec.importance_metric]
         # ascending on a horizontal bar puts the largest importance on top
         assert p["x_axis_sort"] == spec.importance_metric["label"]
@@ -2195,7 +2294,7 @@ class TestChartParams:
         assert p["datasource"] == "7__table"
         assert p["viz_type"] == "echarts_timeseries_bar"
         assert p["orientation"] == "horizontal"
-        assert p["x_axis"] == "component"
+        assert p["x_axis"] == "feature_expression"
         assert p["metrics"] == [spec.mean_abs_shap_metric]
         assert p["x_axis_sort"] == spec.mean_abs_shap_metric["label"]
         assert p["adhoc_filters"] == [script.NOT_BASE_FILTER]
@@ -2547,7 +2646,7 @@ class TestBuildPositionJson:
         ]
         row_meta = {"background": "BACKGROUND_TRANSPARENT"}
         tab_meta = {"defaultText": "Tab title", "placeholder": "Tab title"}
-        assert script.build_position_json(spot, tabs) == {
+        assert script.build_position_json(spot.dashboard_title, tabs) == {
             "DASHBOARD_VERSION_KEY": "v2",
             "ROOT_ID": {"type": "ROOT", "id": "ROOT_ID", "children": ["TABS-0"]},
             "TABS-0": {
@@ -2647,7 +2746,7 @@ class TestBuildPositionJson:
             },
             {"title": "B", "sections": [{"header": "H2", "rows": [[(3, "C", 12, 10)]]}]},
         ]
-        position = script.build_position_json(spot, tabs)
+        position = script.build_position_json(spot.dashboard_title, tabs)
         assert position["TAB-0"]["children"] == ["HEADER-0-0", "ROW-0-0-0", "ROW-0-0-1"]
         assert position["ROW-0-0-1"]["children"] == ["CHART-2"]
         assert position["CHART-2"]["parents"] == ["ROOT_ID", "TABS-0", "TAB-0", "ROW-0-0-1"]
@@ -2655,8 +2754,8 @@ class TestBuildPositionJson:
         assert position["HEADER-1-0"]["meta"]["text"] == "H2"
         assert position["CHART-3"]["parents"] == ["ROOT_ID", "TABS-0", "TAB-1", "ROW-1-0-0"]
 
-    def test_dashboard_header_carries_the_spec_title(self, script, demand):
-        position = script.build_position_json(demand, [])
+    def test_dashboard_header_carries_the_title(self, script, demand):
+        position = script.build_position_json(demand.dashboard_title, [])
         assert position["HEADER_ID"]["meta"] == {"text": "Demand Forecast Analysis"}
         assert position["ROOT_ID"]["children"] == ["TABS-0"]
         assert position["TABS-0"]["children"] == []
@@ -2910,7 +3009,9 @@ class TestUpsertDashboard:
             default_baseline_label=None,
         )
 
-        dashboard_id = script.upsert_dashboard(client, spec, position, filters, {})
+        dashboard_id = script.upsert_dashboard(
+            client, spec.dashboard_title, spec.dashboard_slug, position, filters, {}
+        )
 
         assert dashboard_id == 10
         find, create, update = fake.calls_after_login()
@@ -2946,7 +3047,12 @@ class TestUpsertDashboard:
         fake.seed("dashboard", id=8, dashboard_title="Spot Price Forecast Analysis")
         client = make_client(script, fake)
 
-        assert script.upsert_dashboard(client, spot, {"k": 1}, [], {}) == 8
+        assert (
+            script.upsert_dashboard(
+                client, spot.dashboard_title, spot.dashboard_slug, {"k": 1}, [], {}
+            )
+            == 8
+        )
 
         methods = [(c[0], c[1]) for c in fake.calls_after_login()]
         assert methods == [
@@ -3658,6 +3764,7 @@ class TestMain:
         assert [d["dashboard_title"] for d in superset.rows["dashboard"].values()] == [
             "Spot Price Forecast Analysis",
             "Demand Forecast Analysis",
+            "Feature Catalogue",
         ]
         assert [d["table_name"] for d in superset.rows["dataset"].values()] == [
             "spot_price_forecast_analysis",
@@ -3673,16 +3780,19 @@ class TestMain:
             "spot_price_feature_values",
             "demand_feature_values",
             "feature_values_all",
+            "feature_catalogue",
         ]
-        assert len(superset.rows["chart"]) == 114
+        assert len(superset.rows["chart"]) == 115
         assert method_counts(superset.calls, "database") == {"GET": 1}
-        assert method_counts(superset.calls, "chart") == {"GET": 114, "POST": 114, "PUT": 114}
+        # one find, one create and one attach per chart, the catalogue's included
+        assert method_counts(superset.calls, "chart") == {"GET": 115, "POST": 115, "PUT": 115}
 
     def test_task_flag_selects_one_dashboard(self, script, superset, monkeypatch):
         run_main(script, superset, monkeypatch, ["--url", BASE, "--task", "demand"])
 
         assert [d["dashboard_title"] for d in superset.rows["dashboard"].values()] == [
-            "Demand Forecast Analysis"
+            "Demand Forecast Analysis",
+            "Feature Catalogue",
         ]
         assert [d["table_name"] for d in superset.rows["dataset"].values()] == [
             "demand_forecast_analysis",
@@ -3692,6 +3802,7 @@ class TestMain:
             "demand_forecast_importance",
             "demand_feature_values",
             "feature_values_all",
+            "feature_catalogue",
         ]
         assert [c["slice_name"] for c in superset.rows["chart"].values()] == (
             EXPECTED_DEMAND_CHART_NAMES
@@ -3699,6 +3810,7 @@ class TestMain:
             + IMPORTANCE_CHART_NAMES
             + DEMAND_COMPARISON_CHART_NAMES
             + EXPLANATION_VS_BASELINE_CHART_NAMES
+            + ["Features"]
         )
 
     def test_task_flag_is_repeatable_and_ordered(self, script, superset, monkeypatch):
@@ -3711,6 +3823,7 @@ class TestMain:
         assert [d["dashboard_title"] for d in superset.rows["dashboard"].values()] == [
             "Demand Forecast Analysis",
             "Spot Price Forecast Analysis",
+            "Feature Catalogue",
         ]
 
     def test_unknown_task_is_rejected_before_any_request(self, script, superset, monkeypatch):
@@ -3747,7 +3860,7 @@ class TestMain:
             None,
         )
         assert superset.headers["Referer"] == "http://env-superset:9999"
-        assert len(superset.rows["chart"]) == 114
+        assert len(superset.rows["chart"]) == 115
 
     def test_builtin_defaults_when_env_is_unset(self, monkeypatch):
         for var in ("SUPERSET_URL", "SUPERSET_ADMIN_USER", "SUPERSET_ADMIN_PASSWORD"):
@@ -3777,7 +3890,7 @@ class TestMain:
             None,
         )
         assert superset.headers["Referer"] == "http://cli:1"
-        assert len(superset.rows["chart"]) == 57
+        assert len(superset.rows["chart"]) == 58
 
     def test_baseline_run_flag_is_passed_to_every_dashboard(self, script, superset, monkeypatch):
         run_main(
@@ -3786,7 +3899,8 @@ class TestMain:
             monkeypatch,
             ["--url", BASE, "--task", "demand", "--baseline-run", "ffffffff"],
         )
-        (dashboard,) = superset.rows["dashboard"].values()
+        dashboard, catalogue = superset.rows["dashboard"].values()
+        assert catalogue["dashboard_title"] == "Feature Catalogue"
         _, _, baseline_filter = json.loads(dashboard["json_metadata"])[
             "native_filter_configuration"
         ]

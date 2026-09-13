@@ -113,6 +113,13 @@ class TestBuildPreset:
             "day_type",
         )
         assert strategy.categorical_feature_cols == ("day_type",)
+        assert strategy.feature_label("wavg_temperature_c") == (
+            "EWA(temperature_c, gap=2d, window=7, step=1d, halflife=1)"
+        )
+        assert strategy.feature_label("popw_forecast_temperature_c") == (
+            "WEIGHTED_MEAN(forecast_temperature_c, weight=population)"
+        )
+        assert strategy.feature_label("lag_7d_demand_kwh") == "LAG(demand_kwh, 7d)"
         frame = frame_by_period(strategy)
         assert frame.loc[(pd.Timestamp("2024-04-26"), 1), "day_type"] == 0.0
         assert frame.loc[(pd.Timestamp("2024-04-27"), 1), "day_type"] == 1.0

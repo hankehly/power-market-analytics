@@ -130,16 +130,32 @@
   test-argument errors; the data tests (`dbt build`) still need the thriftserver and do not
   run in CI.
 - `just sql` — beeline shell on the thriftserver.
-- `just feature-views` — regenerate the two files the dbt manifest drives (host-side
+- `just feature-views` — regenerate the three files the dbt manifest drives (host-side
   `dbt parse`, then `scripts/generate_feature_views.py`): `power_market_analytics/features/views.py`,
-  the Feast feature views of the dbt feature marts, and
-  `dbt/models/curated/fct_feature_value.sql` (since 2026-09-12, feature catalogue PR 3), the
-  model that unpivots every tagged mart column to the period grain for Superset; run it after
-  a mart, a column tag or a mart description changes. The `dbt parse` CI job runs the
-  generator with `--check` and fails when either file is stale; the singular test
-  `assert_fct_feature_value_covers_every_tagged_column` fails a `dbt build` the same way,
-  reading the model's own SQL from the graph. Both files are generated output: never edit
-  them; `views.py` is excluded from `ruff format`.
+  the Feast feature views of the dbt feature marts (each field tagged `categorical` and
+  `expression`), `dbt/models/curated/fct_feature_value.sql` (since 2026-09-12, feature
+  catalogue PR 3), the model that unpivots every tagged mart column to the period grain for
+  Superset, and `dbt/models/curated/dim_feature.sql` (since 2026-09-13), one row per feature
+  with its expression, plus the seed `retired_features`; run it after a mart, a column tag,
+  an expression or a mart description changes. It refuses a tagged column without
+  `meta.expression`, and a column name or expression two features share. The `dbt parse` CI
+  job runs the generator with `--check` and fails when any file is stale; the singular tests
+  `assert_fct_feature_value_covers_every_tagged_column` and
+  `assert_dim_feature_covers_every_tagged_column` fail a `dbt build` the same way, reading
+  the models' own SQL from the graph. The files are generated output: never edit them;
+  `views.py` is excluded from `ruff format`.
+- Feature names (since 2026-09-13, [docs/Feature-Naming.md](docs/Feature-Naming.md)): every
+  feature has a **physical name**, the mart column — what code, presets, `--add` / `--drop`,
+  Feast, LightGBM, MLflow params and the stored contribution and importance rows use, never
+  renamed — and an **expression**, the name people read (`LAG(demand_kwh, 2d)`,
+  `ROLLING_MEAN(demand_kwh, gap=7d, window=4, step=7d)`), written once as `meta.expression`
+  in the mart YAML and editable at will. Every human-facing label reads the expression:
+  the dashboards join `pma_curated.dim_feature` on the name (`FEATURE_EXPRESSION_SQL` /
+  `FEATURE_JOIN_SQL`, one definition, falling back to the name for `base` and `time_code`),
+  and the strategies' `feature_label` (`features.presets.feature_expressions`, off the
+  views' `expression` tags) labels the MLflow SHAP and permutation importance plots and the
+  `feature_expression` column of `permutation_importance.csv`. A retired feature old runs
+  still name gets a row in `dbt/seeds/retired_features.csv`.
 - `just feast-ui` — serve the Feast UI, the browsable feature catalogue (feature views with
   their fields, descriptions and tags, entities, data sources), host-side on
   http://localhost:8888 after refreshing `data/feast/registry.db` from the package; Ctrl-C
@@ -308,7 +324,14 @@
   `<task>_feature_values`, the newest vintage of every period and feature public by the
   task's issue time (`issue_time_sql` from `TaskSpec.issue_offset`; ties on `available_at` to
   the newest published, Feast's rule) with `issue_time`, and `feature_values_all`, every
-  vintage. No dashboard reads them; they are the catalogue's browsing surface.
+  vintage. No dashboard reads them; they are the catalogue's browsing surface. Since
+  2026-09-13 it last builds the **Feature Catalogue** dashboard (`build_feature_catalogue`):
+  the `feature_catalogue` dataset over `dim_feature` and one searchable raw table, every
+  feature under its expression, one line each (`truncateLongCells` on the text columns;
+  hovering a cell expands it). Every feature label on the two task dashboards (the
+  component and feature labels, the importance and mean |SHAP| bars) and the feature-value
+  datasets' `feature_expression` column read `dim_feature` at query time, so an edited
+  expression needs `just dbt build --select dim_feature`, not a dashboard rebuild.
   Run labels are `published_at | area | strategy | run_id prefix` (`RUN_LABEL_SQL`, one
   definition); the leaderboard shows each run's first / last day and day count. Runs
   published before 2026-08-26 have no contributions and show an empty tab until re-run. After a
@@ -507,7 +530,7 @@
   (typed time axis) → `curated` (Kimball star: `dim_*`, `fct_*`) → `features` (feature marts
   `ftr_<grain>_<family>`, since 2026-09-10: one model per source family at its grain — day
   = `area_code × trade_date`, hour = `… × hour_ending`, period = `… × time_code` — every
-  feature column tagged `config.meta.feature` / `categorical`, plus `available_at` carried
+  feature column tagged `config.meta.feature` / `categorical` / `expression`, plus `available_at` carried
   from the facts through the `available_at()` macro; the singular test
   `assert_feature_marts_declare_available_at` lists any feature model without the column.
   Today's eight: `ftr_day_actuals` (since 2026-09-12, research `demand/R-006`: D-2's mean,
@@ -1079,6 +1102,10 @@
 - Every dbt model must have a uniqueness test on its primary key column(s):
   `unique` for a single column, `dbt_utils.unique_combination_of_columns` for
   composite keys.
+- Every feature column of a feature mart declares `meta.expression`, the name people read,
+  built by the rules in [docs/Feature-Naming.md](docs/Feature-Naming.md); column names and
+  expressions are each unique across the marts. A feature column is never renamed; to
+  retire one, drop it and add its row to the `retired_features` seed.
 - Every standardized model of a source that feeds features carries `available_at`
   (naive JST): when the row became public, computed there once from the source's
   publication column or a documented bound (the rule and its evidence are in the

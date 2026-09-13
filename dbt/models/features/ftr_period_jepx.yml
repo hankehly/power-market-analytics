@@ -43,6 +43,7 @@ models:
           meta:
             feature: true
             categorical: false
+            expression: "LAG(area_price_jpy_kwh, 1d)"
         data_tests:
           - not_null
       - name: available_at

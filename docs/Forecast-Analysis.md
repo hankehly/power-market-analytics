@@ -126,6 +126,11 @@ permutation importance of each feature next to its mean |SHAP|. Permutation
 importance is the MAE increase when that feature's column is shuffled across
 the run, computed with scikit-learn over the walk-forward models.
 
+Every chart labels a feature by its expression (`LAG(demand_kwh, 2d)`), read
+from `dim_feature`; the stored rows keep the column name. The
+**Feature Catalogue** dashboard lists every feature under its expression, and
+[Feature naming](Feature-Naming.md) has the rules.
+
 A **Compare** tab puts the run against a **Baseline** run chosen in a second
 filter, over the periods both runs scored. It holds delta tiles, diverging
 ΔMAE % bars by segment, ΔMAE % heatmaps, daily ΔMAE, the cumulative error

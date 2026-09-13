@@ -69,6 +69,7 @@ models:
           meta:
             feature: true
             categorical: false
+            expression: "SIMILAR_DAY(power_usage_demand_kwh, gap=334d, window=61) / 2"
         data_tests:
           - not_null
       - name: similar_day_reference_date

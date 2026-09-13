@@ -13,7 +13,11 @@ from collections.abc import Sequence
 import pandas as pd
 
 from power_market_analytics.features.frame import feature_frame
-from power_market_analytics.features.presets import categorical_columns, feature_dtypes
+from power_market_analytics.features.presets import (
+    categorical_columns,
+    feature_dtypes,
+    feature_expressions,
+)
 from power_market_analytics.features.retrieval import entity_frame, historical_features
 from power_market_analytics.features.store import open_store
 from power_market_analytics.forecasting.preset_lgbm import PresetLightGbmStrategy
@@ -86,6 +90,7 @@ def build_strategy(
         feature_frame(retrieved, preset.columns),
         dtypes=feature_dtypes(preset),
         categorical=categorical_columns(preset),
+        expressions=feature_expressions(preset),
         name=label,
         train_start_date=train_start_date,
     )
