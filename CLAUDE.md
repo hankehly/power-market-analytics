@@ -71,16 +71,16 @@
   the neutered `sleep` and floods the recorded list with its own 1 s waits; issue #76 saw
   541,015 of them. `test_support.py` fails on any such patch in `tests/`.
 - `just lint [ruff args]` — `uv run ruff check .` (rules in `pyproject.toml` `[tool.ruff]`;
-  extra args append, e.g. `just lint --fix`). The `ci` workflow runs the same check as a
+  extra args append, e.g. `just lint --fix`). The `CI` workflow runs the same check as a
   `lint` job on every push (dev dependency group only, no PySpark install).
 - `just mypy [mypy args]` — `uv run mypy` over `power_market_analytics/` + `scripts/` +
   `tests/` (config in `pyproject.toml` `[tool.mypy]`; untyped-function bodies are not
-  checked, and plotly/shap imports are ignored for lack of stubs). Also a `ci` job on every
+  checked, and plotly/shap imports are ignored for lack of stubs). Also a `CI` job on every
   push (full `uv sync` — mypy resolves types against PySpark/MLflow and the `pandas-stubs` /
   `types-PyYAML` dev dependencies).
 - `just checkov [checkov args]` — checkov scan (Dockerfiles, GitHub Actions workflows, secrets
   in any committed file; config in `.checkov.yaml`, version pinned in the justfile and
-  `.github/workflows/ci.yml`). Exits 1 on any failed check; the `ci` workflow runs it as a
+  `.github/workflows/ci.yml`). Exits 1 on any failed check; the `CI` workflow runs it as a
   second job on every push.
 - `just docs-links` — check that every relative Markdown link in the git-tracked `*.md` files
   resolves (`scripts/check_docs_links.py`), `.github/` excluded: the markdown there is agentic
@@ -89,7 +89,7 @@
   conventions the docsify site uses — relative to the page, to the site root at `docs/`, or to
   the repo root — and only the path is checked, never the `#anchor`. Targets carrying the
   repo's placeholder markers (`<` for an inline `<slug>`, `XXX` for the `O-XXX` / `R-XXX`
-  research IDs) are skipped. Exits 1 naming each broken link; a `ci` job on every push,
+  research IDs) are skipped. Exits 1 naming each broken link; a `CI` job on every push,
   installing the dev group only. Links are found with **markdown-it-py** (a dev dependency
   since 2026-09-12), not a pattern of our own: two hand-written attempts made eight parsing
   mistakes between them (code fences and spans, fence run length, reference definitions plain
@@ -98,7 +98,7 @@
   prose. Added because PR #74 renamed and moved docs with nothing checking the links.
 - `just zizmor [zizmor args]` — audit `.github/workflows/` with zizmor (`--persona=regular`),
   version pinned in the justfile and `.github/workflows/ci.yml`. Exits non-zero on any finding;
-  a `ci` job on every push. It guards the two things checkov's 8 GitHub Actions checks miss:
+  a `CI` job on every push. It guards the two things checkov's 8 GitHub Actions checks miss:
   every `uses:` pinned to a 40-char commit SHA (version as a trailing comment; Dependabot
   rewrites both together) and `persist-credentials: false` on each checkout, so the job token
   is not left in `.git/config`. The CI job passes `GH_TOKEN` to switch on the online audits
@@ -115,7 +115,7 @@
   fix a dbt pin puts out of reach — since 2026-09-12 just the three `thrift` ones, held by
   dbt-spark 1.11.0's `pyhive` extra requiring `thrift<0.23.0` while the fix is 0.24.0 — each
   with its reason and a recheck date; drop an entry as soon as its fix becomes reachable (the
-  five `sqlparse` entries went when dbt-core 1.12 made 0.6.0 reachable). Because that list must have exactly one definition, the `ci` job is the
+  five `sqlparse` entries went when dbt-core 1.12 made 0.6.0 reachable). Because that list must have exactly one definition, the `CI` job is the
   one job that runs the recipe (`uvx --from rust-just@1.58.0 just pip-audit`) instead of
   repeating its command. Dependency *updates* come from `.github/dependabot.yml` (the `uv` and
   `github-actions` ecosystems, monthly, minor and patch grouped into one PR each; `mlflow` is
@@ -124,7 +124,7 @@
 - `just python <args>` / `just exec <cmd>` / `just shell` — run inside the devcontainer.
 - `just dbt <args>` — dbt from `/workspace/dbt` (e.g. `just dbt build`, `just dbt show --inline "select ..." --limit 5`).
   `just dbt parse` needs no warehouse (parse never opens a connection) and is the one dbt step
-  the `ci` workflow runs — a `dbt parse` job on every push: full locked `uv sync`, `dbt deps`
+  the `CI` workflow runs — a `dbt parse` job on every push: full locked `uv sync`, `dbt deps`
   (versions from `dbt/package-lock.yml`), then `dbt parse` from `dbt/`, ~8 s after the
   install. It catches model/source YAML, enforced-contract, ref/source, Jinja and
   test-argument errors; the data tests (`dbt build`) still need the thriftserver and do not
@@ -934,7 +934,7 @@
   needed. Config: `pyproject.toml` (line length 100; rules E4/E7/E9/F/I only).
 - Verification: `just test` runs the pytest suite (`tests/`; a local-Spark fixture, host-side —
   new Python should come with tests; the coverage gate is 100% locally and in the GitHub
-  Actions `ci` workflow, and the `if __name__ == "__main__":` guard is the only excluded
+  Actions `CI` workflow, and the `if __name__ == "__main__":` guard is the only excluded
   line). Validate data/model changes with `just dbt build`
   (contracts + tests; CI only runs `dbt parse`) and Python changes with `just lint` +
   `just mypy` (both also CI jobs); loaders/downloaders are

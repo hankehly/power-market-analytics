@@ -1,4 +1,4 @@
-name: ci
+name: CI
 
 # On every push (and on demand): the unit tests with their coverage gate, a
 # ruff lint pass, a mypy type-check, a checkov scan of the IaC, an audit of the

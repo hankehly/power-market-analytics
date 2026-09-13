@@ -1,5 +1,5 @@
 # Dependabot keeps this repo's two dependency surfaces current: the Python lock
-# (uv) and the actions used by the ci workflow. It is also what makes commit-SHA
+# (uv) and the actions used by the CI workflow. It is also what makes commit-SHA
 # pinning viable there, since an unattended SHA pin never moves and so never
 # receives a security fix.
 #
