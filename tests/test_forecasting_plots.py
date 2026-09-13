@@ -248,6 +248,20 @@ class TestPermutationImportancePlot:
         finally:
             plt.close(fig)
 
+    def test_bars_show_the_label_of_each_feature(self):
+        labels = {"lag_1d_price": "LAG(area_price_jpy_kwh, 1d)"}
+        fig = permutation_importance_plot(
+            TASK, make_summary(), "t", label=lambda feature: labels.get(feature, feature)
+        )
+        try:
+            assert [t.get_text() for t in fig.axes[0].get_yticklabels()] == [
+                "month",
+                "time_code",
+                "LAG(area_price_jpy_kwh, 1d)",
+            ]
+        finally:
+            plt.close(fig)
+
     def test_unit_comes_from_the_task(self):
         import dataclasses
 

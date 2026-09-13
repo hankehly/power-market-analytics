@@ -24,7 +24,10 @@ class TestRegistry:
 
 class TestBuildNaive:
     def test_previous_day(self):
-        assert type(build_strategy("previous_day", area_code="tokyo")) is PreviousDayStrategy
+        strategy = build_strategy("previous_day", area_code="tokyo")
+        assert type(strategy) is PreviousDayStrategy
+        # A strategy without expressions labels a feature by its name.
+        assert strategy.feature_label("lag_1d_price") == "lag_1d_price"
 
     def test_previous_day_rejects_train_start_date(self):
         with pytest.raises(ValueError, match="'previous_day' has no training step"):
@@ -65,6 +68,12 @@ class TestBuildPreset:
         assert strategy.train_start_date == TRAIN_START
         assert strategy.feature_cols == ("time_code", "month", "day_of_week", "lag_1d_price")
         assert strategy.categorical_feature_cols == ()
+        assert strategy.feature_expressions == {
+            "month": "month",
+            "day_of_week": "day_of_week",
+            "lag_1d_price": "LAG(area_price_jpy_kwh, 1d)",
+        }
+        assert strategy.feature_label("time_code") == "time_code"
         frame = strategy._features_df
         assert len(frame) == len(DAYS) * 48
         assert frame["trade_date"].min() == DAYS[0] and frame["trade_date"].max() == DAYS[-1]

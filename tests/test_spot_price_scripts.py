@@ -302,6 +302,19 @@ class TestBacktestScript:
         assert importance["mae_price_jpy_kwh"].iloc[0] == pytest.approx(
             run.data.metrics["mean_absolute_error"], rel=1e-9
         )
+        summary = pd.read_csv(
+            mlflow.artifacts.download_artifacts(
+                run_id=run.info.run_id, artifact_path="permutation_importance.csv"
+            )
+        )
+        # The artifact keeps the column name and adds the expression people read.
+        assert summary["feature"].tolist() == importance["feature"].unique().tolist()
+        assert summary["feature_expression"].tolist() == [
+            "time_code",
+            "month",
+            "day_of_week",
+            "LAG(area_price_jpy_kwh, 1d)",
+        ]
 
     def test_days_window_ends_at_the_last_day_in_the_data(self, spark, curated_warehouse):
         script = import_script("spot_price_backtest")
