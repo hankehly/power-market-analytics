@@ -52,6 +52,7 @@ models:
           meta:
             feature: true
             categorical: false
+            expression: "LAG(demand_kwh, 2d)"
       - name: lag_3d_demand_kwh
         data_type: bigint
         description: >
@@ -60,6 +61,7 @@ models:
           meta:
             feature: true
             categorical: false
+            expression: "LAG(demand_kwh, 3d)"
       - name: lag_7d_demand_kwh
         data_type: bigint
         description: >
@@ -68,6 +70,7 @@ models:
           meta:
             feature: true
             categorical: false
+            expression: "LAG(demand_kwh, 7d)"
       - name: lag_9d_demand_kwh
         data_type: bigint
         description: >
@@ -76,6 +79,7 @@ models:
           meta:
             feature: true
             categorical: false
+            expression: "LAG(demand_kwh, 9d)"
       - name: lag_14d_demand_kwh
         data_type: bigint
         description: >
@@ -84,6 +88,7 @@ models:
           meta:
             feature: true
             categorical: false
+            expression: "LAG(demand_kwh, 14d)"
       - name: lag_21d_demand_kwh
         data_type: bigint
         description: >
@@ -92,6 +97,7 @@ models:
           meta:
             feature: true
             categorical: false
+            expression: "LAG(demand_kwh, 21d)"
       - name: lag_28d_demand_kwh
         data_type: bigint
         description: >
@@ -100,6 +106,7 @@ models:
           meta:
             feature: true
             categorical: false
+            expression: "LAG(demand_kwh, 28d)"
       - name: mean_weekly_lags_demand_kwh
         data_type: double
         description: >
@@ -108,6 +115,7 @@ models:
           meta:
             feature: true
             categorical: false
+            expression: "ROLLING_MEAN(demand_kwh, gap=7d, window=4, step=7d)"
       - name: ewm_weekly_lags_demand_kwh
         data_type: double
         description: >
@@ -116,6 +124,7 @@ models:
           meta:
             feature: true
             categorical: false
+            expression: "EWA(demand_kwh, gap=7d, window=4, step=7d, halflife=1)"
       - name: change_2d_9d_demand_kwh
         data_type: bigint
         description: >
@@ -124,6 +133,7 @@ models:
           meta:
             feature: true
             categorical: false
+            expression: "LAG(DIFF(demand_kwh, 7d), 2d)"
       - name: mean_daytype_4d_demand_kwh
         data_type: double
         description: >
@@ -132,6 +142,7 @@ models:
           meta:
             feature: true
             categorical: false
+            expression: "ROLLING_MEAN(demand_kwh, gap=2d, window=4) by day_type"
       - name: ewm_daytype_4d_demand_kwh
         data_type: double
         description: >
@@ -140,6 +151,7 @@ models:
           meta:
             feature: true
             categorical: false
+            expression: "EWA(demand_kwh, gap=2d, window=4, halflife=1) by day_type"
       - name: available_at
         data_type: timestamp
         description: >

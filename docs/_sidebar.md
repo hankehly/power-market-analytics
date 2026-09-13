@@ -12,6 +12,7 @@
   - [Curated star schema](Curated-Star-Schema.md)
 - Forecasting
   - [Forecast analysis](Forecast-Analysis.md)
+  - [Feature naming](Feature-Naming.md)
   - [Research index](research/README.md)
   - [Papers](research/papers.md)
   - [Investigation template](research/investigation-template.md)

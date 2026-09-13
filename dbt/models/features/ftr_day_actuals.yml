@@ -32,6 +32,7 @@ models:
           meta:
             feature: true
             categorical: false
+            expression: "LAG(DAILY_MEAN(demand_kwh), 2d)"
         data_tests:
           - not_null
       - name: lag_2d_max_demand_kwh
@@ -42,6 +43,7 @@ models:
           meta:
             feature: true
             categorical: false
+            expression: "LAG(DAILY_MAX(demand_kwh), 2d)"
         data_tests:
           - not_null
       - name: lag_2d_range_demand_kwh
@@ -52,6 +54,7 @@ models:
           meta:
             feature: true
             categorical: false
+            expression: "LAG(DAILY_RANGE(demand_kwh), 2d)"
         data_tests:
           - not_null
           - dbt_utils.accepted_range:

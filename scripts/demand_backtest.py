@@ -209,10 +209,18 @@ def main(argv: list[str] | None = None) -> None:
                 {"permutation_repeats": args.importance_repeats, "permutation_seed": DEFAULT_SEED}
             )
             summary = importance.summary()
-            log_dataframe(summary.df, "permutation_importance.csv")
+            log_dataframe(
+                summary.df.assign(
+                    feature_expression=summary.df["feature"].map(strategy.feature_label)
+                ),
+                "permutation_importance.csv",
+            )
             log_dataframe(importance.df, "permutation_importance_repeats.csv")
             figure = permutation_importance_plot(
-                TASK, summary, title=f"Permutation importance — {label}, {args.area}"
+                TASK,
+                summary,
+                title=f"Permutation importance — {label}, {args.area}",
+                label=strategy.feature_label,
             )
             mlflow.log_figure(figure, "permutation_importance_plot.png")
             plt.close(figure)
