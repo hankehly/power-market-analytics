@@ -93,7 +93,7 @@ reason the loader checks the header text of every file it reads.
    - **Five use CRLF on every line**, unlike the rest, so a different
      process likely wrote them: 2022-12-01, 2022-12-02, 2024-03-11,
      2024-05-20 and 2026-02-09. The last three carry normal ~00:05 D+1
-     stamps. So a re-issue may leave the stamp unchanged.
+     stamps. The line endings alone do not establish whether these files were re-issued.
    - An earlier version of this doc (2026-08-16) listed 2024-03-11 as
      re-issued on 2024-04-19. Its file now reads 2024-03-12 00:05:05, and
      the 2026-09-10 lag measurement (max 321.8 h, the 2022-12-01 file) shows
