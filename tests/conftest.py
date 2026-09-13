@@ -215,8 +215,11 @@ def similar_day_load(day: pd.Timestamp, time_code: int) -> float:
 
 #: The lags ``ftr_period_actuals`` carries, in days before the delivery day.
 ACTUALS_LAG_DAYS = (2, 3, 7, 9, 14, 21, 28)
-#: The weights of the mart's two exponentially weighted means, newest input first.
+#: The weights of the mart's two four-input exponentially weighted means, newest input first.
 EWM_WEIGHTS = (8, 4, 2, 1)
+#: The lags ``ewm_5d_demand_kwh`` weighs, and its weights, newest input first.
+EWM_5D_LAG_DAYS = (2, 3, 4, 5, 6)
+EWM_5D_WEIGHTS = (16, 8, 4, 2, 1)
 #: The thirteen recent-load feature columns of research demand/R-006, in preset order.
 RECENT_LOAD_COLUMNS = (
     "lag_2d_demand_kwh",
@@ -270,23 +273,91 @@ def mean_of_present(values: list[int | None]) -> float | None:
     return sum(present) / len(present) if present else None
 
 
-def ewm_of_present(values: list[int | None]) -> float | None:
-    """The 8, 4, 2, 1 weighted mean over the values present, weights by position.
+def ewm_of_present(
+    values: list[int | None], weights: tuple[int, ...] = EWM_WEIGHTS
+) -> float | None:
+    """The weighted mean over the values present, weights by position.
 
     Parameters
     ----------
     values : list of int or None
-        Exactly four inputs, newest first; None where an input is absent.
+        One input per weight, newest first; None where an input is absent.
+    weights : tuple of int, default EWM_WEIGHTS
+        The weights, newest input first.
 
     Returns
     -------
     float or None
         None when no value is present.
     """
-    present = [(w, v) for w, v in zip(EWM_WEIGHTS, values, strict=True) if v is not None]
+    present = [(w, v) for w, v in zip(weights, values, strict=True) if v is not None]
     if not present:
         return None
     return sum(w * v for w, v in present) / sum(w for w, _ in present)
+
+
+def weekly_lag_stats(
+    weekly: list[int | None],
+) -> tuple[float | None, float | None, float | None]:
+    """The trend, standard deviation and median of the weekly lags present.
+
+    The same integer sums as ``ftr_period_actuals``, so each value matches the
+    mart's to the bit.
+
+    Parameters
+    ----------
+    weekly : list of int or None
+        The D-7, D-14, D-21 and D-28 lags; None where a lag is absent.
+
+    Returns
+    -------
+    tuple of float or None
+        The least-squares slope against time in weeks (D-7 at -1 back to D-28
+        at -4) and the sample standard deviation, each None with fewer than two
+        lags; the median, None with none.
+    """
+    points = [(-(i + 1), v) for i, v in enumerate(weekly) if v is not None]
+    n = len(points)
+    sum_x = sum(x for x, _ in points)
+    sum_y = sum(y for _, y in points)
+    trend_den = n * sum(x * x for x, _ in points) - sum_x * sum_x
+    trend = (n * sum(x * y for x, y in points) - sum_x * sum_y) / trend_den if trend_den else None
+    std = (
+        math.sqrt((n * sum(y * y for _, y in points) - sum_y * sum_y) / (n * (n - 1)))
+        if n >= 2
+        else None
+    )
+    ordered = sorted(y for _, y in points)
+    median = (ordered[(n + 1) // 2 - 1] + ordered[(n + 2) // 2 - 1]) / 2 if n else None
+    return trend, std, median
+
+
+def zscore_of_last_week(weekly: list[int | None]) -> float | None:
+    """D-7's z-score against the D-14, D-21 and D-28 lags present.
+
+    The same arithmetic as ``ftr_period_actuals``, so the value matches the
+    mart's to the bit.
+
+    Parameters
+    ----------
+    weekly : list of int or None
+        The D-7, D-14, D-21 and D-28 lags; None where a lag is absent.
+
+    Returns
+    -------
+    float or None
+        ``(D-7 - mean) / s`` over the prior weeks present, with ``s`` their
+        sample standard deviation; None without D-7, with fewer than two prior
+        weeks, or when ``s`` is 0.
+    """
+    last, *prior_weeks = weekly
+    prior = [v for v in prior_weeks if v is not None]
+    n = len(prior)
+    sum_y = sum(prior)
+    spread = n * sum(y * y for y in prior) - sum_y * sum_y
+    if last is None or n < 2 or spread == 0:
+        return None
+    return (n * last - sum_y) / (n * math.sqrt(spread / (n * (n - 1))))
 
 
 def nullable_column(values: pd.Series, cast: type) -> pd.Series:
@@ -1045,10 +1116,16 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
             else []
         )
         for tc in range(1, 49):
-            lags = {k: demand_at.get((day - pd.Timedelta(days=k), tc)) for k in ACTUALS_LAG_DAYS}
+            lags = {
+                k: demand_at.get((day - pd.Timedelta(days=k), tc))
+                for k in sorted({*ACTUALS_LAG_DAYS, *EWM_5D_LAG_DAYS})
+            }
             if all(v is None for v in lags.values()):
                 continue
             weekly = [lags[7], lags[14], lags[21], lags[28]]
+            trend, std, median = weekly_lag_stats(weekly)
+            ewm_weekly = ewm_of_present(weekly)
+            ewm_5d = ewm_of_present([lags[k] for k in EWM_5D_LAG_DAYS], EWM_5D_WEIGHTS)
             window = [demand_at[(d, tc)] for d in window_days] + [None] * (4 - len(window_days))
             used_days = [day - pd.Timedelta(days=k) for k, v in lags.items() if v is not None]
             actuals_rows.append(
@@ -1058,12 +1135,20 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
                     "time_code": tc,
                     **{f"lag_{k}d_demand_kwh": lags[k] for k in ACTUALS_LAG_DAYS},
                     "mean_weekly_lags_demand_kwh": mean_of_present(weekly),
-                    "ewm_weekly_lags_demand_kwh": ewm_of_present(weekly),
+                    "ewm_weekly_lags_demand_kwh": ewm_weekly,
+                    "trend_weekly_lags_demand_kwh": trend,
+                    "std_weekly_lags_demand_kwh": std,
+                    "median_weekly_lags_demand_kwh": median,
+                    "zscore_7d_vs_14d_28d_demand_kwh": zscore_of_last_week(weekly),
                     "change_2d_9d_demand_kwh": (
                         None if lags[2] is None or lags[9] is None else lags[2] - lags[9]
                     ),
                     "mean_daytype_4d_demand_kwh": mean_of_present(window),
                     "ewm_daytype_4d_demand_kwh": ewm_of_present(window),
+                    "ewm_5d_demand_kwh": ewm_5d,
+                    "ewm_5d_minus_ewm_weekly_lags_demand_kwh": (
+                        None if ewm_5d is None or ewm_weekly is None else ewm_5d - ewm_weekly
+                    ),
                     "available_at": max(file_available_at[d] for d in [*used_days, *window_days]),
                 }
             )
@@ -1073,8 +1158,14 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
     for col in (
         "mean_weekly_lags_demand_kwh",
         "ewm_weekly_lags_demand_kwh",
+        "trend_weekly_lags_demand_kwh",
+        "std_weekly_lags_demand_kwh",
+        "median_weekly_lags_demand_kwh",
+        "zscore_7d_vs_14d_28d_demand_kwh",
         "mean_daytype_4d_demand_kwh",
         "ewm_daytype_4d_demand_kwh",
+        "ewm_5d_demand_kwh",
+        "ewm_5d_minus_ewm_weekly_lags_demand_kwh",
     ):
         period_actuals[col] = nullable_column(period_actuals[col], float)
     day_actuals_rows = []
@@ -1086,6 +1177,7 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
                 "trade_date": (day + pd.Timedelta(days=2)).date(),
                 "lag_2d_mean_demand_kwh": sum(values) / len(values),
                 "lag_2d_max_demand_kwh": max(values),
+                "lag_2d_min_demand_kwh": min(values),
                 "lag_2d_range_demand_kwh": max(values) - min(values),
                 "available_at": file_available_at[day],
             }
@@ -1152,13 +1244,17 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
         "lag_3d_demand_kwh bigint, lag_7d_demand_kwh bigint, lag_9d_demand_kwh bigint, "
         "lag_14d_demand_kwh bigint, lag_21d_demand_kwh bigint, lag_28d_demand_kwh bigint, "
         "mean_weekly_lags_demand_kwh double, ewm_weekly_lags_demand_kwh double, "
+        "trend_weekly_lags_demand_kwh double, std_weekly_lags_demand_kwh double, "
+        "median_weekly_lags_demand_kwh double, zscore_7d_vs_14d_28d_demand_kwh double, "
         "change_2d_9d_demand_kwh bigint, mean_daytype_4d_demand_kwh double, "
-        "ewm_daytype_4d_demand_kwh double, available_at timestamp",
+        "ewm_daytype_4d_demand_kwh double, ewm_5d_demand_kwh double, "
+        "ewm_5d_minus_ewm_weekly_lags_demand_kwh double, available_at timestamp",
     ).write.mode("overwrite").saveAsTable("pma_features.ftr_period_actuals")
     spark.createDataFrame(
         pd.DataFrame(day_actuals_rows),
         "area_code string, trade_date date, lag_2d_mean_demand_kwh double, "
-        "lag_2d_max_demand_kwh bigint, lag_2d_range_demand_kwh bigint, available_at timestamp",
+        "lag_2d_max_demand_kwh bigint, lag_2d_min_demand_kwh bigint, "
+        "lag_2d_range_demand_kwh bigint, available_at timestamp",
     ).write.mode("overwrite").saveAsTable("pma_features.ftr_day_actuals")
     spark.createDataFrame(
         pd.DataFrame(similar_day_rows),

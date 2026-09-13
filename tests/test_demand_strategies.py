@@ -117,7 +117,7 @@ class TestBuildPreset:
             "EWA(temperature_c, gap=2d, window=7, step=1d, halflife=1)"
         )
         assert strategy.feature_label("popw_forecast_temperature_c") == (
-            "WEIGHTED_MEAN(forecast_temperature_c, weight=population)"
+            "MEAN(forecast_temperature_c, weight=population)"
         )
         assert strategy.feature_label("lag_7d_demand_kwh") == "LAG(demand_kwh, 7d)"
         frame = frame_by_period(strategy)

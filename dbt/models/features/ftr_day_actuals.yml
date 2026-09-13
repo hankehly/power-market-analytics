@@ -4,7 +4,7 @@ models:
       contract:
         enforced: true
     description: >
-      The previous complete day's demand summaries for each delivery day: D-2's mean, maximum and maximum-minus-minimum over its 48 periods of fct_area_demand_generation_actual (research demand/R-006). Grain: area_code x trade_date. A day with a hole (a null period) is not complete and gives no row. available_at is the newest of D-2's rows.
+      The previous complete day's demand summaries for each delivery day: D-2's mean, maximum, minimum and maximum-minus-minimum over its 48 periods of fct_area_demand_generation_actual (research demand/R-006; the minimum added 2026-09-13). Grain: area_code x trade_date. A day with a hole (a null period) is not complete and gives no row. available_at is the newest of D-2's rows.
     data_tests:
       - dbt_utils.unique_combination_of_columns:
           arguments:
@@ -46,6 +46,17 @@ models:
             expression: "LAG(DAILY_MAX(demand_kwh), 2d)"
         data_tests:
           - not_null
+      - name: lag_2d_min_demand_kwh
+        data_type: bigint
+        description: >
+          D-2's minimum half-hourly demand, kWh per period.
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "LAG(DAILY_MIN(demand_kwh), 2d)"
+        data_tests:
+          - not_null
       - name: lag_2d_range_demand_kwh
         data_type: bigint
         description: >
@@ -73,7 +84,7 @@ unit_tests:
       2025-03-01 is complete with demand 1000 + time_code, its period 48
       public five minutes after the rest; 2025-03-02 has a null period 48 and
       gives no row. The one row is D = 2025-03-03 with mean 1024.5, max 1048,
-      range 47 and the newest availability.
+      min 1001, range 47 and the newest availability.
     model: ftr_day_actuals
     given:
       - input: ref('dim_area')
@@ -96,4 +107,4 @@ unit_tests:
             cross join (select explode(sequence(1, 48)) as p)
     expect:
       rows:
-        - {area_code: tokyo, trade_date: 2025-03-03, lag_2d_mean_demand_kwh: 1024.5, lag_2d_max_demand_kwh: 1048, lag_2d_range_demand_kwh: 47, available_at: "2025-03-02 00:10:00"}
+        - {area_code: tokyo, trade_date: 2025-03-03, lag_2d_mean_demand_kwh: 1024.5, lag_2d_max_demand_kwh: 1048, lag_2d_min_demand_kwh: 1001, lag_2d_range_demand_kwh: 47, available_at: "2025-03-02 00:10:00"}
