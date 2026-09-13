@@ -22,14 +22,19 @@ permissions:
 # plus every host the downloaders fetch from (`grep` for `https://` under
 # power_market_analytics/ and scripts/), so the data-source check can open the pages a format or
 # URL change would land on. Add a host here when a downloader gains one. Each domain below
-# answered a request on 2026-09-13. METI (www.meti.go.jp, www.enecho.meti.go.jp) is left out: it
-# refused plain HTTP clients with 403.
+# answered a request on 2026-09-13. Left out, and why:
+# - METI (www.meti.go.jp, www.enecho.meti.go.jp) and the market watchdog (www.egc.meti.go.jp)
+#   answer plain HTTP clients with 403, even with a browser user agent.
+# - doi.org redirects to publishers, and MDPI answers 403. OpenAlex already returns the abstract.
+# - Semantic Scholar's API answers 429 without a key.
+# After a run, `gh aw audit <run-id> --parse` writes firewall.md, which lists every blocked request.
 network:
   allowed:
     - defaults
     - github
     # Japanese power market and grid operators
     - www.jepx.jp
+    - www.eprx.or.jp # 需給調整市場 (balancing market) exchange
     - www.occto.or.jp
     - occtonet3.occto.or.jp # ingestion/occto.py: both OCCTO downloads
     - web-kohyo.occto.or.jp # the reserve-rate numbers' second portal (OCCTO doc §9)
@@ -40,6 +45,7 @@ network:
     - www.jma.go.jp
     - www.data.jma.go.jp
     - database.rish.kyoto-u.ac.jp # ingestion/msm/vintage.py: the MSM GRIB2 archive
+    - www.jmbsc.or.jp # JMBSC: notices of changes to the MSM GPV distribution
     - www.e-stat.go.jp
     - www8.cao.go.jp # scripts/update_holidays_seed.py: the Cabinet Office holiday CSV
     # Industry news (電気新聞)
@@ -48,6 +54,12 @@ network:
     - api.openalex.org
     - arxiv.org
     - export.arxiv.org
+    # Papers in Japanese journals: J-STAGE (search API + articles) and CiNii Research
+    - api.jstage.jst.go.jp
+    - www.jstage.jst.go.jp
+    - cir.nii.ac.jp
+    # Tool releases: Apache Spark publishes none on GitHub, only on its own site
+    - spark.apache.org
 
 safe-outputs:
   create-discussion:
@@ -99,21 +111,27 @@ Read these before you search, so the report is about this project and not the in
 
 Cover the last 7 days where you can; older items are fine when they are new to this repository.
 
-1. **Market and policy news** — JEPX, OCCTO, the TSOs and 電気新聞: rule changes, market
-   design, capacity or balancing market news, anything that moves spot prices or demand.
+1. **Market and policy news** — JEPX, EPRX (the balancing-market exchange), OCCTO, the TSOs
+   and 電気新聞: rule changes, market design, capacity or balancing market news, anything that
+   moves spot prices or demand.
 2. **Data source changes** — announcements from the publishers the pipelines download from
    (JEPX, OCCTO, TEPCO, 関西電力送配電, JMA, the RISH MSM archive at Kyoto University, e-Stat, the
-   Cabinet Office holiday CSV): new or retired datasets, format or URL changes, maintenance
-   windows. The `https://` URLs under `power_market_analytics/ingestion/` and `scripts/` are the
+   Cabinet Office holiday CSV), and JMBSC's notices about the MSM GPV distribution: new or
+   retired datasets, format or URL changes, maintenance windows. The `https://` URLs under `power_market_analytics/ingestion/` and `scripts/` are the
    exact pages the downloads use. Name the ingestion module or retrieval doc under `docs/` an
    item would affect. This section matters most: a silent format change breaks a download.
 3. **Papers** — recent work on day-ahead electricity price or load forecasting, similar-day
    methods, weather features, gradient boosting for energy, forecast explanation. Search
    OpenAlex (`https://api.openalex.org/works?search=...&filter=from_publication_date:YYYY-MM-DD`)
-   and read abstracts on arXiv. Prefer papers with Japanese data or with methods close to an
-   open investigation. Give each a one-line summary and a link.
+   and read abstracts on arXiv. For Japanese journals (電気学会論文誌 and the like), search
+   J-STAGE (`https://api.jstage.jst.go.jp/searchapi/do?service=3&text=...&pubyearfrom=YYYY`,
+   Atom XML) and CiNii Research
+   (`https://cir.nii.ac.jp/opensearch/articles?q=...&from=YYYY&format=json`), with Japanese
+   search terms such as `電力需要予測` and `電力価格予測`. Prefer papers with Japanese data or with
+   methods close to an open investigation. Give each a one-line summary and a link.
 4. **Tools** — notable releases of what the repository runs on: dbt, Spark, Feast, LightGBM,
-   MLflow, Superset, gh-aw. Only releases that change something this repository uses.
+   MLflow, Superset, gh-aw. Use GitHub releases, and `https://spark.apache.org/news/` for Spark,
+   which publishes none on GitHub. Only releases that change something this repository uses.
 5. **Ideas worth a look** — at most three, each tied to a concrete file, model or
    investigation in this repository and to an item above. These are pointers for the
    researcher, not conclusions: state what you read, not what the result would be.
@@ -125,6 +143,8 @@ Leave a section out when it has nothing worth reading. A short report is better 
 - Create exactly one new discussion. Do not edit or comment on any existing discussion,
   issue or pull request.
 - Every item carries a link to its source. Do not report anything you could not open.
+  For a paper, its record in OpenAlex, arXiv, J-STAGE or CiNii counts as opened — the
+  publisher's page is often out of reach. Link the DOI when the record has one.
 - Write plainly: short sentences, one idea each, everyday words. Keep Japanese names as
   published (`広域予備率`, `でんき予報`) next to an English gloss the first time.
 - Write the body to a temp file with a heredoc and pass it with `jq -Rs`, as the tool
