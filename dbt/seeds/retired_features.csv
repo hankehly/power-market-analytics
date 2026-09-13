@@ -1,0 +1,2 @@
+feature_name,feature_expression,is_categorical,feature_description
+lag_1y_demand_kwh,"LAG(power_usage_demand_kwh, prior_year_reference_date) / 2",false,"The でんき予報 hourly load of fct_area_power_usage_hourly on the delivery day's dim_date prior-year reference date, at the hour containing the period, spread over the hour's two periods, kWh. Research demand/R-004 E-001 (strategy lightgbm_msm_popw_daytype_lag1y); removed with the reference date on 2026-09-05."

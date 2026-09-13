@@ -33,14 +33,18 @@ def test_one_view_per_mart_on_the_entities_of_its_grain():
     assert by_name["ftr_hour_msm"].tags == {"grain": "hour"}
 
 
-def test_fields_carry_the_marts_types_and_categorical_tags():
+def test_fields_carry_the_marts_types_and_categorical_and_expression_tags():
     # The features, not the schema: Feast fills a view's entity columns into its
     # schema only once a store applies it, so the schema depends on test order.
     calendar = {field.name: field for field in views.FTR_DAY_CALENDAR.features}
     assert calendar["day_type"].dtype == Int64
-    assert calendar["day_type"].tags == {"categorical": "true"}
+    assert calendar["day_type"].tags == {"categorical": "true", "expression": "day_type"}
     assert calendar["holiday_degree"].dtype == Float64
-    assert calendar["holiday_degree"].tags == {"categorical": "false"}
+    assert calendar["holiday_degree"].tags == {
+        "categorical": "false",
+        "expression": "holiday_degree",
+    }
+    assert calendar["days_since_holiday"].tags["expression"] == "DAYS_SINCE(is_holiday)"
     assert "available_at" not in calendar
     assert not {"area_code", "trade_date_key"} & set(calendar)
 
@@ -94,6 +98,6 @@ def test_the_actuals_views_carry_the_recent_load_columns():
     ]
     assert day["lag_2d_mean_demand_kwh"].dtype == Float64
     assert day["lag_2d_max_demand_kwh"].dtype == Int64
-    assert all(
-        field.tags == {"categorical": "false"} for field in [*period.values(), *day.values()]
-    )
+    assert all(field.tags["categorical"] == "false" for field in [*period.values(), *day.values()])
+    assert period["change_2d_9d_demand_kwh"].tags["expression"] == "LAG(DIFF(demand_kwh, 7d), 2d)"
+    assert day["lag_2d_range_demand_kwh"].tags["expression"] == "LAG(DAILY_RANGE(demand_kwh), 2d)"

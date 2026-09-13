@@ -32,6 +32,7 @@ models:
           meta:
             feature: true
             categorical: false
+            expression: "forecast_max_demand_hour_ending"
         data_tests:
           - not_null
       - name: max_demand_mw
@@ -42,6 +43,7 @@ models:
           meta:
             feature: true
             categorical: false
+            expression: "forecast_max_demand_mw"
         data_tests:
           - not_null
       - name: max_supply_capacity_mw
@@ -52,6 +54,7 @@ models:
           meta:
             feature: true
             categorical: false
+            expression: "forecast_max_supply_capacity_mw"
         data_tests:
           - not_null
       - name: available_at

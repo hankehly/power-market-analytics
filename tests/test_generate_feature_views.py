@@ -1,5 +1,5 @@
-"""scripts/generate_feature_views.py: the dbt manifest → the Feast views module and the
-feature-value fact."""
+"""scripts/generate_feature_views.py: the dbt manifest → the Feast views module, the
+feature-value fact and the feature dimension."""
 
 from __future__ import annotations
 
@@ -49,7 +49,11 @@ def manifest() -> dict:
                 {
                     **keys,
                     "time_code": column("int"),
-                    "x": column("double", "X.", {"feature": True, "categorical": False}),
+                    "x": column(
+                        "double",
+                        "X.",
+                        {"feature": True, "categorical": False, "expression": "LAG(x, 1d)"},
+                    ),
                 },
                 "Period mart.",
             ),
@@ -59,7 +63,10 @@ def manifest() -> dict:
                 {
                     **keys,
                     "y": column(
-                        "int", "Y.", {"feature": True, "categorical": True}, top_level=True
+                        "int",
+                        "Y.",
+                        {"feature": True, "categorical": True, "expression": "y"},
+                        top_level=True,
                     ),
                 },
                 "Day mart.",
@@ -70,7 +77,9 @@ def manifest() -> dict:
                 {
                     **keys,
                     "hour_ending": column("int"),
-                    "z": column("bigint", "Z.", {"feature": True}),
+                    "z": column(
+                        "bigint", "Z.", {"feature": True, "expression": "SIMILAR_DAY(z) / 2"}
+                    ),
                     "note": column("string", "Untagged."),
                     "published_at": column("timestamp", "When the row was written."),
                 },
@@ -123,24 +132,139 @@ class TestRender:
         x_source = text.split("FTR_PERIOD_X_SOURCE = SparkSource(")[1].split(")\n")[0]
         assert "created_timestamp_column" not in x_source
 
-    def test_fields_carry_types_descriptions_and_categorical_tags(self):
+    def test_fields_carry_types_descriptions_and_categorical_and_expression_tags(self):
         text = generate.render(manifest())
         assert (
-            'name="y",\n            dtype=Int64,\n            description="Y.",\n            tags={"categorical": "true"},'
-            in text
-        )
+            'name="y",\n            dtype=Int64,\n            description="Y.",\n'
+            '            tags={"categorical": "true", "expression": "y"},'
+        ) in text
         assert (
-            'name="x",\n            dtype=Float64,\n            description="X.",\n            tags={"categorical": "false"},'
-            in text
-        )
-        assert 'name="z",\n            dtype=Int64,' in text
+            'name="x",\n            dtype=Float64,\n            description="X.",\n'
+            '            tags={"categorical": "false", "expression": "LAG(x, 1d)"},'
+        ) in text
+        assert (
+            'name="z",\n            dtype=Int64,\n            description="Z.",\n'
+            '            tags={"categorical": "false", "expression": "SIMILAR_DAY(z) / 2"},'
+        ) in text
         assert "from feast.types import Float64, Int64\n" in text
+
+    def test_rejects_a_feature_column_without_an_expression(self):
+        bad = manifest()
+        del bad["nodes"]["model.pma.ftr_period_x"]["columns"]["x"]["config"]["meta"]["expression"]
+        with pytest.raises(ValueError, match="ftr_period_x.x: no meta.expression"):
+            generate.render(bad)
 
     def test_rejects_a_feature_column_without_a_feast_type(self):
         bad = manifest()
         bad["nodes"]["model.pma.ftr_day_y"]["columns"]["y"]["data_type"] = "date"
         with pytest.raises(ValueError, match="ftr_day_y.y: data type 'date'"):
             generate.render(bad)
+
+
+class TestCatalogue:
+    def test_one_entry_per_tagged_column_by_mart_then_contract_order(self):
+        entries = generate.catalogue(manifest())
+        assert [(e["feature_view"], e["feature_name"]) for e in entries] == [
+            ("ftr_day_y", "y"),
+            ("ftr_hour_z", "z"),
+            ("ftr_period_x", "x"),
+        ]
+        assert entries[1] == {
+            "feature_name": "z",
+            "feature_expression": "SIMILAR_DAY(z) / 2",
+            "feature_view": "ftr_hour_z",
+            "grain": "hour",
+            "data_type": "bigint",
+            "is_categorical": False,
+            "feature_description": "Z.",
+        }
+        assert entries[0]["is_categorical"] is True
+
+    def test_trims_the_expression_and_folds_the_description_whitespace(self):
+        m = manifest()
+        x = m["nodes"]["model.pma.ftr_period_x"]["columns"]["x"]
+        x["config"]["meta"]["expression"] = "  LAG(x, 1d)\n"
+        x["description"] = "The x\n  of D-1's\tperiod. "
+        entry = generate.catalogue(m)[2]
+        assert entry["feature_expression"] == "LAG(x, 1d)"
+        assert entry["feature_description"] == "The x of D-1's period."
+
+    @pytest.mark.parametrize("expression", [None, "", "   ", 3])
+    def test_rejects_a_missing_blank_or_non_string_expression(self, expression):
+        m = manifest()
+        meta = m["nodes"]["model.pma.ftr_hour_z"]["columns"]["z"]["config"]["meta"]
+        meta["expression"] = expression
+        with pytest.raises(ValueError, match="ftr_hour_z.z: no meta.expression"):
+            generate.catalogue(m)
+
+    def test_rejects_a_column_name_two_marts_share(self):
+        m = manifest()
+        columns = m["nodes"]["model.pma.ftr_period_x"]["columns"]
+        columns["y"] = {"name": "y", **column("int", "", {"feature": True, "expression": "Y2"})}
+        with pytest.raises(
+            ValueError, match="ftr_period_x.y and ftr_day_y.y share the feature_name 'y'"
+        ):
+            generate.catalogue(m)
+
+    def test_rejects_an_expression_two_columns_share(self):
+        m = manifest()
+        meta = m["nodes"]["model.pma.ftr_period_x"]["columns"]["x"]["config"]["meta"]
+        meta["expression"] = "SIMILAR_DAY(z) / 2"
+        with pytest.raises(
+            ValueError,
+            match=r"ftr_period_x.x and ftr_hour_z.z share the feature_expression 'SIMILAR_DAY\(z\) / 2'",
+        ):
+            generate.catalogue(m)
+
+
+class TestSqlString:
+    @pytest.mark.parametrize(
+        ("text", "expected"),
+        [
+            ("LAG(x, 1d)", "'LAG(x, 1d)'"),
+            ("D-2's", "'D-2\\'s'"),
+            ("a\\b", "'a\\\\b'"),
+            ("\\'", "'\\\\\\''"),
+        ],
+    )
+    def test_quotes_and_escapes_with_backslashes(self, text, expected):
+        assert generate.sql_string(text) == expected
+
+
+class TestRenderDim:
+    def test_catalogue_rows_in_a_raw_block_then_the_retired_seed(self):
+        m = manifest()
+        m["nodes"]["model.pma.ftr_day_y"]["columns"]["y"]["description"] = "Y's {{ day }}."
+        text = generate.render_dim(m)
+        assert text.startswith("-- dim_feature:")
+        rows = text.split("{% raw %}\n")[1].split("\n{% endraw %}")[0]
+        assert rows.split(",\n") == [
+            "    ('y', 'y', 'ftr_day_y', 'day', 'int', true, 'Y\\'s {{ day }}.')",
+            "    ('z', 'SIMILAR_DAY(z) / 2', 'ftr_hour_z', 'hour', 'bigint', false, 'Z.')",
+            "    ('x', 'LAG(x, 1d)', 'ftr_period_x', 'period', 'double', false, 'X.')",
+        ]
+        assert (
+            "    as t(feature_name, feature_expression, feature_view, grain, data_type, "
+            "is_categorical, feature_description)\n"
+        ) in text
+        assert "{{ ref('retired_features') }}" in text.split("{% endraw %}")[1]
+        assert "select *, true as is_retired from retired" in text
+        assert (
+            "case when feature_view is not null then concat(feature_view, ':', feature_name) end "
+            "as feature_ref"
+        ) in text
+        assert text.endswith("select * from final\n")
+
+    def test_rejects_a_manifest_without_a_tagged_column(self):
+        m = manifest()
+        for node in m["nodes"].values():
+            node["columns"] = {
+                name: col
+                for name, col in node["columns"].items()
+                if not generate.column_meta(col).get("feature")
+            }
+        with pytest.raises(ValueError, match="no feature mart has a tagged column"):
+            generate.render_dim(m)
 
 
 def cte(text: str, name: str) -> str:
@@ -229,11 +353,14 @@ class TestRenderFact:
 
 
 class TestMain:
-    def test_writes_the_module_then_check_passes_and_detects_staleness(self, tmp_path, capsys):
+    def test_writes_the_three_outputs_then_check_passes_and_detects_staleness(
+        self, tmp_path, capsys
+    ):
         manifest_path = tmp_path / "manifest.json"
         manifest_path.write_text(json.dumps(manifest()))
         output = tmp_path / "views.py"
         fact = tmp_path / "fct_feature_value.sql"
+        dim = tmp_path / "dim_feature.sql"
         args = [
             "--manifest",
             str(manifest_path),
@@ -241,14 +368,22 @@ class TestMain:
             str(output),
             "--fact-output",
             str(fact),
+            "--dim-output",
+            str(dim),
         ]
         assert generate.main(args) == 0
         assert output.read_text() == generate.render(manifest())
         assert fact.read_text() == generate.render_fact(manifest())
+        assert dim.read_text() == generate.render_dim(manifest())
         assert generate.main([*args, "--check"]) == 0
         out = capsys.readouterr().out
         assert "views.py is current" in out and "fct_feature_value.sql is current" in out
-        # Either output stale fails the check and is named.
+        assert "dim_feature.sql is current" in out
+        # Any output stale fails the check and is named.
+        dim.write_text(dim.read_text() + "-- edited\n")
+        assert generate.main([*args, "--check"]) == 1
+        err = capsys.readouterr().err
+        assert "dim_feature.sql is stale" in err and "views.py" not in err
         fact.write_text(fact.read_text() + "-- edited\n")
         assert generate.main([*args, "--check"]) == 1
         err = capsys.readouterr().err
@@ -261,8 +396,17 @@ class TestMain:
     def test_check_fails_when_the_output_is_missing(self, tmp_path):
         manifest_path = tmp_path / "manifest.json"
         manifest_path.write_text(json.dumps(manifest()))
-        args = ["--manifest", str(manifest_path), "--output", str(tmp_path / "none.py")]
-        assert generate.main([*args, "--fact-output", str(tmp_path / "none.sql"), "--check"]) == 1
+        args = [
+            "--manifest",
+            str(manifest_path),
+            "--output",
+            str(tmp_path / "none.py"),
+            "--fact-output",
+            str(tmp_path / "none.sql"),
+            "--dim-output",
+            str(tmp_path / "none_dim.sql"),
+        ]
+        assert generate.main([*args, "--check"]) == 1
 
     def test_the_checked_in_outputs_are_current(self):
         if not generate.DEFAULT_MANIFEST.exists():
