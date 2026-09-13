@@ -30,12 +30,10 @@ with
     case when not is_unpublished then cast(round(generation_kwh) as bigint) end as generation_kwh,
     case when not is_unpublished then cast(round(wind_solar_generation_kwh) as bigint) end as wind_solar_generation_kwh,
     file_updated_at,
-    -- Public at the file's update time, never before the period ends (the
-    -- frozen 2025-06-14 file was written at 05:05 that day).
-    greatest(
-      file_updated_at,
-      timestampadd(minute, time_code * 30, cast(target_date as timestamp))
-    ) as available_at
+    -- Public at 00:30 the next day: TEPCO writes each day's file at 00:05 the
+    -- next day. file_updated_at dates the version held, which a later
+    -- replacement moves (2022-12-01 and 12-02 read 2022-12-14), so it is not used.
+    timestampadd(minute, 30, cast(date_add(target_date, 1) as timestamp)) as available_at
   from
     flagged
   )

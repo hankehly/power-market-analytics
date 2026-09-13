@@ -19,11 +19,9 @@ with
     generation_kwh,
     wind_solar_generation_kwh,
     file_updated_at,
-    -- Public at the file's update time, never before the period ends.
-    greatest(
-      file_updated_at,
-      timestampadd(minute, time_code * 30, cast(target_date as timestamp))
-    ) as available_at
+    -- Public at 00:30 the next day: Kansai writes each day's file at 00:13 the
+    -- next day. The same rule as std_tepco__area_demand_generation_actual.
+    timestampadd(minute, 30, cast(date_add(target_date, 1) as timestamp)) as available_at
   from
     staging
   )
