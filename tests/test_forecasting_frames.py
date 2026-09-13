@@ -317,10 +317,16 @@ class TestForecastContributions:
         with pytest.raises(ValueError, match="component_order must be 0 exactly on the base rows"):
             ForecastContributions.from_df(df)
 
-    def test_feature_value_null_exactly_on_the_base(self):
+    def test_a_feature_row_may_have_a_null_value(self):
+        # The model forecasts with a missing feature; its contribution is still recorded.
         df = contributions_df()
         df.loc[(df["component"] == "x") & (df["time_code"] == 1), "feature_value"] = np.nan
-        with pytest.raises(ValueError, match="feature_value must be null exactly on the base rows"):
+        assert len(ForecastContributions.from_df(df)) == 6
+
+    def test_a_base_row_with_a_feature_value_is_rejected(self):
+        df = contributions_df()
+        df.loc[(df["component"] == "base") & (df["time_code"] == 2), "feature_value"] = 1.0
+        with pytest.raises(ValueError, match="feature_value must be null on the base rows"):
             ForecastContributions.from_df(df)
 
     def test_null_contribution_rejected(self):

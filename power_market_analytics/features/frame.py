@@ -14,8 +14,8 @@ class FeatureFrame(DomainFrame):
     """One area's features per delivery period, as of each period's issue time.
 
     Grain: (trade_date, time_code). Every feature column is float64 and may be
-    NaN where no row was available at the issue time; a strategy drops such
-    training rows and treats such a target day as unforecastable. Concrete
+    NaN where no row was available at the issue time; a strategy forecasts and
+    trains with the NaN, and skips only a day with no feature value at all. Concrete
     classes, one schema per feature list, come from :func:`feature_frame_class`.
     """
 
