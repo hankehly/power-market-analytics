@@ -27,6 +27,9 @@ NUMERIC_DTYPES: dict[object, str] = {Int64: "int64", Float64: "float64"}
 ENTITY_FEATURE = "time_code"
 #: The field tag the view generator writes from the mart's ``meta.categorical``.
 CATEGORICAL_TAG = "categorical"
+#: The field tag the view generator writes from the mart's ``meta.expression``:
+#: the name people read for the column (``LAG(demand_kwh, 2d)``).
+EXPRESSION_TAG = "expression"
 
 
 def feature_column(ref: str) -> str:
@@ -212,6 +215,34 @@ def categorical_columns(preset: Preset) -> tuple[str, ...]:
         for _, column, field in _fields(preset)
         if (field.tags or {}).get(CATEGORICAL_TAG) == "true"
     )
+
+
+def feature_expressions(preset: Preset) -> dict[str, str]:
+    """The expression of each feature column, read off the views' ``expression`` tags.
+
+    The expression is the name a chart or table shows for the column; code
+    keeps using the column name. A field without the tag is left out, so a
+    caller falls back to the column name.
+
+    Parameters
+    ----------
+    preset : Preset
+
+    Returns
+    -------
+    dict of str to str
+        Column name → expression, in feature order.
+
+    Raises
+    ------
+    ValueError
+        If a reference names an unknown view or column, or a join key.
+    """
+    return {
+        column: field.tags[EXPRESSION_TAG]
+        for _, column, field in _fields(preset)
+        if (field.tags or {}).get(EXPRESSION_TAG)
+    }
 
 
 def feature_service(preset: Preset) -> FeatureService:

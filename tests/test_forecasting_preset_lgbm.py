@@ -14,6 +14,7 @@ import mlflow
 import numpy as np
 import pandas as pd
 import pytest
+import shap
 
 from power_market_analytics.features.frame import FeatureFrame, feature_frame
 from power_market_analytics.features.presets import Preset
@@ -261,6 +262,20 @@ class TestInit:
             ValueError, match=r"categorical columns \['day_type'\] are not features"
         ):
             strategy_for(categorical=("day_type",))
+
+    def test_expressions_label_the_features_and_the_rest_keep_their_names(self):
+        strategy = strategy_for(expressions={"lag_1d_price": "LAG(area_price_jpy_kwh, 1d)"})
+        assert strategy.feature_expressions == {"lag_1d_price": "LAG(area_price_jpy_kwh, 1d)"}
+        assert strategy.feature_label("lag_1d_price") == "LAG(area_price_jpy_kwh, 1d)"
+        assert strategy.feature_label("month") == "month"
+        assert strategy.feature_label("time_code") == "time_code"
+        assert strategy_for().feature_label("lag_1d_price") == "lag_1d_price"
+
+    def test_an_expression_of_a_column_that_is_not_a_feature_is_rejected(self):
+        with pytest.raises(
+            ValueError, match=r"expressions of \['day_type'\], which are not features"
+        ):
+            strategy_for(expressions={"day_type": "day_type"})
 
     def test_name_overrides_the_label_and_train_start_is_normalised(self):
         strategy = strategy_for(name="lightgbm_x", train_start_date="2024-04-01")
@@ -604,6 +619,23 @@ class TestEvaluate:
         assert params["lgbm_feature_cols"] == "time_code,month,day_of_week,lag_1d_price"
         assert params["feature_refs"].startswith("ftr_day_calendar:month,")
         assert "mean_absolute_error" in evaluation.metrics
+
+
+    def test_the_shap_plots_label_the_features_with_their_expressions(
+        self, backtested, prices, monkeypatch
+    ):
+        strategy, run = backtested
+        monkeypatch.setattr(
+            strategy, "feature_expressions", {"lag_1d_price": "LAG(area_price_jpy_kwh, 1d)"}
+        )
+        calls: list[dict] = []
+        monkeypatch.setattr(shap, "summary_plot", lambda *args, **kwargs: calls.append(kwargs))
+        eval_set = strategy.build_eval_set(prices, WINDOW_START, WINDOW_END, run=run)
+        with mlflow.start_run():
+            strategy.evaluate(eval_set, explainability_nsamples=20)
+        labels = ["time_code", "month", "day_of_week", "LAG(area_price_jpy_kwh, 1d)"]
+        assert [call["feature_names"] for call in calls] == [labels, labels]
+        assert calls[1]["plot_type"] == "bar"
 
 
 # --------------------------------------------------------------------------- a feature gap

@@ -331,8 +331,16 @@ class TestBacktestScript:
             "importance_std",
             "importance_pct",
             "n_repeats",
+            "feature_expression",
         ]
         assert summary["feature"].tolist() == importance["feature"].unique().tolist()
+        assert summary["feature_expression"].tolist() == [
+            "time_code",
+            "month",
+            "day_of_week",
+            "EWA(temperature_c, gap=2d, window=7, step=1d, halflife=1)",
+            "LAG(demand_kwh, 7d)",
+        ]
         assert summary["n_repeats"].tolist() == [5] * 5
 
     def test_importance_repeats_reaches_the_strategy(self, spark, curated_warehouse, feature_marts):
