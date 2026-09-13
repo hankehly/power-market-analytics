@@ -75,7 +75,8 @@ description. Old runs still name the feature, and the row keeps their labels.
 ## Where the expression shows
 
 - **Feature Catalogue** dashboard in Superset: every feature, searchable, with
-  its view, physical name, grain, type and description.
+  its view, physical name, grain, type and description. One line per feature;
+  hover a cut-off cell to read all of it.
 - **Forecast dashboards:** the SHAP waterfall, the component tables,
   Contributions by period, the Explanation-vs-baseline section and the Feature
   importance section.

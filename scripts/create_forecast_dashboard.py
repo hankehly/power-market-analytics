@@ -3952,6 +3952,12 @@ def feature_catalogue_params(dataset_id: int) -> dict:
         "page_length": 100,
         "include_search": True,
         "table_timestamp_format": "smart_date",
+        # One line per feature: long text is cut at the column edge, not wrapped.
+        "column_config": {
+            name: {"truncateLongCells": True}
+            for name, dtype, _ in FEATURE_CATALOGUE_COLUMNS
+            if dtype == "STRING"
+        },
         "extra_form_data": {},
     }
 

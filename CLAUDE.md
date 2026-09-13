@@ -327,7 +327,8 @@
   vintage. No dashboard reads them; they are the catalogue's browsing surface. Since
   2026-09-13 it last builds the **Feature Catalogue** dashboard (`build_feature_catalogue`):
   the `feature_catalogue` dataset over `dim_feature` and one searchable raw table, every
-  feature under its expression. Every feature label on the two task dashboards (the
+  feature under its expression, one line each (`truncateLongCells` on the text columns;
+  hovering a cell expands it). Every feature label on the two task dashboards (the
   component and feature labels, the importance and mean |SHAP| bars) and the feature-value
   datasets' `feature_expression` column read `dim_feature` at query time, so an edited
   expression needs `just dbt build --select dim_feature`, not a dashboard rebuild.
