@@ -1,18 +1,24 @@
 -- The area's own recent demand for every delivery period: the lags of 2, 3,
--- 7, 9, 14, 21 and 28 days, two means, a least-squares trend, a standard
--- deviation and a median over the weekly lags, D-7's z-score against the
--- three weeks before it, an exponentially weighted mean over D-2 to D-6 and
--- its difference from the weekly one, the two-day-old weekly change and two
--- means over the last four complete days of D's day type. The shifted
--- actuals, grouped per period, are the row spine: a row exists wherever any
--- lag exists and a column is null where its input is absent. available_at
--- is the greatest over the rows a row used.
+-- 7, 9, 14, 21 and 28 days; two means, a weighted standard deviation, a
+-- least-squares trend, a standard deviation, a median and the mean ramp over
+-- the weekly lags; D-7's z-score against the three weeks before it; D-7's
+-- mean with its neighbouring periods and its ramp from the period before; an
+-- exponentially weighted mean, a standard deviation and a weighted standard
+-- deviation over D-2 to D-6, and the weighted mean's difference from the
+-- weekly one; the two-day-old weekly change; and two means over the last
+-- four complete days of D's day type. The shifted actuals, grouped per
+-- period, are the row spine: a row exists wherever any lag exists and a
+-- column is null where its input is absent. available_at is the greatest
+-- over the rows shifted onto the row, the neighbouring periods included.
 with
   actuals as (
   select
     areas.area_code,
     actuals.date_key,
     actuals.time_code,
+    -- The period's position on the timeline, so a shift of one period
+    -- crosses midnight.
+    unix_date(actuals.date_key) * 48 + actuals.time_code - 1 as period_index,
     actuals.demand_kwh,
     actuals.available_at
   from
@@ -24,23 +30,41 @@ with
     actuals.demand_kwh is not null
   ),
 
-  lags as (
-  -- 4, 5 and 6 feed ewm_5d_demand_kwh only.
-  select explode(array(2, 3, 4, 5, 6, 7, 9, 14, 21, 28)) as lag_days
+  -- Where each actual lands: 'at' the same period lag_days later; 'before'
+  -- the period after that, so it is the t-1 of D-lag_days; 'after' the
+  -- period before, so it is the t+1 of D-7. 4, 5 and 6 feed the D-2 to D-6
+  -- statistics only.
+  shifts as (
+  select * from values
+    ('at', 2, 0), ('at', 3, 0), ('at', 4, 0), ('at', 5, 0), ('at', 6, 0),
+    ('at', 7, 0), ('at', 9, 0), ('at', 14, 0), ('at', 21, 0), ('at', 28, 0),
+    ('before', 7, 1), ('before', 14, 1), ('before', 21, 1), ('before', 28, 1),
+    ('after', 7, -1)
+    as shifts(kind, lag_days, period_shift)
   ),
 
-  -- Every actual shifted to each delivery day it is a lag of.
+  -- Every actual shifted to each delivery period it feeds.
   shifted as (
   select
-    actuals.area_code,
-    date_add(actuals.date_key, lags.lag_days) as trade_date,
-    actuals.time_code,
-    lags.lag_days,
-    actuals.demand_kwh,
-    actuals.available_at
-  from
-    actuals
-    cross join lags
+    area_code,
+    date_from_unix_date(cast(div(target_index, 48) as int)) as trade_date,
+    cast(target_index % 48 + 1 as int) as time_code,
+    kind,
+    lag_days,
+    demand_kwh,
+    available_at
+  from (
+    select
+      actuals.area_code,
+      actuals.period_index + shifts.lag_days * 48 + shifts.period_shift as target_index,
+      shifts.kind,
+      shifts.lag_days,
+      actuals.demand_kwh,
+      actuals.available_at
+    from
+      actuals
+      cross join shifts
+  )
   ),
 
   lag_values as (
@@ -48,21 +72,29 @@ with
     area_code,
     trade_date,
     time_code,
-    max(case when lag_days = 2 then demand_kwh end) as lag_2d_demand_kwh,
-    max(case when lag_days = 3 then demand_kwh end) as lag_3d_demand_kwh,
-    max(case when lag_days = 4 then demand_kwh end) as lag_4d_demand_kwh,
-    max(case when lag_days = 5 then demand_kwh end) as lag_5d_demand_kwh,
-    max(case when lag_days = 6 then demand_kwh end) as lag_6d_demand_kwh,
-    max(case when lag_days = 7 then demand_kwh end) as lag_7d_demand_kwh,
-    max(case when lag_days = 9 then demand_kwh end) as lag_9d_demand_kwh,
-    max(case when lag_days = 14 then demand_kwh end) as lag_14d_demand_kwh,
-    max(case when lag_days = 21 then demand_kwh end) as lag_21d_demand_kwh,
-    max(case when lag_days = 28 then demand_kwh end) as lag_28d_demand_kwh,
+    max(case when kind = 'at' and lag_days = 2 then demand_kwh end) as lag_2d_demand_kwh,
+    max(case when kind = 'at' and lag_days = 3 then demand_kwh end) as lag_3d_demand_kwh,
+    max(case when kind = 'at' and lag_days = 4 then demand_kwh end) as lag_4d_demand_kwh,
+    max(case when kind = 'at' and lag_days = 5 then demand_kwh end) as lag_5d_demand_kwh,
+    max(case when kind = 'at' and lag_days = 6 then demand_kwh end) as lag_6d_demand_kwh,
+    max(case when kind = 'at' and lag_days = 7 then demand_kwh end) as lag_7d_demand_kwh,
+    max(case when kind = 'at' and lag_days = 9 then demand_kwh end) as lag_9d_demand_kwh,
+    max(case when kind = 'at' and lag_days = 14 then demand_kwh end) as lag_14d_demand_kwh,
+    max(case when kind = 'at' and lag_days = 21 then demand_kwh end) as lag_21d_demand_kwh,
+    max(case when kind = 'at' and lag_days = 28 then demand_kwh end) as lag_28d_demand_kwh,
+    max(case when kind = 'before' and lag_days = 7 then demand_kwh end) as before_7d_demand_kwh,
+    max(case when kind = 'before' and lag_days = 14 then demand_kwh end) as before_14d_demand_kwh,
+    max(case when kind = 'before' and lag_days = 21 then demand_kwh end) as before_21d_demand_kwh,
+    max(case when kind = 'before' and lag_days = 28 then demand_kwh end) as before_28d_demand_kwh,
+    max(case when kind = 'after' and lag_days = 7 then demand_kwh end) as after_7d_demand_kwh,
     max(available_at) as available_at
   from
     shifted
   group by
     area_code, trade_date, time_code
+  having
+    -- A neighbour alone makes no row.
+    max(case when kind = 'at' then 1 end) = 1
   ),
 
   -- Integer sums over the weekly lags present, against time in weeks for the
@@ -109,7 +141,67 @@ with
       + coalesce(lag_28d_demand_kwh, 0) as prior_weeks_sum_y,
     coalesce(lag_14d_demand_kwh * lag_14d_demand_kwh, 0)
       + coalesce(lag_21d_demand_kwh * lag_21d_demand_kwh, 0)
-      + coalesce(lag_28d_demand_kwh * lag_28d_demand_kwh, 0) as prior_weeks_sum_yy
+      + coalesce(lag_28d_demand_kwh * lag_28d_demand_kwh, 0) as prior_weeks_sum_yy,
+    -- The same sums over D-2 to D-6, and with the exponential weights (16, 8,
+    -- 4, 2, 1 and 8, 4, 2, 1) for the weighted standard deviations: Sw, Sww,
+    -- Swy and Swyy.
+    cast(lag_2d_demand_kwh is not null as int)
+      + cast(lag_3d_demand_kwh is not null as int)
+      + cast(lag_4d_demand_kwh is not null as int)
+      + cast(lag_5d_demand_kwh is not null as int)
+      + cast(lag_6d_demand_kwh is not null as int) as recent_n,
+    coalesce(lag_2d_demand_kwh, 0)
+      + coalesce(lag_3d_demand_kwh, 0)
+      + coalesce(lag_4d_demand_kwh, 0)
+      + coalesce(lag_5d_demand_kwh, 0)
+      + coalesce(lag_6d_demand_kwh, 0) as recent_sum_y,
+    coalesce(lag_2d_demand_kwh * lag_2d_demand_kwh, 0)
+      + coalesce(lag_3d_demand_kwh * lag_3d_demand_kwh, 0)
+      + coalesce(lag_4d_demand_kwh * lag_4d_demand_kwh, 0)
+      + coalesce(lag_5d_demand_kwh * lag_5d_demand_kwh, 0)
+      + coalesce(lag_6d_demand_kwh * lag_6d_demand_kwh, 0) as recent_sum_yy,
+    16 * cast(lag_2d_demand_kwh is not null as int)
+      + 8 * cast(lag_3d_demand_kwh is not null as int)
+      + 4 * cast(lag_4d_demand_kwh is not null as int)
+      + 2 * cast(lag_5d_demand_kwh is not null as int)
+      + cast(lag_6d_demand_kwh is not null as int) as recent_sum_w,
+    256 * cast(lag_2d_demand_kwh is not null as int)
+      + 64 * cast(lag_3d_demand_kwh is not null as int)
+      + 16 * cast(lag_4d_demand_kwh is not null as int)
+      + 4 * cast(lag_5d_demand_kwh is not null as int)
+      + cast(lag_6d_demand_kwh is not null as int) as recent_sum_ww,
+    coalesce(16 * lag_2d_demand_kwh, 0)
+      + coalesce(8 * lag_3d_demand_kwh, 0)
+      + coalesce(4 * lag_4d_demand_kwh, 0)
+      + coalesce(2 * lag_5d_demand_kwh, 0)
+      + coalesce(lag_6d_demand_kwh, 0) as recent_sum_wy,
+    coalesce(16 * lag_2d_demand_kwh * lag_2d_demand_kwh, 0)
+      + coalesce(8 * lag_3d_demand_kwh * lag_3d_demand_kwh, 0)
+      + coalesce(4 * lag_4d_demand_kwh * lag_4d_demand_kwh, 0)
+      + coalesce(2 * lag_5d_demand_kwh * lag_5d_demand_kwh, 0)
+      + coalesce(lag_6d_demand_kwh * lag_6d_demand_kwh, 0) as recent_sum_wyy,
+    8 * cast(lag_7d_demand_kwh is not null as int)
+      + 4 * cast(lag_14d_demand_kwh is not null as int)
+      + 2 * cast(lag_21d_demand_kwh is not null as int)
+      + cast(lag_28d_demand_kwh is not null as int) as weekly_sum_w,
+    64 * cast(lag_7d_demand_kwh is not null as int)
+      + 16 * cast(lag_14d_demand_kwh is not null as int)
+      + 4 * cast(lag_21d_demand_kwh is not null as int)
+      + cast(lag_28d_demand_kwh is not null as int) as weekly_sum_ww,
+    coalesce(8 * lag_7d_demand_kwh, 0)
+      + coalesce(4 * lag_14d_demand_kwh, 0)
+      + coalesce(2 * lag_21d_demand_kwh, 0)
+      + coalesce(lag_28d_demand_kwh, 0) as weekly_sum_wy,
+    coalesce(8 * lag_7d_demand_kwh * lag_7d_demand_kwh, 0)
+      + coalesce(4 * lag_14d_demand_kwh * lag_14d_demand_kwh, 0)
+      + coalesce(2 * lag_21d_demand_kwh * lag_21d_demand_kwh, 0)
+      + coalesce(lag_28d_demand_kwh * lag_28d_demand_kwh, 0) as weekly_sum_wyy,
+    -- The period-to-period ramps of the weekly lags: D-k at t minus D-k at
+    -- t-1; null when either is absent.
+    lag_7d_demand_kwh - before_7d_demand_kwh as ramp_7d_demand_kwh,
+    lag_14d_demand_kwh - before_14d_demand_kwh as ramp_14d_demand_kwh,
+    lag_21d_demand_kwh - before_21d_demand_kwh as ramp_21d_demand_kwh,
+    lag_28d_demand_kwh - before_28d_demand_kwh as ramp_28d_demand_kwh
   from
     lag_values
   ),
@@ -290,6 +382,14 @@ with
       + 4 * cast(by_period.lag_14d_demand_kwh is not null as int)
       + 2 * cast(by_period.lag_21d_demand_kwh is not null as int)
       + cast(by_period.lag_28d_demand_kwh is not null as int), 0) as ewm_weekly_lags_demand_kwh,
+    -- The weighted standard deviation with the reliability-weight correction
+    -- (pandas ewm().std()): sqrt((V1 Swyy - Swy^2) / (V1^2 - V2)), V1 = Sw and
+    -- V2 = Sww over the lags present. The denominator is 0 with fewer than
+    -- two lags, so the value is null.
+    sqrt(
+      (by_period.weekly_sum_w * by_period.weekly_sum_wyy - by_period.weekly_sum_wy * by_period.weekly_sum_wy)
+      / nullif(by_period.weekly_sum_w * by_period.weekly_sum_w - by_period.weekly_sum_ww, 0))
+      as ewstd_weekly_lags_demand_kwh,
     -- The slope, kWh per week: (n Sxy - Sx Sy) / (n Sxx - Sx^2). The
     -- denominator is 0 with fewer than two lags, so the value is null.
     (by_period.weekly_n * by_period.weekly_sum_xy - by_period.weekly_sum_x * by_period.weekly_sum_y)
@@ -317,6 +417,25 @@ with
       / nullif(by_period.prior_weeks_n * (by_period.prior_weeks_n - 1), 0)))
       as zscore_7d_vs_14d_28d_demand_kwh,
     by_period.lag_2d_demand_kwh - by_period.lag_9d_demand_kwh as change_2d_9d_demand_kwh,
+    -- D-7 at t-1, t and t+1, the values present; null when none is.
+    (coalesce(by_period.before_7d_demand_kwh, 0)
+      + coalesce(by_period.lag_7d_demand_kwh, 0)
+      + coalesce(by_period.after_7d_demand_kwh, 0))
+    / nullif(
+      cast(by_period.before_7d_demand_kwh is not null as int)
+      + cast(by_period.lag_7d_demand_kwh is not null as int)
+      + cast(by_period.after_7d_demand_kwh is not null as int), 0) as lag_7d_adjacent_mean_demand_kwh,
+    by_period.ramp_7d_demand_kwh as lag_7d_ramp_demand_kwh,
+    -- The weekly ramps present; null when none is.
+    (coalesce(by_period.ramp_7d_demand_kwh, 0)
+      + coalesce(by_period.ramp_14d_demand_kwh, 0)
+      + coalesce(by_period.ramp_21d_demand_kwh, 0)
+      + coalesce(by_period.ramp_28d_demand_kwh, 0))
+    / nullif(
+      cast(by_period.ramp_7d_demand_kwh is not null as int)
+      + cast(by_period.ramp_14d_demand_kwh is not null as int)
+      + cast(by_period.ramp_21d_demand_kwh is not null as int)
+      + cast(by_period.ramp_28d_demand_kwh is not null as int), 0) as mean_weekly_lags_ramp_demand_kwh,
     day_type_windows.mean_daytype_4d_demand_kwh,
     day_type_windows.ewm_daytype_4d_demand_kwh,
     -- Weights 16, 8, 4, 2, 1 for D-2 to D-6, over the lags present.
@@ -331,6 +450,16 @@ with
       + 4 * cast(by_period.lag_4d_demand_kwh is not null as int)
       + 2 * cast(by_period.lag_5d_demand_kwh is not null as int)
       + cast(by_period.lag_6d_demand_kwh is not null as int), 0) as ewm_5d_demand_kwh,
+    -- The sample standard deviation of D-2 to D-6: sqrt((n Syy - Sy^2) /
+    -- (n (n - 1))), null with fewer than two lags.
+    sqrt(
+      (by_period.recent_n * by_period.recent_sum_yy - by_period.recent_sum_y * by_period.recent_sum_y)
+      / nullif(by_period.recent_n * (by_period.recent_n - 1), 0)) as std_5d_demand_kwh,
+    -- The same weighted standard deviation as the weekly one, over D-2 to D-6.
+    sqrt(
+      (by_period.recent_sum_w * by_period.recent_sum_wyy - by_period.recent_sum_wy * by_period.recent_sum_wy)
+      / nullif(by_period.recent_sum_w * by_period.recent_sum_w - by_period.recent_sum_ww, 0))
+      as ewstd_5d_demand_kwh,
     {{ available_at(['by_period.available_at', 'day_type_windows.available_at']) }} as available_at
   from
     by_period

@@ -4,13 +4,22 @@ models:
       contract:
         enforced: true
     description: >
-      The previous complete day's demand summaries for each delivery day: D-2's mean, maximum, minimum and maximum-minus-minimum over its 48 periods of fct_area_demand_generation_actual (research demand/R-006; the minimum added 2026-09-13). Grain: area_code x trade_date. A day with a hole (a null period) is not complete and gives no row. available_at is the newest of D-2's rows.
+      The area's own recent daily demand for each delivery day, from the complete days of fct_area_demand_generation_actual (all 48 periods non-null). D-2, the newest complete day: its mean, maximum, minimum and maximum-minus-minimum (research demand/R-006; the minimum added 2026-09-13), and since 2026-09-13 its load factor, its mean over the morning (06:00-10:00), afternoon (13:00-17:00) and evening (18:00-22:00), the period of its peak and its morning and evening ramps. Then the exponentially weighted means of the daily maximum, mean and minimum over D-2 to D-6 and over D-7, D-14, D-21 and D-28, and the difference of each pair. Grain: area_code x trade_date. A row exists wherever any of those nine days is complete, so the D-2 columns are null where D-2 is not. The windows follow the weekday load shape of both areas: the morning rise, the flat stretch after the midday dip, and the evening decline. available_at is the greatest over the days the row used.
     data_tests:
       - dbt_utils.unique_combination_of_columns:
           arguments:
             combination_of_columns:
               - area_code
               - trade_date
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: >
+              coalesce(lag_2d_mean_demand_kwh, ewm_5d_daily_mean_demand_kwh,
+              ewm_weekly_lags_daily_mean_demand_kwh) is not null
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: >
+              (lag_2d_mean_demand_kwh is null) = (lag_2d_evening_ramp_demand_kwh is null)
     columns:
       - name: area_code
         data_type: string
@@ -21,20 +30,18 @@ models:
       - name: trade_date
         data_type: date
         description: >
-          The delivery day D (the summarised day + 2).
+          The delivery day D.
         data_tests:
           - not_null
       - name: lag_2d_mean_demand_kwh
         data_type: double
         description: >
-          Mean of D-2's 48 half-hourly demand values, kWh per period.
+          Mean of D-2's 48 half-hourly demand values, kWh per period. Null when D-2 is not complete.
         config:
           meta:
             feature: true
             categorical: false
             expression: "LAG(DAILY_MEAN(demand_kwh), 2d)"
-        data_tests:
-          - not_null
       - name: lag_2d_max_demand_kwh
         data_type: bigint
         description: >
@@ -44,8 +51,6 @@ models:
             feature: true
             categorical: false
             expression: "LAG(DAILY_MAX(demand_kwh), 2d)"
-        data_tests:
-          - not_null
       - name: lag_2d_min_demand_kwh
         data_type: bigint
         description: >
@@ -55,8 +60,6 @@ models:
             feature: true
             categorical: false
             expression: "LAG(DAILY_MIN(demand_kwh), 2d)"
-        data_tests:
-          - not_null
       - name: lag_2d_range_demand_kwh
         data_type: bigint
         description: >
@@ -67,24 +70,180 @@ models:
             categorical: false
             expression: "LAG(DAILY_RANGE(demand_kwh), 2d)"
         data_tests:
-          - not_null
           - dbt_utils.accepted_range:
               arguments:
                 min_value: 0
+      - name: lag_2d_load_factor_demand
+        data_type: double
+        description: >
+          D-2's load factor: its mean over its maximum. Unitless.
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "LAG(DAILY_MEAN(demand_kwh) / DAILY_MAX(demand_kwh), 2d)"
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 1
+      - name: lag_2d_morning_mean_demand_kwh
+        data_type: double
+        description: >
+          Mean of D-2's demand over the periods from 06:00 to 10:00 (time codes 13-20), kWh per period.
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "LAG(DAILY_MEAN(demand_kwh, time=06:00-10:00), 2d)"
+      - name: lag_2d_afternoon_mean_demand_kwh
+        data_type: double
+        description: >
+          Mean of D-2's demand over the periods from 13:00 to 17:00 (time codes 27-34), kWh per period.
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "LAG(DAILY_MEAN(demand_kwh, time=13:00-17:00), 2d)"
+      - name: lag_2d_evening_mean_demand_kwh
+        data_type: double
+        description: >
+          Mean of D-2's demand over the periods from 18:00 to 22:00 (time codes 37-44), kWh per period.
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "LAG(DAILY_MEAN(demand_kwh, time=18:00-22:00), 2d)"
+      - name: lag_2d_peak_time_code
+        data_type: int
+        description: >
+          The time code (1-48) of D-2's highest demand; the earliest one on a tie. Numeric, not categorical: neighbouring periods are close.
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "LAG(DAILY_ARGMAX(demand_kwh), 2d)"
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 1
+                max_value: 48
+      - name: lag_2d_morning_ramp_demand_kwh
+        data_type: double
+        description: >
+          The least-squares slope of D-2's demand against time over the periods from 06:00 to 10:00 (time codes 13-20), kWh per period per hour: positive when demand rose through the window.
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "LAG(DAILY_TREND(demand_kwh, time=06:00-10:00), 2d)"
+      - name: lag_2d_evening_ramp_demand_kwh
+        data_type: double
+        description: >
+          The least-squares slope of D-2's demand against time over the periods from 18:00 to 22:00 (time codes 37-44), kWh per period per hour: positive when demand rose through the window.
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "LAG(DAILY_TREND(demand_kwh, time=18:00-22:00), 2d)"
+      - name: ewm_5d_daily_max_demand_kwh
+        data_type: double
+        description: >
+          Exponentially weighted mean of the daily maximum of D-2, D-3, D-4, D-5 and D-6 with weights 16, 8, 4, 2, 1, renormalised over the complete days present, kWh per period; null when none is.
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "EWA(DAILY_MAX(demand_kwh), gap=2d, window=5, step=1d, halflife=1)"
+      - name: ewm_weekly_lags_daily_max_demand_kwh
+        data_type: double
+        description: >
+          Exponentially weighted mean of the daily maximum of D-7, D-14, D-21 and D-28 with weights 8, 4, 2, 1, renormalised over the complete days present, kWh per period; null when none is.
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "EWA(DAILY_MAX(demand_kwh), gap=7d, window=4, step=7d, halflife=1)"
+      - name: ewm_5d_minus_ewm_weekly_lags_daily_max_demand_kwh
+        data_type: double
+        description: >
+          ewm_5d_daily_max_demand_kwh minus ewm_weekly_lags_daily_max_demand_kwh, kWh per period: the recent weighted daily maximum against the same weekday's. Null when either is.
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "EWA(DAILY_MAX(demand_kwh), gap=2d, window=5, step=1d, halflife=1) - EWA(DAILY_MAX(demand_kwh), gap=7d, window=4, step=7d, halflife=1)"
+      - name: ewm_5d_daily_mean_demand_kwh
+        data_type: double
+        description: >
+          Exponentially weighted mean of the daily mean of D-2, D-3, D-4, D-5 and D-6 with weights 16, 8, 4, 2, 1, renormalised over the complete days present, kWh per period; null when none is.
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "EWA(DAILY_MEAN(demand_kwh), gap=2d, window=5, step=1d, halflife=1)"
+      - name: ewm_weekly_lags_daily_mean_demand_kwh
+        data_type: double
+        description: >
+          Exponentially weighted mean of the daily mean of D-7, D-14, D-21 and D-28 with weights 8, 4, 2, 1, renormalised over the complete days present, kWh per period; null when none is.
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "EWA(DAILY_MEAN(demand_kwh), gap=7d, window=4, step=7d, halflife=1)"
+      - name: ewm_5d_minus_ewm_weekly_lags_daily_mean_demand_kwh
+        data_type: double
+        description: >
+          ewm_5d_daily_mean_demand_kwh minus ewm_weekly_lags_daily_mean_demand_kwh, kWh per period: the recent weighted daily mean against the same weekday's. Null when either is.
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "EWA(DAILY_MEAN(demand_kwh), gap=2d, window=5, step=1d, halflife=1) - EWA(DAILY_MEAN(demand_kwh), gap=7d, window=4, step=7d, halflife=1)"
+      - name: ewm_5d_daily_min_demand_kwh
+        data_type: double
+        description: >
+          Exponentially weighted mean of the daily minimum of D-2, D-3, D-4, D-5 and D-6 with weights 16, 8, 4, 2, 1, renormalised over the complete days present, kWh per period; null when none is.
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "EWA(DAILY_MIN(demand_kwh), gap=2d, window=5, step=1d, halflife=1)"
+      - name: ewm_weekly_lags_daily_min_demand_kwh
+        data_type: double
+        description: >
+          Exponentially weighted mean of the daily minimum of D-7, D-14, D-21 and D-28 with weights 8, 4, 2, 1, renormalised over the complete days present, kWh per period; null when none is.
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "EWA(DAILY_MIN(demand_kwh), gap=7d, window=4, step=7d, halflife=1)"
+      - name: ewm_5d_minus_ewm_weekly_lags_daily_min_demand_kwh
+        data_type: double
+        description: >
+          ewm_5d_daily_min_demand_kwh minus ewm_weekly_lags_daily_min_demand_kwh, kWh per period: the recent weighted daily minimum against the same weekday's. Null when either is.
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "EWA(DAILY_MIN(demand_kwh), gap=2d, window=5, step=1d, halflife=1) - EWA(DAILY_MIN(demand_kwh), gap=7d, window=4, step=7d, halflife=1)"
       - name: available_at
         data_type: timestamp
         description: >
-          When the row became public, naive JST: the newest available_at among D-2's 48 rows.
+          When the row became public, naive JST: the newest available_at among the complete days the row used.
         data_tests:
           - not_null
 
 unit_tests:
-  - name: ftr_day_actuals_complete_day_only
+  - name: ftr_day_actuals_one_complete_day
     description: >
       2025-03-01 is complete with demand 1000 + time_code, its period 48
       public five minutes after the rest; 2025-03-02 has a null period 48 and
-      gives no row. The one row is D = 2025-03-03 with mean 1024.5, max 1048,
-      min 1001, range 47 and the newest availability.
+      counts for nothing. 03-01 feeds the nine delivery days it is D-2 to D-6,
+      D-7, D-14, D-21 or D-28 of. Only D = 03-03 has the D-2 columns: mean
+      1024.5, max 1048, min 1001, range 47, load factor 1024.5 / 1048, window
+      means 1016.5 / 1030.5 / 1040.5, peak at time code 48 and both ramps
+      2 kWh per hour (1 per period). A weighted mean over one day is that day.
     model: ftr_day_actuals
     given:
       - input: ref('dim_area')
@@ -107,4 +266,91 @@ unit_tests:
             cross join (select explode(sequence(1, 48)) as p)
     expect:
       rows:
-        - {area_code: tokyo, trade_date: 2025-03-03, lag_2d_mean_demand_kwh: 1024.5, lag_2d_max_demand_kwh: 1048, lag_2d_min_demand_kwh: 1001, lag_2d_range_demand_kwh: 47, available_at: "2025-03-02 00:10:00"}
+        - {area_code: tokyo, trade_date: 2025-03-03, lag_2d_mean_demand_kwh: 1024.5, lag_2d_max_demand_kwh: 1048, lag_2d_min_demand_kwh: 1001, lag_2d_range_demand_kwh: 47, available_at: "2025-03-02 00:10:00", lag_2d_load_factor_demand: 0.9775763358778626, lag_2d_morning_mean_demand_kwh: 1016.5, lag_2d_afternoon_mean_demand_kwh: 1030.5, lag_2d_evening_mean_demand_kwh: 1040.5, lag_2d_peak_time_code: 48, lag_2d_morning_ramp_demand_kwh: 2.0, lag_2d_evening_ramp_demand_kwh: 2.0, ewm_5d_daily_max_demand_kwh: 1048.0, ewm_weekly_lags_daily_max_demand_kwh: null, ewm_5d_minus_ewm_weekly_lags_daily_max_demand_kwh: null, ewm_5d_daily_mean_demand_kwh: 1024.5, ewm_weekly_lags_daily_mean_demand_kwh: null, ewm_5d_minus_ewm_weekly_lags_daily_mean_demand_kwh: null, ewm_5d_daily_min_demand_kwh: 1001.0, ewm_weekly_lags_daily_min_demand_kwh: null, ewm_5d_minus_ewm_weekly_lags_daily_min_demand_kwh: null}
+        - {area_code: tokyo, trade_date: 2025-03-04, lag_2d_mean_demand_kwh: null, lag_2d_max_demand_kwh: null, lag_2d_min_demand_kwh: null, lag_2d_range_demand_kwh: null, available_at: "2025-03-02 00:10:00", lag_2d_load_factor_demand: null, lag_2d_morning_mean_demand_kwh: null, lag_2d_afternoon_mean_demand_kwh: null, lag_2d_evening_mean_demand_kwh: null, lag_2d_peak_time_code: null, lag_2d_morning_ramp_demand_kwh: null, lag_2d_evening_ramp_demand_kwh: null, ewm_5d_daily_max_demand_kwh: 1048.0, ewm_weekly_lags_daily_max_demand_kwh: null, ewm_5d_minus_ewm_weekly_lags_daily_max_demand_kwh: null, ewm_5d_daily_mean_demand_kwh: 1024.5, ewm_weekly_lags_daily_mean_demand_kwh: null, ewm_5d_minus_ewm_weekly_lags_daily_mean_demand_kwh: null, ewm_5d_daily_min_demand_kwh: 1001.0, ewm_weekly_lags_daily_min_demand_kwh: null, ewm_5d_minus_ewm_weekly_lags_daily_min_demand_kwh: null}
+        - {area_code: tokyo, trade_date: 2025-03-05, lag_2d_mean_demand_kwh: null, lag_2d_max_demand_kwh: null, lag_2d_min_demand_kwh: null, lag_2d_range_demand_kwh: null, available_at: "2025-03-02 00:10:00", lag_2d_load_factor_demand: null, lag_2d_morning_mean_demand_kwh: null, lag_2d_afternoon_mean_demand_kwh: null, lag_2d_evening_mean_demand_kwh: null, lag_2d_peak_time_code: null, lag_2d_morning_ramp_demand_kwh: null, lag_2d_evening_ramp_demand_kwh: null, ewm_5d_daily_max_demand_kwh: 1048.0, ewm_weekly_lags_daily_max_demand_kwh: null, ewm_5d_minus_ewm_weekly_lags_daily_max_demand_kwh: null, ewm_5d_daily_mean_demand_kwh: 1024.5, ewm_weekly_lags_daily_mean_demand_kwh: null, ewm_5d_minus_ewm_weekly_lags_daily_mean_demand_kwh: null, ewm_5d_daily_min_demand_kwh: 1001.0, ewm_weekly_lags_daily_min_demand_kwh: null, ewm_5d_minus_ewm_weekly_lags_daily_min_demand_kwh: null}
+        - {area_code: tokyo, trade_date: 2025-03-06, lag_2d_mean_demand_kwh: null, lag_2d_max_demand_kwh: null, lag_2d_min_demand_kwh: null, lag_2d_range_demand_kwh: null, available_at: "2025-03-02 00:10:00", lag_2d_load_factor_demand: null, lag_2d_morning_mean_demand_kwh: null, lag_2d_afternoon_mean_demand_kwh: null, lag_2d_evening_mean_demand_kwh: null, lag_2d_peak_time_code: null, lag_2d_morning_ramp_demand_kwh: null, lag_2d_evening_ramp_demand_kwh: null, ewm_5d_daily_max_demand_kwh: 1048.0, ewm_weekly_lags_daily_max_demand_kwh: null, ewm_5d_minus_ewm_weekly_lags_daily_max_demand_kwh: null, ewm_5d_daily_mean_demand_kwh: 1024.5, ewm_weekly_lags_daily_mean_demand_kwh: null, ewm_5d_minus_ewm_weekly_lags_daily_mean_demand_kwh: null, ewm_5d_daily_min_demand_kwh: 1001.0, ewm_weekly_lags_daily_min_demand_kwh: null, ewm_5d_minus_ewm_weekly_lags_daily_min_demand_kwh: null}
+        - {area_code: tokyo, trade_date: 2025-03-07, lag_2d_mean_demand_kwh: null, lag_2d_max_demand_kwh: null, lag_2d_min_demand_kwh: null, lag_2d_range_demand_kwh: null, available_at: "2025-03-02 00:10:00", lag_2d_load_factor_demand: null, lag_2d_morning_mean_demand_kwh: null, lag_2d_afternoon_mean_demand_kwh: null, lag_2d_evening_mean_demand_kwh: null, lag_2d_peak_time_code: null, lag_2d_morning_ramp_demand_kwh: null, lag_2d_evening_ramp_demand_kwh: null, ewm_5d_daily_max_demand_kwh: 1048.0, ewm_weekly_lags_daily_max_demand_kwh: null, ewm_5d_minus_ewm_weekly_lags_daily_max_demand_kwh: null, ewm_5d_daily_mean_demand_kwh: 1024.5, ewm_weekly_lags_daily_mean_demand_kwh: null, ewm_5d_minus_ewm_weekly_lags_daily_mean_demand_kwh: null, ewm_5d_daily_min_demand_kwh: 1001.0, ewm_weekly_lags_daily_min_demand_kwh: null, ewm_5d_minus_ewm_weekly_lags_daily_min_demand_kwh: null}
+        - {area_code: tokyo, trade_date: 2025-03-08, lag_2d_mean_demand_kwh: null, lag_2d_max_demand_kwh: null, lag_2d_min_demand_kwh: null, lag_2d_range_demand_kwh: null, available_at: "2025-03-02 00:10:00", lag_2d_load_factor_demand: null, lag_2d_morning_mean_demand_kwh: null, lag_2d_afternoon_mean_demand_kwh: null, lag_2d_evening_mean_demand_kwh: null, lag_2d_peak_time_code: null, lag_2d_morning_ramp_demand_kwh: null, lag_2d_evening_ramp_demand_kwh: null, ewm_5d_daily_max_demand_kwh: null, ewm_weekly_lags_daily_max_demand_kwh: 1048.0, ewm_5d_minus_ewm_weekly_lags_daily_max_demand_kwh: null, ewm_5d_daily_mean_demand_kwh: null, ewm_weekly_lags_daily_mean_demand_kwh: 1024.5, ewm_5d_minus_ewm_weekly_lags_daily_mean_demand_kwh: null, ewm_5d_daily_min_demand_kwh: null, ewm_weekly_lags_daily_min_demand_kwh: 1001.0, ewm_5d_minus_ewm_weekly_lags_daily_min_demand_kwh: null}
+        - {area_code: tokyo, trade_date: 2025-03-15, lag_2d_mean_demand_kwh: null, lag_2d_max_demand_kwh: null, lag_2d_min_demand_kwh: null, lag_2d_range_demand_kwh: null, available_at: "2025-03-02 00:10:00", lag_2d_load_factor_demand: null, lag_2d_morning_mean_demand_kwh: null, lag_2d_afternoon_mean_demand_kwh: null, lag_2d_evening_mean_demand_kwh: null, lag_2d_peak_time_code: null, lag_2d_morning_ramp_demand_kwh: null, lag_2d_evening_ramp_demand_kwh: null, ewm_5d_daily_max_demand_kwh: null, ewm_weekly_lags_daily_max_demand_kwh: 1048.0, ewm_5d_minus_ewm_weekly_lags_daily_max_demand_kwh: null, ewm_5d_daily_mean_demand_kwh: null, ewm_weekly_lags_daily_mean_demand_kwh: 1024.5, ewm_5d_minus_ewm_weekly_lags_daily_mean_demand_kwh: null, ewm_5d_daily_min_demand_kwh: null, ewm_weekly_lags_daily_min_demand_kwh: 1001.0, ewm_5d_minus_ewm_weekly_lags_daily_min_demand_kwh: null}
+        - {area_code: tokyo, trade_date: 2025-03-22, lag_2d_mean_demand_kwh: null, lag_2d_max_demand_kwh: null, lag_2d_min_demand_kwh: null, lag_2d_range_demand_kwh: null, available_at: "2025-03-02 00:10:00", lag_2d_load_factor_demand: null, lag_2d_morning_mean_demand_kwh: null, lag_2d_afternoon_mean_demand_kwh: null, lag_2d_evening_mean_demand_kwh: null, lag_2d_peak_time_code: null, lag_2d_morning_ramp_demand_kwh: null, lag_2d_evening_ramp_demand_kwh: null, ewm_5d_daily_max_demand_kwh: null, ewm_weekly_lags_daily_max_demand_kwh: 1048.0, ewm_5d_minus_ewm_weekly_lags_daily_max_demand_kwh: null, ewm_5d_daily_mean_demand_kwh: null, ewm_weekly_lags_daily_mean_demand_kwh: 1024.5, ewm_5d_minus_ewm_weekly_lags_daily_mean_demand_kwh: null, ewm_5d_daily_min_demand_kwh: null, ewm_weekly_lags_daily_min_demand_kwh: 1001.0, ewm_5d_minus_ewm_weekly_lags_daily_min_demand_kwh: null}
+        - {area_code: tokyo, trade_date: 2025-03-29, lag_2d_mean_demand_kwh: null, lag_2d_max_demand_kwh: null, lag_2d_min_demand_kwh: null, lag_2d_range_demand_kwh: null, available_at: "2025-03-02 00:10:00", lag_2d_load_factor_demand: null, lag_2d_morning_mean_demand_kwh: null, lag_2d_afternoon_mean_demand_kwh: null, lag_2d_evening_mean_demand_kwh: null, lag_2d_peak_time_code: null, lag_2d_morning_ramp_demand_kwh: null, lag_2d_evening_ramp_demand_kwh: null, ewm_5d_daily_max_demand_kwh: null, ewm_weekly_lags_daily_max_demand_kwh: 1048.0, ewm_5d_minus_ewm_weekly_lags_daily_max_demand_kwh: null, ewm_5d_daily_mean_demand_kwh: null, ewm_weekly_lags_daily_mean_demand_kwh: 1024.5, ewm_5d_minus_ewm_weekly_lags_daily_mean_demand_kwh: null, ewm_5d_daily_min_demand_kwh: null, ewm_weekly_lags_daily_min_demand_kwh: 1001.0, ewm_5d_minus_ewm_weekly_lags_daily_min_demand_kwh: null}
+
+  - name: ftr_day_actuals_shape_and_weights
+    description: >
+      Eight days of demand base + 10 x min(time_code, 49 - time_code) +
+      (time_code^2 mod 7): a peak tied at time codes 24 and 25 (the earliest,
+      24, wins) and ramps that are not straight lines. For D = 03-31: D-2
+      (03-29, base 2000), D-3 (03-28, 1800) and D-6 (03-25, 1400) are complete
+      and D-4 (03-27) is not, so the D-2 to D-6 means weigh 16, 8 and 1; D-7
+      (03-24, 2100), D-14 (03-17, 2050) and D-28 (03-03, 1900) are complete and
+      D-21 (03-10) is not, so the weekly means weigh 8, 4 and 1. Every value
+      is the reference arithmetic's double: 03-31's load factor
+      0.9487250966399048, morning ramp
+      20.5, evening ramp
+      -20.333333333333332, daily-max difference
+      -157.23076923076906.
+    model: ftr_day_actuals
+    given:
+      - input: ref('dim_area')
+        rows:
+          - {area_key: 1, area_code: tokyo}
+      - input: ref('fct_area_demand_generation_actual')
+        format: sql
+        rows: |
+          select
+            date(d) as date_key,
+            p as time_code,
+            1 as area_key,
+            case
+              when (d = '2025-03-27' and p = 10) or (d = '2025-03-10' and p = 30) then null
+              else base + 10 * least(p, 49 - p) + (p * p) % 7
+            end as demand_kwh,
+            timestamp '2025-03-30 00:30:00' as available_at
+          from
+            (values
+              ('2025-03-29', 2000), ('2025-03-28', 1800), ('2025-03-27', 1700),
+              ('2025-03-25', 1400), ('2025-03-24', 2100), ('2025-03-17', 2050),
+              ('2025-03-10', 1950), ('2025-03-03', 1900)
+            ) as t(d, base)
+            cross join (select explode(sequence(1, 48)) as p)
+    # Dict rows, so only the listed columns are compared; each value is the
+    # shortest decimal of the reference arithmetic's double.
+    expect:
+      rows:
+        - {area_code: tokyo, trade_date: 2025-03-05, lag_2d_load_factor_demand: 0.9463313103018985, lag_2d_morning_mean_demand_kwh: 2066.875, lag_2d_afternoon_mean_demand_kwh: 2086.875, lag_2d_evening_mean_demand_kwh: 1987.25, lag_2d_peak_time_code: 24, lag_2d_morning_ramp_demand_kwh: 20.5, lag_2d_evening_ramp_demand_kwh: -20.333333333333332, ewm_5d_daily_max_demand_kwh: 2142.0, ewm_weekly_lags_daily_max_demand_kwh: null, ewm_5d_minus_ewm_weekly_lags_daily_max_demand_kwh: null, ewm_5d_daily_mean_demand_kwh: 2027.0416666666667, ewm_weekly_lags_daily_mean_demand_kwh: null, ewm_5d_minus_ewm_weekly_lags_daily_mean_demand_kwh: null, ewm_5d_daily_min_demand_kwh: 1911.0, ewm_weekly_lags_daily_min_demand_kwh: null, ewm_5d_minus_ewm_weekly_lags_daily_min_demand_kwh: null}
+        - {area_code: tokyo, trade_date: 2025-03-06, lag_2d_load_factor_demand: null, lag_2d_morning_mean_demand_kwh: null, lag_2d_afternoon_mean_demand_kwh: null, lag_2d_evening_mean_demand_kwh: null, lag_2d_peak_time_code: null, lag_2d_morning_ramp_demand_kwh: null, lag_2d_evening_ramp_demand_kwh: null, ewm_5d_daily_max_demand_kwh: 2142.0, ewm_weekly_lags_daily_max_demand_kwh: null, ewm_5d_minus_ewm_weekly_lags_daily_max_demand_kwh: null, ewm_5d_daily_mean_demand_kwh: 2027.0416666666667, ewm_weekly_lags_daily_mean_demand_kwh: null, ewm_5d_minus_ewm_weekly_lags_daily_mean_demand_kwh: null, ewm_5d_daily_min_demand_kwh: 1911.0, ewm_weekly_lags_daily_min_demand_kwh: null, ewm_5d_minus_ewm_weekly_lags_daily_min_demand_kwh: null}
+        - {area_code: tokyo, trade_date: 2025-03-07, lag_2d_load_factor_demand: null, lag_2d_morning_mean_demand_kwh: null, lag_2d_afternoon_mean_demand_kwh: null, lag_2d_evening_mean_demand_kwh: null, lag_2d_peak_time_code: null, lag_2d_morning_ramp_demand_kwh: null, lag_2d_evening_ramp_demand_kwh: null, ewm_5d_daily_max_demand_kwh: 2142.0, ewm_weekly_lags_daily_max_demand_kwh: null, ewm_5d_minus_ewm_weekly_lags_daily_max_demand_kwh: null, ewm_5d_daily_mean_demand_kwh: 2027.0416666666667, ewm_weekly_lags_daily_mean_demand_kwh: null, ewm_5d_minus_ewm_weekly_lags_daily_mean_demand_kwh: null, ewm_5d_daily_min_demand_kwh: 1911.0, ewm_weekly_lags_daily_min_demand_kwh: null, ewm_5d_minus_ewm_weekly_lags_daily_min_demand_kwh: null}
+        - {area_code: tokyo, trade_date: 2025-03-08, lag_2d_load_factor_demand: null, lag_2d_morning_mean_demand_kwh: null, lag_2d_afternoon_mean_demand_kwh: null, lag_2d_evening_mean_demand_kwh: null, lag_2d_peak_time_code: null, lag_2d_morning_ramp_demand_kwh: null, lag_2d_evening_ramp_demand_kwh: null, ewm_5d_daily_max_demand_kwh: 2142.0, ewm_weekly_lags_daily_max_demand_kwh: null, ewm_5d_minus_ewm_weekly_lags_daily_max_demand_kwh: null, ewm_5d_daily_mean_demand_kwh: 2027.0416666666667, ewm_weekly_lags_daily_mean_demand_kwh: null, ewm_5d_minus_ewm_weekly_lags_daily_mean_demand_kwh: null, ewm_5d_daily_min_demand_kwh: 1911.0, ewm_weekly_lags_daily_min_demand_kwh: null, ewm_5d_minus_ewm_weekly_lags_daily_min_demand_kwh: null}
+        - {area_code: tokyo, trade_date: 2025-03-09, lag_2d_load_factor_demand: null, lag_2d_morning_mean_demand_kwh: null, lag_2d_afternoon_mean_demand_kwh: null, lag_2d_evening_mean_demand_kwh: null, lag_2d_peak_time_code: null, lag_2d_morning_ramp_demand_kwh: null, lag_2d_evening_ramp_demand_kwh: null, ewm_5d_daily_max_demand_kwh: 2142.0, ewm_weekly_lags_daily_max_demand_kwh: null, ewm_5d_minus_ewm_weekly_lags_daily_max_demand_kwh: null, ewm_5d_daily_mean_demand_kwh: 2027.0416666666667, ewm_weekly_lags_daily_mean_demand_kwh: null, ewm_5d_minus_ewm_weekly_lags_daily_mean_demand_kwh: null, ewm_5d_daily_min_demand_kwh: 1911.0, ewm_weekly_lags_daily_min_demand_kwh: null, ewm_5d_minus_ewm_weekly_lags_daily_min_demand_kwh: null}
+        - {area_code: tokyo, trade_date: 2025-03-10, lag_2d_load_factor_demand: null, lag_2d_morning_mean_demand_kwh: null, lag_2d_afternoon_mean_demand_kwh: null, lag_2d_evening_mean_demand_kwh: null, lag_2d_peak_time_code: null, lag_2d_morning_ramp_demand_kwh: null, lag_2d_evening_ramp_demand_kwh: null, ewm_5d_daily_max_demand_kwh: null, ewm_weekly_lags_daily_max_demand_kwh: 2142.0, ewm_5d_minus_ewm_weekly_lags_daily_max_demand_kwh: null, ewm_5d_daily_mean_demand_kwh: null, ewm_weekly_lags_daily_mean_demand_kwh: 2027.0416666666667, ewm_5d_minus_ewm_weekly_lags_daily_mean_demand_kwh: null, ewm_5d_daily_min_demand_kwh: null, ewm_weekly_lags_daily_min_demand_kwh: 1911.0, ewm_5d_minus_ewm_weekly_lags_daily_min_demand_kwh: null}
+        - {area_code: tokyo, trade_date: 2025-03-17, lag_2d_load_factor_demand: null, lag_2d_morning_mean_demand_kwh: null, lag_2d_afternoon_mean_demand_kwh: null, lag_2d_evening_mean_demand_kwh: null, lag_2d_peak_time_code: null, lag_2d_morning_ramp_demand_kwh: null, lag_2d_evening_ramp_demand_kwh: null, ewm_5d_daily_max_demand_kwh: null, ewm_weekly_lags_daily_max_demand_kwh: 2142.0, ewm_5d_minus_ewm_weekly_lags_daily_max_demand_kwh: null, ewm_5d_daily_mean_demand_kwh: null, ewm_weekly_lags_daily_mean_demand_kwh: 2027.0416666666667, ewm_5d_minus_ewm_weekly_lags_daily_mean_demand_kwh: null, ewm_5d_daily_min_demand_kwh: null, ewm_weekly_lags_daily_min_demand_kwh: 1911.0, ewm_5d_minus_ewm_weekly_lags_daily_min_demand_kwh: null}
+        - {area_code: tokyo, trade_date: 2025-03-19, lag_2d_load_factor_demand: 0.9498436591041303, lag_2d_morning_mean_demand_kwh: 2216.875, lag_2d_afternoon_mean_demand_kwh: 2236.875, lag_2d_evening_mean_demand_kwh: 2137.25, lag_2d_peak_time_code: 24, lag_2d_morning_ramp_demand_kwh: 20.5, lag_2d_evening_ramp_demand_kwh: -20.333333333333332, ewm_5d_daily_max_demand_kwh: 2292.0, ewm_weekly_lags_daily_max_demand_kwh: null, ewm_5d_minus_ewm_weekly_lags_daily_max_demand_kwh: null, ewm_5d_daily_mean_demand_kwh: 2177.0416666666665, ewm_weekly_lags_daily_mean_demand_kwh: null, ewm_5d_minus_ewm_weekly_lags_daily_mean_demand_kwh: null, ewm_5d_daily_min_demand_kwh: 2061.0, ewm_weekly_lags_daily_min_demand_kwh: null, ewm_5d_minus_ewm_weekly_lags_daily_min_demand_kwh: null}
+        - {area_code: tokyo, trade_date: 2025-03-20, lag_2d_load_factor_demand: null, lag_2d_morning_mean_demand_kwh: null, lag_2d_afternoon_mean_demand_kwh: null, lag_2d_evening_mean_demand_kwh: null, lag_2d_peak_time_code: null, lag_2d_morning_ramp_demand_kwh: null, lag_2d_evening_ramp_demand_kwh: null, ewm_5d_daily_max_demand_kwh: 2292.0, ewm_weekly_lags_daily_max_demand_kwh: null, ewm_5d_minus_ewm_weekly_lags_daily_max_demand_kwh: null, ewm_5d_daily_mean_demand_kwh: 2177.0416666666665, ewm_weekly_lags_daily_mean_demand_kwh: null, ewm_5d_minus_ewm_weekly_lags_daily_mean_demand_kwh: null, ewm_5d_daily_min_demand_kwh: 2061.0, ewm_weekly_lags_daily_min_demand_kwh: null, ewm_5d_minus_ewm_weekly_lags_daily_min_demand_kwh: null}
+        - {area_code: tokyo, trade_date: 2025-03-21, lag_2d_load_factor_demand: null, lag_2d_morning_mean_demand_kwh: null, lag_2d_afternoon_mean_demand_kwh: null, lag_2d_evening_mean_demand_kwh: null, lag_2d_peak_time_code: null, lag_2d_morning_ramp_demand_kwh: null, lag_2d_evening_ramp_demand_kwh: null, ewm_5d_daily_max_demand_kwh: 2292.0, ewm_weekly_lags_daily_max_demand_kwh: null, ewm_5d_minus_ewm_weekly_lags_daily_max_demand_kwh: null, ewm_5d_daily_mean_demand_kwh: 2177.0416666666665, ewm_weekly_lags_daily_mean_demand_kwh: null, ewm_5d_minus_ewm_weekly_lags_daily_mean_demand_kwh: null, ewm_5d_daily_min_demand_kwh: 2061.0, ewm_weekly_lags_daily_min_demand_kwh: null, ewm_5d_minus_ewm_weekly_lags_daily_min_demand_kwh: null}
+        - {area_code: tokyo, trade_date: 2025-03-22, lag_2d_load_factor_demand: null, lag_2d_morning_mean_demand_kwh: null, lag_2d_afternoon_mean_demand_kwh: null, lag_2d_evening_mean_demand_kwh: null, lag_2d_peak_time_code: null, lag_2d_morning_ramp_demand_kwh: null, lag_2d_evening_ramp_demand_kwh: null, ewm_5d_daily_max_demand_kwh: 2292.0, ewm_weekly_lags_daily_max_demand_kwh: null, ewm_5d_minus_ewm_weekly_lags_daily_max_demand_kwh: null, ewm_5d_daily_mean_demand_kwh: 2177.0416666666665, ewm_weekly_lags_daily_mean_demand_kwh: null, ewm_5d_minus_ewm_weekly_lags_daily_mean_demand_kwh: null, ewm_5d_daily_min_demand_kwh: 2061.0, ewm_weekly_lags_daily_min_demand_kwh: null, ewm_5d_minus_ewm_weekly_lags_daily_min_demand_kwh: null}
+        - {area_code: tokyo, trade_date: 2025-03-23, lag_2d_load_factor_demand: null, lag_2d_morning_mean_demand_kwh: null, lag_2d_afternoon_mean_demand_kwh: null, lag_2d_evening_mean_demand_kwh: null, lag_2d_peak_time_code: null, lag_2d_morning_ramp_demand_kwh: null, lag_2d_evening_ramp_demand_kwh: null, ewm_5d_daily_max_demand_kwh: 2292.0, ewm_weekly_lags_daily_max_demand_kwh: null, ewm_5d_minus_ewm_weekly_lags_daily_max_demand_kwh: null, ewm_5d_daily_mean_demand_kwh: 2177.0416666666665, ewm_weekly_lags_daily_mean_demand_kwh: null, ewm_5d_minus_ewm_weekly_lags_daily_mean_demand_kwh: null, ewm_5d_daily_min_demand_kwh: 2061.0, ewm_weekly_lags_daily_min_demand_kwh: null, ewm_5d_minus_ewm_weekly_lags_daily_min_demand_kwh: null}
+        - {area_code: tokyo, trade_date: 2025-03-24, lag_2d_load_factor_demand: null, lag_2d_morning_mean_demand_kwh: null, lag_2d_afternoon_mean_demand_kwh: null, lag_2d_evening_mean_demand_kwh: null, lag_2d_peak_time_code: null, lag_2d_morning_ramp_demand_kwh: null, lag_2d_evening_ramp_demand_kwh: null, ewm_5d_daily_max_demand_kwh: null, ewm_weekly_lags_daily_max_demand_kwh: 2262.0, ewm_5d_minus_ewm_weekly_lags_daily_max_demand_kwh: null, ewm_5d_daily_mean_demand_kwh: null, ewm_weekly_lags_daily_mean_demand_kwh: 2147.0416666666665, ewm_5d_minus_ewm_weekly_lags_daily_mean_demand_kwh: null, ewm_5d_daily_min_demand_kwh: null, ewm_weekly_lags_daily_min_demand_kwh: 2031.0, ewm_5d_minus_ewm_weekly_lags_daily_min_demand_kwh: null}
+        - {area_code: tokyo, trade_date: 2025-03-26, lag_2d_load_factor_demand: 0.9509144605750071, lag_2d_morning_mean_demand_kwh: 2266.875, lag_2d_afternoon_mean_demand_kwh: 2286.875, lag_2d_evening_mean_demand_kwh: 2187.25, lag_2d_peak_time_code: 24, lag_2d_morning_ramp_demand_kwh: 20.5, lag_2d_evening_ramp_demand_kwh: -20.333333333333332, ewm_5d_daily_max_demand_kwh: 2342.0, ewm_weekly_lags_daily_max_demand_kwh: null, ewm_5d_minus_ewm_weekly_lags_daily_max_demand_kwh: null, ewm_5d_daily_mean_demand_kwh: 2227.0416666666665, ewm_weekly_lags_daily_mean_demand_kwh: null, ewm_5d_minus_ewm_weekly_lags_daily_mean_demand_kwh: null, ewm_5d_daily_min_demand_kwh: 2111.0, ewm_weekly_lags_daily_min_demand_kwh: null, ewm_5d_minus_ewm_weekly_lags_daily_min_demand_kwh: null}
+        - {area_code: tokyo, trade_date: 2025-03-27, lag_2d_load_factor_demand: 0.9299888347543647, lag_2d_morning_mean_demand_kwh: 1566.875, lag_2d_afternoon_mean_demand_kwh: 1586.875, lag_2d_evening_mean_demand_kwh: 1487.25, lag_2d_peak_time_code: 24, lag_2d_morning_ramp_demand_kwh: 20.5, lag_2d_evening_ramp_demand_kwh: -20.333333333333332, ewm_5d_daily_max_demand_kwh: 1875.3333333333333, ewm_weekly_lags_daily_max_demand_kwh: null, ewm_5d_minus_ewm_weekly_lags_daily_max_demand_kwh: null, ewm_5d_daily_mean_demand_kwh: 1760.375, ewm_weekly_lags_daily_mean_demand_kwh: null, ewm_5d_minus_ewm_weekly_lags_daily_mean_demand_kwh: null, ewm_5d_daily_min_demand_kwh: 1644.3333333333333, ewm_weekly_lags_daily_min_demand_kwh: null, ewm_5d_minus_ewm_weekly_lags_daily_min_demand_kwh: null}
+        - {area_code: tokyo, trade_date: 2025-03-28, lag_2d_load_factor_demand: null, lag_2d_morning_mean_demand_kwh: null, lag_2d_afternoon_mean_demand_kwh: null, lag_2d_evening_mean_demand_kwh: null, lag_2d_peak_time_code: null, lag_2d_morning_ramp_demand_kwh: null, lag_2d_evening_ramp_demand_kwh: null, ewm_5d_daily_max_demand_kwh: 1875.3333333333333, ewm_weekly_lags_daily_max_demand_kwh: null, ewm_5d_minus_ewm_weekly_lags_daily_max_demand_kwh: null, ewm_5d_daily_mean_demand_kwh: 1760.375, ewm_weekly_lags_daily_mean_demand_kwh: null, ewm_5d_minus_ewm_weekly_lags_daily_mean_demand_kwh: null, ewm_5d_daily_min_demand_kwh: 1644.3333333333333, ewm_weekly_lags_daily_min_demand_kwh: null, ewm_5d_minus_ewm_weekly_lags_daily_min_demand_kwh: null}
+        - {area_code: tokyo, trade_date: 2025-03-29, lag_2d_load_factor_demand: null, lag_2d_morning_mean_demand_kwh: null, lag_2d_afternoon_mean_demand_kwh: null, lag_2d_evening_mean_demand_kwh: null, lag_2d_peak_time_code: null, lag_2d_morning_ramp_demand_kwh: null, lag_2d_evening_ramp_demand_kwh: null, ewm_5d_daily_max_demand_kwh: 1875.3333333333333, ewm_weekly_lags_daily_max_demand_kwh: null, ewm_5d_minus_ewm_weekly_lags_daily_max_demand_kwh: null, ewm_5d_daily_mean_demand_kwh: 1760.375, ewm_weekly_lags_daily_mean_demand_kwh: null, ewm_5d_minus_ewm_weekly_lags_daily_mean_demand_kwh: null, ewm_5d_daily_min_demand_kwh: 1644.3333333333333, ewm_weekly_lags_daily_min_demand_kwh: null, ewm_5d_minus_ewm_weekly_lags_daily_min_demand_kwh: null}
+        - {area_code: tokyo, trade_date: 2025-03-30, lag_2d_load_factor_demand: 0.9437030688867124, lag_2d_morning_mean_demand_kwh: 1966.875, lag_2d_afternoon_mean_demand_kwh: 1986.875, lag_2d_evening_mean_demand_kwh: 1887.25, lag_2d_peak_time_code: 24, lag_2d_morning_ramp_demand_kwh: 20.5, lag_2d_evening_ramp_demand_kwh: -20.333333333333332, ewm_5d_daily_max_demand_kwh: 2015.6842105263158, ewm_weekly_lags_daily_max_demand_kwh: null, ewm_5d_minus_ewm_weekly_lags_daily_max_demand_kwh: null, ewm_5d_daily_mean_demand_kwh: 1900.7258771929824, ewm_weekly_lags_daily_mean_demand_kwh: null, ewm_5d_minus_ewm_weekly_lags_daily_mean_demand_kwh: null, ewm_5d_daily_min_demand_kwh: 1784.6842105263158, ewm_weekly_lags_daily_min_demand_kwh: null, ewm_5d_minus_ewm_weekly_lags_daily_min_demand_kwh: null}
+        - {area_code: tokyo, trade_date: 2025-03-31, lag_2d_load_factor_demand: 0.9487250966399048, lag_2d_morning_mean_demand_kwh: 2166.875, lag_2d_afternoon_mean_demand_kwh: 2186.875, lag_2d_evening_mean_demand_kwh: 2087.25, lag_2d_peak_time_code: 24, lag_2d_morning_ramp_demand_kwh: 20.5, lag_2d_evening_ramp_demand_kwh: -20.333333333333332, ewm_5d_daily_max_demand_kwh: 2154.0, ewm_weekly_lags_daily_max_demand_kwh: 2311.230769230769, ewm_5d_minus_ewm_weekly_lags_daily_max_demand_kwh: -157.23076923076906, ewm_5d_daily_mean_demand_kwh: 2039.0416666666667, ewm_weekly_lags_daily_mean_demand_kwh: 2196.272435897436, ewm_5d_minus_ewm_weekly_lags_daily_mean_demand_kwh: -157.23076923076928, ewm_5d_daily_min_demand_kwh: 1923.0, ewm_weekly_lags_daily_min_demand_kwh: 2080.230769230769, ewm_5d_minus_ewm_weekly_lags_daily_min_demand_kwh: -157.23076923076906}
+        - {area_code: tokyo, trade_date: 2025-04-01, lag_2d_load_factor_demand: null, lag_2d_morning_mean_demand_kwh: null, lag_2d_afternoon_mean_demand_kwh: null, lag_2d_evening_mean_demand_kwh: null, lag_2d_peak_time_code: null, lag_2d_morning_ramp_demand_kwh: null, lag_2d_evening_ramp_demand_kwh: null, ewm_5d_daily_max_demand_kwh: 2175.3333333333335, ewm_weekly_lags_daily_max_demand_kwh: 1642.0, ewm_5d_minus_ewm_weekly_lags_daily_max_demand_kwh: 533.3333333333335, ewm_5d_daily_mean_demand_kwh: 2060.375, ewm_weekly_lags_daily_mean_demand_kwh: 1527.0416666666667, ewm_5d_minus_ewm_weekly_lags_daily_mean_demand_kwh: 533.3333333333333, ewm_5d_daily_min_demand_kwh: 1944.3333333333333, ewm_weekly_lags_daily_min_demand_kwh: 1411.0, ewm_5d_minus_ewm_weekly_lags_daily_min_demand_kwh: 533.3333333333333}
+        - {area_code: tokyo, trade_date: 2025-04-02, lag_2d_load_factor_demand: null, lag_2d_morning_mean_demand_kwh: null, lag_2d_afternoon_mean_demand_kwh: null, lag_2d_evening_mean_demand_kwh: null, lag_2d_peak_time_code: null, lag_2d_morning_ramp_demand_kwh: null, lag_2d_evening_ramp_demand_kwh: null, ewm_5d_daily_max_demand_kwh: 2175.3333333333335, ewm_weekly_lags_daily_max_demand_kwh: null, ewm_5d_minus_ewm_weekly_lags_daily_max_demand_kwh: null, ewm_5d_daily_mean_demand_kwh: 2060.375, ewm_weekly_lags_daily_mean_demand_kwh: null, ewm_5d_minus_ewm_weekly_lags_daily_mean_demand_kwh: null, ewm_5d_daily_min_demand_kwh: 1944.3333333333333, ewm_weekly_lags_daily_min_demand_kwh: null, ewm_5d_minus_ewm_weekly_lags_daily_min_demand_kwh: null}
+        - {area_code: tokyo, trade_date: 2025-04-03, lag_2d_load_factor_demand: null, lag_2d_morning_mean_demand_kwh: null, lag_2d_afternoon_mean_demand_kwh: null, lag_2d_evening_mean_demand_kwh: null, lag_2d_peak_time_code: null, lag_2d_morning_ramp_demand_kwh: null, lag_2d_evening_ramp_demand_kwh: null, ewm_5d_daily_max_demand_kwh: 2175.3333333333335, ewm_weekly_lags_daily_max_demand_kwh: null, ewm_5d_minus_ewm_weekly_lags_daily_max_demand_kwh: null, ewm_5d_daily_mean_demand_kwh: 2060.375, ewm_weekly_lags_daily_mean_demand_kwh: null, ewm_5d_minus_ewm_weekly_lags_daily_mean_demand_kwh: null, ewm_5d_daily_min_demand_kwh: 1944.3333333333333, ewm_weekly_lags_daily_min_demand_kwh: null, ewm_5d_minus_ewm_weekly_lags_daily_min_demand_kwh: null}
+        - {area_code: tokyo, trade_date: 2025-04-04, lag_2d_load_factor_demand: null, lag_2d_morning_mean_demand_kwh: null, lag_2d_afternoon_mean_demand_kwh: null, lag_2d_evening_mean_demand_kwh: null, lag_2d_peak_time_code: null, lag_2d_morning_ramp_demand_kwh: null, lag_2d_evening_ramp_demand_kwh: null, ewm_5d_daily_max_demand_kwh: 2242.0, ewm_weekly_lags_daily_max_demand_kwh: 2042.0, ewm_5d_minus_ewm_weekly_lags_daily_max_demand_kwh: 200.0, ewm_5d_daily_mean_demand_kwh: 2127.0416666666665, ewm_weekly_lags_daily_mean_demand_kwh: 1927.0416666666667, ewm_5d_minus_ewm_weekly_lags_daily_mean_demand_kwh: 199.99999999999977, ewm_5d_daily_min_demand_kwh: 2011.0, ewm_weekly_lags_daily_min_demand_kwh: 1811.0, ewm_5d_minus_ewm_weekly_lags_daily_min_demand_kwh: 200.0}
+        - {area_code: tokyo, trade_date: 2025-04-05, lag_2d_load_factor_demand: null, lag_2d_morning_mean_demand_kwh: null, lag_2d_afternoon_mean_demand_kwh: null, lag_2d_evening_mean_demand_kwh: null, lag_2d_peak_time_code: null, lag_2d_morning_ramp_demand_kwh: null, lag_2d_evening_ramp_demand_kwh: null, ewm_5d_daily_max_demand_kwh: null, ewm_weekly_lags_daily_max_demand_kwh: 2242.0, ewm_5d_minus_ewm_weekly_lags_daily_max_demand_kwh: null, ewm_5d_daily_mean_demand_kwh: null, ewm_weekly_lags_daily_mean_demand_kwh: 2127.0416666666665, ewm_5d_minus_ewm_weekly_lags_daily_mean_demand_kwh: null, ewm_5d_daily_min_demand_kwh: null, ewm_weekly_lags_daily_min_demand_kwh: 2011.0, ewm_5d_minus_ewm_weekly_lags_daily_min_demand_kwh: null}
+        - {area_code: tokyo, trade_date: 2025-04-07, lag_2d_load_factor_demand: null, lag_2d_morning_mean_demand_kwh: null, lag_2d_afternoon_mean_demand_kwh: null, lag_2d_evening_mean_demand_kwh: null, lag_2d_peak_time_code: null, lag_2d_morning_ramp_demand_kwh: null, lag_2d_evening_ramp_demand_kwh: null, ewm_5d_daily_max_demand_kwh: null, ewm_weekly_lags_daily_max_demand_kwh: 2325.3333333333335, ewm_5d_minus_ewm_weekly_lags_daily_max_demand_kwh: null, ewm_5d_daily_mean_demand_kwh: null, ewm_weekly_lags_daily_mean_demand_kwh: 2210.375, ewm_5d_minus_ewm_weekly_lags_daily_mean_demand_kwh: null, ewm_5d_daily_min_demand_kwh: null, ewm_weekly_lags_daily_min_demand_kwh: 2094.3333333333335, ewm_5d_minus_ewm_weekly_lags_daily_min_demand_kwh: null}
+        - {area_code: tokyo, trade_date: 2025-04-08, lag_2d_load_factor_demand: null, lag_2d_morning_mean_demand_kwh: null, lag_2d_afternoon_mean_demand_kwh: null, lag_2d_evening_mean_demand_kwh: null, lag_2d_peak_time_code: null, lag_2d_morning_ramp_demand_kwh: null, lag_2d_evening_ramp_demand_kwh: null, ewm_5d_daily_max_demand_kwh: null, ewm_weekly_lags_daily_max_demand_kwh: 1642.0, ewm_5d_minus_ewm_weekly_lags_daily_max_demand_kwh: null, ewm_5d_daily_mean_demand_kwh: null, ewm_weekly_lags_daily_mean_demand_kwh: 1527.0416666666667, ewm_5d_minus_ewm_weekly_lags_daily_mean_demand_kwh: null, ewm_5d_daily_min_demand_kwh: null, ewm_weekly_lags_daily_min_demand_kwh: 1411.0, ewm_5d_minus_ewm_weekly_lags_daily_min_demand_kwh: null}
+        - {area_code: tokyo, trade_date: 2025-04-11, lag_2d_load_factor_demand: null, lag_2d_morning_mean_demand_kwh: null, lag_2d_afternoon_mean_demand_kwh: null, lag_2d_evening_mean_demand_kwh: null, lag_2d_peak_time_code: null, lag_2d_morning_ramp_demand_kwh: null, lag_2d_evening_ramp_demand_kwh: null, ewm_5d_daily_max_demand_kwh: null, ewm_weekly_lags_daily_max_demand_kwh: 2042.0, ewm_5d_minus_ewm_weekly_lags_daily_max_demand_kwh: null, ewm_5d_daily_mean_demand_kwh: null, ewm_weekly_lags_daily_mean_demand_kwh: 1927.0416666666667, ewm_5d_minus_ewm_weekly_lags_daily_mean_demand_kwh: null, ewm_5d_daily_min_demand_kwh: null, ewm_weekly_lags_daily_min_demand_kwh: 1811.0, ewm_5d_minus_ewm_weekly_lags_daily_min_demand_kwh: null}
+        - {area_code: tokyo, trade_date: 2025-04-12, lag_2d_load_factor_demand: null, lag_2d_morning_mean_demand_kwh: null, lag_2d_afternoon_mean_demand_kwh: null, lag_2d_evening_mean_demand_kwh: null, lag_2d_peak_time_code: null, lag_2d_morning_ramp_demand_kwh: null, lag_2d_evening_ramp_demand_kwh: null, ewm_5d_daily_max_demand_kwh: null, ewm_weekly_lags_daily_max_demand_kwh: 2242.0, ewm_5d_minus_ewm_weekly_lags_daily_max_demand_kwh: null, ewm_5d_daily_mean_demand_kwh: null, ewm_weekly_lags_daily_mean_demand_kwh: 2127.0416666666665, ewm_5d_minus_ewm_weekly_lags_daily_mean_demand_kwh: null, ewm_5d_daily_min_demand_kwh: null, ewm_weekly_lags_daily_min_demand_kwh: 2011.0, ewm_5d_minus_ewm_weekly_lags_daily_min_demand_kwh: null}
+        - {area_code: tokyo, trade_date: 2025-04-14, lag_2d_load_factor_demand: null, lag_2d_morning_mean_demand_kwh: null, lag_2d_afternoon_mean_demand_kwh: null, lag_2d_evening_mean_demand_kwh: null, lag_2d_peak_time_code: null, lag_2d_morning_ramp_demand_kwh: null, lag_2d_evening_ramp_demand_kwh: null, ewm_5d_daily_max_demand_kwh: null, ewm_weekly_lags_daily_max_demand_kwh: 2325.3333333333335, ewm_5d_minus_ewm_weekly_lags_daily_max_demand_kwh: null, ewm_5d_daily_mean_demand_kwh: null, ewm_weekly_lags_daily_mean_demand_kwh: 2210.375, ewm_5d_minus_ewm_weekly_lags_daily_mean_demand_kwh: null, ewm_5d_daily_min_demand_kwh: null, ewm_weekly_lags_daily_min_demand_kwh: 2094.3333333333335, ewm_5d_minus_ewm_weekly_lags_daily_min_demand_kwh: null}
+        - {area_code: tokyo, trade_date: 2025-04-15, lag_2d_load_factor_demand: null, lag_2d_morning_mean_demand_kwh: null, lag_2d_afternoon_mean_demand_kwh: null, lag_2d_evening_mean_demand_kwh: null, lag_2d_peak_time_code: null, lag_2d_morning_ramp_demand_kwh: null, lag_2d_evening_ramp_demand_kwh: null, ewm_5d_daily_max_demand_kwh: null, ewm_weekly_lags_daily_max_demand_kwh: 1642.0, ewm_5d_minus_ewm_weekly_lags_daily_max_demand_kwh: null, ewm_5d_daily_mean_demand_kwh: null, ewm_weekly_lags_daily_mean_demand_kwh: 1527.0416666666667, ewm_5d_minus_ewm_weekly_lags_daily_mean_demand_kwh: null, ewm_5d_daily_min_demand_kwh: null, ewm_weekly_lags_daily_min_demand_kwh: 1411.0, ewm_5d_minus_ewm_weekly_lags_daily_min_demand_kwh: null}
+        - {area_code: tokyo, trade_date: 2025-04-18, lag_2d_load_factor_demand: null, lag_2d_morning_mean_demand_kwh: null, lag_2d_afternoon_mean_demand_kwh: null, lag_2d_evening_mean_demand_kwh: null, lag_2d_peak_time_code: null, lag_2d_morning_ramp_demand_kwh: null, lag_2d_evening_ramp_demand_kwh: null, ewm_5d_daily_max_demand_kwh: null, ewm_weekly_lags_daily_max_demand_kwh: 2042.0, ewm_5d_minus_ewm_weekly_lags_daily_max_demand_kwh: null, ewm_5d_daily_mean_demand_kwh: null, ewm_weekly_lags_daily_mean_demand_kwh: 1927.0416666666667, ewm_5d_minus_ewm_weekly_lags_daily_mean_demand_kwh: null, ewm_5d_daily_min_demand_kwh: null, ewm_weekly_lags_daily_min_demand_kwh: 1811.0, ewm_5d_minus_ewm_weekly_lags_daily_min_demand_kwh: null}
+        - {area_code: tokyo, trade_date: 2025-04-19, lag_2d_load_factor_demand: null, lag_2d_morning_mean_demand_kwh: null, lag_2d_afternoon_mean_demand_kwh: null, lag_2d_evening_mean_demand_kwh: null, lag_2d_peak_time_code: null, lag_2d_morning_ramp_demand_kwh: null, lag_2d_evening_ramp_demand_kwh: null, ewm_5d_daily_max_demand_kwh: null, ewm_weekly_lags_daily_max_demand_kwh: 2242.0, ewm_5d_minus_ewm_weekly_lags_daily_max_demand_kwh: null, ewm_5d_daily_mean_demand_kwh: null, ewm_weekly_lags_daily_mean_demand_kwh: 2127.0416666666665, ewm_5d_minus_ewm_weekly_lags_daily_mean_demand_kwh: null, ewm_5d_daily_min_demand_kwh: null, ewm_weekly_lags_daily_min_demand_kwh: 2011.0, ewm_5d_minus_ewm_weekly_lags_daily_min_demand_kwh: null}
+        - {area_code: tokyo, trade_date: 2025-04-21, lag_2d_load_factor_demand: null, lag_2d_morning_mean_demand_kwh: null, lag_2d_afternoon_mean_demand_kwh: null, lag_2d_evening_mean_demand_kwh: null, lag_2d_peak_time_code: null, lag_2d_morning_ramp_demand_kwh: null, lag_2d_evening_ramp_demand_kwh: null, ewm_5d_daily_max_demand_kwh: null, ewm_weekly_lags_daily_max_demand_kwh: 2342.0, ewm_5d_minus_ewm_weekly_lags_daily_max_demand_kwh: null, ewm_5d_daily_mean_demand_kwh: null, ewm_weekly_lags_daily_mean_demand_kwh: 2227.0416666666665, ewm_5d_minus_ewm_weekly_lags_daily_mean_demand_kwh: null, ewm_5d_daily_min_demand_kwh: null, ewm_weekly_lags_daily_min_demand_kwh: 2111.0, ewm_5d_minus_ewm_weekly_lags_daily_min_demand_kwh: null}
+        - {area_code: tokyo, trade_date: 2025-04-22, lag_2d_load_factor_demand: null, lag_2d_morning_mean_demand_kwh: null, lag_2d_afternoon_mean_demand_kwh: null, lag_2d_evening_mean_demand_kwh: null, lag_2d_peak_time_code: null, lag_2d_morning_ramp_demand_kwh: null, lag_2d_evening_ramp_demand_kwh: null, ewm_5d_daily_max_demand_kwh: null, ewm_weekly_lags_daily_max_demand_kwh: 1642.0, ewm_5d_minus_ewm_weekly_lags_daily_max_demand_kwh: null, ewm_5d_daily_mean_demand_kwh: null, ewm_weekly_lags_daily_mean_demand_kwh: 1527.0416666666667, ewm_5d_minus_ewm_weekly_lags_daily_mean_demand_kwh: null, ewm_5d_daily_min_demand_kwh: null, ewm_weekly_lags_daily_min_demand_kwh: 1411.0, ewm_5d_minus_ewm_weekly_lags_daily_min_demand_kwh: null}
+        - {area_code: tokyo, trade_date: 2025-04-25, lag_2d_load_factor_demand: null, lag_2d_morning_mean_demand_kwh: null, lag_2d_afternoon_mean_demand_kwh: null, lag_2d_evening_mean_demand_kwh: null, lag_2d_peak_time_code: null, lag_2d_morning_ramp_demand_kwh: null, lag_2d_evening_ramp_demand_kwh: null, ewm_5d_daily_max_demand_kwh: null, ewm_weekly_lags_daily_max_demand_kwh: 2042.0, ewm_5d_minus_ewm_weekly_lags_daily_max_demand_kwh: null, ewm_5d_daily_mean_demand_kwh: null, ewm_weekly_lags_daily_mean_demand_kwh: 1927.0416666666667, ewm_5d_minus_ewm_weekly_lags_daily_mean_demand_kwh: null, ewm_5d_daily_min_demand_kwh: null, ewm_weekly_lags_daily_min_demand_kwh: 1811.0, ewm_5d_minus_ewm_weekly_lags_daily_min_demand_kwh: null}
+        - {area_code: tokyo, trade_date: 2025-04-26, lag_2d_load_factor_demand: null, lag_2d_morning_mean_demand_kwh: null, lag_2d_afternoon_mean_demand_kwh: null, lag_2d_evening_mean_demand_kwh: null, lag_2d_peak_time_code: null, lag_2d_morning_ramp_demand_kwh: null, lag_2d_evening_ramp_demand_kwh: null, ewm_5d_daily_max_demand_kwh: null, ewm_weekly_lags_daily_max_demand_kwh: 2242.0, ewm_5d_minus_ewm_weekly_lags_daily_max_demand_kwh: null, ewm_5d_daily_mean_demand_kwh: null, ewm_weekly_lags_daily_mean_demand_kwh: 2127.0416666666665, ewm_5d_minus_ewm_weekly_lags_daily_mean_demand_kwh: null, ewm_5d_daily_min_demand_kwh: null, ewm_weekly_lags_daily_min_demand_kwh: 2011.0, ewm_5d_minus_ewm_weekly_lags_daily_min_demand_kwh: null}

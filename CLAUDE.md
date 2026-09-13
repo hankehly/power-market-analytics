@@ -534,8 +534,13 @@
   from the facts through the `available_at()` macro; the singular test
   `assert_feature_marts_declare_available_at` lists any feature model without the column.
   Today's eight: `ftr_day_actuals` (since 2026-09-12, research `demand/R-006`: D-2's mean,
-  max, min (since 2026-09-13) and max − min over its 48 periods, complete days only),
-  `ftr_day_calendar`,
+  max, min (since 2026-09-13) and max − min over its 48 periods, complete days only; since
+  2026-09-13 also D-2's load factor, its means over 06:00–10:00, 13:00–17:00 and
+  18:00–22:00 (windows set from the weekday load shape of both areas), its peak time code
+  and its least-squares morning and evening ramps per hour, and the 16:8:4:2:1 and
+  8:4:2:1 weighted means of the daily max, mean and min over D-2 … D-6 and D-7 … D-28 with
+  their differences — so a row exists wherever any of those nine days is complete and the
+  D-2 columns can be null), `ftr_day_calendar`,
   `ftr_day_occto`, `ftr_hour_jma_obs`, `ftr_hour_msm` (the representative station's
   forecast temperature and the population-weighted `popw_forecast_<element>` of thirteen
   MSM elements, generated from one Jinja list in the model: temperature, humidity, rain,
@@ -549,10 +554,14 @@
   `ewm_5d_demand_kwh`, the 16:8:4:2:1 weighted mean of D-2 … D-6, whose lags 4, 5 and 6
   are not columns of their own, its difference from the weekly weighted mean, the weekly
   lags' least-squares trend (kWh per week), sample standard deviation and median, and
-  D-7's z-score against D-14, D-21 and D-28, each over the lags present — one union of
-  the shifted actuals grouped per period, so a row exists wherever any lag exists and a
+  D-7's z-score against D-14, D-21 and D-28, the sample and weighted standard deviations
+  (EWSTD, the pandas `ewm().std()` correction) of D-2 … D-6 and of the weekly lags, D-7's
+  mean with its neighbouring periods, its ramp from the period before and the mean ramp
+  of the weekly lags, each over the values present — one union of the actuals shifted
+  along a period index (so a neighbouring period crosses midnight) grouped per period,
+  so a row exists wherever any lag exists and a
   column is null where its input is absent; `available_at` is the greatest over the rows
-  used, so the whole row waits for the newest lag's file; every weighted mean is explicit
+  shifted onto the row, so the whole row waits for the newest lag's file; every weighted mean is explicit
   arithmetic over named columns, exact and order-free), `ftr_period_jepx` (each proven
   equal to the Python builder it mirrors for Tokyo 2025) and `ftr_period_similar_day`
   (since 2026-09-11: the demand

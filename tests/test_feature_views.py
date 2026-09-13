@@ -84,16 +84,27 @@ def test_the_actuals_views_carry_the_recent_load_columns():
         "lag_28d_demand_kwh",
         "mean_weekly_lags_demand_kwh",
         "ewm_weekly_lags_demand_kwh",
+        "ewstd_weekly_lags_demand_kwh",
         "trend_weekly_lags_demand_kwh",
         "std_weekly_lags_demand_kwh",
         "median_weekly_lags_demand_kwh",
         "zscore_7d_vs_14d_28d_demand_kwh",
         "change_2d_9d_demand_kwh",
+        "lag_7d_adjacent_mean_demand_kwh",
+        "lag_7d_ramp_demand_kwh",
+        "mean_weekly_lags_ramp_demand_kwh",
         "mean_daytype_4d_demand_kwh",
         "ewm_daytype_4d_demand_kwh",
         "ewm_5d_demand_kwh",
+        "std_5d_demand_kwh",
+        "ewstd_5d_demand_kwh",
         "ewm_5d_minus_ewm_weekly_lags_demand_kwh",
     ]
+    assert period["lag_7d_ramp_demand_kwh"].dtype == Int64
+    assert (
+        period["lag_7d_adjacent_mean_demand_kwh"].tags["expression"]
+        == "LAG(ROLLING_MEAN(demand_kwh, window=3, step=30m, center=true), 7d)"
+    )
     assert period["lag_2d_demand_kwh"].dtype == Int64
     assert period["ewm_daytype_4d_demand_kwh"].dtype == Float64
     assert period["ewm_5d_demand_kwh"].dtype == Float64
@@ -108,7 +119,23 @@ def test_the_actuals_views_carry_the_recent_load_columns():
         "lag_2d_max_demand_kwh",
         "lag_2d_min_demand_kwh",
         "lag_2d_range_demand_kwh",
+        "lag_2d_load_factor_demand",
+        "lag_2d_morning_mean_demand_kwh",
+        "lag_2d_afternoon_mean_demand_kwh",
+        "lag_2d_evening_mean_demand_kwh",
+        "lag_2d_peak_time_code",
+        "lag_2d_morning_ramp_demand_kwh",
+        "lag_2d_evening_ramp_demand_kwh",
+        *(
+            f"{prefix}_daily_{stat}_demand_kwh"
+            for stat in ("max", "mean", "min")
+            for prefix in ("ewm_5d", "ewm_weekly_lags", "ewm_5d_minus_ewm_weekly_lags")
+        ),
     ]
+    assert day["lag_2d_peak_time_code"].dtype == Int64
+    assert day["lag_2d_morning_ramp_demand_kwh"].tags["expression"] == (
+        "LAG(DAILY_TREND(demand_kwh, time=06:00-10:00), 2d)"
+    )
     assert day["lag_2d_mean_demand_kwh"].dtype == Float64
     assert day["lag_2d_max_demand_kwh"].dtype == Int64
     assert day["lag_2d_min_demand_kwh"].dtype == Int64
