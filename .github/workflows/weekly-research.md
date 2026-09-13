@@ -72,13 +72,24 @@ safe-outputs:
     # (.github/workflows/aw.json). close-older-discussions does the cleanup instead.
     expires: false
 
+engine:
+  id: copilot
+  # Copilot CLI has its own URL check on shell commands, apart from the tool allowlist: a
+  # command with a literal URL is refused unless the URL is allowed. With `curl` allowed and no
+  # URL rule, every fetch in run 34738914652 was refused, until the agent put the URL in a
+  # shell variable, which the check does not see. The check is not the boundary, then; the
+  # firewall is. So all URLs are allowed here, and `network.allowed` stays the one list of
+  # reachable hosts.
+  args: ["--allow-all-urls"]
+
 tools:
   # `jq` is required, not a convenience. The generated prompt's only supported way to pass a
   # multi-line safe-output body is a heredoc temp file injected with `jq -Rs`, and gh-aw's
   # default allowlist ships `yq` but not `jq`. Without it the unbloat workflow's agent could not
   # build its body and PR #100 opened with the body `@-` (see PR #105).
-  # `curl` is required too: it is the agent's only way to read the web. The firewall still
-  # limits it to the `network.allowed` hosts, because the agent's only way out is the proxy.
+  # `curl` is required too: it is the agent's only way to read the web (with `--allow-all-urls`
+  # above). The firewall still limits it to the `network.allowed` hosts, because the agent's
+  # only way out is the proxy.
   bash: ["cat", "ls", "find", "grep", "head", "tail", "wc", "jq *", "curl *"]
   github:
     toolsets: [default, discussions]
