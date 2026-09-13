@@ -5,7 +5,9 @@ actuals, what the files look like, and how `power_market_analytics.ingestion.tso
 brings them into the warehouse.
 
 Verified against a full capture on 2026-08-16 (every daily file 2022-04-01 →
-2026-08-15).
+2026-08-15). The file-level claims of §1–§5 were re-checked on the capture of
+2026-09-06 (every daily file 2022-04-01 → 2026-09-05), which corrected §3's
+line endings and §4.4's re-issues.
 
 ## 1. Overview
 
@@ -26,7 +28,7 @@ Verified against a full capture on 2026-08-16 (every daily file 2022-04-01 →
 
 | What | URL | Notes |
 |---|---|---|
-| Monthly archive (history) | `https://www4.tepco.co.jp/forecast/html/images/AREA_YYYYMM.zip` | 2022-04 → current month; ~100 KB each, 53 zips ≈ 5 MB (2026-08). Current month's zip is regenerated daily and contains all finalized days through yesterday. |
+| Monthly archive (history) | `https://www4.tepco.co.jp/forecast/html/images/AREA_YYYYMM.zip` | 2022-04 → current month; ~100 KB each, 54 zips ≈ 5.4 MB (2026-09). Current month's zip is regenerated daily and contains all finalized days through yesterday. |
 | Today's actuals (live) | `…/images/AREA_JISEKI.csv` | Partial: periods not yet observed are 0. Not used. |
 | Today's forecast / BG plan (live) | `…/images/AREA_YOSOKU.csv`, `…/images/AREA_BGKEI.csv` | Revised during the day. Not used. |
 | Tomorrow's forecast / BG plan | `…/images/AREA_ONCE_YOSOKU.csv`, `…/images/AREA_ONCE_BGKEI.csv` | Published in the evening; header only before that. Not used. |
