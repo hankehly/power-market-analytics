@@ -84,20 +84,34 @@ def test_the_actuals_views_carry_the_recent_load_columns():
         "lag_28d_demand_kwh",
         "mean_weekly_lags_demand_kwh",
         "ewm_weekly_lags_demand_kwh",
+        "trend_weekly_lags_demand_kwh",
+        "std_weekly_lags_demand_kwh",
+        "median_weekly_lags_demand_kwh",
+        "zscore_7d_vs_14d_28d_demand_kwh",
         "change_2d_9d_demand_kwh",
         "mean_daytype_4d_demand_kwh",
         "ewm_daytype_4d_demand_kwh",
+        "ewm_5d_demand_kwh",
+        "ewm_5d_minus_ewm_weekly_lags_demand_kwh",
     ]
     assert period["lag_2d_demand_kwh"].dtype == Int64
     assert period["ewm_daytype_4d_demand_kwh"].dtype == Float64
+    assert period["ewm_5d_demand_kwh"].dtype == Float64
+    assert period["trend_weekly_lags_demand_kwh"].dtype == Float64
+    assert (
+        period["trend_weekly_lags_demand_kwh"].tags["expression"]
+        == "ROLLING_TREND(demand_kwh, gap=7d, window=4, step=7d)"
+    )
     day = {field.name: field for field in views.FTR_DAY_ACTUALS.features}
     assert list(day) == [
         "lag_2d_mean_demand_kwh",
         "lag_2d_max_demand_kwh",
+        "lag_2d_min_demand_kwh",
         "lag_2d_range_demand_kwh",
     ]
     assert day["lag_2d_mean_demand_kwh"].dtype == Float64
     assert day["lag_2d_max_demand_kwh"].dtype == Int64
+    assert day["lag_2d_min_demand_kwh"].dtype == Int64
     assert all(field.tags["categorical"] == "false" for field in [*period.values(), *day.values()])
     assert period["change_2d_9d_demand_kwh"].tags["expression"] == "LAG(DIFF(demand_kwh, 7d), 2d)"
     assert day["lag_2d_range_demand_kwh"].tags["expression"] == "LAG(DAILY_RANGE(demand_kwh), 2d)"
