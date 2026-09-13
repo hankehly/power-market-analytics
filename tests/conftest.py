@@ -220,6 +220,13 @@ EWM_WEIGHTS = (8, 4, 2, 1)
 #: The lags ``ewm_5d_demand_kwh`` weighs, and its weights, newest input first.
 EWM_5D_LAG_DAYS = (2, 3, 4, 5, 6)
 EWM_5D_WEIGHTS = (16, 8, 4, 2, 1)
+#: The weekly lags, newest first.
+WEEKLY_LAG_DAYS = (7, 14, 21, 28)
+#: ``ftr_day_actuals``' time-of-day windows, in time codes (06:00-10:00,
+#: 13:00-17:00, 18:00-22:00).
+DAY_WINDOWS = {"morning": (13, 20), "afternoon": (27, 34), "evening": (37, 44)}
+#: The windows ``ftr_day_actuals`` fits a ramp over.
+DAY_RAMP_WINDOWS = ("morning", "evening")
 #: The thirteen recent-load feature columns of research demand/R-006, in preset order.
 RECENT_LOAD_COLUMNS = (
     "lag_2d_demand_kwh",
@@ -358,6 +365,115 @@ def zscore_of_last_week(weekly: list[int | None]) -> float | None:
     if last is None or n < 2 or spread == 0:
         return None
     return (n * last - sum_y) / (n * math.sqrt(spread / (n * (n - 1))))
+
+
+def std_of_present(values: list[int | None]) -> float | None:
+    """The sample standard deviation over the values present, as the marts take it.
+
+    Parameters
+    ----------
+    values : list of int or None
+        The inputs; None where an input is absent.
+
+    Returns
+    -------
+    float or None
+        ``sqrt((n Syy - Sy^2) / (n (n - 1)))``; None with fewer than two values.
+    """
+    present = [v for v in values if v is not None]
+    n = len(present)
+    if n < 2:
+        return None
+    sum_y = sum(present)
+    return math.sqrt((n * sum(y * y for y in present) - sum_y * sum_y) / (n * (n - 1)))
+
+
+def ewstd_of_present(values: list[int | None], weights: tuple[int, ...]) -> float | None:
+    """The weighted standard deviation over the values present, weights by position.
+
+    The reliability-weight correction of pandas ``ewm().std()``, in the marts'
+    integer sums.
+
+    Parameters
+    ----------
+    values : list of int or None
+        One input per weight, newest first; None where an input is absent.
+    weights : tuple of int
+        The weights, newest input first.
+
+    Returns
+    -------
+    float or None
+        ``sqrt((V1 Swyy - Swy^2) / (V1^2 - V2))``, ``V1`` and ``V2`` the sums of
+        the weights and of their squares; None with fewer than two values.
+    """
+    present = [(w, v) for w, v in zip(weights, values, strict=True) if v is not None]
+    v1 = sum(w for w, _ in present)
+    denominator = v1 * v1 - sum(w * w for w, _ in present)
+    if denominator == 0:
+        return None
+    sum_wy = sum(w * v for w, v in present)
+    return math.sqrt((v1 * sum(w * v * v for w, v in present) - sum_wy * sum_wy) / denominator)
+
+
+def neighbouring_period(
+    day: pd.Timestamp, time_code: int, periods: int
+) -> tuple[pd.Timestamp, int]:
+    """The period ``periods`` away on the timeline, across midnight.
+
+    Parameters
+    ----------
+    day : pandas.Timestamp
+        The period's day.
+    time_code : int
+        The period's time code, 1-48.
+    periods : int
+        How many periods to move; negative moves back.
+
+    Returns
+    -------
+    tuple of pandas.Timestamp and int
+        The day and time code of that period.
+    """
+    days, index = divmod(time_code - 1 + periods, 48)
+    return day + pd.Timedelta(days=days), index + 1
+
+
+def day_shape(values: dict[int, int]) -> dict[str, float | int]:
+    """``ftr_day_actuals``' statistics of one complete day.
+
+    Parameters
+    ----------
+    values : dict of int to int
+        Demand by time code, all 48 periods.
+
+    Returns
+    -------
+    dict of str to float or int
+        ``sum``, ``mean``, ``max``, ``min``, ``peak`` (the earliest time code of
+        the maximum), and per window ``<name>_mean`` and, for the ramp windows,
+        ``<name>_ramp`` (the least-squares slope in kWh per hour, the mart's
+        integer sums).
+    """
+    total = sum(values.values())
+    shape: dict[str, float | int] = {
+        "sum": total,
+        "mean": total / 48,
+        "max": max(values.values()),
+        "min": min(values.values()),
+        "peak": max(values, key=lambda tc: (values[tc], -tc)),
+    }
+    for name, (first, last) in DAY_WINDOWS.items():
+        codes = range(first, last + 1)
+        n = len(codes)
+        sum_x = sum(codes)
+        sum_y = sum(values[tc] for tc in codes)
+        shape[f"{name}_mean"] = sum_y / n
+        if name in DAY_RAMP_WINDOWS:
+            sum_xy = sum(tc * values[tc] for tc in codes)
+            sum_xx = sum(tc * tc for tc in codes)
+            shape[f"{name}_ramp"] = 2 * (n * sum_xy - sum_x * sum_y) / (n * sum_xx - sum_x * sum_x)
+    return shape
 
 
 def nullable_column(values: pd.Series, cast: type) -> pd.Series:
@@ -1125,9 +1241,24 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
             weekly = [lags[7], lags[14], lags[21], lags[28]]
             trend, std, median = weekly_lag_stats(weekly)
             ewm_weekly = ewm_of_present(weekly)
-            ewm_5d = ewm_of_present([lags[k] for k in EWM_5D_LAG_DAYS], EWM_5D_WEIGHTS)
+            recent = [lags[k] for k in EWM_5D_LAG_DAYS]
+            ewm_5d = ewm_of_present(recent, EWM_5D_WEIGHTS)
             window = [demand_at[(d, tc)] for d in window_days] + [None] * (4 - len(window_days))
             used_days = [day - pd.Timedelta(days=k) for k, v in lags.items() if v is not None]
+            # The neighbouring periods on the timeline: t-1 of each weekly lag
+            # and t+1 of D-7, across midnight.
+            neighbours = {
+                (k, step): neighbouring_period(day - pd.Timedelta(days=k), tc, step)
+                for k, step in [*((k, -1) for k in WEEKLY_LAG_DAYS), (7, 1)]
+            }
+            neighbour_values = {key: demand_at.get(period) for key, period in neighbours.items()}
+            used_days += [
+                neighbours[key][0] for key, v in neighbour_values.items() if v is not None
+            ]
+            ramps: list[int | None] = []
+            for k in WEEKLY_LAG_DAYS:
+                current, previous = lags[k], neighbour_values[(k, -1)]
+                ramps.append(None if current is None or previous is None else current - previous)
             actuals_rows.append(
                 {
                     "area_code": "tokyo",
@@ -1149,11 +1280,22 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
                     "ewm_5d_minus_ewm_weekly_lags_demand_kwh": (
                         None if ewm_5d is None or ewm_weekly is None else ewm_5d - ewm_weekly
                     ),
+                    "std_5d_demand_kwh": std_of_present(recent),
+                    "ewstd_5d_demand_kwh": ewstd_of_present(recent, EWM_5D_WEIGHTS),
+                    "ewstd_weekly_lags_demand_kwh": ewstd_of_present(weekly, EWM_WEIGHTS),
+                    "lag_7d_adjacent_mean_demand_kwh": mean_of_present(
+                        [neighbour_values[(7, -1)], lags[7], neighbour_values[(7, 1)]]
+                    ),
+                    "lag_7d_ramp_demand_kwh": ramps[0],
+                    "mean_weekly_lags_ramp_demand_kwh": mean_of_present(ramps),
                     "available_at": max(file_available_at[d] for d in [*used_days, *window_days]),
                 }
             )
     period_actuals = pd.DataFrame(actuals_rows)
-    for col in [f"lag_{k}d_demand_kwh" for k in ACTUALS_LAG_DAYS] + ["change_2d_9d_demand_kwh"]:
+    for col in [f"lag_{k}d_demand_kwh" for k in ACTUALS_LAG_DAYS] + [
+        "change_2d_9d_demand_kwh",
+        "lag_7d_ramp_demand_kwh",
+    ]:
         period_actuals[col] = nullable_column(period_actuals[col], int)
     for col in (
         "mean_weekly_lags_demand_kwh",
@@ -1166,22 +1308,84 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
         "ewm_daytype_4d_demand_kwh",
         "ewm_5d_demand_kwh",
         "ewm_5d_minus_ewm_weekly_lags_demand_kwh",
+        "std_5d_demand_kwh",
+        "ewstd_5d_demand_kwh",
+        "ewstd_weekly_lags_demand_kwh",
+        "lag_7d_adjacent_mean_demand_kwh",
+        "mean_weekly_lags_ramp_demand_kwh",
     ):
         period_actuals[col] = nullable_column(period_actuals[col], float)
+    shapes = {
+        day: day_shape({tc: demand_at[(day, tc)] for tc in range(1, 49)}) for day in complete_days
+    }
     day_actuals_rows = []
-    for day in complete_days:
-        values = [demand_at[(day, tc)] for tc in range(1, 49)]
-        day_actuals_rows.append(
-            {
-                "area_code": "tokyo",
-                "trade_date": (day + pd.Timedelta(days=2)).date(),
-                "lag_2d_mean_demand_kwh": sum(values) / len(values),
-                "lag_2d_max_demand_kwh": max(values),
-                "lag_2d_min_demand_kwh": min(values),
-                "lag_2d_range_demand_kwh": max(values) - min(values),
-                "available_at": file_available_at[day],
-            }
-        )
+    for day in delivery_days:
+        # The complete days among D-2 to D-6 and the weekly lags, by lag.
+        used = {
+            k: shapes[day - pd.Timedelta(days=k)]
+            for k in (*EWM_5D_LAG_DAYS, *WEEKLY_LAG_DAYS)
+            if day - pd.Timedelta(days=k) in shapes
+        }
+        if not used:
+            continue
+        d2 = used.get(2)
+        row: dict[str, object] = {
+            "area_code": "tokyo",
+            "trade_date": day.date(),
+            "lag_2d_mean_demand_kwh": None if d2 is None else d2["mean"],
+            "lag_2d_max_demand_kwh": None if d2 is None else d2["max"],
+            "lag_2d_min_demand_kwh": None if d2 is None else d2["min"],
+            "lag_2d_range_demand_kwh": None if d2 is None else d2["max"] - d2["min"],
+            "lag_2d_load_factor_demand": None if d2 is None else d2["mean"] / d2["max"],
+            **{
+                f"lag_2d_{name}_mean_demand_kwh": None if d2 is None else d2[f"{name}_mean"]
+                for name in DAY_WINDOWS
+            },
+            "lag_2d_peak_time_code": None if d2 is None else d2["peak"],
+            **{
+                f"lag_2d_{name}_ramp_demand_kwh": None if d2 is None else d2[f"{name}_ramp"]
+                for name in DAY_RAMP_WINDOWS
+            },
+        }
+        for stat in ("max", "mean", "min"):
+            means: dict[str, float | None] = {}
+            for span, lag_days, weights in (
+                ("5d", EWM_5D_LAG_DAYS, EWM_5D_WEIGHTS),
+                ("weekly_lags", WEEKLY_LAG_DAYS, EWM_WEIGHTS),
+            ):
+                present = [(w, used[k]) for k, w in zip(lag_days, weights) if k in used]
+                total_weight = sum(w for w, _ in present)
+                if not present:
+                    means[span] = None
+                elif stat == "mean":
+                    # The day's sum over 48, so the weighted sum stays an integer.
+                    means[span] = sum(w * s["sum"] for w, s in present) / (48 * total_weight)
+                else:
+                    means[span] = sum(w * s[stat] for w, s in present) / total_weight
+                row[f"ewm_{span}_daily_{stat}_demand_kwh"] = means[span]
+            row[f"ewm_5d_minus_ewm_weekly_lags_daily_{stat}_demand_kwh"] = (
+                None
+                if means["5d"] is None or means["weekly_lags"] is None
+                else means["5d"] - means["weekly_lags"]
+            )
+        row["available_at"] = max(file_available_at[day - pd.Timedelta(days=k)] for k in used)
+        day_actuals_rows.append(row)
+    day_actuals = pd.DataFrame(day_actuals_rows)
+    for col in (
+        "lag_2d_max_demand_kwh",
+        "lag_2d_min_demand_kwh",
+        "lag_2d_range_demand_kwh",
+        "lag_2d_peak_time_code",
+    ):
+        day_actuals[col] = nullable_column(day_actuals[col], int)
+    for col in day_actuals.columns:
+        if col.startswith(("lag_2d_", "ewm_")) and col not in (
+            "lag_2d_max_demand_kwh",
+            "lag_2d_min_demand_kwh",
+            "lag_2d_range_demand_kwh",
+            "lag_2d_peak_time_code",
+        ):
+            day_actuals[col] = nullable_column(day_actuals[col], float)
     similar_day_rows = [
         {
             "area_code": "tokyo",
@@ -1248,13 +1452,25 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
         "median_weekly_lags_demand_kwh double, zscore_7d_vs_14d_28d_demand_kwh double, "
         "change_2d_9d_demand_kwh bigint, mean_daytype_4d_demand_kwh double, "
         "ewm_daytype_4d_demand_kwh double, ewm_5d_demand_kwh double, "
-        "ewm_5d_minus_ewm_weekly_lags_demand_kwh double, available_at timestamp",
+        "ewm_5d_minus_ewm_weekly_lags_demand_kwh double, std_5d_demand_kwh double, "
+        "ewstd_5d_demand_kwh double, ewstd_weekly_lags_demand_kwh double, "
+        "lag_7d_adjacent_mean_demand_kwh double, lag_7d_ramp_demand_kwh bigint, "
+        "mean_weekly_lags_ramp_demand_kwh double, available_at timestamp",
     ).write.mode("overwrite").saveAsTable("pma_features.ftr_period_actuals")
     spark.createDataFrame(
-        pd.DataFrame(day_actuals_rows),
+        day_actuals,
         "area_code string, trade_date date, lag_2d_mean_demand_kwh double, "
         "lag_2d_max_demand_kwh bigint, lag_2d_min_demand_kwh bigint, "
-        "lag_2d_range_demand_kwh bigint, available_at timestamp",
+        "lag_2d_range_demand_kwh bigint, lag_2d_load_factor_demand double, "
+        "lag_2d_morning_mean_demand_kwh double, lag_2d_afternoon_mean_demand_kwh double, "
+        "lag_2d_evening_mean_demand_kwh double, lag_2d_peak_time_code int, "
+        "lag_2d_morning_ramp_demand_kwh double, lag_2d_evening_ramp_demand_kwh double, "
+        + "".join(
+            f"ewm_5d_daily_{stat}_demand_kwh double, ewm_weekly_lags_daily_{stat}_demand_kwh double, "
+            f"ewm_5d_minus_ewm_weekly_lags_daily_{stat}_demand_kwh double, "
+            for stat in ("max", "mean", "min")
+        )
+        + "available_at timestamp",
     ).write.mode("overwrite").saveAsTable("pma_features.ftr_day_actuals")
     spark.createDataFrame(
         pd.DataFrame(similar_day_rows),

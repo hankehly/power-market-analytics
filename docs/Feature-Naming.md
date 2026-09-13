@@ -27,9 +27,14 @@ tag and into `dim_feature`, the feature dimension every label reads.
    means the area's representative station.
 3. **Primitives** use UPPER_SNAKE names, taken from featuretools where one exists.
 4. **Lag and difference offsets are positional:** `LAG(x, 2d)`, `DIFF(x, 7d)`.
+   An offset in days keeps the time of day. An offset in minutes moves along
+   the timeline and crosses midnight: `DIFF(x, 30m)` is `x` minus the period
+   before, and the period before period 1 is period 48 of the day before.
    A suffix ` by <col>` means group-by.
 5. **Window arguments** come in this order: `gap` (how far back the newest term
-   is), `window` (how many terms), `step`, `halflife` (in steps).
+   is), `window` (how many terms), `step`, `halflife` (in steps). `center=true`
+   centres the window on the term instead of a `gap`. `time=HH:MM-HH:MM` keeps
+   the periods of a day inside that time window.
 6. **Composition** reads outer to inner. The outermost primitive is the step
    applied last. Arithmetic between expressions is written infix:
    `EWA(…) - EWA(…)`, `SIMILAR_DAY(…) / 2`.
@@ -44,13 +49,16 @@ A column passed through unchanged keeps its name as its expression
 | Primitive | Meaning | Example |
 |---|---|---|
 | `LAG(x, n)` | `x` n before the delivery day. | `LAG(demand_kwh, 7d)` |
-| `DIFF(x, n)` | `x` minus `x` n earlier. | `LAG(DIFF(demand_kwh, 7d), 2d)` |
-| `DAILY_MEAN` / `DAILY_MAX` / `DAILY_MIN` / `DAILY_RANGE` | Over one day's periods. | `LAG(DAILY_MAX(demand_kwh), 2d)` |
-| `ROLLING_MEAN(x, gap, window, step)` | Mean of `window` terms, `step` apart, the newest `gap` back. | `ROLLING_MEAN(demand_kwh, gap=7d, window=4, step=7d)` |
+| `DIFF(x, n)` | `x` minus `x` n earlier. | `LAG(DIFF(demand_kwh, 7d), 2d)`, `LAG(DIFF(demand_kwh, 30m), 7d)` |
+| `DAILY_MEAN` / `DAILY_MAX` / `DAILY_MIN` / `DAILY_RANGE` | Over one day's periods, or the periods inside `time`. | `LAG(DAILY_MAX(demand_kwh), 2d)`, `LAG(DAILY_MEAN(demand_kwh, time=06:00-10:00), 2d)` |
+| `DAILY_ARGMAX(x)` | The time code of the day's highest `x`; the earliest on a tie. | `LAG(DAILY_ARGMAX(demand_kwh), 2d)` |
+| `DAILY_TREND(x, time)` | The least-squares slope of `x` against time over the periods inside `time`, per hour: `2 (n Σtx - Σt Σx) / (n Σt² - (Σt)²)`, `t` the time code. | `LAG(DAILY_TREND(demand_kwh, time=06:00-10:00), 2d)` |
+| `ROLLING_MEAN(x, gap, window, step)` | Mean of `window` terms, `step` apart, the newest `gap` back; with `center=true`, the terms around the current one. | `ROLLING_MEAN(demand_kwh, gap=7d, window=4, step=7d)`, `LAG(ROLLING_MEAN(demand_kwh, window=3, step=30m, center=true), 7d)` |
 | `ROLLING_MEDIAN` / `ROLLING_STD` | The same window's median and sample standard deviation (`n - 1` in the denominator). | `ROLLING_STD(demand_kwh, gap=7d, window=4, step=7d)` |
 | `ROLLING_TREND(x, gap, window, step)` | The least-squares slope of the same window against time, per `step`. | `ROLLING_TREND(demand_kwh, gap=7d, window=4, step=7d)` |
 | `ROLLING_ZSCORE(x, n, gap, window, step)` | `(LAG(x, n) - ROLLING_MEAN(x, gap, window, step)) / ROLLING_STD(x, gap, window, step)`: how unusual `x` n back was against the window. | `ROLLING_ZSCORE(demand_kwh, 7d, gap=14d, window=3, step=7d)` |
 | `EWA(x, gap, window, step, halflife)` | The same window, weights halving every `halflife` steps. | `EWA(temperature_c, gap=2d, window=7, step=1d, halflife=1)` |
+| `EWSTD(x, gap, window, step, halflife)` | The standard deviation with the same weights `w`, with the reliability-weight correction of pandas `ewm().std()`: `sqrt(Σw(x - m)² / (V1 - V2 / V1))`, `m` the `EWA`, `V1 = Σw`, `V2 = Σw²`. With equal weights it is `ROLLING_STD`. | `EWSTD(demand_kwh, gap=2d, window=5, step=1d, halflife=1)` |
 | `… by col` | The window runs over the days with the delivery day's value of `col`. | `ROLLING_MEAN(demand_kwh, gap=2d, window=4) by day_type` |
 | `MEAN(x, weight)` | Over the area's stations, weighted by `weight`. | `MEAN(forecast_temperature_c, weight=population)` |
 | `DAYS_SINCE(flag)` / `DAYS_UNTIL(flag)` | Calendar days to the nearest day the flag is true. | `DAYS_SINCE(is_holiday)` |
