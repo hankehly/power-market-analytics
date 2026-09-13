@@ -893,18 +893,19 @@
   `entity_frame` stamps the naive JST issue time as UTC and `historical_features` refuses a
   session or a frame in another zone. The test fixture runs in Asia/Tokyo, so the Feast tests
   switch the session to UTC for their duration (`utc_session`).
-- Feast's as-of join hides a fact row published after the issue time, by design. In the
-  TEPCO actuals two delivery days, 2022-12-08 and 2022-12-09, have a D-7 file re-published
-  after 09:30 D-1 (the 2022-12-01 / 12-02 files, re-issued 2022-12-14), so `ftr_period_actuals`
-  gave them no lag while the deleted class-based demand code read the final value: a run
-  whose 730-day training window reaches December 2022 differed from it by those 96 training
-  rows. The PR 6 reproduction therefore used `--train-start 2023-01-01`; no other row in the
-  demand marts is published after its issue time (checked 2026-09-11). Since 2026-09-12 the
-  mart carries every lag from D-2 to D-28 under one `available_at`, so the same two files
-  hide ten Tokyo delivery days (2022-12-03 … 12-11 and 12-15) from the whole row: the
-  baseline preset run on the old mart (`429eca36…`, MAE 583,561) and on the new
-  (`a3fde7eb…`, 583,132, −0.07 %) differ by those training rows, and a matched comparison
-  needs both runs on the same mart.
+- Feast's as-of join hides a fact row published after the issue time, by design. Until
+  2026-09-13 the TSO actuals' `available_at` was the daily file's own stamp, and TEPCO's
+  2022-12-01 / 12-02 files carry 2022-12-14, the day they were replaced, though their first
+  versions were public on time. So `ftr_period_actuals` at first hid two delivery days
+  (2022-12-08, 12-09: their D-7 lag), then, once the mart carried every lag from D-2 to D-28
+  under one `available_at` (2026-09-12), ten (2022-12-03 … 12-11 and 12-15), from the whole
+  row. That is why the PR 6 reproduction used `--train-start 2023-01-01`, and why the
+  baseline preset on the 2026-09-11 mart (`429eca36…`, MAE 583,561) and on the 2026-09-12
+  mart (`a3fde7eb…`, 583,132) differ. Since 2026-09-13 both std actuals models date every row
+  at 00:30 on the next day, a rule, not the stamp (TEPCO writes each file at 00:05, Kansai at
+  00:13; a replacement moves the stamp, and some replacements keep it — 2024-03-11, replaced
+  2024-04-19), so no row of those marts waits for a replacement, and a run whose training
+  window reaches December 2022 is not matched with one from before that date.
 - LightGBM's histogram bins move on last-bit feature differences. The weighted-mean marts
   (`wavg_temperature_c`, the `popw_*` forecast columns) equal the old pandas builders only to
   1.4e-14 (a different summation order), and PR 6's reproduction of the demand strategies had

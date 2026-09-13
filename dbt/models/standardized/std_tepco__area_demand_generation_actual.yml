@@ -74,15 +74,23 @@ models:
                 min_value: 0
       - name: file_updated_at
         data_type: timestamp
+        description: >
+          The file's own ファイル更新日/時間, naive JST: when the version held was
+          written. Kept for reference; available_at does not use it.
         data_tests:
           - not_null
       - name: available_at
         data_type: timestamp
         description: >
-          When the row became public, naive JST: the daily file's file_updated_at,
-          but never before the period ends. Files are written about 00:05 on the
-          next day (median lag 12 h, p99 24 h; re-issued days later). The frozen
-          2025-06-14 file carries 05:05 on the day itself, before its own periods,
-          hence the floor.
+          When the row became public, naive JST: 00:30 on the day after
+          delivery_date, for every row. TEPCO writes each day's file at 00:05 the
+          next day (1,616 of 1,619 files, 2022-04-01 → 2026-09-05); the rule
+          rounds that up to the half-hour. file_updated_at is not used: it dates
+          the version held, not the first one. The 2022-12-01 and 12-02 files
+          were replaced on 2022-12-14 and carry that date, though their first
+          versions were public on time. A replacement that kept its stamp
+          (2024-03-11, replaced 2024-04-19) gets the same rule, so a corrected
+          value is dated to its day's normal publication. The frozen 2025-06-14
+          file (written 05:05 that day) gets 2025-06-15 00:30.
         data_tests:
           - not_null
