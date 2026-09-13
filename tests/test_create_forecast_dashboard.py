@@ -1897,6 +1897,19 @@ class TestFeatureCatalogue:
         assert p["include_search"] is True
         assert p["server_pagination"] is False
         assert p["row_limit"] >= 1000
+        # one line per feature: every text column truncates instead of wrapping
+        assert p["column_config"] == {
+            name: {"truncateLongCells": True}
+            for name in (
+                "feature_expression",
+                "feature_view",
+                "feature_name",
+                "feature_ref",
+                "grain",
+                "data_type",
+                "feature_description",
+            )
+        }
 
     def test_builds_the_dataset_chart_and_dashboard_then_reruns_in_place(self, script, fake):
         client = make_client(script, fake)
