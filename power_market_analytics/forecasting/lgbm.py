@@ -641,7 +641,9 @@ class SlidingWindowLightGbmStrategy(ForecastStrategy[HalfHourlySeries, LightGbmE
         """Whether each row has a value for at least one feature besides the grain.
 
         A row without one (a day outside the retrieved frame) tells the model
-        nothing but the period.
+        nothing but the period. A model whose only feature is the period
+        (every preset reference dropped) has nothing else to wait for, so
+        every row counts.
 
         Parameters
         ----------
@@ -654,6 +656,8 @@ class SlidingWindowLightGbmStrategy(ForecastStrategy[HalfHourlySeries, LightGbmE
             Aligned with ``featured``.
         """
         informative = [col for col in self.feature_cols if col not in GRAIN_COLS]
+        if not informative:
+            return pd.Series(True, index=featured.index)
         return featured[informative].notna().any(axis=1)
 
     def _design_matrix(self, history: pd.DataFrame) -> pd.DataFrame:

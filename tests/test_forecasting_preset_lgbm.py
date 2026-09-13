@@ -430,6 +430,15 @@ class TestEnsureFitted:
         strategy.predict(first, history_before(prices, first))
         assert training_rows(strategy) == 30 * 48
 
+    def test_a_time_only_preset_trains_and_forecasts_on_the_period(self, prices):
+        # Every reference dropped: time_code, always present, is the one feature.
+        preset = LIGHTGBM.with_changes(drop=LIGHTGBM.features, name="time_only")
+        strategy = strategy_for(preset, features=make_features(columns=()), train_window_days=30)
+        forecast = strategy.predict(D, history_before(prices, D))
+        assert strategy.feature_cols == ("time_code",)
+        assert np.isfinite(forecast.df["forecast_price_jpy_kwh"]).all()
+        assert training_rows(strategy) == 30 * 48
+
     def test_training_rows_without_any_feature_value_are_dropped(self, prices):
         # The frame starts on 2024-03-06: the window's first four days (03-02 .. 03-05)
         # have no feature at all and carry nothing but the period.

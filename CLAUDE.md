@@ -643,7 +643,7 @@
   training and prediction alike — the training rows with NaN are what give each split a
   missing-value branch, without which LightGBM scores a NaN as 0.0 — so only a training row
   with no feature value besides `time_code` is dropped and only a day with none raises
-  `ForecastUnavailableError`; the eval set keeps the nulls, integer features as nullable
+  `ForecastUnavailableError` (a preset with every reference dropped keeps every row); the eval set keeps the nulls, integer features as nullable
   `Int64`, and `ForecastContributions.feature_value` is null on the base row and on a
   missing feature's row; a subclass sets `task`, `feature_cols`, `eval_set_cls`,
   `lookback_days`, optionally `categorical_feature_cols` — passed to
