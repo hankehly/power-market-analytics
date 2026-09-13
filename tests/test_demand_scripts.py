@@ -411,11 +411,12 @@ class TestBacktestScript:
         if spark.catalog.tableExists(IMPORTANCE_TABLE):
             assert published_importance_rows(spark, run.info.run_id).empty
 
-    def test_hole_day_is_partly_scored_and_its_d7_successor_skipped(
+    def test_hole_day_is_partly_scored_and_its_d7_successor_forecast_with_null_lags(
         self, spark, curated_warehouse, feature_marts
     ):
         # 2024-04-20 has actuals for time codes 1..10 only (48 forecasts, 10 scored);
-        # 2024-04-27 cannot be forecast (its D-7 lag is the hole) and is skipped.
+        # 2024-04-27's D-7 lag is the hole for time codes 11..48, and it is forecast
+        # with those lags null.
         script = import_script("demand_backtest")
         start = DEMAND_HOLE_DAY - pd.Timedelta(days=1)
         end = DEMAND_HOLE_DAY + pd.Timedelta(days=7)
@@ -432,23 +433,30 @@ class TestBacktestScript:
         run = last_run()
         assert run.info.status == "FINISHED"
         params = run.data.params
-        assert params["n_days"] == "8"  # 9 calendar days, one skipped
-        assert params["n_days_skipped"] == "1"
-        assert params["n_predictions"] == str(8 * 48 - len(DEMAND_HOLE_TIME_CODES))
+        assert params["n_days"] == "9"
+        assert params["n_days_skipped"] == "0"
+        assert params["n_predictions"] == str(9 * 48 - len(DEMAND_HOLE_TIME_CODES))
         published = published_rows(spark, run.info.run_id)
-        assert published["trade_date"].nunique() == 8
-        assert pd.Timestamp("2024-04-27").date() not in set(published["trade_date"])
+        assert published["trade_date"].nunique() == 9
+        successor = pd.Timestamp("2024-04-27").date()
+        assert (published["trade_date"] == successor).sum() == 48
         assert (published["trade_date"] == DEMAND_HOLE_DAY.date()).sum() == 10
 
-        # Contributions exist for exactly the scored periods (the hole day's 10, no skipped day).
+        # Contributions exist for exactly the scored periods (the hole day's 10).
         contributions = published_contribution_rows(spark, run.info.run_id)
         assert contributions.groupby(["trade_date", "time_code"]).ngroups == len(published)
+        lags = contributions[
+            (contributions["trade_date"] == successor)
+            & (contributions["component"] == "lag_7d_demand_kwh")
+        ].set_index("time_code")["feature_value"]
+        assert lags.loc[list(DEMAND_HOLE_TIME_CODES)].isna().all()
+        assert lags.drop(index=list(DEMAND_HOLE_TIME_CODES)).notna().all()
 
-    def test_lightgbm_msm_skips_the_day_without_a_temperature_forecast(
+    def test_lightgbm_msm_forecasts_the_day_without_a_temperature_forecast(
         self, spark, curated_warehouse, feature_marts
     ):
-        # 2024-05-15 has no MSM forecast rows: the candidate strategy cannot
-        # forecast it and skips it, while the surrounding days are scored.
+        # 2024-05-15 has no MSM forecast rows: the candidate strategy forecasts
+        # it with the forecast temperature null, like the surrounding days.
         script = import_script("demand_backtest")
         start = FORECAST_MISSING_DAY - pd.Timedelta(days=1)
         end = FORECAST_MISSING_DAY + pd.Timedelta(days=1)
@@ -471,18 +479,24 @@ class TestBacktestScript:
         assert run.info.run_name == "lightgbm_msm-tokyo"
         params = run.data.params
         assert params["strategy"] == "lightgbm_msm"
-        assert params["n_days"] == "2"
-        assert params["n_days_skipped"] == "1"
-        assert params["n_predictions"] == "96"
+        assert params["n_days"] == "3"
+        assert params["n_days_skipped"] == "0"
+        assert params["n_predictions"] == "144"
         assert params["lgbm_feature_cols"] == (
             "time_code,month,day_of_week,wavg_temperature_c,lag_7d_demand_kwh,"
             "forecast_temperature_c"
         )
         assert run.data.tags["strategy"] == "lightgbm_msm"
         published = published_rows(spark, run.info.run_id)
-        assert len(published) == 96
+        assert len(published) == 144
         assert set(published["strategy"]) == {"lightgbm_msm"}
-        assert FORECAST_MISSING_DAY.date() not in set(published["trade_date"])
+        assert (published["trade_date"] == FORECAST_MISSING_DAY.date()).sum() == 48
+        contributions = published_contribution_rows(spark, run.info.run_id)
+        temperature = contributions[
+            (contributions["trade_date"] == FORECAST_MISSING_DAY.date())
+            & (contributions["component"] == "forecast_temperature_c")
+        ]
+        assert len(temperature) == 48 and temperature["feature_value"].isna().all()
 
     def test_lightgbm_msm_popw_uses_the_weighted_forecast(
         self, spark, curated_warehouse, feature_marts
