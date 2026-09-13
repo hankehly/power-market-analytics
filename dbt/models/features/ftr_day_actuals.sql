@@ -1,5 +1,5 @@
--- The previous complete day's demand summaries: D-2's mean, maximum and
--- range over its 48 periods. A day with a hole (a null period) is not
+-- The previous complete day's demand summaries: D-2's mean, maximum, minimum
+-- and range over its 48 periods. A day with a hole (a null period) is not
 -- complete and gives no row. The sum of 48 integers is exact in a double,
 -- so avg() gives the same value whatever order Spark reads the rows in.
 with
@@ -29,6 +29,7 @@ with
     date_add(date_key, 2) as trade_date,
     mean_demand_kwh as lag_2d_mean_demand_kwh,
     max_demand_kwh as lag_2d_max_demand_kwh,
+    min_demand_kwh as lag_2d_min_demand_kwh,
     max_demand_kwh - min_demand_kwh as lag_2d_range_demand_kwh,
     {{ available_at(['available_at']) }} as available_at
   from
