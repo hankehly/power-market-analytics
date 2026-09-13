@@ -54,8 +54,13 @@ The figure is the **demand** task: 48 half-hourly periods per delivery day, the
 D-2 cutoff and the unseen D-1. The spot-price loop has the same shape with that
 gap closed, since its window runs to D-1.
 
-A day the strategy cannot forecast — a missing feature raises
-`ForecastUnavailableError` — is skipped and reported on
+A missing feature does not stop a forecast. LightGBM takes it as NaN, in
+training and in prediction, and sends it down each split's missing-value
+branch. The training rows with a missing feature are what teach the trees that
+branch: without them, LightGBM would read a missing value as 0.0. Only a row
+with no feature value at all carries nothing but its period. Such a training
+row is dropped, and a day whose periods are all like that raises
+`ForecastUnavailableError`. That day is skipped and reported on
 `BacktestRun.skipped_days`, and the rest of the window continues. The forecasts
 are then joined one-to-one to actuals, and a forecast point with no actual is
 dropped.
@@ -64,20 +69,18 @@ Read every number above as the complete-data case, which is what the figure
 draws. Gaps only move them one way — fewer rows, fewer scored days, an older
 model — and they enter at three points: a period with a null actual never enters
 the demand history (a TSO hole like Tokyo 2025-06-14, which keeps 10 of its 48
-periods), a training row missing any feature is dropped at fit, and a day that
-cannot be forecast is skipped. The model's age follows the same rule: the fit
-records `_trained_through` as the newest day that kept a complete row, so when
-the cutoff day keeps none, the model is older than the figures above.
+periods), a training row with no feature value is dropped at fit, and a day with
+none is skipped. The model's age follows the same rule: the fit records
+`_trained_through` as the newest day that kept a training row, so when the cutoff
+day keeps none, the model is older than the figures above.
 
 The numbers come from two places. Each task's `TaskSpec` fixes its cutoff and
 issue time (`history_lead_days`, `issue_offset`); the strategy fixes the window
 and the cadence, shared by both tasks (`DEFAULT_TRAIN_WINDOW_DAYS = 730` and
 `refit_every_days = 7` on `SlidingWindowLightGbmStrategy`). `--train-start`
-clips the window's left edge, which is how a baseline is matched to a candidate
-whose feature only begins partway through the history. It aligns that boundary,
-not the rows themselves: each strategy drops training rows on its own feature
-list, so a candidate feature with scattered nulls still leaves the two fitted on
-different rows.
+clips the window's left edge. A candidate and its baseline fit on the same
+rows without it, since a feature with nulls no longer drops its rows; use it
+when a candidate should not learn from the stretch before its feature begins.
 
 ## Strategies and feature experiments (spot price)
 
@@ -87,8 +90,9 @@ hour, peak demand and peak supply capacity for the delivery day, published
 D-2 evening and so inside the information cutoff.
 
 For a feature experiment, pin `--start-date`/`--end-date` and `--train-start`
-identically for candidate and baseline. The OCCTO history starts 2024-04-01, so
-`--train-start 2024-04-01` matches a `lightgbm` baseline to it. Then run
+identically for candidate and baseline. The OCCTO history starts 2024-04-01:
+before it `lightgbm_occto` trains with the three columns null, and
+`--train-start 2024-04-01` keeps both runs to the rows that have them. Then run
 `just dbt build --select +fct_spot_price_forecast_accuracy`, and
 `scripts/compare_spot_price_runs.py --baseline <run_id> --candidate <run_id>`
 prints matched MAE/bias tables by day part, near the OCCTO peak hour, by month
