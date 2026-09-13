@@ -68,8 +68,8 @@ class TepcoAreaDownloader(AreaActualsDownloader):
     """Download the monthly TEPCO area archives and extract the daily actuals CSVs.
 
     Every call re-downloads the requested month: TEPCO occasionally revises
-    past days (e.g. 2022-12-01/02 were re-issued on 2022-12-14, 2024-03-11 on
-    2024-04-19) and the current month's zip grows daily, and the whole history
+    past days (e.g. 2022-12-01/02 were re-issued on 2022-12-14) and the
+    current month's zip grows daily, and the whole history
     is only ~5 MB, so no caching is attempted.
 
     Parameters
