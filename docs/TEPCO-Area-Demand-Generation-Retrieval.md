@@ -39,8 +39,10 @@ or token; the response is `application/zip`.
 
 ## 3. `AREA_JISEKI_YYYYMMDD.csv` format
 
-- **Encoding**: CP932 (Shift_JIS). **Line endings**: CRLF.
-- **Layout** (identical in all 1,598 files captured):
+- **Encoding**: CP932 (Shift_JIS). **Line endings**: CRLF on the three
+  header lines and bare LF on the 48 data rows, in 1,614 of the 1,619 files
+  captured on 2026-09-06. Five files use CRLF on every line (see §4.4).
+- **Layout** (identical in all 1,619 files, 2022-04-01 → 2026-09-05):
 
 ```
 ファイル更新日,ファイル更新時間,対象年月日                      ← line 1: metadata header
@@ -82,8 +84,24 @@ reason the loader checks the header text of every file it reads.
 3. **Isolated zero** — 2023-09-17 time code 11 has wind+solar = 0 with normal
    demand/generation. Left as published.
 4. **Revisions** — actuals files are normally created at ~00:05 on
-   target date + 1 (`ファイル更新日/時間`), but a few were re-issued later
-   (2022-12-01 and 12-02 on 2022-12-14 10:17; 2024-03-11 on 2024-04-19).
+   target date + 1 (`ファイル更新日/時間`). Checked on the 1,619 files captured
+   on 2026-09-06:
+   - **Two carry a late stamp**: 2022-12-01 and 12-02, both 2022-12-14
+     10:17. TEPCO published no notice, and the original versions are gone.
+   - **Five use CRLF on every line**, unlike the rest, so a different
+     process likely wrote them: 2022-12-01, 2022-12-02, 2024-03-11,
+     2024-05-20 and 2026-02-09. The last three carry normal ~00:05 D+1
+     stamps. So a re-issue may leave the stamp unchanged.
+   - An earlier version of this doc (2026-08-16) listed 2024-03-11 as
+     re-issued on 2024-04-19. Its file now reads 2024-03-12 00:05:05, and
+     the 2026-09-10 lag measurement (max 321.8 h, the 2022-12-01 file) shows
+     it already did then. Whether the stamp was reset or the claim was wrong
+     cannot be told.
+   - In all five, hourly demand agrees with the でんき予報 hourly series
+     ([TEPCO-Power-Usage-Retrieval.md](TEPCO-Power-Usage-Retrieval.md)) as
+     closely as on the days around them (max hourly gap 0.02–0.09 %, and
+     1.7 % on 2026-02-09 against 0.5–2.1 % for its neighbours).
+
    Because past months are not immutable and the whole history is
    ~5 MB, the downloader re-fetches every zip on every run.
 
