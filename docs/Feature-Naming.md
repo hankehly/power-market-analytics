@@ -31,7 +31,8 @@ tag and into `dim_feature`, the feature dimension every label reads.
 5. **Window arguments** come in this order: `gap` (how far back the newest term
    is), `window` (how many terms), `step`, `halflife` (in steps).
 6. **Composition** reads outer to inner. The outermost primitive is the step
-   applied last.
+   applied last. Arithmetic between expressions is written infix:
+   `EWA(…) - EWA(…)`, `SIMILAR_DAY(…) / 2`.
 7. **The description holds the rest:** null handling, renormalising,
    complete-day rules.
 
@@ -44,11 +45,14 @@ A column passed through unchanged keeps its name as its expression
 |---|---|---|
 | `LAG(x, n)` | `x` n before the delivery day. | `LAG(demand_kwh, 7d)` |
 | `DIFF(x, n)` | `x` minus `x` n earlier. | `LAG(DIFF(demand_kwh, 7d), 2d)` |
-| `DAILY_MEAN` / `DAILY_MAX` / `DAILY_RANGE` | Over one day's periods. | `LAG(DAILY_MAX(demand_kwh), 2d)` |
+| `DAILY_MEAN` / `DAILY_MAX` / `DAILY_MIN` / `DAILY_RANGE` | Over one day's periods. | `LAG(DAILY_MAX(demand_kwh), 2d)` |
 | `ROLLING_MEAN(x, gap, window, step)` | Mean of `window` terms, `step` apart, the newest `gap` back. | `ROLLING_MEAN(demand_kwh, gap=7d, window=4, step=7d)` |
+| `ROLLING_MEDIAN` / `ROLLING_STD` | The same window's median and sample standard deviation (`n - 1` in the denominator). | `ROLLING_STD(demand_kwh, gap=7d, window=4, step=7d)` |
+| `ROLLING_TREND(x, gap, window, step)` | The least-squares slope of the same window against time, per `step`. | `ROLLING_TREND(demand_kwh, gap=7d, window=4, step=7d)` |
+| `ROLLING_ZSCORE(x, n, gap, window, step)` | `(LAG(x, n) - ROLLING_MEAN(x, gap, window, step)) / ROLLING_STD(x, gap, window, step)`: how unusual `x` n back was against the window. | `ROLLING_ZSCORE(demand_kwh, 7d, gap=14d, window=3, step=7d)` |
 | `EWA(x, gap, window, step, halflife)` | The same window, weights halving every `halflife` steps. | `EWA(temperature_c, gap=2d, window=7, step=1d, halflife=1)` |
 | `… by col` | The window runs over the days with the delivery day's value of `col`. | `ROLLING_MEAN(demand_kwh, gap=2d, window=4) by day_type` |
-| `WEIGHTED_MEAN(x, weight)` | Over the area's stations. | `WEIGHTED_MEAN(forecast_temperature_c, weight=population)` |
+| `MEAN(x, weight)` | Over the area's stations, weighted by `weight`. | `MEAN(forecast_temperature_c, weight=population)` |
 | `DAYS_SINCE(flag)` / `DAYS_UNTIL(flag)` | Calendar days to the nearest day the flag is true. | `DAYS_SINCE(is_holiday)` |
 | `SIMILAR_DAY(x, gap, window)` | `x` on the most similar of `window` candidate days, the newest `gap` back. | `SIMILAR_DAY(power_usage_demand_kwh, gap=334d, window=61) / 2` |
 

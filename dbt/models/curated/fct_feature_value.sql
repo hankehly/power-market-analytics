@@ -20,9 +20,10 @@ with
     m.available_at,
     cast(null as timestamp) as published_at,
     stack(
-      3,
+      4,
       'lag_2d_mean_demand_kwh', cast(m.lag_2d_mean_demand_kwh as double), false,
       'lag_2d_max_demand_kwh', cast(m.lag_2d_max_demand_kwh as double), false,
+      'lag_2d_min_demand_kwh', cast(m.lag_2d_min_demand_kwh as double), false,
       'lag_2d_range_demand_kwh', cast(m.lag_2d_range_demand_kwh as double), false
     ) as (feature_name, feature_value, is_categorical)
   from
@@ -129,7 +130,7 @@ with
     m.available_at,
     cast(null as timestamp) as published_at,
     stack(
-      12,
+      18,
       'lag_2d_demand_kwh', cast(m.lag_2d_demand_kwh as double), false,
       'lag_3d_demand_kwh', cast(m.lag_3d_demand_kwh as double), false,
       'lag_7d_demand_kwh', cast(m.lag_7d_demand_kwh as double), false,
@@ -139,9 +140,15 @@ with
       'lag_28d_demand_kwh', cast(m.lag_28d_demand_kwh as double), false,
       'mean_weekly_lags_demand_kwh', cast(m.mean_weekly_lags_demand_kwh as double), false,
       'ewm_weekly_lags_demand_kwh', cast(m.ewm_weekly_lags_demand_kwh as double), false,
+      'trend_weekly_lags_demand_kwh', cast(m.trend_weekly_lags_demand_kwh as double), false,
+      'std_weekly_lags_demand_kwh', cast(m.std_weekly_lags_demand_kwh as double), false,
+      'median_weekly_lags_demand_kwh', cast(m.median_weekly_lags_demand_kwh as double), false,
+      'zscore_7d_vs_14d_28d_demand_kwh', cast(m.zscore_7d_vs_14d_28d_demand_kwh as double), false,
       'change_2d_9d_demand_kwh', cast(m.change_2d_9d_demand_kwh as double), false,
       'mean_daytype_4d_demand_kwh', cast(m.mean_daytype_4d_demand_kwh as double), false,
-      'ewm_daytype_4d_demand_kwh', cast(m.ewm_daytype_4d_demand_kwh as double), false
+      'ewm_daytype_4d_demand_kwh', cast(m.ewm_daytype_4d_demand_kwh as double), false,
+      'ewm_5d_demand_kwh', cast(m.ewm_5d_demand_kwh as double), false,
+      'ewm_5d_minus_ewm_weekly_lags_demand_kwh', cast(m.ewm_5d_minus_ewm_weekly_lags_demand_kwh as double), false
     ) as (feature_name, feature_value, is_categorical)
   from
     {{ ref('ftr_period_actuals') }} m
