@@ -11,7 +11,8 @@ models:
       is_base) or one model feature in the model's feature order
       (component_order 1..n). component is a degenerate dimension like
       strategy; feature_value is the feature as the model saw it (units vary
-      per feature, null on the base row) and is NON-ADDITIVE;
+      per feature, null on the base row and wherever the feature was missing)
+      and is NON-ADDITIVE;
       contribution_price_jpy_kwh is additive across the components of one
       period only — base + the feature rows reproduce that period's
       forecast_price_jpy_kwh (see the singular tests) — never across runs.
