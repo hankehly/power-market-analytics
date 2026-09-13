@@ -37,6 +37,7 @@ models:
           meta:
             feature: true
             categorical: false
+            expression: "month"
         data_tests:
           - not_null
       - name: day_of_week
@@ -47,6 +48,7 @@ models:
           meta:
             feature: true
             categorical: false
+            expression: "day_of_week"
         data_tests:
           - not_null
       - name: day_type
@@ -57,6 +59,7 @@ models:
           meta:
             feature: true
             categorical: true
+            expression: "day_type"
         data_tests:
           - not_null
       - name: holiday_degree
@@ -67,6 +70,7 @@ models:
           meta:
             feature: true
             categorical: false
+            expression: "holiday_degree"
         data_tests:
           - not_null
       - name: half
@@ -77,6 +81,7 @@ models:
           meta:
             feature: true
             categorical: false
+            expression: "half"
         data_tests:
           - not_null
       - name: quarter
@@ -87,6 +92,7 @@ models:
           meta:
             feature: true
             categorical: false
+            expression: "quarter"
         data_tests:
           - not_null
       - name: day_of_month
@@ -97,6 +103,7 @@ models:
           meta:
             feature: true
             categorical: false
+            expression: "day_of_month"
         data_tests:
           - not_null
       - name: day_of_quarter
@@ -107,6 +114,7 @@ models:
           meta:
             feature: true
             categorical: false
+            expression: "day_of_quarter"
         data_tests:
           - not_null
       - name: day_of_year
@@ -117,6 +125,7 @@ models:
           meta:
             feature: true
             categorical: false
+            expression: "day_of_year"
         data_tests:
           - not_null
       - name: is_business_day
@@ -127,6 +136,7 @@ models:
           meta:
             feature: true
             categorical: false
+            expression: "is_business_day"
         data_tests:
           - not_null
       - name: fiscal_quarter
@@ -137,6 +147,7 @@ models:
           meta:
             feature: true
             categorical: false
+            expression: "fiscal_quarter"
         data_tests:
           - not_null
       - name: days_since_holiday
@@ -147,6 +158,7 @@ models:
           meta:
             feature: true
             categorical: false
+            expression: "DAYS_SINCE(is_holiday)"
       - name: days_until_holiday
         data_type: int
         description: >
@@ -155,6 +167,7 @@ models:
           meta:
             feature: true
             categorical: false
+            expression: "DAYS_UNTIL(is_holiday)"
       - name: available_at
         data_type: timestamp
         description: >

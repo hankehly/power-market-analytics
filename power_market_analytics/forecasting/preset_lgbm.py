@@ -10,7 +10,7 @@ evaluation are the base class's.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 import pandas as pd
 
@@ -90,6 +90,10 @@ class PresetLightGbmStrategy(SlidingWindowLightGbmStrategy):
     categorical : sequence of str, optional
         The feature columns LightGBM treats as categorical
         (``categorical_columns``: the ones the views tag).
+    expressions : mapping of str to str, optional
+        The expression of each feature column (``feature_expressions``: the
+        views' tags), the label of the column in the SHAP plots and the
+        importance artifacts.
     name : str, optional
         The strategy label of an ad hoc feature set (``--name``).
     train_window_days, refit_every_days, train_start_date
@@ -98,8 +102,8 @@ class PresetLightGbmStrategy(SlidingWindowLightGbmStrategy):
     Raises
     ------
     ValueError
-        If ``features`` lacks a column of the preset, or ``categorical`` names
-        a column that is not one of its features.
+        If ``features`` lacks a column of the preset, or ``categorical`` or
+        ``expressions`` names a column that is not one of its features.
     """
 
     def __init__(
@@ -110,6 +114,7 @@ class PresetLightGbmStrategy(SlidingWindowLightGbmStrategy):
         *,
         dtypes: dict[str, str],
         categorical: Sequence[str] = (),
+        expressions: Mapping[str, str] | None = None,
         name: str | None = None,
         train_window_days: int = DEFAULT_TRAIN_WINDOW_DAYS,
         refit_every_days: int = 7,
@@ -126,11 +131,16 @@ class PresetLightGbmStrategy(SlidingWindowLightGbmStrategy):
         unknown = [col for col in categorical if col not in preset.columns]
         if unknown:
             raise ValueError(f"{preset.name}: categorical columns {unknown} are not features")
+        expressions = dict(expressions or {})
+        unknown = [col for col in expressions if col not in preset.columns]
+        if unknown:
+            raise ValueError(f"{preset.name}: expressions of {unknown}, which are not features")
         self.task = task
         self.name = name or preset.name
         self.preset = preset
         self.feature_cols = preset.feature_cols
         self.categorical_feature_cols = tuple(categorical)
+        self.feature_expressions = expressions
         # Every feature is retrieved as of its own row: no lag window to reach back for.
         self.lookback_days = 0
         self.eval_set_cls = preset_eval_set_cls(task, preset, dtypes)
