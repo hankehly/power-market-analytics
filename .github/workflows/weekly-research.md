@@ -18,9 +18,12 @@ permissions:
 
 # Strict mode forbids a "*" wildcard, so every site the agent may fetch is listed. Upstream's
 # `network: defaults` reaches only package mirrors and certificate hosts, which left its
-# "read the news on the Web" step with nothing to read. Each domain below answered a request on
-# 2026-09-13. METI (www.meti.go.jp, www.enecho.meti.go.jp) is left out: it refused plain HTTP
-# clients with 403.
+# "read the news on the Web" step with nothing to read. The list is the publishers' news sites
+# plus every host the downloaders fetch from (`grep` for `https://` under
+# power_market_analytics/ and scripts/), so the data-source check can open the pages a format or
+# URL change would land on. Add a host here when a downloader gains one. Each domain below
+# answered a request on 2026-09-13. METI (www.meti.go.jp, www.enecho.meti.go.jp) is left out: it
+# refused plain HTTP clients with 403.
 network:
   allowed:
     - defaults
@@ -28,12 +31,17 @@ network:
     # Japanese power market and grid operators
     - www.jepx.jp
     - www.occto.or.jp
+    - occtonet3.occto.or.jp # ingestion/occto.py: both OCCTO downloads
+    - web-kohyo.occto.or.jp # the reserve-rate numbers' second portal (OCCTO doc §9)
     - www.tepco.co.jp
+    - www4.tepco.co.jp # ingestion/tso/tepco/area_demand_generation.py: AREA_YYYYMM.zip
     - www.kansai-td.co.jp
-    # Weather and statistics publishers the pipelines download from
+    # Weather, statistics and calendar publishers the pipelines download from
     - www.jma.go.jp
     - www.data.jma.go.jp
+    - database.rish.kyoto-u.ac.jp # ingestion/msm/vintage.py: the MSM GRIB2 archive
     - www.e-stat.go.jp
+    - www8.cao.go.jp # scripts/update_holidays_seed.py: the Cabinet Office holiday CSV
     # Industry news (電気新聞)
     - www.denkishimbun.com
     # Papers: OpenAlex is the search API; arXiv serves the abstracts
@@ -94,8 +102,10 @@ Cover the last 7 days where you can; older items are fine when they are new to t
 1. **Market and policy news** — JEPX, OCCTO, the TSOs and 電気新聞: rule changes, market
    design, capacity or balancing market news, anything that moves spot prices or demand.
 2. **Data source changes** — announcements from the publishers the pipelines download from
-   (JEPX, OCCTO, TEPCO, 関西電力送配電, JMA, e-Stat): new or retired datasets, format or URL
-   changes, maintenance windows. Name the ingestion module or retrieval doc under `docs/` an
+   (JEPX, OCCTO, TEPCO, 関西電力送配電, JMA, the RISH MSM archive at Kyoto University, e-Stat, the
+   Cabinet Office holiday CSV): new or retired datasets, format or URL changes, maintenance
+   windows. The `https://` URLs under `power_market_analytics/ingestion/` and `scripts/` are the
+   exact pages the downloads use. Name the ingestion module or retrieval doc under `docs/` an
    item would affect. This section matters most: a silent format change breaks a download.
 3. **Papers** — recent work on day-ahead electricity price or load forecasting, similar-day
    methods, weather features, gradient boosting for energy, forecast explanation. Search
