@@ -20,11 +20,27 @@ with
     m.available_at,
     cast(null as timestamp) as published_at,
     stack(
-      4,
+      20,
       'lag_2d_mean_demand_kwh', cast(m.lag_2d_mean_demand_kwh as double), false,
       'lag_2d_max_demand_kwh', cast(m.lag_2d_max_demand_kwh as double), false,
       'lag_2d_min_demand_kwh', cast(m.lag_2d_min_demand_kwh as double), false,
-      'lag_2d_range_demand_kwh', cast(m.lag_2d_range_demand_kwh as double), false
+      'lag_2d_range_demand_kwh', cast(m.lag_2d_range_demand_kwh as double), false,
+      'lag_2d_load_factor_demand', cast(m.lag_2d_load_factor_demand as double), false,
+      'lag_2d_morning_mean_demand_kwh', cast(m.lag_2d_morning_mean_demand_kwh as double), false,
+      'lag_2d_afternoon_mean_demand_kwh', cast(m.lag_2d_afternoon_mean_demand_kwh as double), false,
+      'lag_2d_evening_mean_demand_kwh', cast(m.lag_2d_evening_mean_demand_kwh as double), false,
+      'lag_2d_peak_time_code', cast(m.lag_2d_peak_time_code as double), false,
+      'lag_2d_morning_ramp_demand_kwh', cast(m.lag_2d_morning_ramp_demand_kwh as double), false,
+      'lag_2d_evening_ramp_demand_kwh', cast(m.lag_2d_evening_ramp_demand_kwh as double), false,
+      'ewm_5d_daily_max_demand_kwh', cast(m.ewm_5d_daily_max_demand_kwh as double), false,
+      'ewm_weekly_lags_daily_max_demand_kwh', cast(m.ewm_weekly_lags_daily_max_demand_kwh as double), false,
+      'ewm_5d_minus_ewm_weekly_lags_daily_max_demand_kwh', cast(m.ewm_5d_minus_ewm_weekly_lags_daily_max_demand_kwh as double), false,
+      'ewm_5d_daily_mean_demand_kwh', cast(m.ewm_5d_daily_mean_demand_kwh as double), false,
+      'ewm_weekly_lags_daily_mean_demand_kwh', cast(m.ewm_weekly_lags_daily_mean_demand_kwh as double), false,
+      'ewm_5d_minus_ewm_weekly_lags_daily_mean_demand_kwh', cast(m.ewm_5d_minus_ewm_weekly_lags_daily_mean_demand_kwh as double), false,
+      'ewm_5d_daily_min_demand_kwh', cast(m.ewm_5d_daily_min_demand_kwh as double), false,
+      'ewm_weekly_lags_daily_min_demand_kwh', cast(m.ewm_weekly_lags_daily_min_demand_kwh as double), false,
+      'ewm_5d_minus_ewm_weekly_lags_daily_min_demand_kwh', cast(m.ewm_5d_minus_ewm_weekly_lags_daily_min_demand_kwh as double), false
     ) as (feature_name, feature_value, is_categorical)
   from
     {{ ref('ftr_day_actuals') }} m
@@ -130,7 +146,7 @@ with
     m.available_at,
     cast(null as timestamp) as published_at,
     stack(
-      18,
+      24,
       'lag_2d_demand_kwh', cast(m.lag_2d_demand_kwh as double), false,
       'lag_3d_demand_kwh', cast(m.lag_3d_demand_kwh as double), false,
       'lag_7d_demand_kwh', cast(m.lag_7d_demand_kwh as double), false,
@@ -140,14 +156,20 @@ with
       'lag_28d_demand_kwh', cast(m.lag_28d_demand_kwh as double), false,
       'mean_weekly_lags_demand_kwh', cast(m.mean_weekly_lags_demand_kwh as double), false,
       'ewm_weekly_lags_demand_kwh', cast(m.ewm_weekly_lags_demand_kwh as double), false,
+      'ewstd_weekly_lags_demand_kwh', cast(m.ewstd_weekly_lags_demand_kwh as double), false,
       'trend_weekly_lags_demand_kwh', cast(m.trend_weekly_lags_demand_kwh as double), false,
       'std_weekly_lags_demand_kwh', cast(m.std_weekly_lags_demand_kwh as double), false,
       'median_weekly_lags_demand_kwh', cast(m.median_weekly_lags_demand_kwh as double), false,
       'zscore_7d_vs_14d_28d_demand_kwh', cast(m.zscore_7d_vs_14d_28d_demand_kwh as double), false,
       'change_2d_9d_demand_kwh', cast(m.change_2d_9d_demand_kwh as double), false,
+      'lag_7d_adjacent_mean_demand_kwh', cast(m.lag_7d_adjacent_mean_demand_kwh as double), false,
+      'lag_7d_ramp_demand_kwh', cast(m.lag_7d_ramp_demand_kwh as double), false,
+      'mean_weekly_lags_ramp_demand_kwh', cast(m.mean_weekly_lags_ramp_demand_kwh as double), false,
       'mean_daytype_4d_demand_kwh', cast(m.mean_daytype_4d_demand_kwh as double), false,
       'ewm_daytype_4d_demand_kwh', cast(m.ewm_daytype_4d_demand_kwh as double), false,
       'ewm_5d_demand_kwh', cast(m.ewm_5d_demand_kwh as double), false,
+      'std_5d_demand_kwh', cast(m.std_5d_demand_kwh as double), false,
+      'ewstd_5d_demand_kwh', cast(m.ewstd_5d_demand_kwh as double), false,
       'ewm_5d_minus_ewm_weekly_lags_demand_kwh', cast(m.ewm_5d_minus_ewm_weekly_lags_demand_kwh as double), false
     ) as (feature_name, feature_value, is_categorical)
   from
