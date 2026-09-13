@@ -24,6 +24,9 @@ from power_market_analytics.forecasting.lgbm import (
 )
 from power_market_analytics.forecasting.task import TaskSpec
 
+#: The dtype an eval-set feature column takes when its contract dtype cannot hold a null.
+NULLABLE_DTYPES = {"int64": "Int64"}
+
 
 def preset_eval_set_cls(
     task: TaskSpec, preset: Preset, dtypes: dict[str, str]
@@ -37,8 +40,9 @@ def preset_eval_set_cls(
     preset : Preset
         Names the feature columns.
     dtypes : dict of str to str
-        The contract dtype of each feature column once rows are complete
-        (``feature_dtypes``); ``time_code`` is the grain's int64.
+        The contract dtype of each feature column (``feature_dtypes``); a
+        feature may be null, so ``int64`` becomes pandas' nullable ``Int64``.
+        ``time_code`` is the grain's int64.
 
     Returns
     -------
@@ -47,7 +51,7 @@ def preset_eval_set_cls(
     feature_cols = preset.feature_cols
     schema = {
         **GRAIN_SCHEMA,
-        **{col: dtypes[col] for col in preset.columns},
+        **{col: NULLABLE_DTYPES.get(dtypes[col], dtypes[col]) for col in preset.columns},
         task.actual_col: "float64",
         task.forecast_col: "float64",
     }
@@ -60,7 +64,7 @@ def preset_eval_set_cls(
             "forecast_col": task.forecast_col,
             "schema": schema,
             "keys": list(GRAIN_COLS),
-            "non_null_cols": [*feature_cols, task.actual_col, task.forecast_col],
+            "non_null_cols": [task.actual_col, task.forecast_col],
             "__doc__": (
                 f"Design matrix of the {preset.name!r} preset of the {task.name} task: "
                 "one row per forecast point with the preset's features, the actual and "
