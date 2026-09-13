@@ -77,9 +77,15 @@ tools:
   # multi-line safe-output body is a heredoc temp file injected with `jq -Rs`, and gh-aw's
   # default allowlist ships `yq` but not `jq`. Without it the unbloat workflow's agent could not
   # build its body and PR #100 opened with the body `@-` (see PR #105).
-  bash: ["cat", "ls", "find", "grep", "head", "tail", "wc", "jq *"]
+  # `curl` is required too: it is the agent's only way to read the web. The firewall still
+  # limits it to the `network.allowed` hosts, because the agent's only way out is the proxy.
+  bash: ["cat", "ls", "find", "grep", "head", "tail", "wc", "jq *", "curl *"]
   github:
     toolsets: [default, discussions]
+  # Kept, but not usable today. gh-aw v0.88.7 runs Copilot CLI 1.0.80 in offline mode, and in
+  # offline mode the CLI never registers its `web_fetch` tool. The compiled
+  # `--allow-tool web_fetch` then allows a tool the model cannot see. Run 34735204913 had only
+  # this for the web, found no fetch tool, and posted nothing.
   web-fetch:
 
 timeout-minutes: 30
@@ -140,6 +146,10 @@ Leave a section out when it has nothing worth reading. A short report is better 
 
 ## Rules
 
+- Fetch web pages and APIs with `curl -sL` (add `-A "Mozilla/5.0"` for a site that refuses
+  the default agent). Save large pages to `/tmp/gh-aw/agent/` and read them with `grep`,
+  `head` and `jq`. Only the hosts in the network allowlist answer; do not report the others
+  as broken.
 - Create exactly one new discussion. Do not edit or comment on any existing discussion,
   issue or pull request.
 - Every item carries a link to its source. Do not report anything you could not open.
