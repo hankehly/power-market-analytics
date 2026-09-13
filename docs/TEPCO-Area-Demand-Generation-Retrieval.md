@@ -94,11 +94,15 @@ reason the loader checks the header text of every file it reads.
      process likely wrote them: 2022-12-01, 2022-12-02, 2024-03-11,
      2024-05-20 and 2026-02-09. The last three carry normal ~00:05 D+1
      stamps. The line endings alone do not establish whether these files were re-issued.
-   - An earlier version of this doc (2026-08-16) listed 2024-03-11 as
-     re-issued on 2024-04-19. Its file now reads 2024-03-12 00:05:05, and
-     the 2026-09-10 lag measurement (max 321.8 h, the 2022-12-01 file) shows
-     it already did then. Whether the stamp was reset or the claim was wrong
-     cannot be told.
+   - **Zip member dates show replacements the stamp hides.** In a zip that
+     keeps per-file dates, a member is dated 00:05–00:07 the next day. The
+     2024-03-11 member is dated 2024-04-19 14:48 and the 2026-02-09 member
+     2026-03-25 19:40, while both files keep their ~00:05 D+1 stamps. So
+     2024-03-11 was re-issued on 2024-04-19, as the 2026-08-16 version of
+     this doc said; the Wayback Machine's copy of the zip from 2025-05-01
+     already shows its normal stamp. Ten zips were rebuilt in bulk
+     (2024-04-23, 2026-03-26), which resets every member's date, so the
+     2022-12 replacement date survives only in those two files' stamps.
    - In all five, hourly demand agrees with the でんき予報 hourly series
      ([TEPCO-Power-Usage-Retrieval.md](TEPCO-Power-Usage-Retrieval.md)) as
      closely as on the days around them (max hourly gap 0.02–0.09 %, and
@@ -111,7 +115,10 @@ reason the loader checks the header text of every file it reads.
 
 - 実績: 「対象となる時間帯が終了後、すみやかに公表」 — the live file updates
   every 30 minutes; the day's file is finalized at ~00:05 the next morning
-  and appears in that month's zip the same day.
+  and appears in that month's zip the same day. Because a replacement moves
+  or keeps the stamp at will (§4.4), `std_tepco__area_demand_generation_actual`
+  dates every row at **00:30 on the next day** (`available_at`), not by the
+  stamp; `file_updated_at` is kept for reference.
 - 予測: 「前日夕方に公表」 (next-day file in the evening), then revised
   intraday; the archived copy is the **last revision (~23:40 on the target
   day)**, not the day-ahead version — which is why 予測 / BG計画 are out of
