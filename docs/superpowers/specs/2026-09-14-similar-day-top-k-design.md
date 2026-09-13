@@ -11,7 +11,7 @@ from D − 364 ± 30. After this change:
 
 1. **The candidates are the paper's blended pool:** the 30 days before the delivery
    day and 60 days one year back, ranked together.
-2. **Six features come out of it:** the loads of the 5 nearest days, and their
+2. **Four features come out of it:** the loads of the 3 nearest days, and their
    distance-weighted mean.
 3. **A special day takes the same holiday last year** instead of a ranked pick.
 4. **Today's `similar_day_demand_kwh` is retired.** The presets that use it read the
@@ -24,14 +24,14 @@ The features still go through the walk-forward job, `pma_ml.similar_day` and the
 
 The researcher's answers of 2026-09-13 and 2026-09-14.
 
-1. **Ranks 1 to 5 and one weighted mean**, weighted by inverse distance (§7). There is
-   no plain mean.
+1. **Ranks 1 to 3 and one weighted mean**, weighted by inverse distance (§7). The
+   paper uses 3 similar days. There is no plain mean.
 2. **The pool is the paper's:** 30 recent days and 60 days one year back, in one
    ranking.
 3. **A special day is a `dim_date.is_holiday` day:** 国民の祝日, 年末年始 12/30–1/3,
    ゴールデンウィーク 4/30–5/2 and お盆 8/13–16.
 4. **A special day's reference is the same holiday last year** (§5). Rank 1 and the
-   weighted mean carry its load. Ranks 2 to 5 are null.
+   weighted mean carry its load. Ranks 2 and 3 are null.
 5. **`similar_day_demand_kwh` is retired.** The seven presets that read it switch to
    the new rank 1.
 6. **Flat expressions.** `SIMILAR_DAY` gains `rank` and `holidays` arguments, and a new
@@ -40,10 +40,10 @@ The researcher's answers of 2026-09-13 and 2026-09-14.
    different `k`, and it would change what `WEIGHTED_MEAN` means.
 7. **`/ 2` stays in every expression.** The source is the hourly でんき予報 load. Each
    half-hour gets half of its hour's kWh, and the label should name that scale.
-8. **One fit per scoring step.** A day's five nearest days and their distances come
+8. **One fit per scoring step.** A day's three nearest days and their distances come
    from the one fit that scores the day.
 9. **No new preset.** The existing similar-day presets change their feature (decision
-   5). `--add` tries the other five on any preset.
+   5). `--add` tries the other three on any preset.
 
 ## 3. The paper, and where this design differs
 
@@ -57,7 +57,7 @@ What §2.2 and §3 of the paper say, next to this design:
 | Target day's weather | Actual values, "to avoid the prediction error" | The MSM forecast. The actual weather is not public at the issue time. Unchanged. |
 | Weight fit (Eq. 2) | Least squares, α · WED + β against the load difference | The same. Unchanged. |
 | Load difference (Eq. 3) | (1/24) Σ √(((ld_f − ld_i) / ld_f)²), the mean absolute relative difference; the prose calls it an RMS percent error | The same formula. Unchanged. |
-| Similar days used | 3, fed to a neural network | 5 and a weighted mean, fed to LightGBM |
+| Similar days used | 3, fed to a neural network | 3 and their weighted mean, fed to LightGBM |
 | Newest recent day | D − 1 | D − 2. D − 1 is not over at the 09:30 D − 1 issue time. |
 
 The year-ago 60 days' position is not in the paper. Its example for 14 March 2018 picks
@@ -112,11 +112,16 @@ For a delivery day D with `dim_date.is_holiday`, the reference day R is:
 
 The seed has no holiday on 29 February, so the same calendar date always exists.
 
+From 2019 to 2027 only one named holiday falls to rule 3: 天皇誕生日 2020-02-23. A
+same-date reference is usually a weekend or another holiday. Two land on ordinary
+working days: 2019-10-22 (即位礼正殿の儀, 休日（祝日扱い）) → 2018-10-22, and 2026-09-22
+(国民の休日) → 2025-09-22.
+
 A special day's row:
 
-- `similar_day_rank1_demand_kwh` and `wavg_similar_day_top5_demand_kwh` both hold R's
+- `similar_day_rank1_demand_kwh` and `wavg_similar_day_top3_demand_kwh` both hold R's
   hourly load, halved.
-- The rank 2 … 5 loads, all distances, `similar_day_n_candidates` and
+- The rank 2 and 3 loads, all distances, `similar_day_n_candidates` and
   `similar_day_fit_cutoff` are null.
 - `similar_day_rank1_reference_date` is R, and `similar_day_method` names the rule:
   `same_holiday` or `same_date`.
@@ -136,21 +141,19 @@ Feature columns, tagged `feature: true`, `categorical: false`:
 | `similar_day_rank1_demand_kwh` | double, not null | `SIMILAR_DAY(power_usage_demand_kwh, gap=(2d, 335d), window=(30, 60), rank=1, holidays=last_year) / 2` |
 | `similar_day_rank2_demand_kwh` | double | `SIMILAR_DAY(power_usage_demand_kwh, gap=(2d, 335d), window=(30, 60), rank=2, holidays=last_year) / 2` |
 | `similar_day_rank3_demand_kwh` | double | `SIMILAR_DAY(power_usage_demand_kwh, gap=(2d, 335d), window=(30, 60), rank=3, holidays=last_year) / 2` |
-| `similar_day_rank4_demand_kwh` | double | `SIMILAR_DAY(power_usage_demand_kwh, gap=(2d, 335d), window=(30, 60), rank=4, holidays=last_year) / 2` |
-| `similar_day_rank5_demand_kwh` | double | `SIMILAR_DAY(power_usage_demand_kwh, gap=(2d, 335d), window=(30, 60), rank=5, holidays=last_year) / 2` |
-| `wavg_similar_day_top5_demand_kwh` | double, not null | `SIMILAR_DAY_MEAN(power_usage_demand_kwh, gap=(2d, 335d), window=(30, 60), k=5, weight=inverse_distance, holidays=last_year) / 2` |
+| `wavg_similar_day_top3_demand_kwh` | double, not null | `SIMILAR_DAY_MEAN(power_usage_demand_kwh, gap=(2d, 335d), window=(30, 60), k=3, weight=inverse_distance, holidays=last_year) / 2` |
 
 Untagged:
 
 | Column | Type | Null when |
 |---|---|---|
-| `similar_day_rank1_reference_date` … `similar_day_rank5_reference_date` | date | the rank is absent |
-| `similar_day_rank1_distance` … `similar_day_rank5_distance` | double | a special day, or the rank is absent |
+| `similar_day_rank1_reference_date` … `similar_day_rank3_reference_date` | date | the rank is absent |
+| `similar_day_rank1_distance` … `similar_day_rank3_distance` | double | a special day, or the rank is absent |
 | `similar_day_n_candidates` | int | a special day |
 | `similar_day_fit_cutoff` | timestamp | a special day |
 | `similar_day_method` | string: `similarity`, `same_holiday`, `same_date` | never |
 
-- **A ranked day's rank 2 … 5 is absent** only when its pool has fewer days than the
+- **A ranked day's rank 2 or 3 is absent** only when its pool has fewer days than the
   rank.
 - **The old untagged columns are dropped** with the retired feature:
   `similar_day_reference_date`, `similar_day_reference_lag_days` and
@@ -161,7 +164,7 @@ Untagged:
 
 ## 7. The weighted mean
 
-For a ranked day D with nearest days 1 … k (k = 5, or fewer when the pool is smaller),
+For a ranked day D with nearest days 1 … k (k = 3, or fewer when the pool is smaller),
 distances d₁ ≤ … ≤ d_k and hourly loads L₁ … L_k for the period's hour:
 
 ```
@@ -196,7 +199,7 @@ for a near day. Inverse distance has no such case.
 - **The pool rules of §4** filter both the scoring pairs and the training pairs: no
   special day on either side, and the candidate's load public by the target's issue
   time.
-- `SIMILAR_DAY_TOP_K = 5`. It is a constant, not a flag, because the column names
+- `SIMILAR_DAY_TOP_K = 3`. It is a constant, not a flag, because the column names
   carry it.
 - `SimilarDaySelector.rank(days, k)` returns a new frame, `SimilarDayRanking` (grain
   `trade_date × rank`: `reference_date`, `distance`, `reference_lag_days`).
@@ -216,7 +219,7 @@ for a near day. Inverse distance has no such case.
   days' rows from their references. Both kinds come from the job's day list: every day
   with a full forecast profile whose issue time is on or after the first fit's cutoff.
   A ranked day's `available_at` is the latest of its forecast availability, its fit's
-  cutoff and the load availability of its five ranked days.
+  cutoff and the load availability of its three ranked days.
 - `SimilarDayFeatureRecords` holds the columns of §6 and checks them:
   - `similar_day_method` agrees with `is_holiday`.
   - On special days, the columns §5 makes null are null.
@@ -267,20 +270,20 @@ for a near day. Inverse distance has no such case.
   and the contract. Tests:
   - `accepted_values` on `similar_day_method`.
   - `not_null` on rank 1, the weighted mean, rank 1's reference date and the method.
-  - `not_null` on each rank 2 … 5 load, reference date and distance where
+  - `not_null` on each rank 2 and 3 load, reference date and distance where
     `similar_day_method = 'similarity'` and `similar_day_n_candidates` reaches the
     rank.
   - `expression_is_true`: on special days the distances, `similar_day_n_candidates`,
-    `similar_day_fit_cutoff` and ranks 2 … 5 are null, and the weighted mean equals
+    `similar_day_fit_cutoff` and ranks 2 and 3 are null, and the weighted mean equals
     rank 1.
   - `expression_is_true`: on ranked days the distances do not decrease by rank.
-  - `expression_is_true`: on ranked days with five ranks and no zero distance, the
+  - `expression_is_true`: on ranked days with three ranks and no zero distance, the
     weighted mean recomputed in SQL matches within a relative 1e-9.
-- `ftr_period_similar_day`: the new columns, the six tags and expressions of §6, and
+- `ftr_period_similar_day`: the new columns, the four tags and expressions of §6, and
   the unit test's rows: two scoring runs, one ranked day, one special day.
 - `just feature-views` regenerates `views.py`, `fct_feature_value.sql` and
-  `dim_feature.sql`. `fct_feature_value` loses the retired feature and gains five, about
-  4 × 48 × 2,714 ≈ 520,000 more Tokyo rows.
+  `dim_feature.sql`. `fct_feature_value` loses the retired feature and gains four, about
+  3 × 48 × 2,714 ≈ 390,000 more Tokyo rows.
 
 ## 11. Rollout
 
@@ -357,7 +360,7 @@ The PR shows:
   - Days by rule: ranked, `same_holiday`, `same_date`.
   - The share of each rank's picks from the recent window and from one year back.
   - The largest and smallest weight per ranked day.
-  - A few days with their five picks, distances and weights.
+  - A few days with their three picks, distances and weights.
   - The retrieval metrics against D − 7 and the oracle.
 - **The dbt build passing,** including the `retired_features` row in `dim_feature`.
 - **The generator's `--check` passing.**
@@ -371,7 +374,7 @@ The PR shows:
 - The paper's distance parts: sun irradiation instead of humidity, and no holiday
   parts.
 - Actual weather for the target day.
-- A plain mean, or ranks beyond 5.
+- A plain mean, or ranks beyond 3.
 - A load-difference weighting.
 - Command-line flags for the pool.
 - A Kansai run: only Tokyo is scored, as today.
