@@ -1,4 +1,4 @@
-"""Score the demand task's similar day walking forward through history, and publish it.
+"""Score the demand task's similar days walking forward through history, and publish them.
 
 Run inside the devcontainer (needs the Spark warehouse and the MLflow
 server):
@@ -11,27 +11,36 @@ fit of the seven weights of the similar-day distance runs at a cutoff
 instant on the (target, candidate) pairs of the ``--fit-window-days`` days
 before it (default 730, the LightGBM strategies' training window) whose
 target load was public by then (``tasks/demand/similar_day.py``; Park, Song
-and Kwon 2020), and scores the days whose 09:30 D-1 issue time follows the
-cutoff until the next one, so no day is scored with weights that saw a load
-that was not yet public when the forecast would have been made. The chosen
-day's hourly load halved per period is written to ``pma_ml.similar_day``
-(``tasks/demand/similar_day_feature.py``) with
-``available_at`` = the later of the day's forecast availability and its
-fit's cutoff. The ``ftr_period_similar_day`` mart passes the rows to Feast
-after ``dbt build``; the ``lightgbm_msm_popw_daytype_simday`` preset reads
-them. A re-run's rows win by ``published_at`` wherever they overlap.
+and Kwon 2020), and ranks the days whose 09:30 D-1 issue time follows the
+cutoff until the next one, so no day is ranked with weights that saw a load
+that was not yet public when the forecast would have been made.
 
-The run logs every fit's weights (``similar_day_fits.csv``), the selection
-of every scored day (``similar_day_selection.csv``), the retrieval check of
-every scored day whose load is known (``similar_day_retrieval.csv``) and the
-four ``similar_day_*`` metrics over those days, to the MLflow experiment
-``similar_day``.
+A day's pool is the paper's: D-2 … D-31 and D-335 … D-394, without special
+days (``dim_date.is_holiday``) and without a day whose load was not public by
+the issue time. The three nearest days' hourly loads, halved per period, and
+their inverse-distance weighted mean are written to ``pma_ml.similar_day``
+(``tasks/demand/similar_day_feature.py``). A special day whose same holiday
+last year lies in the pool's year-ago window takes that day instead: rank 1
+and the mean carry its load. The pool has no flags. The
+``ftr_period_similar_day`` mart passes the rows to Feast after ``dbt build``;
+the similar-day presets read rank 1. A re-run's rows win by ``published_at``
+wherever they share ``available_at``.
+
+The run logs, to the MLflow experiment ``similar_day``: every fit's weights
+(``similar_day_fits.csv``); rank 1 of every ranked day
+(``similar_day_selection.csv``); every ranked day's ranks with their weights
+(``similar_day_ranking.csv``); every special day with last year's day of its
+name and whether it took that day (``similar_day_special_days.csv``); the
+retrieval check of every ranked day whose load is known, against D-7 and the
+oracle (``similar_day_retrieval.csv``); and the four ``similar_day_*``
+metrics over those days.
 """
 
 import argparse
 import math
 
 import mlflow
+import numpy as np
 import pandas as pd
 from loguru import logger
 
@@ -45,13 +54,15 @@ from power_market_analytics.tasks.demand.datasets import (
 )
 from power_market_analytics.tasks.demand.similar_day import (
     SIMILAR_DAY_FIT_WINDOW_DAYS,
-    SIMILAR_DAY_WINDOW_HALF_WIDTH_DAYS,
+    SIMILAR_DAY_TOP_K,
     SimilarDaySelector,
     retrieval_metrics,
 )
 from power_market_analytics.tasks.demand.similar_day_feature import (
     DEFAULT_REFIT_EVERY_DAYS,
     FEATURE_TABLE,
+    METHOD_SAME_HOLIDAY,
+    METHOD_SIMILARITY,
     MLFLOW_EXPERIMENT,
     build_feature_records,
     publish_feature_records,
@@ -76,12 +87,6 @@ def main(argv: list[str] | None = None) -> None:
         default=SIMILAR_DAY_FIT_WINDOW_DAYS,
         help="Days of target days before its cutoff a fit sees.",
     )
-    parser.add_argument(
-        "--window-half-width-days",
-        type=int,
-        default=SIMILAR_DAY_WINDOW_HALF_WIDTH_DAYS,
-        help="Half width of the candidate window around D - 364.",
-    )
     args = parser.parse_args(argv)
     if args.refit_every_days < 1:
         parser.error(f"--refit-every-days must be >= 1, got {args.refit_every_days}")
@@ -101,7 +106,6 @@ def main(argv: list[str] | None = None) -> None:
             weather.forecast,
             observed.weather,
             hourly_load,
-            half_width_days=args.window_half_width_days,
             fit_window_days=args.fit_window_days,
         )
         scoring = score_walk_forward(
@@ -120,6 +124,9 @@ def main(argv: list[str] | None = None) -> None:
         publish_feature_records(records)
         mlflow.set_tag("feature_table", FEATURE_TABLE)
         selection = scoring.selection
+        special = scoring.special_days.df
+        # Every published day: the ranked days and the same-holiday days.
+        published_days = pd.DatetimeIndex(records.df["trade_date"].unique()).sort_values()
         mlflow.log_params(
             {
                 "area": args.area,
@@ -128,12 +135,16 @@ def main(argv: list[str] | None = None) -> None:
                 "n_cutoffs_without_fit": len(scoring.cutoffs_without_fit),
                 "first_fit_cutoff": str(scoring.fits["fit_cutoff"].iloc[0]),
                 "last_fit_cutoff": str(scoring.fits["fit_cutoff"].iloc[-1]),
-                "n_days_scored": len(selection),
-                "first_day_scored": str(selection.df["trade_date"].min().date()),
-                "last_day_scored": str(selection.df["trade_date"].max().date()),
+                "n_days_scored": len(published_days),
+                "first_day_scored": str(published_days[0].date()),
+                "last_day_scored": str(published_days[-1].date()),
+                "n_days_ranked": len(selection),
+                "n_special_days_ranked": int((~special["takes_reference"]).sum()),
+                "n_days_same_holiday": int(special["takes_reference"].sum()),
+                "similar_day_top_k": SIMILAR_DAY_TOP_K,
                 "population_weight_census_year": weather.census_year,
                 "n_stations": weather.n_stations,
-                # The window, the parts and the last fit's weights.
+                # The pool, the parts and the last fit's weights.
                 **selector.as_params(),
             }
         )
@@ -141,6 +152,15 @@ def main(argv: list[str] | None = None) -> None:
         log_dataframe(
             selection.df.assign(fit_cutoff=scoring.fit_cutoff.to_numpy()),
             "similar_day_selection.csv",
+        )
+        log_dataframe(scoring.ranking.with_weights(), "similar_day_ranking.csv")
+        log_dataframe(
+            special.assign(
+                similar_day_method=np.where(
+                    special["takes_reference"], METHOD_SAME_HOLIDAY, METHOD_SIMILARITY
+                )
+            ),
+            "similar_day_special_days.csv",
         )
         # The outcomes do not depend on the weights; the distances are the last fit's.
         retrieval = selector.retrieval(selection)
@@ -156,16 +176,19 @@ def main(argv: list[str] | None = None) -> None:
         run_id = mlflow_run.info.run_id
 
     logger.info(
-        "area={} fits={} every {} days ({}..{}) scored={} days ({} rows, {}..{}) checked={}",
+        "area={} fits={} every {} days ({}..{}) published={} days ({} ranked, {} same-holiday; "
+        "{} rows, {}..{}) checked={}",
         args.area,
         len(scoring.fits),
         args.refit_every_days,
         scoring.fits["fit_cutoff"].iloc[0],
         scoring.fits["fit_cutoff"].iloc[-1],
+        len(published_days),
         len(selection),
+        int(special["takes_reference"].sum()),
         len(records),
-        selection.df["trade_date"].min().date(),
-        selection.df["trade_date"].max().date(),
+        published_days[0].date(),
+        published_days[-1].date(),
         len(retrieval),
     )
     logger.info("MLflow run: {} (experiment: {})", run_id, MLFLOW_EXPERIMENT)
