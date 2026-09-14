@@ -20,11 +20,13 @@ from power_market_analytics.tasks.demand.similar_day import (
     HOURS_PER_DAY,
     MIN_FIT_PAIRS,
     PERIODS_PER_HOUR,
-    SIMILAR_DAY_CENTER_LAG_DAYS,
+    SIMILAR_DAY_BASELINE_LAG_DAYS,
     SIMILAR_DAY_COMPONENTS,
     SIMILAR_DAY_FIT_WINDOW_DAYS,
-    SIMILAR_DAY_WINDOW_HALF_WIDTH_DAYS,
+    SIMILAR_DAY_POOL,
+    SIMILAR_DAY_TOP_K,
     DayPairDifferences,
+    SimilarDayPool,
     SimilarDayRetrieval,
     SimilarDaySelection,
     SimilarDaySelector,
@@ -176,8 +178,9 @@ def selector() -> SimilarDaySelector:
 
 class TestConstants:
     def test_values(self):
-        assert SIMILAR_DAY_CENTER_LAG_DAYS == 364
-        assert SIMILAR_DAY_WINDOW_HALF_WIDTH_DAYS == 30
+        assert SIMILAR_DAY_POOL == SimilarDayPool(((2, 31), (335, 394)))
+        assert SIMILAR_DAY_TOP_K == 3
+        assert SIMILAR_DAY_BASELINE_LAG_DAYS == 7
         assert SIMILAR_DAY_FIT_WINDOW_DAYS == DEFAULT_TRAIN_WINDOW_DAYS == 730
         assert PERIODS_PER_HOUR == 2
         assert HOURS_PER_DAY == 24
@@ -193,9 +196,30 @@ class TestConstants:
         )
 
 
+class TestSimilarDayPool:
+    def test_the_papers_pool(self):
+        assert SIMILAR_DAY_POOL.windows == ((2, 31), (335, 394))
+        assert SIMILAR_DAY_POOL.lags.tolist() == [*range(2, 32), *range(335, 395)]
+        assert SIMILAR_DAY_POOL.lags.dtype == "int64"
+        assert SIMILAR_DAY_POOL.year_ago == (335, 394)
+        assert SIMILAR_DAY_POOL.as_param() == "2-31,335-394"
+        assert SIMILAR_DAY_TOP_K == 3
+
+    @pytest.mark.parametrize(
+        "windows",
+        [(), ((0, 5),), ((5, 4),), ((2, 10), (10, 20)), ((335, 394), (2, 31))],
+        ids=["empty", "newest-below-one", "reversed", "overlapping", "descending"],
+    )
+    def test_a_bad_pool_is_rejected(self, windows):
+        with pytest.raises(ValueError, match="pool"):
+            SimilarDayPool(windows)
+
+
 class TestSelectorSetup:
     def test_window_and_candidates(self, selector):
-        assert selector.lags.tolist() == list(range(334, 395))
+        assert selector.pool == SIMILAR_DAY_POOL
+        assert selector.lags.tolist() == [*range(2, 32), *range(335, 395)]
+        assert selector.calendar.df.equals(make_calendar().df)
         # Candidates need a calendar row: the calendar starts at the first holiday.
         assert selector.first_candidate_day == HOLIDAYS[0]
         assert selector.hourly_load_span == (HISTORY_DAYS[0], HISTORY_DAYS[-1])
@@ -210,16 +234,7 @@ class TestSelectorSetup:
         )
         assert none.first_scorable_day is None
 
-    def test_bad_window_is_rejected(self):
-        with pytest.raises(ValueError, match="window"):
-            SimilarDaySelector(
-                make_calendar(),
-                make_forecast(),
-                make_observed(),
-                make_hourly_load(),
-                center_lag_days=10,
-                half_width_days=10,
-            )
+    def test_bad_fit_window_is_rejected(self):
         with pytest.raises(ValueError, match="fit window"):
             SimilarDaySelector(
                 make_calendar(),
@@ -250,19 +265,44 @@ class TestSelectorSetup:
 
 
 class TestDifferences:
-    def test_one_row_per_window_day(self, selector):
+    def test_one_row_per_pool_day(self, selector):
         diffs = selector.differences([D])
         assert type(diffs) is DayPairDifferences
-        assert len(diffs) == 61
+        # 90 pool days less the three holidays in it: 2023-03-21 (lag 386),
+        # 2023-05-03 (lag 343) and 2024-03-20 (lag 21).
+        assert len(diffs) == 87
         assert list(diffs.df.columns) == ["target_date", "candidate_date", *SIMILAR_DAY_COMPONENTS]
         lags = (diffs.df["target_date"] - diffs.df["candidate_date"]).dt.days
-        assert lags.tolist() == list(range(394, 333, -1))
+        year_ago = [lag for lag in range(394, 334, -1) if lag not in (386, 343)]
+        recent = [lag for lag in range(31, 1, -1) if lag != 21]
+        assert lags.tolist() == [*year_ago, *recent]
 
-    def test_calendar_days_from_the_same_weekday_a_year_back(self, selector):
+    def test_calendar_part_is_the_lag(self, selector):
         df = selector.differences([D]).df.set_index("candidate_date")
-        assert df.loc[D_MINUS_364, "calendar_days"] == 0.0
-        assert df.loc[D - pd.Timedelta(days=394), "calendar_days"] == 30.0
-        assert df.loc[D - pd.Timedelta(days=334), "calendar_days"] == 30.0
+        assert df.loc[D_MINUS_364, "calendar_days"] == 364.0
+        assert df.loc[D - pd.Timedelta(days=2), "calendar_days"] == 2.0
+        assert df.loc[D - pd.Timedelta(days=394), "calendar_days"] == 394.0
+
+    def test_a_holiday_is_not_a_candidate(self, selector):
+        assert (
+            pd.Timestamp("2024-03-20")
+            not in selector.differences([D]).df["candidate_date"].tolist()
+        )
+
+    def test_a_candidate_public_after_the_issue_time_is_left_out(self, selector):
+        # D - 2's load is public at 00:00 on D - 1, before the 09:30 issue time; a day
+        # later it misses it.
+        d_minus_2 = D - pd.Timedelta(days=2)
+        assert d_minus_2 in selector.differences([D]).df["candidate_date"].tolist()
+        late = SimilarDaySelector(
+            make_calendar(),
+            make_forecast(),
+            make_observed(),
+            make_hourly_load(late={d_minus_2}),
+        )
+        diffs = late.differences([D]).df
+        assert len(diffs) == 86
+        assert d_minus_2 not in diffs["candidate_date"].tolist()
 
     def test_weather_parts_are_hourly_rmse_of_forecast_against_observed(self, selector):
         row = selector.differences([D]).df.set_index("candidate_date").loc[D_MINUS_364]
@@ -302,7 +342,7 @@ class TestDifferences:
             make_hourly_load(),
         )
         diffs = selector.differences([D]).df
-        assert len(diffs) == 60
+        assert len(diffs) == 86
         assert D_MINUS_364 not in set(diffs["candidate_date"])
 
     def test_unscorable_days_yield_no_rows(self, selector):
@@ -388,12 +428,20 @@ class TestTrainingPairs:
         through = pd.Timestamp("2024-03-31")
         pairs = selector.training_pairs(through + pd.Timedelta(days=1))
         assert type(pairs) is SimilarDayTrainingPairs
-        # The first scorable forecast day: its window must start on the first candidate.
+        # The first scorable forecast day: its oldest lag must reach the first candidate.
         first = HOLIDAYS[0] + pd.Timedelta(days=394)
         targets = pairs.df["target_date"].unique()
         assert targets.min() == first
         assert targets.max() == through
-        assert len(pairs) == len(pd.date_range(first, through)) * 61
+        # 02-07 .. 03-31 is 54 days; the holiday 03-20 is no target.
+        assert len(targets) == 53
+        assert pd.Timestamp("2024-03-20") not in targets
+        # 53 × 90 pool days, less each holiday on the targets whose pool holds it:
+        # 2023-01-09 (02-07), 2023-03-21 (41 targets 02-19 .. 03-31), 2024-01-08
+        # (02-07, 02-08) and 2024-03-20 (03-22 .. 03-31): 1 + 41 + 2 + 10 = 54.
+        assert len(pairs) == 53 * 90 - 54 == 4_716
+        holidays = set(HOLIDAYS)
+        assert not pairs.df["candidate_date"].isin(holidays).any()
         # A minute earlier, 03-31's load is not public yet.
         earlier = selector.training_pairs(through + pd.Timedelta(days=1) - pd.Timedelta(minutes=1))
         assert earlier.df["target_date"].max() == through - pd.Timedelta(days=1)
@@ -421,8 +469,9 @@ class TestTrainingPairs:
         )
         assert selector.first_fit_cutoff == first + pd.Timedelta(days=2)
         assert len(selector.training_pairs(first + pd.Timedelta(days=1))) == 0
-        # Two days on, the late first day and the (timely) next day are both public.
-        assert len(selector.training_pairs(first + pd.Timedelta(days=2))) == 2 * 61
+        # Two days on, the late first day (88 pairs: 2023-01-09 and 2024-01-08 are in its
+        # pool) and the timely next day (89: 2024-01-08 at lag 31) are both public.
+        assert len(selector.training_pairs(first + pd.Timedelta(days=2))) == 88 + 89
 
     def test_no_pairs_before_the_first_scorable_day(self, selector):
         assert len(selector.training_pairs(pd.Timestamp("2024-01-31"))) == 0
@@ -437,19 +486,22 @@ class TestTrainingPairs:
         assert selector.first_fit_cutoff is None
 
     def test_first_fit_cutoff_waits_for_enough_pairs(self):
-        # A window of three days: the first scorable days give too few pairs for a
+        # A pool of three days: the first scorable days give too few pairs for a
         # fit, so the cutoff is the eighth public pair's, not the first day's.
         narrow = SimilarDaySelector(
             make_calendar(),
             make_forecast(),
             make_observed(),
             make_hourly_load(),
-            half_width_days=1,
+            pool=SimilarDayPool(((363, 365),)),
         )
         first_day = narrow.scorable_days(FORECAST_DAYS)[0]
+        assert first_day == pd.Timestamp("2024-01-09")
         cutoff = narrow.first_fit_cutoff
-        assert cutoff > first_day + pd.Timedelta(days=1)
-        assert len(narrow.training_pairs(cutoff)) >= MIN_FIT_PAIRS
+        # 01-09 holds 2 pairs (its lag 365 is the holiday 2023-01-09), 01-10 and 01-11
+        # three each: the eighth pair is public when 01-11's load is.
+        assert cutoff == pd.Timestamp("2024-01-12")
+        assert len(narrow.training_pairs(cutoff)) == 2 + 3 + 3 >= MIN_FIT_PAIRS
         assert len(narrow.training_pairs(cutoff - pd.Timedelta(minutes=1))) < MIN_FIT_PAIRS
         # Fewer than eight pairs in total: no fit, ever.
         tiny = SimilarDaySelector(
@@ -457,7 +509,7 @@ class TestTrainingPairs:
             make_forecast(),
             make_observed(),
             make_hourly_load(pd.date_range("2023-01-01", first_day)),
-            half_width_days=1,
+            pool=SimilarDayPool(((363, 365),)),
         )
         assert len(tiny.training_pairs(HISTORY_DAYS[-1])) < MIN_FIT_PAIRS
         assert tiny.first_fit_cutoff is None
@@ -476,30 +528,51 @@ class TestTrainingPairs:
         targets = pairs.df["target_date"].unique()
         assert targets.min() == pd.Timestamp("2024-03-22")
         assert targets.max() == pd.Timestamp("2024-03-31")
-        assert len(pairs) == 10 * 61
+        # Each target's pool loses 2023-03-21 (lag 367 .. 376) and 2024-03-20 (lag 2 .. 11).
+        assert len(pairs) == 10 * 88
         # The window counts calendar days before the cutoff's day, whatever the hour.
         later = windowed.training_pairs(pd.Timestamp("2024-04-01 10:15"))
         assert later.df["target_date"].unique().tolist() == targets.tolist()
-        # Until the window fills, the pairs are the ones without a window.
-        assert len(windowed.training_pairs(pd.Timestamp("2024-02-12"))) == 5 * 61
+        # Until the window fills, the pairs are the ones without a window: 02-07 .. 02-11,
+        # less 2023-01-09 and 2024-01-08 on 02-07 and 2024-01-08 on 02-08.
+        assert len(windowed.training_pairs(pd.Timestamp("2024-02-12"))) == 5 * 90 - 3 == 447
 
     def test_first_fit_cutoff_counts_the_pairs_inside_the_fit_window(self):
-        # Three candidates a day and a window of two days: at most six pairs are
-        # ever inside the window, so no fit can run. Three days hold nine.
+        # At most three candidates a day and a window of two days: at most six pairs
+        # are ever inside the window, so no fit can run. Three days hold eight.
         def narrow(fit_window_days: int) -> SimilarDaySelector:
             return SimilarDaySelector(
                 make_calendar(),
                 make_forecast(),
                 make_observed(),
                 make_hourly_load(),
-                half_width_days=1,
+                pool=SimilarDayPool(((363, 365),)),
                 fit_window_days=fit_window_days,
             )
 
         assert narrow(2).first_fit_cutoff is None
         cutoff = narrow(3).first_fit_cutoff
         assert cutoff == narrow(SIMILAR_DAY_FIT_WINDOW_DAYS).first_fit_cutoff
-        assert len(narrow(3).training_pairs(cutoff)) == 9
+        assert len(narrow(3).training_pairs(cutoff)) == 8
+
+    def test_a_special_target_leaves_the_training_pairs(self, selector):
+        pairs = selector.training_pairs(pd.Timestamp("2024-04-30"))
+        assert pd.Timestamp("2024-03-20") not in pairs.df["target_date"].tolist()
+        # The day after the holiday is still a target.
+        assert pd.Timestamp("2024-03-21") in pairs.df["target_date"].tolist()
+
+    def test_a_training_candidate_public_after_its_targets_issue_time_is_left_out(self):
+        # 03-25's load is public at 00:00 on 03-27: after 03-27's issue time (09:30 on
+        # 03-26), before 03-28's (09:30 on 03-27).
+        late_day = pd.Timestamp("2024-03-25")
+        selector = SimilarDaySelector(
+            make_calendar(), make_forecast(), make_observed(), make_hourly_load(late={late_day})
+        )
+        pairs = selector.training_pairs(pd.Timestamp("2024-04-30")).df.set_index(
+            ["target_date", "candidate_date"]
+        )
+        assert (pd.Timestamp("2024-03-27"), late_day) not in pairs.index
+        assert (pd.Timestamp("2024-03-28"), late_day) in pairs.index
 
 
 def planted_pairs(
@@ -757,8 +830,9 @@ class TestRetrievalMetrics:
 class TestSelectorParams:
     def test_the_window_the_parts_the_weights_and_the_span(self, fitted):
         params = fitted.as_params()
-        assert params["similar_day_center_lag_days"] == SIMILAR_DAY_CENTER_LAG_DAYS
-        assert params["similar_day_window_half_width_days"] == SIMILAR_DAY_WINDOW_HALF_WIDTH_DAYS
+        assert params["similar_day_pool"] == "2-31,335-394"
+        assert "similar_day_center_lag_days" not in params
+        assert "similar_day_window_half_width_days" not in params
         assert params["similar_day_fit_window_days"] == SIMILAR_DAY_FIT_WINDOW_DAYS
         assert params["similar_day_components"] == ",".join(SIMILAR_DAY_COMPONENTS)
         assert params["similar_day_weights"] == fitted.weights.as_params()["similar_day_weights"]
