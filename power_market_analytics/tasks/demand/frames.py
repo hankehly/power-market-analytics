@@ -174,8 +174,10 @@ HOLIDAY_DEGREE_LEVELS: tuple[float, ...] = (0.0, 0.3, 0.5, 0.8, 1.0)
 class DayCalendar(DomainFrame):
     """The holiday attributes of every ``dim_date`` day the similar-day selector reads.
 
-    ``days_since_holiday`` / ``days_until_holiday`` count calendar days to the
-    nearest named holiday (``dim_date.is_holiday``; 0 on a holiday itself);
+    ``is_holiday`` and ``holiday_name_ja`` are ``dim_date``'s. The name is null on
+    ordinary days and unique within a calendar year among holidays, so the same
+    holiday can be found a year back. ``days_since_holiday`` / ``days_until_holiday``
+    count calendar days to the nearest holiday (0 on a holiday itself);
     ``holiday_degree`` is ``dim_date.holiday_degree``.
 
     Grain: (trade_date).
@@ -183,12 +185,14 @@ class DayCalendar(DomainFrame):
 
     schema = {
         "trade_date": "datetime64[ns]",
+        "is_holiday": "bool",
+        "holiday_name_ja": "object",
         "days_since_holiday": "int64",
         "days_until_holiday": "int64",
         "holiday_degree": "float64",
     }
     keys = ["trade_date"]
-    non_null_cols = [col for col in schema if col != "trade_date"]
+    non_null_cols = [col for col in schema if col not in ("trade_date", "holiday_name_ja")]
 
     @classmethod
     def _validate_extra(cls, df: pd.DataFrame) -> None:
@@ -202,4 +206,19 @@ class DayCalendar(DomainFrame):
             values = sorted(set(float(v) for v in degrees[off]))
             raise ValueError(
                 f"{cls.__name__}: holiday_degree outside {HOLIDAY_DEGREE_LEVELS}: {values}"
+            )
+        named = df["holiday_name_ja"].notna()
+        if (named != df["is_holiday"]).any():
+            raise ValueError(
+                f"{cls.__name__}: holiday_name_ja must carry a name exactly on holidays"
+            )
+        holidays = df.loc[df["is_holiday"], ["trade_date", "holiday_name_ja"]]
+        repeated = holidays.assign(year=holidays["trade_date"].dt.year).duplicated(
+            ["year", "holiday_name_ja"], keep=False
+        )
+        if repeated.any():
+            first = holidays[repeated].iloc[0]
+            raise ValueError(
+                f"{cls.__name__}: holiday_name_ja repeats within a calendar year: "
+                f"{first['trade_date'].year} {first['holiday_name_ja']}"
             )

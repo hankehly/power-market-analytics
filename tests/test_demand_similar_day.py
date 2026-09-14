@@ -47,6 +47,15 @@ HOLIDAYS = (
     pd.Timestamp("2024-03-20"),
     pd.Timestamp("2024-04-29"),
 )
+#: ``dim_date.holiday_name_ja`` of each day in HOLIDAYS.
+HOLIDAY_NAMES: dict[pd.Timestamp, str] = {
+    pd.Timestamp("2023-01-09"): "成人の日",
+    pd.Timestamp("2023-03-21"): "春分の日",
+    pd.Timestamp("2023-05-03"): "憲法記念日",
+    pd.Timestamp("2024-01-08"): "成人の日",
+    pd.Timestamp("2024-03-20"): "春分の日",
+    pd.Timestamp("2024-04-29"): "昭和の日",
+}
 D = pd.Timestamp("2024-04-10")  # a Wednesday; D - 364 = 2023-04-12, also a Wednesday
 D_MINUS_364 = D - pd.Timedelta(days=364)
 
@@ -95,13 +104,17 @@ def make_calendar(days=HISTORY_DAYS) -> DayCalendar:
         rows.append(
             {
                 "trade_date": day,
+                "is_holiday": day in HOLIDAYS,
+                "holiday_name_ja": HOLIDAY_NAMES.get(day),
                 "days_since_holiday": (day - before[-1]).days,
                 "days_until_holiday": (after[0] - day).days,
                 "holiday_degree": holiday_degree_at(day),
             }
         )
     return DayCalendar.from_df(
-        pd.DataFrame(rows).astype({"days_since_holiday": "int64", "days_until_holiday": "int64"})
+        pd.DataFrame(rows).astype(
+            {"is_holiday": "bool", "days_since_holiday": "int64", "days_until_holiday": "int64"}
+        )
     )
 
 
