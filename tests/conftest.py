@@ -150,16 +150,8 @@ DEMAND_UNMATCHED_RUN_ID = "demand-run-unmatched"
 #: minus half of it, so MAE and bias differ. The candidate halves it, the
 #: unmatched run scales it by 0.8.
 DEMAND_BASELINE_ERROR_KWH = 100_000
-#: National holidays inside DEMAND_DAYS (the jpn_national_holidays seed, 2024).
-HOLIDAYS_2024_SPRING = (
-    pd.Timestamp("2024-03-20"),
-    pd.Timestamp("2024-04-29"),
-    pd.Timestamp("2024-05-03"),
-    pd.Timestamp("2024-05-04"),
-    pd.Timestamp("2024-05-05"),
-    pd.Timestamp("2024-05-06"),
-)
-#: ``dim_date.holiday_name_ja`` of each day in HOLIDAYS_2024_SPRING.
+#: National holidays inside DEMAND_DAYS (the jpn_national_holidays seed, 2024), each
+#: with its ``dim_date.holiday_name_ja``.
 HOLIDAY_NAMES_2024_SPRING: dict[pd.Timestamp, str] = {
     pd.Timestamp("2024-03-20"): "春分の日",
     pd.Timestamp("2024-04-29"): "昭和の日",
@@ -168,6 +160,8 @@ HOLIDAY_NAMES_2024_SPRING: dict[pd.Timestamp, str] = {
     pd.Timestamp("2024-05-05"): "こどもの日",
     pd.Timestamp("2024-05-06"): "こどもの日（振替休日）",
 }
+#: The days of HOLIDAY_NAMES_2024_SPRING, in date order.
+HOLIDAYS_2024_SPRING = tuple(HOLIDAY_NAMES_2024_SPRING)
 #: One partial-day hole like Tokyo 2025-06-14: time codes 11..48 have null demand.
 DEMAND_HOLE_DAY = pd.Timestamp("2024-04-20")
 DEMAND_HOLE_TIME_CODES = range(11, 49)
