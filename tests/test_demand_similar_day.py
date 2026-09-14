@@ -27,14 +27,18 @@ from power_market_analytics.tasks.demand.similar_day import (
     SIMILAR_DAY_TOP_K,
     DayPairDifferences,
     SimilarDayPool,
+    SimilarDayRanking,
     SimilarDayRetrieval,
     SimilarDaySelection,
     SimilarDaySelector,
     SimilarDayTrainingPairs,
     SimilarDayWeights,
+    SpecialDayReferences,
     fit_similar_day_weights,
+    inverse_distance_weights,
     load_difference,
     retrieval_metrics,
+    special_day_references,
 )
 
 #: Calendar, observations and hourly load: 2023-01-01 .. 2024-04-30.
@@ -105,6 +109,41 @@ def make_calendar(days=HISTORY_DAYS) -> DayCalendar:
                 "days_since_holiday": (day - before[-1]).days,
                 "days_until_holiday": (after[0] - day).days,
                 "holiday_degree": holiday_degree_at(day),
+            }
+        )
+    return DayCalendar.from_df(
+        pd.DataFrame(rows).astype(
+            {"is_holiday": "bool", "days_since_holiday": "int64", "days_until_holiday": "int64"}
+        )
+    )
+
+
+def make_named_calendar(names: dict[str, str], start: str, end: str) -> DayCalendar:
+    """A calendar of ``start`` .. ``end`` whose holidays are ``names`` (ISO date -> name).
+
+    Days before the first holiday or after the last have no holiday distance and are
+    left out, as ``load_day_calendar`` does.
+    """
+    holidays = pd.DatetimeIndex(sorted(pd.Timestamp(day) for day in names))
+    rows = []
+    for day in pd.date_range(start, end, freq="D"):
+        before = holidays[holidays <= day]
+        after = holidays[holidays >= day]
+        if before.empty or after.empty:
+            continue
+        is_holiday = day in holidays
+        if is_holiday or day.dayofweek == 6:
+            degree = 1.0
+        else:
+            degree = 0.8 if day.dayofweek == 5 else 0.0
+        rows.append(
+            {
+                "trade_date": day,
+                "is_holiday": is_holiday,
+                "holiday_name_ja": names.get(str(day.date())),
+                "days_since_holiday": (day - before[-1]).days,
+                "days_until_holiday": (after[0] - day).days,
+                "holiday_degree": degree,
             }
         )
     return DayCalendar.from_df(
@@ -407,8 +446,8 @@ class TestPairFrames:
         base = {
             "distance": [1.0],
             "reference_lag_days": np.array([0], dtype="int64"),
-            "n_candidates": np.array([61], dtype="int64"),
-            "lag_364_rank": [1.0],
+            "n_candidates": np.array([87], dtype="int64"),
+            "lag_7_rank": [1.0],
         }
         with pytest.raises(ValueError, match="reference_date must precede trade_date"):
             SimilarDaySelection.from_df(
@@ -428,7 +467,7 @@ class TestPairFrames:
             "reference_date": [D_MINUS_364],
             "distance": [1.0],
             "selected_load_difference": [0.1],
-            "lag_364_load_difference": [0.1],
+            "lag_7_load_difference": [0.1],
             "oracle_date": [D],
             "oracle_load_difference": [0.05],
             "selected_rank_by_outcome": np.array([2], dtype="int64"),
@@ -443,12 +482,285 @@ class TestPairFrames:
                 "reference_date": [D_MINUS_364],
                 "distance": [1.0],
                 "reference_lag_days": np.array([363], dtype="int64"),
-                "n_candidates": np.array([61], dtype="int64"),
-                "lag_364_rank": [1.0],
+                "n_candidates": np.array([87], dtype="int64"),
+                "lag_7_rank": [1.0],
             }
         )
         with pytest.raises(ValueError, match="reference_lag_days must equal"):
             SimilarDaySelection.from_df(df)
+
+    def test_ranking_accepts_a_valid_frame(self):
+        assert len(SimilarDayRanking.from_df(ranking_rows())) == 3
+
+    @pytest.mark.parametrize(
+        ("overrides", "message"),
+        [
+            (
+                {
+                    "reference_date": [D - pd.Timedelta(days=364), D - pd.Timedelta(days=7), D],
+                    "reference_lag_days": np.array([364, 7, 0], dtype="int64"),
+                },
+                "reference_date must precede trade_date",
+            ),
+            (
+                {"reference_lag_days": np.array([364, 7, 3], dtype="int64")},
+                "reference_lag_days must equal",
+            ),
+            ({"rank": np.array([1, 2, 4], dtype="int64")}, "rank must run 1"),
+            ({"distance": [0.5, 2.0, 1.0]}, "distance must not decrease by rank"),
+            (
+                {
+                    "reference_date": [
+                        D - pd.Timedelta(days=364),
+                        D - pd.Timedelta(days=7),
+                        D - pd.Timedelta(days=7),
+                    ],
+                    "reference_lag_days": np.array([364, 7, 7], dtype="int64"),
+                },
+                "a reference day repeats within a day",
+            ),
+        ],
+        ids=["reference-on-the-day", "lag", "ranks-with-a-gap", "decreasing-distance", "repeat"],
+    )
+    def test_ranking_rejects_a_bad_row(self, overrides, message):
+        with pytest.raises(ValueError, match=message):
+            SimilarDayRanking.from_df(ranking_rows(**overrides))
+
+    def test_ranking_ranks_start_at_one_on_every_day(self):
+        # A second day that holds rank 2 alone.
+        df = pd.concat(
+            [
+                ranking_rows(),
+                pd.DataFrame(
+                    {
+                        "trade_date": [D + pd.Timedelta(days=1)],
+                        "rank": np.array([2], dtype="int64"),
+                        "reference_date": [D - pd.Timedelta(days=1)],
+                        "reference_lag_days": np.array([2], dtype="int64"),
+                        "distance": [1.0],
+                    }
+                ),
+            ],
+            ignore_index=True,
+        )
+        with pytest.raises(ValueError, match="rank must run 1"):
+            SimilarDayRanking.from_df(df)
+
+    def test_special_day_references_accept_a_valid_frame(self):
+        assert len(SpecialDayReferences.from_df(special_day_rows())) == 1
+
+    @pytest.mark.parametrize(
+        ("overrides", "message"),
+        [
+            (
+                {"last_year_date": [pd.NaT], "last_year_lag_days": [np.nan]},
+                "takes_reference needs last_year_date",
+            ),
+            (
+                {"last_year_date": [pd.Timestamp("2024-03-20")], "last_year_lag_days": [0.0]},
+                "last_year_date must precede trade_date",
+            ),
+            ({"last_year_lag_days": [364.0]}, "last_year_lag_days must equal"),
+            (
+                {"last_year_date": [pd.NaT], "takes_reference": [False]},
+                "last_year_lag_days must equal",
+            ),
+        ],
+        ids=["takes-without-a-date", "date-on-the-day", "lag", "lag-without-a-date"],
+    )
+    def test_special_day_references_reject_a_bad_row(self, overrides, message):
+        with pytest.raises(ValueError, match=message):
+            SpecialDayReferences.from_df(special_day_rows(**overrides))
+
+
+def ranking_rows(**overrides) -> pd.DataFrame:
+    """D's valid three ranks at lags 364, 7 and 2 with distances 0.5, 1 and 2."""
+    columns = {
+        "trade_date": [D] * 3,
+        "rank": np.array([1, 2, 3], dtype="int64"),
+        "reference_date": [
+            D - pd.Timedelta(days=364),
+            D - pd.Timedelta(days=7),
+            D - pd.Timedelta(days=2),
+        ],
+        "reference_lag_days": np.array([364, 7, 2], dtype="int64"),
+        "distance": [0.5, 1.0, 2.0],
+    }
+    return pd.DataFrame({**columns, **overrides})
+
+
+def special_day_rows(**overrides) -> pd.DataFrame:
+    """A valid same-holiday row: 春分の日 2024-03-20 takes 2023-03-21, 365 days back."""
+    columns = {
+        "trade_date": [pd.Timestamp("2024-03-20")],
+        "holiday_name_ja": ["春分の日"],
+        "last_year_date": [pd.Timestamp("2023-03-21")],
+        "last_year_lag_days": [365.0],
+        "takes_reference": [True],
+    }
+    return pd.DataFrame({**columns, **overrides})
+
+
+class TestInverseDistanceWeights:
+    def test_hand_weights(self):
+        w = inverse_distance_weights(np.array([[0.5, 1.0, 2.0]]))
+        np.testing.assert_allclose(w, [[4 / 7, 2 / 7, 1 / 7]])
+
+    def test_equal_distances_share_equally(self):
+        np.testing.assert_allclose(
+            inverse_distance_weights(np.array([[0.3, 0.3, 0.3]])), [[1 / 3] * 3]
+        )
+
+    def test_a_zero_distance_takes_all_the_weight(self):
+        np.testing.assert_allclose(
+            inverse_distance_weights(np.array([[0.0, 0.0, 1.0]])), [[0.5, 0.5, 0.0]]
+        )
+
+    def test_a_missing_rank_is_skipped(self):
+        w = inverse_distance_weights(np.array([[1.0, 1.0, np.nan]]))
+        np.testing.assert_allclose(w[:, :2], [[0.5, 0.5]])
+        assert np.isnan(w[0, 2])
+
+    def test_rows_are_independent_and_sum_to_one(self):
+        w = inverse_distance_weights(np.array([[0.2, 0.4, 0.8], [1.0, np.nan, np.nan]]))
+        np.testing.assert_allclose(np.nansum(w, axis=1), [1.0, 1.0])
+        np.testing.assert_allclose(w[1, 0], 1.0)
+
+    def test_a_zero_distance_on_one_day_leaves_the_others_alone(self):
+        w = inverse_distance_weights(np.array([[0.0, 1.0, 2.0], [0.5, 1.0, 2.0]]))
+        np.testing.assert_allclose(w, [[1.0, 0.0, 0.0], [4 / 7, 2 / 7, 1 / 7]])
+
+    def test_a_day_without_any_rank_is_rejected(self):
+        with pytest.raises(ValueError, match="no distance"):
+            inverse_distance_weights(np.array([[np.nan, np.nan, np.nan]]))
+
+    def test_a_negative_distance_is_rejected(self):
+        with pytest.raises(ValueError, match="must be >= 0"):
+            inverse_distance_weights(np.array([[-0.1, 1.0, 2.0]]))
+
+    def test_the_input_must_be_days_by_ranks(self):
+        with pytest.raises(ValueError, match="days × k"):
+            inverse_distance_weights(np.array([0.5, 1.0, 2.0]))
+
+
+class TestRankingWeights:
+    def test_each_days_weights_come_from_its_own_ranks(self):
+        other = D + pd.Timedelta(days=1)
+        second_day = pd.DataFrame(
+            {
+                "trade_date": [other, other],
+                "rank": np.array([1, 2], dtype="int64"),
+                "reference_date": [other - pd.Timedelta(days=364), other - pd.Timedelta(days=7)],
+                "reference_lag_days": np.array([364, 7], dtype="int64"),
+                "distance": [0.5, 1.0],
+            }
+        )
+        # Rows out of order: the weights follow each day's ranks, not the row order.
+        ranking = SimilarDayRanking.from_df(
+            pd.concat([second_day, ranking_rows()], ignore_index=True)
+        )
+        weighted = ranking.with_weights()
+        assert list(weighted.columns) == [*SimilarDayRanking.schema, "weight"]
+        assert weighted["trade_date"].tolist() == [D, D, D, other, other]
+        assert weighted["rank"].tolist() == [1, 2, 3, 1, 2]
+        np.testing.assert_allclose(weighted["weight"], [4 / 7, 2 / 7, 1 / 7, 2 / 3, 1 / 3])
+
+    def test_an_empty_ranking_has_an_empty_weight_column(self):
+        empty = SimilarDayRanking.from_df(ranking_rows().iloc[:0])
+        weighted = empty.with_weights()
+        assert list(weighted.columns) == [*SimilarDayRanking.schema, "weight"]
+        assert weighted["weight"].dtype == "float64"
+        assert weighted.empty
+
+
+class TestSpecialDayReferences:
+    def test_the_same_holiday_last_year_inside_the_window(self):
+        calendar = make_named_calendar(
+            {"2025-01-13": "成人の日", "2026-01-12": "成人の日"}, "2025-01-01", "2026-01-31"
+        )
+        refs = special_day_references(calendar, [pd.Timestamp("2026-01-12")], SIMILAR_DAY_POOL)
+        assert type(refs) is SpecialDayReferences
+        row = refs.df.iloc[0]
+        assert row["holiday_name_ja"] == "成人の日"
+        assert row["last_year_date"] == pd.Timestamp("2025-01-13")
+        assert row["last_year_lag_days"] == 364.0
+        assert bool(row["takes_reference"])
+        assert refs.same_holiday_days.tolist() == [pd.Timestamp("2026-01-12")]
+
+    def test_a_holiday_moved_outside_the_window_is_ranked(self):
+        calendar = make_named_calendar(
+            {"2019-10-14": "スポーツの日", "2020-07-24": "スポーツの日"}, "2019-10-01", "2020-08-31"
+        )
+        refs = special_day_references(calendar, [pd.Timestamp("2020-07-24")], SIMILAR_DAY_POOL)
+        row = refs.df.iloc[0]
+        assert row["last_year_date"] == pd.Timestamp("2019-10-14")
+        assert row["last_year_lag_days"] == 284.0
+        assert not bool(row["takes_reference"])
+        assert refs.same_holiday_days.empty
+
+    def test_a_name_missing_last_year_is_ranked(self):
+        calendar = make_named_calendar(
+            {"2019-02-11": "建国記念の日", "2020-02-23": "天皇誕生日（令和）"},
+            "2019-02-01",
+            "2020-03-31",
+        )
+        refs = special_day_references(calendar, [pd.Timestamp("2020-02-23")], SIMILAR_DAY_POOL)
+        row = refs.df.iloc[0]
+        assert pd.isna(row["last_year_date"]) and np.isnan(row["last_year_lag_days"])
+        assert not bool(row["takes_reference"])
+        assert refs.same_holiday_days.empty
+
+    def test_a_substitute_holiday_without_last_years_name_is_ranked(self):
+        calendar = make_named_calendar(
+            {"2023-05-05": "こどもの日", "2024-05-06": "こどもの日（振替休日）"},
+            "2023-05-01",
+            "2024-05-31",
+        )
+        refs = special_day_references(calendar, [pd.Timestamp("2024-05-06")], SIMILAR_DAY_POOL)
+        assert not bool(refs.df.iloc[0]["takes_reference"])
+
+    def test_ordinary_days_and_days_outside_the_calendar_have_no_row(self):
+        refs = special_day_references(
+            make_calendar(),
+            [D, pd.Timestamp("2030-01-01"), pd.Timestamp("2024-03-20")],
+            SIMILAR_DAY_POOL,
+        )
+        assert refs.df["trade_date"].tolist() == [pd.Timestamp("2024-03-20")]
+
+    def test_no_special_day_gives_an_empty_frame(self):
+        refs = special_day_references(make_calendar(), [D], SIMILAR_DAY_POOL)
+        assert refs.df.empty
+        assert list(refs.df.columns) == list(SpecialDayReferences.schema)
+        assert refs.df.dtypes.astype(str).to_dict() == SpecialDayReferences.schema
+        assert refs.same_holiday_days.empty
+        assert special_day_references(make_calendar(), [], SIMILAR_DAY_POOL).df.empty
+
+    def test_the_synthetic_calendar(self):
+        refs = special_day_references(
+            make_calendar(), [HOLIDAYS[-1], pd.Timestamp("2024-03-20")], SIMILAR_DAY_POOL
+        )
+        # Sorted by day; 昭和の日 has no 2023 row in the synthetic calendar.
+        assert refs.df["trade_date"].tolist() == [pd.Timestamp("2024-03-20"), HOLIDAYS[-1]]
+        assert refs.same_holiday_days.tolist() == [pd.Timestamp("2024-03-20")]
+        by_day = refs.df.set_index("trade_date")
+        assert by_day.loc[pd.Timestamp("2024-03-20"), "last_year_date"] == pd.Timestamp(
+            "2023-03-21"
+        )
+        assert by_day.loc[pd.Timestamp("2024-03-20"), "last_year_lag_days"] == 365.0
+
+    def test_the_window_comes_from_the_pool(self):
+        calendar = make_named_calendar(
+            {"2025-01-13": "成人の日", "2026-01-12": "成人の日"}, "2025-01-01", "2026-01-31"
+        )
+        refs = special_day_references(
+            calendar, [pd.Timestamp("2026-01-12")], SimilarDayPool(((2, 31), (365, 400)))
+        )
+        assert refs.same_holiday_days.empty
+        # Both bounds are inclusive.
+        for pool in (SimilarDayPool(((2, 31), (364, 400))), SimilarDayPool(((2, 31), (300, 364)))):
+            assert not special_day_references(
+                calendar, [pd.Timestamp("2026-01-12")], pool
+            ).same_holiday_days.empty
 
 
 class TestLoadDifference:
@@ -751,45 +1063,113 @@ class TestSelect:
         assert len(selection) == 1
         row = selection.df.iloc[0]
         assert row["trade_date"] == D
-        assert 334 <= row["reference_lag_days"] <= 394
-        assert row["n_candidates"] == 61
-        assert 1 <= row["lag_364_rank"] <= 61
+        assert row["reference_lag_days"] in SIMILAR_DAY_POOL.lags
+        assert row["n_candidates"] == 87
+        assert 1 <= row["lag_7_rank"] <= 87
         diffs = fitted.differences([D])
         distances = pd.Series(fitted.weights.distance(diffs), index=diffs.df["candidate_date"])
         assert row["distance"] == pytest.approx(distances.min())
         assert row["reference_date"] == distances.idxmin()
+        # D - 7's rank counts the candidates strictly nearer than it.
+        at_lag_7 = distances[D - pd.Timedelta(days=SIMILAR_DAY_BASELINE_LAG_DAYS)]
+        assert row["lag_7_rank"] == (distances < at_lag_7).sum() + 1
 
-    def test_tie_goes_to_the_centre_then_the_earlier_day(self):
-        # A calendar-days-only distance is |lag - 364|: D - 364 wins outright, and without
-        # it lags 363 and 365 tie at 1, both one day from the centre, so the earlier wins.
+    def test_rank_returns_the_three_nearest(self, fitted):
+        ranking = fitted.rank([D, pd.Timestamp("2023-12-31")])
+        assert type(ranking) is SimilarDayRanking
+        df = ranking.df
+        assert df["trade_date"].tolist() == [D] * SIMILAR_DAY_TOP_K
+        assert df["rank"].tolist() == [1, 2, 3]
+        diffs = fitted.differences([D])
+        nearest = np.sort(fitted.weights.distance(diffs))[:3]
+        np.testing.assert_array_equal(df["distance"].to_numpy(), nearest)
+        assert (df["reference_lag_days"] == (D - df["reference_date"]).dt.days).all()
+        selected = fitted.select([D]).df.iloc[0]
+        assert df.iloc[0]["reference_date"] == selected["reference_date"]
+        assert df.iloc[0]["distance"] == selected["distance"]
+        # One call gives both, and they agree with the two wrappers.
+        selection, both = fitted.select_and_rank([D])
+        assert selection.df.equals(fitted.select([D]).df)
+        assert both.df.equals(df)
+        assert len(fitted.rank([D], 5)) == 5
+
+    def test_tie_goes_to_the_smaller_lag(self):
         selector = SimilarDaySelector(
             make_calendar(), make_forecast(), make_observed(), make_hourly_load()
         )
+        # A lag-only distance: D - 2 is nearest.
         selector._weights = hand_weights(calendar_days=1.0)
-        assert selector.select([D]).df.iloc[0]["reference_date"] == D_MINUS_364
-        without_centre = SimilarDaySelector(
+        assert selector.select([D]).df.iloc[0]["reference_date"] == D - pd.Timedelta(days=2)
+        # A holiday-degree-only distance: every weekday candidate of the Wednesday D is at
+        # distance 0, so the smaller lags win: 04-08 (Mon, lag 2), then 04-05 (Fri, 5) and
+        # 04-04 (Thu, 6); the weekend 04-06 and 04-07 are further.
+        selector._weights = hand_weights(holiday_degree=1.0)
+        ranking = selector.rank([D]).df
+        assert ranking["reference_lag_days"].tolist() == [2, 5, 6]
+        assert ranking["distance"].tolist() == [0.0, 0.0, 0.0]
+        assert selector.select([D]).df.iloc[0]["reference_date"] == D - pd.Timedelta(days=2)
+
+    def test_lag_7_rank_is_nan_when_d_minus_7_is_not_a_candidate(self):
+        without_lag_7 = SimilarDaySelector(
             make_calendar(),
             make_forecast(),
-            make_observed(null_hours={(D_MINUS_364, 1)}),
+            make_observed(null_hours={(D - pd.Timedelta(days=7), 1)}),
             make_hourly_load(),
         )
-        without_centre._weights = hand_weights(calendar_days=1.0)
-        row = without_centre.select([D]).df.iloc[0]
-        assert row["reference_date"] == D - pd.Timedelta(days=365)
-        assert np.isnan(row["lag_364_rank"])
-        assert row["n_candidates"] == 60
+        without_lag_7._weights = hand_weights(calendar_days=1.0)
+        row = without_lag_7.select([D]).df.iloc[0]
+        assert row["reference_date"] == D - pd.Timedelta(days=2)
+        assert np.isnan(row["lag_7_rank"])
+        assert row["n_candidates"] == 86
 
-    def test_nothing_scorable_gives_an_empty_frame(self, fitted):
-        selection = fitted.select([pd.Timestamp("2023-12-31")])
+    def test_fewer_candidates_than_k(self):
+        narrow = SimilarDaySelector(
+            make_calendar(),
+            make_forecast(),
+            make_observed(),
+            make_hourly_load(),
+            pool=SimilarDayPool(((364, 365),)),
+        )
+        narrow._weights = hand_weights(calendar_days=1.0)
+        ranking = narrow.rank([D], 3).df
+        assert ranking["rank"].tolist() == [1, 2]
+        assert ranking["reference_lag_days"].tolist() == [364, 365]
+        row = narrow.select([D]).df.iloc[0]
+        assert row["n_candidates"] == 2
+        assert np.isnan(row["lag_7_rank"])
+
+    def test_a_ranked_special_day_skips_the_holidays_in_its_pool(self, fitted):
+        # 昭和の日 2024-04-29 has no 2023 namesake, so it is ranked. Its pool, 2024-03-29 ..
+        # 04-27 and 2023-04-01 .. 05-30, holds the holiday 2023-05-03 (lag 362).
+        day = HOLIDAYS[-1]
+        assert special_day_references(fitted.calendar, [day], fitted.pool).same_holiday_days.empty
+        ranking = fitted.rank([day], 90).df
+        assert len(ranking) == 89
+        assert not ranking["reference_date"].isin(HOLIDAYS).any()
+        assert fitted.select([day]).df.iloc[0]["n_candidates"] == 89
+
+    def test_nothing_scorable_gives_empty_frames(self, fitted):
+        selection, ranking = fitted.select_and_rank([pd.Timestamp("2023-12-31")])
         assert len(selection) == 0
         assert list(selection.df.columns) == list(SimilarDaySelection.schema)
+        assert len(ranking) == 0
+        assert ranking.df.dtypes.astype(str).to_dict() == SimilarDayRanking.schema
+        assert len(fitted.rank([pd.Timestamp("2023-12-31")])) == 0
 
-    def test_select_before_fit_raises(self):
+    def test_k_must_be_at_least_one(self, fitted):
+        with pytest.raises(ValueError, match="k must be at least 1"):
+            fitted.rank([D], 0)
+
+    def test_select_and_rank_before_fit_raise(self):
         fresh = SimilarDaySelector(
             make_calendar(), make_forecast(), make_observed(), make_hourly_load()
         )
         with pytest.raises(RuntimeError, match="not fitted"):
             fresh.select([D])
+        with pytest.raises(RuntimeError, match="not fitted"):
+            fresh.rank([D])
+        with pytest.raises(RuntimeError, match="not fitted"):
+            fresh.rank([pd.Timestamp("2023-12-31")])
 
 
 class TestRetrieval:
@@ -809,23 +1189,23 @@ class TestRetrieval:
             for c in candidates
         }
         assert row["selected_load_difference"] == pytest.approx(realised[sel["reference_date"]])
-        assert row["lag_364_load_difference"] == pytest.approx(realised[D_MINUS_364])
+        assert row["lag_7_load_difference"] == pytest.approx(realised[D - pd.Timedelta(days=7)])
         assert row["oracle_load_difference"] == pytest.approx(min(realised.values()))
         # Ties go to the smaller lag.
         assert row["oracle_date"] == min(realised, key=lambda c: (realised[c], D - c))
         assert row["oracle_load_difference"] <= row["selected_load_difference"]
         assert row["selected_rank_by_outcome"] >= 1
 
-    def test_lag_364_is_nan_when_it_was_not_a_candidate(self):
+    def test_lag_7_is_nan_when_it_was_not_a_candidate(self):
         selector = SimilarDaySelector(
             make_calendar(),
             make_forecast(),
-            make_observed(null_hours={(D_MINUS_364, 1)}),
+            make_observed(null_hours={(D - pd.Timedelta(days=7), 1)}),
             make_hourly_load(),
         )
         selector.ensure_fitted(pd.Timestamp("2024-04-01"))
         retrieval = selector.retrieval(selector.select([D]))
-        assert np.isnan(retrieval.df.iloc[0]["lag_364_load_difference"])
+        assert np.isnan(retrieval.df.iloc[0]["lag_7_load_difference"])
 
     def test_days_without_a_known_load_are_left_out(self):
         # A forecast day after the hourly load ends: selectable, not checkable.
@@ -849,7 +1229,7 @@ class TestRetrievalMetrics:
                 "reference_date": pd.to_datetime(["2023-04-12", "2023-04-13", "2023-04-14"]),
                 "distance": [1.0, 1.0, 1.0],
                 "selected_load_difference": [0.02, 0.05, 0.03],
-                "lag_364_load_difference": [0.04, 0.04, np.nan],
+                "lag_7_load_difference": [0.04, 0.04, np.nan],
                 "oracle_date": pd.to_datetime(["2023-04-12", "2023-04-20", "2023-04-14"]),
                 "oracle_load_difference": [0.02, 0.01, 0.03],
                 "selected_rank_by_outcome": np.array([1, 5, 1], dtype="int64"),
@@ -858,9 +1238,9 @@ class TestRetrievalMetrics:
         metrics = retrieval_metrics(SimilarDayRetrieval.from_df(df))
         assert metrics == {
             "similar_day_load_difference_selected": pytest.approx(0.1 / 3),
-            "similar_day_load_difference_lag_364": pytest.approx(0.04),
+            "similar_day_load_difference_lag_7": pytest.approx(0.04),
             "similar_day_load_difference_oracle": pytest.approx(0.02),
-            "similar_day_share_better_than_lag_364": pytest.approx(0.5),
+            "similar_day_share_better_than_lag_7": pytest.approx(0.5),
         }
 
 
