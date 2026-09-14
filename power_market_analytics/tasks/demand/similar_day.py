@@ -1,11 +1,14 @@
 """Learned similar-day reference load for the demand task (R-004 E-002).
 
-For a delivery day D the selector scores every day in a window one year back
-(D − 364 ± 30) by a weighted distance over seven parts — calendar days from
-D − 364, the 24-hour RMSE of D's MSM forecast against the candidate's
-observation for temperature, humidity and rain, and the absolute differences
-of three ``dim_date`` holiday attributes — and picks the nearest. The weights
-are fitted on past pairs (Park, Song and Kwon 2020, §2.2). Since the feature
+For a delivery day D the selector scores every day of the paper's pool (Park,
+Song and Kwon 2020, §3) — the 30 recent days D − 2 … D − 31 and the 60 days
+D − 335 … D − 394 one year back, ranked together — by a weighted distance over
+seven parts: the lag in days, the 24-hour RMSE of D's MSM forecast against the
+candidate's observation for temperature, humidity and rain, and the absolute
+differences of three ``dim_date`` holiday attributes. A candidate counts only
+if it is not a ``dim_date.is_holiday`` day and its whole day's load was public
+by D's issue time (09:30 on D − 1). The weights are fitted on past pairs that
+follow the same rules, with no special day as target (§2.2). Since the feature
 catalogue's PR 7 ``scripts/fit_similar_day.py`` walks forward through history,
 refitting every few days on the targets of the 730 days before each step (the
 LightGBM strategies' training window) and scoring the days that follow with
@@ -14,7 +17,8 @@ writes the chosen day's でんき予報 hourly load, halved per period, to
 ``pma_ml.similar_day`` as the feature ``similar_day_demand_kwh``. This module
 holds the fit, the selection and the retrieval check. Design:
 docs/superpowers/specs/2026-09-05-demand-similar-day-reference-design.md;
-the job: docs/superpowers/specs/2026-09-10-feature-catalogue-design.md §5.
+the job: docs/superpowers/specs/2026-09-10-feature-catalogue-design.md §5;
+the pool: docs/superpowers/specs/2026-09-14-similar-day-top-k-design.md.
 """
 
 from __future__ import annotations
@@ -29,6 +33,7 @@ from scipy.optimize import least_squares
 
 from power_market_analytics.common.frames import DomainFrame
 from power_market_analytics.forecasting.lgbm import DEFAULT_TRAIN_WINDOW_DAYS
+from power_market_analytics.tasks.demand import TASK
 from power_market_analytics.tasks.demand.frames import (
     AreaHourlyLoad,
     AreaObservedWeather,
@@ -36,8 +41,85 @@ from power_market_analytics.tasks.demand.frames import (
     DayCalendar,
 )
 
-SIMILAR_DAY_CENTER_LAG_DAYS = 364
-SIMILAR_DAY_WINDOW_HALF_WIDTH_DAYS = 30
+
+@dataclasses.dataclass(frozen=True)
+class SimilarDayPool:
+    """The candidate days of a delivery day, as inclusive windows of lags in days.
+
+    Attributes
+    ----------
+    windows : tuple of (int, int)
+        ``(newest, oldest)`` lag pairs, ascending and not overlapping.
+
+    Raises
+    ------
+    ValueError
+        If there is no window, a window's newest lag is below 1 or above its
+        oldest, or the windows are not ascending and apart.
+    """
+
+    windows: tuple[tuple[int, int], ...]
+
+    def __post_init__(self) -> None:
+        if not self.windows:
+            raise ValueError("similar-day pool must hold at least one window")
+        previous_oldest = 0
+        for newest, oldest in self.windows:
+            if newest < 1 or newest > oldest:
+                raise ValueError(
+                    f"similar-day pool window {(newest, oldest)} must satisfy 1 <= newest <= oldest"
+                )
+            if newest <= previous_oldest:
+                raise ValueError(
+                    f"similar-day pool windows {self.windows} must be ascending and not overlap"
+                )
+            previous_oldest = oldest
+
+    @property
+    def lags(self) -> np.ndarray:
+        """Every lag of the pool in days, ascending.
+
+        Returns
+        -------
+        numpy.ndarray
+            int64.
+        """
+        return np.concatenate(
+            [np.arange(newest, oldest + 1, dtype="int64") for newest, oldest in self.windows]
+        )
+
+    @property
+    def year_ago(self) -> tuple[int, int]:
+        """The oldest window: where a special day's same-holiday reference must lie.
+
+        Returns
+        -------
+        tuple of (int, int)
+        """
+        return self.windows[-1]
+
+    def as_param(self) -> str:
+        """The pool as an MLflow param, e.g. ``2-31,335-394``.
+
+        Returns
+        -------
+        str
+        """
+        return ",".join(f"{newest}-{oldest}" for newest, oldest in self.windows)
+
+
+#: The paper's pool (Park, Song and Kwon 2020, §3): the 30 recent days a 09:30 D-1
+#: issue time can see, and 60 days one year back with D - 364, the same weekday, the
+#: 30th from the newest.
+SIMILAR_DAY_POOL = SimilarDayPool(((2, 31), (335, 394)))
+#: How many nearest days become features (the paper uses 3).
+SIMILAR_DAY_TOP_K = 3
+#: The retrieval check's plain reference: the same weekday one week back (the paper's
+#: previous-week model).
+SIMILAR_DAY_BASELINE_LAG_DAYS = 7
+#: The lag the ``lag_364_*`` selection and retrieval columns still read, until they
+#: move to ``SIMILAR_DAY_BASELINE_LAG_DAYS``.
+_SAME_WEEKDAY_YEAR_AGO_LAG_DAYS = 364
 #: Days of target days before its cutoff a fit sees: the LightGBM strategies'
 #: training window, so the feature and the model rest on the same span of history.
 SIMILAR_DAY_FIT_WINDOW_DAYS = DEFAULT_TRAIN_WINDOW_DAYS
@@ -85,8 +167,8 @@ def _check_reference_precedes(name: str, df: pd.DataFrame, column: str) -> None:
 class DayPairDifferences(DomainFrame):
     """The seven distance parts of (target day, candidate day) pairs.
 
-    Every part is non-negative: calendar days from the window's centre, the
-    24-hour RMSE of the target's forecast against the candidate's observation
+    Every part is non-negative: the lag in days (the paper's days between the
+    dates), the 24-hour RMSE of the target's forecast against the candidate's observation
     for temperature (°C), humidity (%) and rain (mm/h), and the absolute
     differences of the days since and until a named holiday and of the holiday
     degree. The candidate always precedes the target.
@@ -133,8 +215,8 @@ class SimilarDaySelection(DomainFrame):
     ``reference_lag_days`` = ``trade_date − reference_date`` in days, always
     positive: a reference day lies strictly in the past (the frame rejects
     the delivery day itself or a later day, whatever produced the row; the
-    selector's own rows come from its window only). ``n_candidates`` is the
-    window days that could be scored; ``lag_364_rank`` the distance rank
+    selector's own rows come from its pool only). ``n_candidates`` is the
+    pool days that could be scored; ``lag_364_rank`` the distance rank
     (1 = nearest) of the plain same-weekday day one year back, NaN when it
     was not a candidate.
 
@@ -422,19 +504,27 @@ class SimilarDaySelector:
         The candidate side: population-weighted observations by day.
     hourly_load : AreaHourlyLoad
         The でんき予報 hourly load (candidates' loads; targets' too once known).
-    center_lag_days : int, optional
-        Window centre, the same weekday one year back.
-    half_width_days : int, optional
-        Window half width in days.
+    pool : SimilarDayPool, optional
+        The lags a delivery day's candidates may lie at.
     fit_window_days : int, optional
         How many days of target days before its cutoff a fit sees.
+
+    Attributes
+    ----------
+    calendar : DayCalendar
+        The calendar the selector was built on.
+    pool : SimilarDayPool
+    fit_window_days : int
+    first_candidate_day : pandas.Timestamp
+        The earliest day with an observed profile, a load profile and a calendar row.
+    hourly_load_span : tuple of pandas.Timestamp
+        The first and last day with a complete load profile.
 
     Raises
     ------
     ValueError
-        If the window is empty or reaches the target day, the fit window is
-        shorter than a day, or no day has an observed profile, a load profile
-        and a calendar row.
+        If the fit window is shorter than a day, or no day has an observed
+        profile, a load profile and a calendar row.
     """
 
     def __init__(
@@ -444,20 +534,18 @@ class SimilarDaySelector:
         weather_observed: AreaObservedWeather,
         hourly_load: AreaHourlyLoad,
         *,
-        center_lag_days: int = SIMILAR_DAY_CENTER_LAG_DAYS,
-        half_width_days: int = SIMILAR_DAY_WINDOW_HALF_WIDTH_DAYS,
+        pool: SimilarDayPool = SIMILAR_DAY_POOL,
         fit_window_days: int = SIMILAR_DAY_FIT_WINDOW_DAYS,
     ) -> None:
-        if half_width_days < 0 or center_lag_days - half_width_days < 1:
-            raise ValueError(
-                f"window {center_lag_days} ± {half_width_days} days must lie strictly in the past"
-            )
         if fit_window_days < 1:
             raise ValueError(f"fit window must be at least one day, got {fit_window_days}")
-        self.center_lag_days = center_lag_days
-        self.half_width_days = half_width_days
+        self.calendar = calendar
+        self.pool = pool
         self.fit_window_days = fit_window_days
         self._calendar = calendar.df.set_index("trade_date").sort_index()
+        self._holidays = pd.DatetimeIndex(
+            self._calendar.index[self._calendar["is_holiday"].to_numpy()]
+        )
         self._forecast = _complete_profiles(
             weather_forecast.df, "trade_date", {name: col for name, col, _ in _WEATHER_MEASURES}
         )
@@ -484,25 +572,26 @@ class SimilarDaySelector:
             self._load.days[-1],
         )
         logger.info(
-            "SimilarDaySelector: {} candidate days ({}..{}), {} forecast days, window {} ± {}, "
+            "SimilarDaySelector: {} candidate days ({}..{}), {} forecast days, pool {}, "
             "fit window {} days",
             len(self._candidates),
             self.first_candidate_day.date(),
             self._candidates[-1].date(),
             len(self._forecast.days),
-            center_lag_days,
-            half_width_days,
+            pool.as_param(),
             fit_window_days,
         )
 
     @property
     def lags(self) -> np.ndarray:
-        """The window's lags in days, ascending."""
-        return np.arange(
-            self.center_lag_days - self.half_width_days,
-            self.center_lag_days + self.half_width_days + 1,
-            dtype="int64",
-        )
+        """The pool's lags in days, ascending.
+
+        Returns
+        -------
+        numpy.ndarray
+            int64.
+        """
+        return self.pool.lags
 
     @property
     def first_scorable_day(self) -> pd.Timestamp | None:
@@ -513,8 +602,8 @@ class SimilarDaySelector:
     def scorable_days(self, days: Iterable[pd.Timestamp]) -> pd.DatetimeIndex:
         """The delivery days among ``days`` that can be scored.
 
-        A day needs a complete forecast profile, a calendar row, and a window
-        that starts on or after the first candidate day.
+        A day needs a complete forecast profile, a calendar row, and a pool
+        whose oldest lag lies on or after the first candidate day.
 
         Parameters
         ----------
@@ -526,16 +615,30 @@ class SimilarDaySelector:
             Unique, sorted.
         """
         index = pd.DatetimeIndex(pd.to_datetime(list(days))).unique().sort_values()
-        earliest_window_start = index - pd.Timedelta(days=int(self.lags.max()))
+        oldest_candidate = index - pd.Timedelta(days=int(self.lags.max()))
         ok = (
             index.isin(self._forecast.days)
             & index.isin(self._calendar.index)
-            & (earliest_window_start >= self.first_candidate_day)
+            & (oldest_candidate >= self.first_candidate_day)
         )
         return index[ok]
 
     def _pairs(self, targets: pd.DatetimeIndex) -> pd.DataFrame:
-        """Every (target, candidate) pair inside the window, with the lag in days."""
+        """Every (target, candidate) pair of the pool, with the lag in days.
+
+        A candidate counts when it has an observed profile, a load profile and a
+        calendar row, is not a special day (``dim_date.is_holiday``), and its whole
+        day's load was public by the target's issue time.
+
+        Parameters
+        ----------
+        targets : pandas.DatetimeIndex
+
+        Returns
+        -------
+        pandas.DataFrame
+            ``target_date``, ``lag_days``, ``candidate_date``.
+        """
         lags = self.lags
         pairs = pd.DataFrame(
             {
@@ -546,10 +649,19 @@ class SimilarDaySelector:
         pairs["candidate_date"] = pairs["target_date"] - pd.to_timedelta(
             pairs["lag_days"], unit="D"
         )
-        return pairs[pairs["candidate_date"].isin(self._candidates)].reset_index(drop=True)
+        pairs = pairs[
+            pairs["candidate_date"].isin(self._candidates)
+            & ~pairs["candidate_date"].isin(self._holidays)
+        ]
+        public_at = pairs["candidate_date"].map(self._load_available_at)
+        issued = pairs["target_date"] + TASK.issue_offset
+        return pairs[(public_at <= issued).to_numpy()].reset_index(drop=True)
 
     def differences(self, days: Iterable[pd.Timestamp]) -> DayPairDifferences:
-        """The seven parts for every window pair of the scorable days among ``days``.
+        """The seven parts for every pool pair of the scorable days among ``days``.
+
+        The pairs follow the pool's rules (see ``_pairs``); the calendar part is
+        the lag in days.
 
         Parameters
         ----------
@@ -564,9 +676,7 @@ class SimilarDaySelector:
         t_pos = self._forecast.days.get_indexer(pd.DatetimeIndex(pairs["target_date"]))
         c_pos = self._observed.days.get_indexer(pd.DatetimeIndex(pairs["candidate_date"]))
         parts: dict[str, np.ndarray] = {
-            "calendar_days": np.abs(pairs["lag_days"].to_numpy() - self.center_lag_days).astype(
-                "float64"
-            )
+            "calendar_days": pairs["lag_days"].to_numpy(dtype="float64")
         }
         for name, _, _ in _WEATHER_MEASURES:
             gap = self._forecast.values[name][t_pos] - self._observed.values[name][c_pos]
@@ -583,12 +693,13 @@ class SimilarDaySelector:
         return DayPairDifferences.from_df(out[list(DayPairDifferences.schema)])
 
     def _all_training_pairs(self) -> pd.DataFrame:
-        """Every window pair of every scorable forecast day whose own load is known,
-        with the realised load difference and ``available_at``, when the target's
-        load was public; computed once, as a walk-forward job fits on a slice
-        of it every few days."""
+        """Every pool pair of every scorable forecast day that is not a special day
+        and whose own load is known, with the realised load difference and
+        ``available_at``, when the target's load was public; computed once, as a
+        walk-forward job fits on a slice of it every few days."""
         if self._pairs_cache is None:
             targets = self._forecast.days[self._forecast.days.isin(self._load.days)]
+            targets = targets[~targets.isin(self._holidays)]
             diffs = self.differences(targets).df
             loads = self._load.values["load"]
             realised = load_difference(
@@ -608,8 +719,10 @@ class SimilarDaySelector:
 
     def training_pairs(self, available_by: pd.Timestamp) -> SimilarDayTrainingPairs:
         """The pairs a fit run at ``available_by`` may see, with the realised load
-        difference: every window pair whose target day lies in the ``fit_window_days``
-        days before the cutoff's day and whose own load was public by ``available_by``.
+        difference: every pool pair whose target day is not a special day, lies in
+        the ``fit_window_days`` days before the cutoff's day and had its own load
+        public by ``available_by``. Its candidate follows the pool's rules: not a
+        special day, and its load public by the target's issue time.
 
         Parameters
         ----------
@@ -710,7 +823,7 @@ class SimilarDaySelector:
         return self._weights
 
     def as_params(self) -> dict[str, object]:
-        """The window, the parts, the fitted weights and the data's span as MLflow run params.
+        """The pool, the parts, the fitted weights and the data's span as MLflow run params.
 
         Returns
         -------
@@ -724,8 +837,7 @@ class SimilarDaySelector:
         first = self.first_scorable_day
         start, end = self.hourly_load_span
         return {
-            "similar_day_center_lag_days": self.center_lag_days,
-            "similar_day_window_half_width_days": self.half_width_days,
+            "similar_day_pool": self.pool.as_param(),
             "similar_day_fit_window_days": self.fit_window_days,
             "similar_day_components": ",".join(SIMILAR_DAY_COMPONENTS),
             **self.weights.as_params(),
@@ -735,17 +847,15 @@ class SimilarDaySelector:
         }
 
     def _scored(self, days: Iterable[pd.Timestamp]) -> pd.DataFrame:
-        """Window pairs with their distance, lag and gap from the window's centre."""
+        """Pool pairs with their distance and lag in days."""
         diffs = self.differences(days)
         df = diffs.df.assign(distance=self.weights.distance(diffs))
-        lag = (df["target_date"] - df["candidate_date"]).dt.days
-        return df.assign(lag_days=lag, centre_gap=(lag - self.center_lag_days).abs())
+        return df.assign(lag_days=(df["target_date"] - df["candidate_date"]).dt.days)
 
     def select(self, days: Iterable[pd.Timestamp]) -> SimilarDaySelection:
-        """Pick the nearest window day for every scorable day among ``days``.
+        """Pick the nearest pool day for every scorable day among ``days``.
 
-        Ties go to the candidate nearest the window's centre, then the earlier
-        date.
+        Ties go to the smaller lag.
 
         Parameters
         ----------
@@ -765,15 +875,15 @@ class SimilarDaySelector:
         if scored.empty:
             return SimilarDaySelection.from_df(_empty(SimilarDaySelection))
         best = (
-            scored.sort_values(["target_date", "distance", "centre_gap", "candidate_date"])
+            scored.sort_values(["target_date", "distance", "lag_days"], kind="mergesort")
             .groupby("target_date", sort=True)
             .head(1)
             .set_index("target_date")
         )
         ranks = scored.assign(rank=scored.groupby("target_date")["distance"].rank(method="min"))
-        at_centre = ranks[ranks["lag_days"] == self.center_lag_days].set_index("target_date")[
-            "rank"
-        ]
+        at_centre = ranks[ranks["lag_days"] == _SAME_WEEKDAY_YEAR_AGO_LAG_DAYS].set_index(
+            "target_date"
+        )["rank"]
         counts = scored.groupby("target_date").size()
         out = pd.DataFrame(
             {
@@ -823,9 +933,9 @@ class SimilarDaySelector:
             on=["target_date", "candidate_date"],
             validate="one_to_one",
         ).set_index("target_date")
-        at_centre = scored[scored["lag_days"] == self.center_lag_days].set_index("target_date")[
-            "load_difference"
-        ]
+        at_centre = scored[scored["lag_days"] == _SAME_WEEKDAY_YEAR_AGO_LAG_DAYS].set_index(
+            "target_date"
+        )["load_difference"]
         oracle = (
             scored.sort_values(["target_date", "load_difference", "candidate_date"])
             .groupby("target_date", sort=True)
