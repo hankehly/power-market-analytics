@@ -20,8 +20,9 @@ days (``dim_date.is_holiday``) and without a day whose load was not public by
 the issue time. The three nearest days' hourly loads, halved per period, and
 their inverse-distance weighted mean are written to ``pma_ml.similar_day``
 (``tasks/demand/similar_day_feature.py``). A special day whose same holiday
-last year lies in the pool's year-ago window takes that day instead: rank 1
-and the mean carry its load. The pool has no flags. The
+last year lies in the pool's year-ago window, with that day's load public by
+the issue time, takes that day instead: rank 1 and the mean carry its load.
+The pool has no flags. The
 ``ftr_period_similar_day`` mart passes the rows to Feast after ``dbt build``;
 the similar-day presets read rank 1. A re-run's rows win by ``published_at``
 wherever they share ``available_at``.
@@ -30,7 +31,8 @@ The run logs, to the MLflow experiment ``similar_day``: every fit's weights
 (``similar_day_fits.csv``); rank 1 of every ranked day
 (``similar_day_selection.csv``); every ranked day's ranks with their weights
 (``similar_day_ranking.csv``); every special day with last year's day of its
-name and whether it took that day (``similar_day_special_days.csv``); the
+name, whether it took that day and how it was published — empty when it was
+neither ranked nor took that day (``similar_day_special_days.csv``); the
 retrieval check of every ranked day whose load is known, against D-7 and the
 oracle (``similar_day_retrieval.csv``); and the four ``similar_day_*``
 metrics over those days.
@@ -40,7 +42,6 @@ import argparse
 import math
 
 import mlflow
-import numpy as np
 import pandas as pd
 from loguru import logger
 
@@ -125,6 +126,9 @@ def main(argv: list[str] | None = None) -> None:
         mlflow.set_tag("feature_table", FEATURE_TABLE)
         selection = scoring.selection
         special = scoring.special_days.df
+        n_same_holiday = len(scoring.special_days.same_holiday_days)
+        # A special day is ranked only when its pool had a candidate.
+        special_ranked = special["trade_date"].isin(selection.df["trade_date"])
         # Every published day: the ranked days and the same-holiday days.
         published_days = pd.DatetimeIndex(records.df["trade_date"].unique()).sort_values()
         mlflow.log_params(
@@ -139,8 +143,8 @@ def main(argv: list[str] | None = None) -> None:
                 "first_day_scored": str(published_days[0].date()),
                 "last_day_scored": str(published_days[-1].date()),
                 "n_days_ranked": len(selection),
-                "n_special_days_ranked": int((~special["takes_reference"]).sum()),
-                "n_days_same_holiday": int(special["takes_reference"].sum()),
+                "n_special_days_ranked": int(special_ranked.sum()),
+                "n_days_same_holiday": n_same_holiday,
                 "similar_day_top_k": SIMILAR_DAY_TOP_K,
                 "population_weight_census_year": weather.census_year,
                 "n_stations": weather.n_stations,
@@ -154,14 +158,13 @@ def main(argv: list[str] | None = None) -> None:
             "similar_day_selection.csv",
         )
         log_dataframe(scoring.ranking.with_weights(), "similar_day_ranking.csv")
-        log_dataframe(
-            special.assign(
-                similar_day_method=np.where(
-                    special["takes_reference"], METHOD_SAME_HOLIDAY, METHOD_SIMILARITY
-                )
-            ),
-            "similar_day_special_days.csv",
+        # Null when a special day was neither ranked nor took its reference.
+        method = (
+            pd.Series(None, index=special.index, dtype="object")
+            .mask(special_ranked, METHOD_SIMILARITY)
+            .mask(special["takes_reference"], METHOD_SAME_HOLIDAY)
         )
+        log_dataframe(special.assign(similar_day_method=method), "similar_day_special_days.csv")
         # The outcomes do not depend on the weights; the distances are the last fit's.
         retrieval = selector.retrieval(selection)
         log_dataframe(retrieval.df, "similar_day_retrieval.csv")
@@ -185,7 +188,7 @@ def main(argv: list[str] | None = None) -> None:
         scoring.fits["fit_cutoff"].iloc[-1],
         len(published_days),
         len(selection),
-        int(special["takes_reference"].sum()),
+        n_same_holiday,
         len(records),
         published_days[0].date(),
         published_days[-1].date(),
