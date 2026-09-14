@@ -337,6 +337,7 @@ class SimilarDayRanking(DomainFrame):
         name = cls.__name__
         _check_reference_precedes(name, df, "reference_date")
         _check_reference_lag(name, df)
+        _check_non_negative(name, df, ["distance"])
         ordered = df.sort_values(["trade_date", "rank"])
         by_day = ordered.groupby("trade_date", sort=False)
         if (ordered["rank"] != by_day.cumcount() + 1).any():
@@ -1073,6 +1074,28 @@ class SimilarDaySelector:
             "similar_day_periods_per_hour": PERIODS_PER_HOUR,
         }
 
+    def _scored(self, days: Iterable[pd.Timestamp]) -> pd.DataFrame:
+        """Pool pairs with their distance and lag, unranked.
+
+        Parameters
+        ----------
+        days : iterable of pandas.Timestamp
+
+        Returns
+        -------
+        pandas.DataFrame
+            ``target_date``, ``candidate_date``, the seven parts, ``distance`` and
+            ``lag_days``, sorted by day and candidate.
+
+        Raises
+        ------
+        RuntimeError
+            Before any fit.
+        """
+        diffs = self.differences(days)
+        df = diffs.df.assign(distance=self.weights.distance(diffs))
+        return df.assign(lag_days=(df["target_date"] - df["candidate_date"]).dt.days)
+
     def _ranked(self, days: Iterable[pd.Timestamp]) -> pd.DataFrame:
         """Pool pairs with their distance, lag and rank, nearest first per day.
 
@@ -1093,9 +1116,7 @@ class SimilarDaySelector:
         RuntimeError
             Before any fit.
         """
-        diffs = self.differences(days)
-        df = diffs.df.assign(distance=self.weights.distance(diffs))
-        df = df.assign(lag_days=(df["target_date"] - df["candidate_date"]).dt.days)
+        df = self._scored(days)
         # (target_date, lag_days) is unique, so this three-key sort is a total order.
         df = df.sort_values(["target_date", "distance", "lag_days"], ignore_index=True)
         return df.assign(rank=df.groupby("target_date").cumcount() + 1)
@@ -1225,7 +1246,7 @@ class SimilarDaySelector:
             Empty when no selected day has a known load yet.
         """
         known = selection.df[selection.df["trade_date"].isin(self._load.days)]
-        scored = self._ranked(known["trade_date"]) if not known.empty else pd.DataFrame()
+        scored = self._scored(known["trade_date"]) if not known.empty else pd.DataFrame()
         if scored.empty:
             return SimilarDayRetrieval.from_df(_empty(SimilarDayRetrieval))
         loads = self._load.values["load"]

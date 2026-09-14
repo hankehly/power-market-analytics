@@ -508,6 +508,7 @@ class TestPairFrames:
             ),
             ({"rank": np.array([1, 2, 4], dtype="int64")}, "rank must run 1"),
             ({"distance": [0.5, 2.0, 1.0]}, "distance must not decrease by rank"),
+            ({"distance": [-0.5, 1.0, 2.0]}, "distance must be >= 0"),
             (
                 {
                     "reference_date": [
@@ -520,7 +521,14 @@ class TestPairFrames:
                 "a reference day repeats within a day",
             ),
         ],
-        ids=["reference-on-the-day", "lag", "ranks-with-a-gap", "decreasing-distance", "repeat"],
+        ids=[
+            "reference-on-the-day",
+            "lag",
+            "ranks-with-a-gap",
+            "decreasing-distance",
+            "negative-distance",
+            "repeat",
+        ],
     )
     def test_ranking_rejects_a_bad_row(self, overrides, message):
         with pytest.raises(ValueError, match=message):
@@ -1107,7 +1115,11 @@ class TestSelect:
         ranking = selector.rank([D]).df
         assert ranking["reference_lag_days"].tolist() == [2, 5, 6]
         assert ranking["distance"].tolist() == [0.0, 0.0, 0.0]
-        assert selector.select([D]).df.iloc[0]["reference_date"] == D - pd.Timedelta(days=2)
+        selected = selector.select([D]).df.iloc[0]
+        assert selected["reference_date"] == D - pd.Timedelta(days=2)
+        # D - 7 (04-03, a Wednesday) is at distance 0 too: tied days share the smallest
+        # rank, 1, not the tie-broken 4 it would take after lags 2, 5 and 6.
+        assert selected["lag_7_rank"] == 1.0
 
     def test_lag_7_rank_is_nan_when_d_minus_7_is_not_a_candidate(self):
         without_lag_7 = SimilarDaySelector(
