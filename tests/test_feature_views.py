@@ -61,8 +61,9 @@ def test_sources_select_the_keys_the_features_and_available_at_from_the_mart():
 def test_the_similar_day_source_breaks_ties_on_the_vintages_published_at():
     query = views.FTR_PERIOD_SIMILAR_DAY_SOURCE.query
     assert query.endswith(
-        "time_code, similar_day_demand_kwh, available_at, published_at "
-        "from pma_features.ftr_period_similar_day"
+        "time_code, similar_day_rank1_demand_kwh, similar_day_rank2_demand_kwh, "
+        "similar_day_rank3_demand_kwh, wavg_similar_day_top3_demand_kwh, available_at, "
+        "published_at from pma_features.ftr_period_similar_day"
     )
     assert views.FTR_PERIOD_SIMILAR_DAY_SOURCE.created_timestamp_column == "published_at"
     assert views.FTR_PERIOD_SIMILAR_DAY.entities == [
@@ -70,6 +71,33 @@ def test_the_similar_day_source_breaks_ties_on_the_vintages_published_at():
         TRADE_DATE_KEY.name,
         TIME_CODE.name,
     ]
+
+
+def test_the_similar_day_view_carries_ranks_1_to_3_and_their_weighted_mean():
+    fields = {field.name: field for field in views.FTR_PERIOD_SIMILAR_DAY.features}
+    pool = "power_usage_demand_kwh, gap=(2d, 335d), window=(30, 60)"
+    assert {name: field.tags for name, field in fields.items()} == {
+        **{
+            f"similar_day_rank{rank}_demand_kwh": {
+                "categorical": "false",
+                "expression": f"SIMILAR_DAY({pool}, rank={rank}, holidays=last_year) / 2",
+            }
+            for rank in (1, 2, 3)
+        },
+        "wavg_similar_day_top3_demand_kwh": {
+            "categorical": "false",
+            "expression": (
+                f"SIMILAR_DAY_MEAN({pool}, k=3, weight=inverse_distance, holidays=last_year) / 2"
+            ),
+        },
+    }
+    assert list(fields) == [
+        "similar_day_rank1_demand_kwh",
+        "similar_day_rank2_demand_kwh",
+        "similar_day_rank3_demand_kwh",
+        "wavg_similar_day_top3_demand_kwh",
+    ]
+    assert all(field.dtype == Float64 for field in fields.values())
 
 
 def test_the_actuals_views_carry_the_recent_load_columns():

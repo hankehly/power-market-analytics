@@ -4,25 +4,30 @@ models:
       contract:
         enforced: true
     description: >
-      The load of a learned similar day one year earlier for every delivery period, the demand
-      similar-day feature (research demand/R-004 E-002), as scripts/fit_similar_day.py scored
-      it walking forward and wrote it to pma_ml.similar_day. Every few days the job refits the
-      seven weights of tasks/demand/similar_day.py's distance on the 730 days before that step and
-      scores the days that follow with them: for a delivery day D the nearest day in D - 364 +-
-      30 (days from D - 364, the 24-hour RMSE of D's population-weighted MSM forecast against
-      the candidate's population-weighted observation for temperature, humidity and rain, the
-      differences in days since and until a named holiday and in holiday degree), its hourly
-      load over the hour containing the period halved. No day is scored with weights that saw
-      a load that was not yet public: each fit runs at a cutoff on the pairs of the 730 days
-      before it whose target load was public by then, a day is scored by the latest fit whose
-      cutoff is on or before its issue time, and available_at is the latest of D's MSM forecast
-      vintage's, that cutoff and the
-      chosen day's load availability.
-      The chosen day, its lag, its distance, the candidate count and the fit's cutoff sit next
-      to the feature,
-      untagged. One row per scoring run: the as-of join takes the newest run usable at the
-      issue time, and among rows tied on available_at the newest published wins, so a re-run
-      replaces the feature wherever it scored. Grain: area_code x trade_date x time_code x
+      The demand similar-day features for every delivery period, as scripts/fit_similar_day.py
+      scored them walking forward and wrote them to pma_ml.similar_day. The pool follows Park,
+      Song and Kwon (2020): for a delivery day D, the days D - 2 ... D - 31 and D - 335 ... D -
+      394, without special days (dim_date.is_holiday) and without days whose whole load was not
+      public by D's issue time (09:30 on D-1). Every few days the job refits the seven weights of
+      tasks/demand/similar_day.py's distance on the 730 days before that step and ranks the days
+      that follow with them. The distance has seven parts: the lag in days, the 24-hour RMSE of
+      D's population-weighted MSM forecast against the candidate's population-weighted
+      observation for temperature, humidity and rain, and the differences in days since and
+      until a named holiday and in holiday degree. The three nearest days give four features:
+      their hourly loads over the hour containing the period, halved, and their inverse-distance
+      weighted mean. A special day whose same holiday last year (dim_date.holiday_name_ja) lies
+      335 ... 394 days back, with its load public by the issue time, takes that day instead
+      (similar_day_method same_holiday): rank 1 and the mean carry its load, and ranks 2 and 3,
+      the distances, the candidate count and the fit cutoff are null. Any other special day is
+      ranked like an ordinary day (similarity). No day is ranked with weights that saw a load
+      that was not yet public: each fit runs at a cutoff on the pairs of the 730 days before it
+      whose target load was public by then, and a day is ranked by the latest fit whose cutoff
+      is on or before its issue time. A ranked day's available_at is the latest of D's MSM
+      forecast vintage's, that cutoff and its ranked days' load availability; a same-holiday
+      day's is its reference day's load availability. The reference days, distances, candidate
+      count, fit cutoff and method sit next to the features, untagged. One row per scoring run:
+      the as-of join takes the newest run usable at the issue time, and among rows tied on
+      available_at the newest published wins. Grain: area_code x trade_date x time_code x
       similar_day_run_id.
     data_tests:
       - dbt_utils.unique_combination_of_columns:
@@ -58,54 +63,93 @@ models:
       - name: similar_day_run_id
         data_type: string
         description: >
-          The scoring run: the MLflow run id (experiment similar_day) whose fitted weights chose the day.
+          The scoring run: the MLflow run id (experiment similar_day) that ranked the day or took its same holiday.
         data_tests:
           - not_null
-      - name: similar_day_demand_kwh
+      - name: similar_day_rank1_demand_kwh
         data_type: double
         description: >
-          The chosen similar day's hourly load (fct_area_power_usage_hourly, kWh over the hour containing the period) halved, kWh per 30-minute period.
+          The nearest pool day's hourly load (fct_area_power_usage_hourly, kWh over the hour containing the period) halved, kWh per 30-minute period. On a same-holiday day, the load of last year's same holiday. Never null.
         config:
           meta:
             feature: true
             categorical: false
-            expression: "SIMILAR_DAY(power_usage_demand_kwh, gap=334d, window=61) / 2"
+            expression: "SIMILAR_DAY(power_usage_demand_kwh, gap=(2d, 335d), window=(30, 60), rank=1, holidays=last_year) / 2"
         data_tests:
           - not_null
-      - name: similar_day_reference_date
-        data_type: date
-        description: >
-          The chosen similar day.
-        data_tests:
-          - not_null
-      - name: similar_day_reference_lag_days
-        data_type: int
-        description: >
-          trade_date minus the chosen day, in days (334-394 under the default window).
-        data_tests:
-          - not_null
-      - name: similar_day_distance
+      - name: similar_day_rank2_demand_kwh
         data_type: double
         description: >
-          The chosen day's distance from D under the run's weights.
+          The second nearest pool day's hourly load (fct_area_power_usage_hourly, kWh over the hour containing the period) halved, kWh per 30-minute period. Null on a same-holiday day and when the pool has fewer than two days.
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "SIMILAR_DAY(power_usage_demand_kwh, gap=(2d, 335d), window=(30, 60), rank=2, holidays=last_year) / 2"
+      - name: similar_day_rank3_demand_kwh
+        data_type: double
+        description: >
+          The third nearest pool day's hourly load (fct_area_power_usage_hourly, kWh over the hour containing the period) halved, kWh per 30-minute period. Null on a same-holiday day and when the pool has fewer than three days.
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "SIMILAR_DAY(power_usage_demand_kwh, gap=(2d, 335d), window=(30, 60), rank=3, holidays=last_year) / 2"
+      - name: wavg_similar_day_top3_demand_kwh
+        data_type: double
+        description: >
+          The mean of the three nearest pool days' hourly loads halved, weighted by inverse distance (w_r = (1 / d_r) / sum_s (1 / d_s) over the ranks present, summed in rank order; days at distance 0 share all the weight), kWh per 30-minute period. On a same-holiday day, rank 1's load. Never null.
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "SIMILAR_DAY_MEAN(power_usage_demand_kwh, gap=(2d, 335d), window=(30, 60), k=3, weight=inverse_distance, holidays=last_year) / 2"
         data_tests:
           - not_null
+      - name: similar_day_rank1_reference_date
+        data_type: date
+        description: >
+          Rank 1's day: the nearest pool day, or last year's same holiday on a same-holiday day.
+        data_tests:
+          - not_null
+      - name: similar_day_rank2_reference_date
+        data_type: date
+        description: >
+          Rank 2's day; null where its load is.
+      - name: similar_day_rank3_reference_date
+        data_type: date
+        description: >
+          Rank 3's day; null where its load is.
+      - name: similar_day_rank1_distance
+        data_type: double
+        description: >
+          Rank 1's distance from D under the run's weights; null on a same-holiday day.
+      - name: similar_day_rank2_distance
+        data_type: double
+        description: >
+          Rank 2's distance from D under the run's weights; null where its load is.
+      - name: similar_day_rank3_distance
+        data_type: double
+        description: >
+          Rank 3's distance from D under the run's weights; null where its load is.
       - name: similar_day_n_candidates
         data_type: int
         description: >
-          Window days that could be scored for D.
-        data_tests:
-          - not_null
+          Pool days that could be ranked for D (up to 90); null on a same-holiday day.
       - name: similar_day_fit_cutoff
         data_type: timestamp
         description: >
-          When the fit whose weights chose the day ran, naive JST: on or before D's issue time, and every pair it used was public by then.
+          When the fit whose weights ranked the day ran, naive JST: on or before D's issue time, and every pair it used was public by then. Null on a same-holiday day.
+      - name: similar_day_method
+        data_type: string
+        description: >
+          similarity (the day was ranked) or same_holiday (the day took last year's same holiday).
         data_tests:
           - not_null
       - name: available_at
         data_type: timestamp
         description: >
-          When the row became usable, naive JST: the latest of D's MSM forecast vintage (reference + 4 h, 01:00 on D-1), similar_day_fit_cutoff and the chosen day's load availability.
+          When the row became usable, naive JST, never after D's issue time. On a ranked day, the latest of D's MSM forecast vintage (reference + 4 h, 01:00 on D-1), similar_day_fit_cutoff and the ranked days' load availability; on a same-holiday day, the reference day's load availability.
         data_tests:
           - not_null
       - name: published_at
@@ -118,8 +162,8 @@ models:
 unit_tests:
   - name: ftr_period_similar_day_passes_every_run_through
     description: >
-      Two scoring runs of the same period pass through as two rows, the run id
-      renamed; nothing is computed here.
+      Two scoring runs, each with a ranked day and a same-holiday day, pass
+      through as four rows, the run id renamed; nothing is computed here.
     model: ftr_period_similar_day
     given:
       - input: ref('stg_ml__similar_day')
@@ -127,32 +171,84 @@ unit_tests:
         rows: |
           select
             'score-1' as run_id, 'tokyo' as area_code, date '2025-03-10' as trade_date, 1 as time_code,
-            cast(505000 as double) as similar_day_demand_kwh, date '2024-03-11' as similar_day_reference_date,
-            364 as similar_day_reference_lag_days, cast(0.25 as double) as similar_day_distance,
-            61 as similar_day_n_candidates, timestamp '2025-03-02 00:00:00' as similar_day_fit_cutoff,
+            cast(504000 as double) as similar_day_rank1_demand_kwh,
+            cast(497000 as double) as similar_day_rank2_demand_kwh,
+            cast(511000 as double) as similar_day_rank3_demand_kwh,
+            cast(503000 as double) as wavg_similar_day_top3_demand_kwh,
+            date '2024-03-11' as similar_day_rank1_reference_date,
+            date '2025-03-03' as similar_day_rank2_reference_date,
+            date '2024-03-04' as similar_day_rank3_reference_date,
+            cast(0.25 as double) as similar_day_rank1_distance,
+            cast(0.5 as double) as similar_day_rank2_distance,
+            cast(1.0 as double) as similar_day_rank3_distance,
+            87 as similar_day_n_candidates, timestamp '2025-03-02 00:00:00' as similar_day_fit_cutoff,
+            'similarity' as similar_day_method,
             timestamp '2025-03-09 01:00:00' as available_at,
             timestamp '2025-01-02 10:00:00' as published_at
           union all
           select
+            'score-1', 'tokyo', date '2025-03-20', 1,
+            cast(410000 as double), cast(null as double), cast(null as double), cast(410000 as double),
+            date '2024-03-20', cast(null as date), cast(null as date),
+            cast(null as double), cast(null as double), cast(null as double),
+            cast(null as int), cast(null as timestamp), 'same_holiday',
+            timestamp '2024-03-21 00:05:00', timestamp '2025-01-02 10:00:00'
+          union all
+          select
             'score-2', 'tokyo', date '2025-03-10', 1,
-            cast(1005000 as double), date '2024-03-12',
-            363, cast(0.5 as double),
-            61, timestamp '2025-03-09 00:00:00', timestamp '2025-03-09 01:00:00',
-            timestamp '2025-06-02 10:00:00'
+            cast(1008000 as double), cast(994000 as double), cast(1022000 as double), cast(1006000 as double),
+            date '2024-03-12', date '2025-03-04', date '2024-03-05',
+            cast(0.5 as double), cast(1.0 as double), cast(2.0 as double),
+            86, timestamp '2025-03-09 00:00:00', 'similarity',
+            timestamp '2025-03-09 01:00:00', timestamp '2025-06-02 10:00:00'
+          union all
+          select
+            'score-2', 'tokyo', date '2025-03-20', 1,
+            cast(420000 as double), cast(null as double), cast(null as double), cast(420000 as double),
+            date '2024-03-20', cast(null as date), cast(null as date),
+            cast(null as double), cast(null as double), cast(null as double),
+            cast(null as int), cast(null as timestamp), 'same_holiday',
+            timestamp '2024-03-21 00:05:00', timestamp '2025-06-02 10:00:00'
     expect:
       format: sql
       rows: |
         select
           'tokyo' as area_code, date '2025-03-10' as trade_date, 1 as time_code, 'score-1' as similar_day_run_id,
-          cast(505000 as double) as similar_day_demand_kwh, date '2024-03-11' as similar_day_reference_date,
-          364 as similar_day_reference_lag_days, cast(0.25 as double) as similar_day_distance,
-          61 as similar_day_n_candidates, timestamp '2025-03-02 00:00:00' as similar_day_fit_cutoff,
-            timestamp '2025-03-09 01:00:00' as available_at,
+          cast(504000 as double) as similar_day_rank1_demand_kwh,
+          cast(497000 as double) as similar_day_rank2_demand_kwh,
+          cast(511000 as double) as similar_day_rank3_demand_kwh,
+          cast(503000 as double) as wavg_similar_day_top3_demand_kwh,
+          date '2024-03-11' as similar_day_rank1_reference_date,
+          date '2025-03-03' as similar_day_rank2_reference_date,
+          date '2024-03-04' as similar_day_rank3_reference_date,
+          cast(0.25 as double) as similar_day_rank1_distance,
+          cast(0.5 as double) as similar_day_rank2_distance,
+          cast(1.0 as double) as similar_day_rank3_distance,
+          87 as similar_day_n_candidates, timestamp '2025-03-02 00:00:00' as similar_day_fit_cutoff,
+          'similarity' as similar_day_method,
+          timestamp '2025-03-09 01:00:00' as available_at,
           timestamp '2025-01-02 10:00:00' as published_at
         union all
         select
+          'tokyo', date '2025-03-20', 1, 'score-1',
+          cast(410000 as double), cast(null as double), cast(null as double), cast(410000 as double),
+          date '2024-03-20', cast(null as date), cast(null as date),
+          cast(null as double), cast(null as double), cast(null as double),
+          cast(null as int), cast(null as timestamp), 'same_holiday',
+          timestamp '2024-03-21 00:05:00', timestamp '2025-01-02 10:00:00'
+        union all
+        select
           'tokyo', date '2025-03-10', 1, 'score-2',
-          cast(1005000 as double), date '2024-03-12',
-          363, cast(0.5 as double),
-          61, timestamp '2025-03-09 00:00:00', timestamp '2025-03-09 01:00:00',
-          timestamp '2025-06-02 10:00:00'
+          cast(1008000 as double), cast(994000 as double), cast(1022000 as double), cast(1006000 as double),
+          date '2024-03-12', date '2025-03-04', date '2024-03-05',
+          cast(0.5 as double), cast(1.0 as double), cast(2.0 as double),
+          86, timestamp '2025-03-09 00:00:00', 'similarity',
+          timestamp '2025-03-09 01:00:00', timestamp '2025-06-02 10:00:00'
+        union all
+        select
+          'tokyo', date '2025-03-20', 1, 'score-2',
+          cast(420000 as double), cast(null as double), cast(null as double), cast(420000 as double),
+          date '2024-03-20', cast(null as date), cast(null as date),
+          cast(null as double), cast(null as double), cast(null as double),
+          cast(null as int), cast(null as timestamp), 'same_holiday',
+          timestamp '2024-03-21 00:05:00', timestamp '2025-06-02 10:00:00'

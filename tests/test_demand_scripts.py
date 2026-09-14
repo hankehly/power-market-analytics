@@ -365,7 +365,7 @@ class TestBacktestScript:
             def diagnostics(history, run):
                 seen["history_rows"] = len(history)
                 seen["run"] = run
-                mlflow.log_metric("similar_day_share_better_than_lag_364", 0.75)
+                mlflow.log_metric("similar_day_share_better_than_lag_7", 0.75)
                 return {
                     "similar_day_selection": pd.DataFrame(
                         {"trade_date": ["2024-04-10"], "reference_date": ["2023-04-12"]}
@@ -382,7 +382,7 @@ class TestBacktestScript:
         run = last_run()
         assert seen["history_rows"] == len(curated_warehouse.demand.dropna(subset=["demand_kwh"]))
         assert seen["run"].result.df["trade_date"].tolist() == [pd.Timestamp("2024-04-10")] * 48
-        assert run.data.metrics["similar_day_share_better_than_lag_364"] == 0.75
+        assert run.data.metrics["similar_day_share_better_than_lag_7"] == 0.75
         assert "similar_day_selection.csv" in artifact_names(run.info.run_id)
         logged = pd.read_csv(
             mlflow.artifacts.download_artifacts(
@@ -589,16 +589,18 @@ class TestBacktestScript:
         params = run.data.params
         assert params["feature_preset"] == "lightgbm_msm_popw_daytype_simday"
         assert params["feature_preset_base"] == "lightgbm_msm_popw_daytype"
-        assert params["feature_refs"].endswith(",ftr_period_similar_day:similar_day_demand_kwh")
+        assert params["feature_refs"].endswith(
+            ",ftr_period_similar_day:similar_day_rank1_demand_kwh"
+        )
         assert params["lgbm_feature_cols"] == (
             "time_code,month,day_of_week,wavg_temperature_c,lag_7d_demand_kwh,"
-            "popw_forecast_temperature_c,day_type,similar_day_demand_kwh"
+            "popw_forecast_temperature_c,day_type,similar_day_rank1_demand_kwh"
         )
         assert params["lgbm_categorical_feature_cols"] == "day_type"
         assert params["n_predictions"] == "96"
         contributions = published_contribution_rows(spark, run.info.run_id)
         assert len(contributions) == 96 * 9  # base + eight features per period
-        similar = contributions[contributions["component"] == "similar_day_demand_kwh"]
+        similar = contributions[contributions["component"] == "similar_day_rank1_demand_kwh"]
         assert similar["component_order"].unique().tolist() == [8]
         first = similar.sort_values(["trade_date", "time_code"]).iloc[0]
         assert first["feature_value"] == similar_day_load(pd.Timestamp("2024-05-10"), 1)

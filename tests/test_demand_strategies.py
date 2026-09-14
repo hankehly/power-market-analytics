@@ -20,8 +20,11 @@ from tests.conftest import (
     SECOND_STATION_FORECAST_OFFSET_C,
     SECOND_STATION_FORECAST_RAIN_OFFSET_MM,
     SECOND_STATION_FORECAST_SOLAR_OFFSET_MJM2,
+    SIMILAR_DAY_SAME_HOLIDAY,
     popw_forecast,
     similar_day_load,
+    similar_day_mean,
+    similar_day_rank_load,
     synthetic_day_type,
     synthetic_demand,
     synthetic_forecast_element,
@@ -39,7 +42,7 @@ SIMDAY_FEATURE_COLS = (
     *BASE_FEATURE_COLS,
     "popw_forecast_temperature_c",
     "day_type",
-    "similar_day_demand_kwh",
+    "similar_day_rank1_demand_kwh",
 )
 
 
@@ -268,11 +271,45 @@ class TestBuildSimilarDayPresets:
         frame = frame_by_period(strategy)
         assert len(frame) == len(days) * 48
         day = FORECAST_MISSING_DAY + pd.Timedelta(days=1)
-        assert frame.loc[(day, 1), "similar_day_demand_kwh"] == similar_day_load(day, 1)
-        assert frame.loc[(day, 48), "similar_day_demand_kwh"] == similar_day_load(day, 48)
+        assert frame.loc[(day, 1), "similar_day_rank1_demand_kwh"] == similar_day_load(day, 1)
+        assert frame.loc[(day, 48), "similar_day_rank1_demand_kwh"] == similar_day_load(day, 48)
         # No forecast, no similar day: the mart has no row for the day.
-        assert frame.loc[FORECAST_MISSING_DAY, "similar_day_demand_kwh"].isna().all()
-        assert frame.loc[day, "similar_day_demand_kwh"].notna().all()
+        assert frame.loc[FORECAST_MISSING_DAY, "similar_day_rank1_demand_kwh"].isna().all()
+        assert frame.loc[day, "similar_day_rank1_demand_kwh"].notna().all()
+
+    def test_the_other_similar_day_features_and_a_same_holiday_day(self, feature_marts):
+        holiday = SIMILAR_DAY_SAME_HOLIDAY
+        ranked = holiday - pd.Timedelta(days=1)
+        others = (
+            "similar_day_rank2_demand_kwh",
+            "similar_day_rank3_demand_kwh",
+            "wavg_similar_day_top3_demand_kwh",
+        )
+        strategy = build_strategy(
+            "lightgbm_msm_popw_daytype_simday",
+            area_code="tokyo",
+            days=pd.date_range(ranked, holiday),
+            add=tuple(f"ftr_period_similar_day:{column}" for column in others),
+            label="simday_top3",
+        )
+        assert strategy.feature_cols == (*SIMDAY_FEATURE_COLS, *others)
+        frame = frame_by_period(strategy)
+        for tc in (1, 48):
+            ranked_row = frame.loc[(ranked, tc)]
+            assert ranked_row["similar_day_rank1_demand_kwh"] == similar_day_load(ranked, tc)
+            assert ranked_row["similar_day_rank2_demand_kwh"] == similar_day_rank_load(
+                ranked, tc, 2
+            )
+            assert ranked_row["similar_day_rank3_demand_kwh"] == similar_day_rank_load(
+                ranked, tc, 3
+            )
+            assert ranked_row["wavg_similar_day_top3_demand_kwh"] == similar_day_mean(ranked, tc)
+            # The same-holiday row, public a year before its day, is served; ranks 2-3 are null.
+            holiday_row = frame.loc[(holiday, tc)]
+            assert holiday_row["similar_day_rank1_demand_kwh"] == similar_day_load(holiday, tc)
+            assert holiday_row["wavg_similar_day_top3_demand_kwh"] == similar_day_load(holiday, tc)
+            assert np.isnan(holiday_row["similar_day_rank2_demand_kwh"])
+            assert np.isnan(holiday_row["similar_day_rank3_demand_kwh"])
 
     @pytest.mark.parametrize(
         ("name", "calendar_cols"),
@@ -317,7 +354,9 @@ class TestBuildSimilarDayPresets:
         assert strategy.feature_cols == (*SIMDAY_FEATURE_COLS, *calendar_cols)
         assert strategy.categorical_feature_cols == ("day_type",)
         row = frame_by_period(strategy).loc[(pd.Timestamp("2024-04-05"), 1)]
-        assert row["similar_day_demand_kwh"] == similar_day_load(pd.Timestamp("2024-04-05"), 1)
+        assert row["similar_day_rank1_demand_kwh"] == similar_day_load(
+            pd.Timestamp("2024-04-05"), 1
+        )
         if "holiday_degree" in calendar_cols:
             assert row["holiday_degree"] == 0.0
         if "day_of_month" in calendar_cols:
@@ -385,7 +424,7 @@ class TestBuildSimilarDayPresets:
             "lag_7d_demand_kwh",
             "popw_forecast_temperature_c",
             "day_type",
-            "similar_day_demand_kwh",
+            "similar_day_rank1_demand_kwh",
             "half",
         )
         assert strategy.categorical_feature_cols == ("day_type",)
