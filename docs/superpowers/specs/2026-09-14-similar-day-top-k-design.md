@@ -30,7 +30,8 @@ The researcher's answers of 2026-09-13 and 2026-09-14.
    ranking.
 3. **A special day is a `dim_date.is_holiday` day:** 国民の祝日, 年末年始 12/30–1/3,
    ゴールデンウィーク 4/30–5/2 and お盆 8/13–16.
-4. **A special day's reference is the same holiday last year** (§5). Rank 1 and the
+4. **A special day's reference is the same holiday last year**, found by its
+   `dim_date.holiday_name_ja`, else the same calendar date (§5). Rank 1 and the
    weighted mean carry its load. Ranks 2 and 3 are null.
 5. **`similar_day_demand_kwh` is retired.** The seven presets that read it switch to
    the new rank 1.
@@ -97,25 +98,27 @@ For a delivery day D that is not a special day:
 
 For a delivery day D with `dim_date.is_holiday`, the reference day R is:
 
-1. **The same calendar date last year** for five names that do not name one holiday:
-   休日 (振替休日 and 国民の休日), 休日（祝日扱い）, 年末年始, ゴールデンウィーク and
-   お盆. 休日 occurs only once in some years (2016, 2017, 2021, 2023), so without this
-   rule one substitute holiday would be matched to an unrelated one.
-2. **The same holiday last year** for every other name, when it occurs exactly once in
-   D's calendar year and exactly once in the year before. R is that day.
-   Example: 成人の日 2026-01-12 → 成人の日 2025-01-13.
-3. **Otherwise the same calendar date last year.** This covers a name missing last
-   year, such as 天皇誕生日 on 2020-02-23 (none in 2019) → 2019-02-23.
-4. **Three names count as one:** 体育の日, 体育の日（スポーツの日） and スポーツの日.
-   They are the same holiday under its old and new names. So スポーツの日 on
-   2020-07-24, moved for the Olympics, → 体育の日（スポーツの日） on 2019-10-14.
+1. **The day last year with D's `dim_date.holiday_name_ja`.** Since PR #123 every
+   holiday's name is unique within its calendar year, so there is at most one.
+   Examples: 成人の日 2026-01-12 → 2025-01-13; お盆（1日目） → the previous 8/13;
+   スポーツの日 2020-07-24, moved for the Olympics → 2019-10-14.
+2. **Otherwise the same calendar date last year.** No holiday falls on 29 February, so
+   that date always exists.
 
-The seed has no holiday on 29 February, so the same calendar date always exists.
+How the rule plays out on the names of 2017–2027 (`dim_date` as of 2026-09-14):
 
-From 2019 to 2027 only one named holiday falls to rule 3: 天皇誕生日 2020-02-23. A
-same-date reference is usually a weekend or another holiday. Two land on ordinary
-working days: 2019-10-22 (即位礼正殿の儀, 休日（祝日扱い）) → 2018-10-22, and 2026-09-22
-(国民の休日) → 2025-09-22.
+- **288 holidays find their name last year; 29 take the same date.** In the scoring
+  span, from 2019-04-04, 25 take the same date.
+- **The same-date days are the ones whose name depends on the year:**
+  - 23 substitute or between-holiday days, such as `こどもの日（振替休日）`. The same
+    one never occurs in two years running in 2017–2027.
+  - The 2019 one-offs `即位の日` and `即位礼正殿の儀`.
+  - 天皇誕生日（令和） on 2020-02-23, the first of its era.
+  - 2020's ゴールデンウィーク（2日目）…（4日目）, whose 2019 dates carried the
+    enthronement names.
+- **Most same-date references are a weekend or another holiday.** Two land on ordinary
+  working days: 2019-10-22 (即位礼正殿の儀) → 2018-10-22, and 2026-09-22
+  (敬老の日・秋分の日（国民の休日）) → 2025-09-22.
 
 A special day's row:
 
@@ -209,7 +212,9 @@ for a near day. Inverse distance has no such case.
 - `inverse_distance_weights(distances)`: a pure function from a days × k array (NaN
   for a missing rank) to the weights of §7, with the zero-distance rule.
 - `special_day_references(calendar, days)`: the reference day and rule of §5 for every
-  special day among `days`. `DayCalendar` gains `is_holiday` and `holiday_name_ja`.
+  special day among `days`. It matches names exactly and holds no name list of its
+  own; the naming lives in `dim_date` alone. `DayCalendar` gains `is_holiday` and
+  `holiday_name_ja`, and validates that no name repeats within a calendar year.
 
 `tasks/demand/similar_day_feature.py`:
 
@@ -331,10 +336,11 @@ the special-day rule, the new columns and the retired one.
   weight; NaN ranks are ignored.
 - The retrieval check against D − 7.
 - `special_day_references`:
-  - A unique name → the same holiday last year (成人の日).
-  - The five fixed names → the same calendar date, including a year with one 休日.
-  - A name missing last year → the same date (天皇誕生日 2020).
-  - The スポーツの日 aliases.
+  - A name found last year on another date → that day (成人の日).
+  - A name missing last year → the same calendar date (天皇誕生日（令和） 2020,
+    `こどもの日（振替休日）`).
+  - A non-holiday day among `days` gets no reference.
+- `DayCalendar` rejects a name repeated within a calendar year.
 
 `tests/test_demand_similar_day_feature.py`:
 - A ranked day's rank loads halved and its weighted mean on a hand-computed day.
