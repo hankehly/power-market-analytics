@@ -199,17 +199,24 @@ def make_hourly_load(
     *,
     late: Collection[pd.Timestamp] = (),
     public_at: Mapping[pd.Timestamp, pd.Timestamp] | None = None,
+    last_hour_public_at: Mapping[pd.Timestamp, pd.Timestamp] | None = None,
 ) -> AreaHourlyLoad:
     """Loads public at midnight after the day (a daily file); two days after for ``late``
     days (the yearly files before 2022-04); at ``public_at[day]`` for the days it names
-    (a re-issued file)."""
+    (a re-issued file). Hour 24 alone of the days ``last_hour_public_at`` names is
+    public at its stamp, so a day's hours can differ."""
     public_at = public_at or {}
+    last_hour_public_at = last_hour_public_at or {}
     rows = [
         {
             "load_date": day,
             "hour_ending": h,
             "demand_kwh": load_at(day, h),
-            "available_at": public_at.get(day, day + pd.Timedelta(days=2 if day in late else 1)),
+            "available_at": (
+                last_hour_public_at[day]
+                if h == 24 and day in last_hour_public_at
+                else public_at.get(day, day + pd.Timedelta(days=2 if day in late else 1))
+            ),
         }
         for day in days
         for h in range(1, 25)
@@ -385,6 +392,22 @@ class TestDifferences:
         diffs = late.differences([D]).df
         assert len(diffs) == 86
         assert d_minus_2 not in diffs["candidate_date"].tolist()
+
+    def test_a_candidate_counts_only_once_its_last_hour_is_public(self):
+        # D - 2's hours 1-23 are public at 00:00 on D - 1; hour 24 re-issued at the 09:30
+        # issue time still counts, a minute later the whole day is left out.
+        d_minus_2 = D - pd.Timedelta(days=2)
+        issued = D - pd.Timedelta(days=1) + pd.Timedelta(hours=9, minutes=30)
+        for last_hour, n_candidates in ((issued, 87), (issued + pd.Timedelta(minutes=1), 86)):
+            selector = SimilarDaySelector(
+                make_calendar(),
+                make_forecast(),
+                make_observed(),
+                make_hourly_load(last_hour_public_at={d_minus_2: last_hour}),
+            )
+            diffs = selector.differences([D]).df
+            assert len(diffs) == n_candidates
+            assert (d_minus_2 in diffs["candidate_date"].tolist()) is (n_candidates == 87)
 
     def test_weather_parts_are_hourly_rmse_of_forecast_against_observed(self, selector):
         row = selector.differences([D]).df.set_index("candidate_date").loc[D_MINUS_364]
@@ -807,18 +830,17 @@ class TestSpecialDayReferences:
     def test_the_selector_applies_its_loads_availability(self, selector):
         day = pd.Timestamp("2024-03-20")
         assert selector.special_day_references([day]).same_holiday_days.tolist() == [day]
-        # 2023-03-21's load re-issued after 2024-03-20's issue time: 03-20 is ranked.
-        late = SimilarDaySelector(
-            make_calendar(),
-            make_forecast(),
-            make_observed(),
-            make_hourly_load(
-                public_at={pd.Timestamp("2023-03-21"): pd.Timestamp("2024-03-19 10:00")}
-            ),
-        )
-        refs = late.special_day_references([day])
-        assert refs.same_holiday_days.empty
-        assert refs.df["last_year_date"].tolist() == [pd.Timestamp("2023-03-21")]
+        # 2023-03-21's load re-issued after 2024-03-20's issue time: 03-20 is ranked,
+        # whether the whole day or only its hour 24 came late.
+        reissued = {pd.Timestamp("2023-03-21"): pd.Timestamp("2024-03-19 10:00")}
+        for load in (
+            make_hourly_load(public_at=reissued),
+            make_hourly_load(last_hour_public_at=reissued),
+        ):
+            late = SimilarDaySelector(make_calendar(), make_forecast(), make_observed(), load)
+            refs = late.special_day_references([day])
+            assert refs.same_holiday_days.empty
+            assert refs.df["last_year_date"].tolist() == [pd.Timestamp("2023-03-21")]
 
 
 class TestWindowPairCounts:
@@ -1265,10 +1287,36 @@ class TestRetrieval:
         assert row["selected_load_difference"] == pytest.approx(realised[sel["reference_date"]])
         assert row["lag_7_load_difference"] == pytest.approx(realised[D - pd.Timedelta(days=7)])
         assert row["oracle_load_difference"] == pytest.approx(min(realised.values()))
-        # Ties go to the smaller lag.
+        # No two candidates tie here; test_an_oracle_tie_goes_to_the_smaller_lag has one.
         assert row["oracle_date"] == min(realised, key=lambda c: (realised[c], D - c))
         assert row["oracle_load_difference"] <= row["selected_load_difference"]
         assert row["selected_rank_by_outcome"] >= 1
+
+    def test_an_oracle_tie_goes_to_the_smaller_lag(self):
+        # D - 9 (a Monday) given the loads of D - 2 (the nearest-in-outcome Monday): the
+        # two candidates share the smallest load difference, and the oracle takes D - 2.
+        nearest, tied = D - pd.Timedelta(days=2), D - pd.Timedelta(days=9)
+        load = make_hourly_load().df
+        copied = load.assign(
+            demand_kwh=np.where(
+                load["load_date"] == tied,
+                [load_at(nearest, h) for h in load["hour_ending"]],
+                load["demand_kwh"],
+            )
+        )
+        selector = SimilarDaySelector(
+            make_calendar(), make_forecast(), make_observed(), AreaHourlyLoad.from_df(copied)
+        )
+        selector.ensure_fitted(pd.Timestamp("2024-04-01"))
+        by_day = copied.set_index(["load_date", "hour_ending"])["demand_kwh"]
+        assert (by_day.loc[tied].to_numpy() == by_day.loc[nearest].to_numpy()).all()
+        candidates = selector.differences([D]).df["candidate_date"].tolist()
+        assert nearest in candidates and tied in candidates
+        # Weekday candidates differ by 1,000 kWh per day of lag, so lag 2 is the least.
+        expected = np.mean([2_000.0 / load_at(D, h) for h in range(1, 25)])
+        row = selector.retrieval(selector.select([D])).df.iloc[0]
+        assert row["oracle_load_difference"] == pytest.approx(expected)
+        assert row["oracle_date"] == nearest
 
     def test_lag_7_is_nan_when_it_was_not_a_candidate(self):
         selector = SimilarDaySelector(
