@@ -263,12 +263,14 @@ def load_area_hourly_load(
 def load_day_calendar(spark: SparkSession | None = None) -> DayCalendar:
     """Load the holiday attributes the similar-day selector reads from ``dim_date``.
 
-    The two holiday distances count calendar days to the nearest named holiday
-    (``is_holiday``: the 国民の祝日 plus the customary 年末年始 / ゴールデン
-    ウィーク / お盆 days; 0 on a holiday itself), computed over the gapless
-    spine with a forward and a backward fill; days before the spine's first
-    holiday or after its last have no distance and are dropped.
-    ``holiday_degree`` is the dimension's column.
+    ``is_holiday`` is the dimension's flag: the 国民の祝日 plus the customary
+    年末年始 / ゴールデンウィーク / お盆 days. ``holiday_name_ja`` is the
+    dimension's name on a holiday and null on any other day (``dim_date`` writes
+    "Not Applicable" there); a name is unique within its calendar year. The two
+    holiday distances count calendar days to the nearest holiday (0 on a holiday
+    itself), computed over the spine with a forward and a backward fill; days
+    before the spine's first holiday or after its last have no distance and are
+    dropped. ``holiday_degree`` is the dimension's column.
 
     Parameters
     ----------
@@ -290,6 +292,7 @@ def load_day_calendar(spark: SparkSession | None = None) -> DayCalendar:
         select
           d.date_key as trade_date,
           d.is_holiday,
+          case when d.is_holiday then d.holiday_name_ja end as holiday_name_ja,
           d.holiday_degree
         from pma_curated.dim_date d
         """,
@@ -311,6 +314,8 @@ def load_day_calendar(spark: SparkSession | None = None) -> DayCalendar:
         .dropna(subset=["days_since_holiday", "days_until_holiday"])
         .astype(
             {
+                "is_holiday": "bool",
+                "holiday_name_ja": "object",
                 "days_since_holiday": "int64",
                 "days_until_holiday": "int64",
                 "holiday_degree": "float64",

@@ -159,6 +159,15 @@ HOLIDAYS_2024_SPRING = (
     pd.Timestamp("2024-05-05"),
     pd.Timestamp("2024-05-06"),
 )
+#: ``dim_date.holiday_name_ja`` of each day in HOLIDAYS_2024_SPRING.
+HOLIDAY_NAMES_2024_SPRING: dict[pd.Timestamp, str] = {
+    pd.Timestamp("2024-03-20"): "春分の日",
+    pd.Timestamp("2024-04-29"): "昭和の日",
+    pd.Timestamp("2024-05-03"): "憲法記念日",
+    pd.Timestamp("2024-05-04"): "みどりの日",
+    pd.Timestamp("2024-05-05"): "こどもの日",
+    pd.Timestamp("2024-05-06"): "こどもの日（振替休日）",
+}
 #: One partial-day hole like Tokyo 2025-06-14: time codes 11..48 have null demand.
 DEMAND_HOLE_DAY = pd.Timestamp("2024-04-20")
 DEMAND_HOLE_TIME_CODES = range(11, 49)
@@ -693,7 +702,8 @@ class CuratedWarehouse:
         Contents of ``fct_demand_forecast_accuracy`` (tokyo; the two matched
         demand runs over ``ACCURACY_DAYS`` and the unmatched one).
     dates : pandas.DataFrame
-        Contents of ``dim_date`` over ``CALENDAR_DAYS`` (weekend / holiday flags and
+        Contents of ``dim_date`` over ``CALENDAR_DAYS`` (weekend / holiday flags, the
+        ``HOLIDAY_NAMES_2024_SPRING`` names with "Not Applicable" on other days, and
         ``holiday_degree`` per ``synthetic_holiday_degree``).
     hourly_load : pandas.DataFrame
         Contents of ``fct_area_power_usage_hourly`` (tokyo, ``HOURLY_LOAD_DAYS``
@@ -811,6 +821,9 @@ def curated_warehouse(spark: SparkSession) -> CuratedWarehouse:
             "date_key": [day.date() for day in CALENDAR_DAYS],
             "is_weekend": [day.dayofweek >= 5 for day in CALENDAR_DAYS],
             "is_holiday": [day in HOLIDAYS_2024_SPRING for day in CALENDAR_DAYS],
+            "holiday_name_ja": [
+                HOLIDAY_NAMES_2024_SPRING.get(day, "Not Applicable") for day in CALENDAR_DAYS
+            ],
             "holiday_degree": [synthetic_holiday_degree(day) for day in CALENDAR_DAYS],
             "is_business_day": [synthetic_is_business_day(day) for day in CALENDAR_DAYS],
             **{
@@ -1053,9 +1066,9 @@ def curated_warehouse(spark: SparkSession) -> CuratedWarehouse:
     ).write.mode("overwrite").saveAsTable("pma_curated.fct_demand_forecast_accuracy")
     spark.createDataFrame(
         dates,
-        "date_key date, is_weekend boolean, is_holiday boolean, holiday_degree double, "
-        "is_business_day boolean, half int, quarter int, day_of_month int, "
-        "day_of_quarter int, day_of_year int, fiscal_quarter int",
+        "date_key date, is_weekend boolean, is_holiday boolean, holiday_name_ja string, "
+        "holiday_degree double, is_business_day boolean, half int, quarter int, "
+        "day_of_month int, day_of_quarter int, day_of_year int, fiscal_quarter int",
     ).write.mode("overwrite").saveAsTable("pma_curated.dim_date")
     spark.createDataFrame(
         hourly_load_rows,
