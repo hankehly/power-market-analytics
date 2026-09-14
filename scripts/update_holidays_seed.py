@@ -2,7 +2,9 @@
 
 Downloads the official Cabinet Office holiday CSV (Shift_JIS, published
 annually with coverage through the end of the next calendar year) and
-rewrites dbt/seeds/jpn_national_holidays.csv as UTF-8 with ISO dates.
+rewrites dbt/seeds/jpn_national_holidays.csv as UTF-8 with ISO dates. The
+source goes back to 1955; the seed keeps the holidays from 2016-01-01, where
+dim_date's spine starts, so no earlier row is ever read.
 
 The dim_date spine derives its end date from this seed, so rebuilding dbt
 (just dbt build) after a refresh extends the calendar automatically.
@@ -26,6 +28,10 @@ SOURCE_HEADER = ["国民の祝日・休日月日", "国民の祝日・休日名�
 
 #: Header line of the dbt seed.
 SEED_HEADER = ["holiday_date", "holiday_name_ja"]
+
+#: The first date the seed keeps: dim_date's spine start (dim_date.sql), so an
+#: earlier holiday is never read.
+FIRST_HOLIDAY_DATE = datetime.date(2016, 1, 1)
 
 
 def parse_holidays(content: bytes) -> list[tuple[str, str]]:
@@ -60,6 +66,35 @@ def parse_holidays(content: bytes) -> list[tuple[str, str]]:
     if not rows:
         raise ValueError("Source CSV contained no holiday rows")
     return rows
+
+
+def drop_before(
+    rows: list[tuple[str, str]], first: datetime.date = FIRST_HOLIDAY_DATE
+) -> list[tuple[str, str]]:
+    """Keep the holiday rows on or after ``first``.
+
+    Parameters
+    ----------
+    rows : list of tuple of (str, str)
+        ``(holiday_date, holiday_name_ja)`` pairs as returned by
+        :func:`parse_holidays`.
+    first : datetime.date, optional
+        The first date kept; defaults to dim_date's spine start.
+
+    Returns
+    -------
+    list of tuple of (str, str)
+        The rows on or after ``first``, in their input order.
+
+    Raises
+    ------
+    ValueError
+        If no row is on or after ``first``.
+    """
+    kept = [row for row in rows if row[0] >= first.isoformat()]
+    if not kept:
+        raise ValueError(f"Source CSV contained no holidays on or after {first}")
+    return kept
 
 
 def write_seed(rows: list[tuple[str, str]], dest: Path) -> None:
@@ -97,7 +132,7 @@ def main(argv: list[str] | None = None) -> None:
     response = requests.get(args.source_url, timeout=60)
     response.raise_for_status()
 
-    rows = parse_holidays(response.content)
+    rows = drop_before(parse_holidays(response.content))
     write_seed(rows, args.dest)
     logger.info("Wrote {} holidays ({}..{}) to {}", len(rows), rows[0][0], rows[-1][0], args.dest)
 
