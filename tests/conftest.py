@@ -206,14 +206,111 @@ def synthetic_hourly_load(day: pd.Timestamp, hour_of_day: int) -> int:
 
 #: The scoring run every ``ftr_period_similar_day`` fixture row came from.
 SIMILAR_DAY_RUN_ID = "similar-day-fit"
+#: The lags of ranks 1, 2 and 3 on every ranked fixture day, and their distances.
+SIMILAR_DAY_RANK_LAG_DAYS = (364, 7, 371)
+SIMILAR_DAY_RANK_DISTANCES = (0.5, 1.0, 2.0)
+#: The fixture's one same-holiday day (昭和の日) and its reference's lag: 2023-04-29.
+SIMILAR_DAY_SAME_HOLIDAY = pd.Timestamp("2024-04-29")
+SIMILAR_DAY_SAME_HOLIDAY_LAG_DAYS = 366
+
+
+def similar_day_reference(day: pd.Timestamp, rank: int) -> pd.Timestamp | None:
+    """The day of ``rank`` in the fixture's ``ftr_period_similar_day`` row for ``day``.
+
+    Parameters
+    ----------
+    day : pandas.Timestamp
+        The delivery day.
+    rank : int
+        1, 2 or 3.
+
+    Returns
+    -------
+    pandas.Timestamp or None
+        ``day`` minus the rank's lag on a ranked day; on ``SIMILAR_DAY_SAME_HOLIDAY``
+        last year's 昭和の日 for rank 1 and ``None`` for ranks 2 and 3.
+    """
+    if day == SIMILAR_DAY_SAME_HOLIDAY:
+        if rank > 1:
+            return None
+        return day - pd.Timedelta(days=SIMILAR_DAY_SAME_HOLIDAY_LAG_DAYS)
+    return day - pd.Timedelta(days=SIMILAR_DAY_RANK_LAG_DAYS[rank - 1])
+
+
+def similar_day_rank_load(day: pd.Timestamp, time_code: int, rank: int) -> float | None:
+    """``similar_day_rank{rank}_demand_kwh`` of the fixture's row for ``day`` and ``time_code``.
+
+    Parameters
+    ----------
+    day : pandas.Timestamp
+        The delivery day.
+    time_code : int
+        The period, 1-48.
+    rank : int
+        1, 2 or 3.
+
+    Returns
+    -------
+    float or None
+        The rank's day's hourly load over the hour containing the period, halved;
+        ``None`` where the rank is absent.
+    """
+    reference = similar_day_reference(day, rank)
+    if reference is None:
+        return None
+    return synthetic_hourly_load(reference, (time_code + 1) // 2 - 1) / 2
+
+
+def similar_day_mean(day: pd.Timestamp, time_code: int) -> float:
+    """``wavg_similar_day_top3_demand_kwh`` of the fixture's row for ``day`` and ``time_code``.
+
+    Parameters
+    ----------
+    day : pandas.Timestamp
+        The delivery day.
+    time_code : int
+        The period, 1-48.
+
+    Returns
+    -------
+    float
+        On a ranked day the rank loads weighted 4/7, 2/7 and 1/7 (the inverse
+        distances 2, 1 and 0.5 over their sum), summed in rank order; on
+        ``SIMILAR_DAY_SAME_HOLIDAY`` rank 1's load.
+    """
+    if day == SIMILAR_DAY_SAME_HOLIDAY:
+        return similar_day_load(day, time_code)
+    inverse = [1.0 / distance for distance in SIMILAR_DAY_RANK_DISTANCES]
+    total_inverse = 0.0
+    for value in inverse:
+        total_inverse += value
+    mean = 0.0
+    for rank, value in enumerate(inverse, start=1):
+        load = similar_day_rank_load(day, time_code, rank)
+        assert load is not None
+        mean += value / total_inverse * load
+    return mean
 
 
 def similar_day_load(day: pd.Timestamp, time_code: int) -> float:
-    """``ftr_period_similar_day.similar_day_demand_kwh`` of the fixture: the fixture's
-    similar day is always the window's centre, D - 364, so the feature is that day's
-    hourly load over the hour containing the period, halved."""
-    hour_of_day = (time_code + 1) // 2 - 1
-    return synthetic_hourly_load(day - pd.Timedelta(days=364), hour_of_day) / 2
+    """``ftr_period_similar_day.similar_day_rank1_demand_kwh`` of the fixture.
+
+    Parameters
+    ----------
+    day : pandas.Timestamp
+        The delivery day.
+    time_code : int
+        The period, 1-48.
+
+    Returns
+    -------
+    float
+        Rank 1's hourly load over the hour containing the period, halved: D - 364's
+        on a ranked day, last year's 昭和の日's on ``SIMILAR_DAY_SAME_HOLIDAY``.
+    """
+    load = similar_day_rank_load(day, time_code, 1)
+    assert load is not None
+    return load
 
 
 #: The lags ``ftr_period_actuals`` carries, in days before the delivery day.
@@ -1092,8 +1189,11 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
     """The eight feature marts of ``pma_features``, from the fixture's data (tokyo facts).
 
     ``available_at`` is any instant before the 09:30 D-1 issue time, except the
-    calendar's, which is the mart's constant. The similar-day mart picks D - 364
-    for every day with a forecast, from one scoring run.
+    calendar's, which is the mart's constant. The similar-day mart holds one
+    scoring run's row for every day with a forecast: ranks 1-3 at lags 364, 7
+    and 371 (distances 0.5, 1.0, 2.0) and their inverse-distance weighted mean on a
+    ranked day, and last year's 昭和の日 as rank 1 and the mean on
+    ``SIMILAR_DAY_SAME_HOLIDAY`` (see ``similar_day_rank_load`` and ``similar_day_mean``).
     """
     calendar_rows = []
     holidays = set(HOLIDAYS_2024_SPRING)
@@ -1393,25 +1493,64 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
             "lag_2d_peak_time_code",
         ):
             day_actuals[col] = nullable_column(day_actuals[col], float)
-    similar_day_rows = [
-        {
-            "area_code": "tokyo",
-            "trade_date": day.date(),
-            "time_code": tc,
-            "similar_day_run_id": SIMILAR_DAY_RUN_ID,
-            "similar_day_demand_kwh": similar_day_load(day, tc),
-            "similar_day_reference_date": (day - pd.Timedelta(days=364)).date(),
-            "similar_day_reference_lag_days": 364,
-            "similar_day_distance": 0.0,
-            "similar_day_n_candidates": 61,
-            "similar_day_fit_cutoff": day - pd.Timedelta(days=1),
-            "available_at": day - pd.Timedelta(days=1) + pd.Timedelta(hours=1),
-            "published_at": pd.Timestamp("2026-09-11 09:00:00"),
-        }
-        for day in DEMAND_DAYS
-        if day != FORECAST_MISSING_DAY
-        for tc in range(1, 49)
-    ]
+    similar_day_rows = []
+    for day in DEMAND_DAYS:
+        if day == FORECAST_MISSING_DAY:
+            continue
+        same_holiday = day == SIMILAR_DAY_SAME_HOLIDAY
+        references = [similar_day_reference(day, rank) for rank in (1, 2, 3)]
+        # A same-holiday row is usable once its reference's day of load is (the next
+        # midnight); a ranked row an hour after its fit.
+        available_at = (
+            day - pd.Timedelta(days=SIMILAR_DAY_SAME_HOLIDAY_LAG_DAYS - 1)
+            if same_holiday
+            else day - pd.Timedelta(days=1) + pd.Timedelta(hours=1)
+        )
+        for tc in range(1, 49):
+            row = {
+                "area_code": "tokyo",
+                "trade_date": day.date(),
+                "time_code": tc,
+                "similar_day_run_id": SIMILAR_DAY_RUN_ID,
+                **{
+                    f"similar_day_rank{rank}_demand_kwh": similar_day_rank_load(day, tc, rank)
+                    for rank in (1, 2, 3)
+                },
+                "wavg_similar_day_top3_demand_kwh": similar_day_mean(day, tc),
+                **{
+                    f"similar_day_rank{rank}_reference_date": (
+                        None if reference is None else reference.date()
+                    )
+                    for rank, reference in enumerate(references, start=1)
+                },
+                **{
+                    f"similar_day_rank{rank}_distance": None if same_holiday else distance
+                    for rank, distance in enumerate(SIMILAR_DAY_RANK_DISTANCES, start=1)
+                },
+                "similar_day_n_candidates": None if same_holiday else 87,
+                "similar_day_fit_cutoff": None if same_holiday else day - pd.Timedelta(days=1),
+                "similar_day_method": "same_holiday" if same_holiday else "similarity",
+                "available_at": available_at,
+                "published_at": pd.Timestamp("2026-09-11 09:00:00"),
+            }
+            similar_day_rows.append(row)
+    similar_day = pd.DataFrame(similar_day_rows)
+    for col in (
+        "similar_day_rank2_demand_kwh",
+        "similar_day_rank3_demand_kwh",
+        "similar_day_rank1_distance",
+        "similar_day_rank2_distance",
+        "similar_day_rank3_distance",
+    ):
+        similar_day[col] = nullable_column(similar_day[col], float)
+    similar_day["similar_day_n_candidates"] = nullable_column(
+        similar_day["similar_day_n_candidates"], int
+    )
+    # A missing cutoff is a SQL null, not the NaT pandas makes of a None.
+    similar_day["similar_day_fit_cutoff"] = pd.Series(
+        [None if pd.isna(v) else v.to_pydatetime() for v in similar_day["similar_day_fit_cutoff"]],
+        dtype=object,
+    )
     calendar = pd.DataFrame(calendar_rows)
     for col in ("days_since_holiday", "days_until_holiday"):
         # A missing distance is a SQL null, not the NaN pandas makes of a None.
@@ -1480,12 +1619,15 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
         + "available_at timestamp",
     ).write.mode("overwrite").saveAsTable("pma_features.ftr_day_actuals")
     spark.createDataFrame(
-        pd.DataFrame(similar_day_rows),
+        similar_day,
         "area_code string, trade_date date, time_code int, similar_day_run_id string, "
-        "similar_day_demand_kwh double, "
-        "similar_day_reference_date date, similar_day_reference_lag_days int, "
-        "similar_day_distance double, similar_day_n_candidates int, "
-        "similar_day_fit_cutoff timestamp, available_at timestamp, published_at timestamp",
+        "similar_day_rank1_demand_kwh double, similar_day_rank2_demand_kwh double, "
+        "similar_day_rank3_demand_kwh double, wavg_similar_day_top3_demand_kwh double, "
+        "similar_day_rank1_reference_date date, similar_day_rank2_reference_date date, "
+        "similar_day_rank3_reference_date date, similar_day_rank1_distance double, "
+        "similar_day_rank2_distance double, similar_day_rank3_distance double, "
+        "similar_day_n_candidates int, similar_day_fit_cutoff timestamp, "
+        "similar_day_method string, available_at timestamp, published_at timestamp",
     ).write.mode("overwrite").saveAsTable("pma_features.ftr_period_similar_day")
 
 

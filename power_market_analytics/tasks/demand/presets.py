@@ -3,7 +3,7 @@
 Each preset lists its features in the order the strategy class it replaces
 used, so the models and their SHAP components read the same. The similar
 day is a mart column (``ftr_period_similar_day``, scored from the weights
-``scripts/fit_similar_day.py`` publishes), so the six similar-day presets
+``scripts/fit_similar_day.py`` publishes), so the seven similar-day presets
 are plain feature lists like the others.
 """
 
@@ -13,9 +13,11 @@ from power_market_analytics.features.presets import Preset
 
 TASK_NAME = "demand"
 
-#: The load of a learned similar day one year earlier, halved per period
-#: (research demand/R-004 E-002).
-SIMILAR_DAY_FEATURE = "ftr_period_similar_day:similar_day_demand_kwh"
+#: The load of rank 1 of the paper-style similar-day pool (D-2 … D-31 and
+#: D-335 … D-394), halved per period; a special day takes the same holiday last
+#: year when that day is in the year-ago window. It replaced research
+#: demand/R-004 E-002's single year-ago similar day on 2026-09-14.
+SIMILAR_DAY_FEATURE = "ftr_period_similar_day:similar_day_rank1_demand_kwh"
 #: The delivery day's ``dim_date`` calendar attributes (research demand/R-005
 #: E-001), in the order the deleted calendar strategy used them.
 DAY_CALENDAR_FEATURES: tuple[str, ...] = tuple(
@@ -107,9 +109,10 @@ LIGHTGBM_MSM_POPW = LIGHTGBM.with_changes(
 LIGHTGBM_MSM_POPW_DAYTYPE = LIGHTGBM_MSM_POPW.with_changes(
     name="lightgbm_msm_popw_daytype", add=("ftr_day_calendar:day_type",)
 )
-#: Plus the similar day's load (demand/R-004 E-002; the Tokyo demand baseline,
-#: reference run 008868fe…). Tokyo-only until another TSO's でんき予報 hourly
-#: load is loaded and its weights fitted.
+#: Plus the similar day's load (demand/R-004 E-002; the Tokyo demand baseline).
+#: Its reference run 008868fe… predates the rank-1 feature (2026-09-14) and no
+#: longer comes from this preset. Tokyo-only until another TSO's でんき予報
+#: hourly load is loaded and its weights fitted.
 LIGHTGBM_MSM_POPW_DAYTYPE_SIMDAY = LIGHTGBM_MSM_POPW_DAYTYPE.with_changes(
     name="lightgbm_msm_popw_daytype_simday", add=(SIMILAR_DAY_FEATURE,)
 )

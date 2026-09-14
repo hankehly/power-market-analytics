@@ -25,6 +25,13 @@ STACK_ROW = re.compile(
 )
 KEY = ["area_code", "trade_date", "time_code", "feature_ref", "available_at"]
 SIMILAR_DAY_MART = "ftr_period_similar_day"
+#: The similar-day mart's tagged columns.
+SIMILAR_DAY_FEATURES = (
+    "similar_day_rank1_demand_kwh",
+    "similar_day_rank2_demand_kwh",
+    "similar_day_rank3_demand_kwh",
+    "wavg_similar_day_top3_demand_kwh",
+)
 COLUMNS = [
     "area_code",
     "trade_date",
@@ -136,21 +143,30 @@ class TestFeatureValueFact:
         # A second, older run of the similar day with doubled values: the fact keeps
         # one row per key and available_at, the newest published one.
         mart = spark.table(f"pma_features.{SIMILAR_DAY_MART}")
-        older = (
-            mart.withColumn("similar_day_run_id", F.lit("older-run"))
-            .withColumn("similar_day_demand_kwh", F.col("similar_day_demand_kwh") * 2)
-            .withColumn("published_at", F.col("published_at") - F.expr("interval 1 day"))
+        older = mart.withColumn("similar_day_run_id", F.lit("older-run")).withColumn(
+            "published_at", F.col("published_at") - F.expr("interval 1 day")
         )
+        for feature in SIMILAR_DAY_FEATURES:
+            older = older.withColumn(feature, F.col(feature) * 2)
         mart.unionByName(older).createOrReplaceTempView("similar_day_two_runs")
         fact = spark.sql(model_sql({SIMILAR_DAY_MART: "similar_day_two_runs"}))
         subset = fact.where(F.col("feature_view") == SIMILAR_DAY_MART).toPandas()
-        assert len(subset) == mart.count()
+        assert len(subset) == len(SIMILAR_DAY_FEATURES) * mart.count()
         expected = mart.toPandas()
-        merged = subset.merge(
-            expected,
-            on=["area_code", "trade_date", "time_code", "available_at", "published_at"],
-            how="inner",
-            validate="one_to_one",
+        for feature in SIMILAR_DAY_FEATURES:
+            rows = subset[subset["feature_name"] == feature]
+            merged = rows.merge(
+                expected,
+                on=["area_code", "trade_date", "time_code", "available_at", "published_at"],
+                how="inner",
+                validate="one_to_one",
+            )
+            assert len(merged) == len(rows) == len(expected)
+            value, column = merged["feature_value"], merged[feature]
+            assert ((value.isna() & column.isna()) | (value == column)).all()
+        # The same-holiday day's null ranks stay null rows of the fact.
+        assert (
+            subset.loc[subset["feature_name"] == "similar_day_rank2_demand_kwh", "feature_value"]
+            .isna()
+            .any()
         )
-        assert len(merged) == len(subset)
-        assert (merged["feature_value"] == merged["similar_day_demand_kwh"]).all()
