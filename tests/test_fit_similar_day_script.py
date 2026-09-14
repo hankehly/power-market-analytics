@@ -7,6 +7,8 @@ ranking, the special days, the retrieval check and the write-back run for real.
 
 from __future__ import annotations
 
+import dataclasses
+
 import mlflow
 import pandas as pd
 import pytest
@@ -15,7 +17,11 @@ from power_market_analytics.tasks.demand.datasets import (
     PopulationWeightedObservedWeather,
     PopulationWeightedWeatherForecast,
 )
-from power_market_analytics.tasks.demand.similar_day import PERIODS_PER_HOUR
+from power_market_analytics.tasks.demand.similar_day import (
+    PERIODS_PER_HOUR,
+    SimilarDayRanking,
+    SimilarDaySelection,
+)
 from power_market_analytics.tasks.demand.similar_day_feature import (
     FEATURE_TABLE,
     METHOD_SAME_HOLIDAY,
@@ -196,6 +202,21 @@ class TestFitScript:
         row = by_period.loc[(day.date(), 7)]
         assert row["similar_day_rank1_reference_date"] == reference.date()
         assert row["similar_day_rank1_demand_kwh"] == load_at(reference, 4) / PERIODS_PER_HOUR
+        # Ranks 2 and 3 and the weighted mean follow the logged ranking.
+        day_ranking = ranking[ranking["trade_date"] == str(day.date())].set_index("rank")
+        references = {r: pd.Timestamp(day_ranking.loc[r, "reference_date"]) for r in (1, 2, 3)}
+        assert references[1] == reference
+        for r in (2, 3):
+            assert row[f"similar_day_rank{r}_reference_date"] == references[r].date()
+            assert (
+                row[f"similar_day_rank{r}_demand_kwh"]
+                == load_at(references[r], 4) / PERIODS_PER_HOUR
+            )
+        assert row["wavg_similar_day_top3_demand_kwh"] == pytest.approx(
+            sum(day_ranking.loc[r, "weight"] * load_at(references[r], 4) for r in (1, 2, 3))
+            / PERIODS_PER_HOUR,
+            rel=1e-12,
+        )
         assert row["similar_day_method"] == METHOD_SIMILARITY
         assert row["similar_day_fit_cutoff"] == pd.Timestamp(
             chosen.loc[str(day.date()), "fit_cutoff"]
@@ -205,6 +226,12 @@ class TestFitScript:
             hours=9, minutes=30
         )
         assert row["available_at"] == forecast_available_at(day)
+        # The special day without a same-holiday reference is published like any ranked day.
+        ranked_special = by_period.loc[(RANKED_SPECIAL_DAY.date(), 7)]
+        assert ranked_special["similar_day_method"] == METHOD_SIMILARITY
+        for r in (1, 2, 3):
+            assert pd.notna(ranked_special[f"similar_day_rank{r}_reference_date"])
+            assert pd.notna(ranked_special[f"similar_day_rank{r}_demand_kwh"])
         holiday = by_period.loc[(SAME_HOLIDAY_DAY.date(), 7)]
         expected = load_at(SAME_HOLIDAY_REFERENCE, 4) / PERIODS_PER_HOUR
         assert holiday["similar_day_rank1_reference_date"] == SAME_HOLIDAY_REFERENCE.date()
@@ -215,6 +242,47 @@ class TestFitScript:
         # The reference's load was public at midnight after it.
         assert holiday["available_at"] == pd.Timestamp("2023-03-22 00:00")
         assert rows["published_at"].nunique() == 1
+
+    def test_a_special_day_left_unranked_is_neither_counted_nor_called_similarity(
+        self, spark, script, monkeypatch
+    ):
+        # A special day whose pool had no candidate is left out of the ranking. The
+        # synthetic pool is never empty, so the ranked special day is dropped by hand.
+        score = script.score_walk_forward
+
+        def score_without_the_ranked_special_day(*args, **kwargs):
+            scoring = score(*args, **kwargs)
+            keep = scoring.selection.df["trade_date"] != RANKED_SPECIAL_DAY
+            ranking = scoring.ranking.df
+            return dataclasses.replace(
+                scoring,
+                selection=SimilarDaySelection.from_df(scoring.selection.df[keep]),
+                ranking=SimilarDayRanking.from_df(
+                    ranking[ranking["trade_date"] != RANKED_SPECIAL_DAY]
+                ),
+                fit_cutoff=scoring.fit_cutoff.drop(RANKED_SPECIAL_DAY),
+            )
+
+        monkeypatch.setattr(script, "score_walk_forward", score_without_the_ranked_special_day)
+        script.main([])
+        run = last_run()
+        params = run.data.params
+        assert params["n_days_scored"] == "80"
+        assert params["n_days_ranked"] == "79"
+        assert params["n_special_days_ranked"] == "0"
+        assert params["n_days_same_holiday"] == "1"
+        assert int(params["n_days_ranked"]) + int(params["n_days_same_holiday"]) == int(
+            params["n_days_scored"]
+        )
+        special = artifact(run.info.run_id, "similar_day_special_days.csv").set_index("trade_date")
+        assert special.loc[str(SAME_HOLIDAY_DAY.date()), "similar_day_method"] == (
+            METHOD_SAME_HOLIDAY
+        )
+        left = special.loc[str(RANKED_SPECIAL_DAY.date())]
+        assert not bool(left["takes_reference"])
+        assert pd.isna(left["similar_day_method"])
+        rows = published_rows(spark, run.info.run_id)
+        assert RANKED_SPECIAL_DAY.date() not in set(rows["trade_date"])
 
     def test_cadence_reaches_the_job(self, spark, script):
         script.main(["--refit-every-days", "30"])
