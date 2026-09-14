@@ -15,7 +15,8 @@ TASK_NAME = "demand"
 
 #: The load of rank 1 of the paper-style similar-day pool (D-2 … D-31 and
 #: D-335 … D-394), halved per period; a special day takes the same holiday last
-#: year when that day is in the year-ago window. It replaced research
+#: year when that day is in the year-ago window and its whole load was public by
+#: the issue time (otherwise it is ranked). It replaced research
 #: demand/R-004 E-002's single year-ago similar day on 2026-09-14.
 SIMILAR_DAY_FEATURE = "ftr_period_similar_day:similar_day_rank1_demand_kwh"
 #: The delivery day's ``dim_date`` calendar attributes (research demand/R-005

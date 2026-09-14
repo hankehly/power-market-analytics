@@ -11,7 +11,8 @@ by D's issue time (09:30 on D − 1). The weights are fitted on past pairs that
 follow the same rules, with no special day as target (§2.2). The nearest days
 come first, ties to the smaller lag; the three nearest are weighted by inverse
 distance. A special day takes the same holiday last year instead when that day
-lies in the pool's year-ago window. Since the feature catalogue's PR 7
+lies in the pool's year-ago window and its whole load was public by D's issue
+time; otherwise it is ranked. Since the feature catalogue's PR 7
 ``scripts/fit_similar_day.py`` walks forward through history, refitting every
 few days on the targets of the 730 days before each step (the LightGBM
 strategies' training window) and scoring the days that follow with that fit
