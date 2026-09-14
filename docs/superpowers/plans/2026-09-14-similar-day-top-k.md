@@ -478,7 +478,8 @@ Selector:
         diffs = self.differences(days)
         df = diffs.df.assign(distance=self.weights.distance(diffs))
         df = df.assign(lag_days=(df["target_date"] - df["candidate_date"]).dt.days)
-        df = df.sort_values(["target_date", "distance", "lag_days"], kind="mergesort", ignore_index=True)
+        # (target_date, lag_days) is unique, so this three-key sort is a total order.
+        df = df.sort_values(["target_date", "distance", "lag_days"], ignore_index=True)
         return df.assign(rank=df.groupby("target_date").cumcount() + 1)
 
     def select_and_rank(self, days, k=SIMILAR_DAY_TOP_K):
@@ -510,7 +511,7 @@ Selector:
         return selection, ranking
 ```
 
-(Add the NumPy docstrings; `select` returns `select_and_rank(days, 1)[0]`, `rank` returns `select_and_rank(days, k)[1]`; delete `_scored`'s centre gap; `retrieval` computes `scored` from `self._ranked(...)` and uses `lag_days == SIMILAR_DAY_BASELINE_LAG_DAYS`.)
+(Add the NumPy docstrings; `select` returns `select_and_rank(days, 1)[0]`, `rank` returns `select_and_rank(days, k)[1]`; delete `_scored`'s centre gap; `retrieval` computes `scored` from `self._ranked(...)` and uses `lag_days == SIMILAR_DAY_BASELINE_LAG_DAYS`; keep the oracle's sort on `["target_date", "load_difference", "lag_days"]` (ties to the smaller lag, since Task 2's review). Delete Task 2's stopgap `_SAME_WEEKDAY_YEAR_AGO_LAG_DAYS`: no `364` may remain in `similar_day.py` outside comments and docstrings.)
 
 ```python
 def special_day_references(calendar, days, pool):
@@ -864,3 +865,4 @@ Update the module docstring (pool, four features, same-holiday rows, artifacts, 
 3. `cd dbt && DBT_THRIFT_HOST=localhost uv run dbt build --select retired_features stg_ml__similar_day+ dim_feature`.
 4. Backtest (background): the same `exec` form with `python scripts/demand_backtest.py --strategy lightgbm_msm_popw_daytype_simday --area tokyo`, then `dbt build --select +fct_demand_forecast_accuracy +fct_demand_forecast_contribution +fct_demand_forecast_importance`.
 5. Collect the §14 proof from the job run's params and CSVs (days by rule; share of each rank's picks from each window; largest/smallest weight per day; three example days; retrieval metrics) and the backtest's run id and MAE.
+6. Count the (target, candidate) pairs the availability rule drops that a next-day 00:30 rule would keep (a でんき予報 daily file's `available_at` is its update time, which a re-issue moves later). Record the count in the spec, and either keep the update-time rule or raise the choice with the researcher.
