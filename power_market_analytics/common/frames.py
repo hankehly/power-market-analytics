@@ -51,6 +51,17 @@ class DomainFrame:
         return len(self._df)
 
     @classmethod
+    def empty_df(cls) -> pd.DataFrame:
+        """An empty DataFrame with the schema's columns and dtypes, in schema order.
+
+        Returns
+        -------
+        pandas.DataFrame
+            No rows; pass it to :meth:`from_df` for an empty wrapper.
+        """
+        return pd.DataFrame({col: pd.Series(dtype=dtype) for col, dtype in cls.schema.items()})
+
+    @classmethod
     def from_df(cls, df: pd.DataFrame) -> Self:
         """Construct a validated wrapper from a raw DataFrame.
 

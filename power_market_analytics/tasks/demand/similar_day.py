@@ -375,8 +375,9 @@ class SpecialDayReferences(DomainFrame):
     ``holiday_name_ja`` (NaT when that name has no day there) and
     ``last_year_lag_days`` the days back to it (NaN without one).
     ``takes_reference`` is true when that day lies in the pool's year-ago
-    window: the special day then takes it instead of a ranked pick. Every other
-    special day is ranked like any day.
+    window (and, when the load's availability was given, its load was public
+    by the special day's issue time): the special day then takes it instead of
+    a ranked pick. Every other special day is ranked like any day.
 
     Grain: (trade_date).
     """
@@ -417,7 +418,11 @@ class SpecialDayReferences(DomainFrame):
 
 
 def special_day_references(
-    calendar: DayCalendar, days: Iterable[pd.Timestamp], pool: SimilarDayPool
+    calendar: DayCalendar,
+    days: Iterable[pd.Timestamp],
+    pool: SimilarDayPool,
+    *,
+    load_available_at: pd.Series | None = None,
 ) -> SpecialDayReferences:
     """The same-holiday reference of every special day among ``days``.
 
@@ -428,12 +433,19 @@ def special_day_references(
     within its calendar year. Days that are not holidays, or not in the
     calendar, get no row.
 
+    With ``load_available_at``, a reference also needs its whole day's load
+    public by D's issue time, as a pool candidate does: a reference published
+    later (a re-issued file) leaves D to the ranking. A reference with no known
+    availability (no load) still counts, so building its rows raises.
+
     Parameters
     ----------
     calendar : DayCalendar
     days : iterable of pandas.Timestamp
     pool : SimilarDayPool
         Its year-ago window bounds the reference's lag.
+    load_available_at : pandas.Series, optional
+        When each day's whole load was public (naive JST), indexed by day.
 
     Returns
     -------
@@ -456,13 +468,18 @@ def special_day_references(
     )
     lag = (matched["trade_date"] - matched["last_year_date"]).dt.days.astype("float64")
     newest, oldest = pool.year_ago
+    takes = lag.between(newest, oldest)
+    if load_available_at is not None:
+        public_at = matched["last_year_date"].map(load_available_at)
+        # A NaT availability compares false, so an unknown one is not late.
+        takes &= ~(public_at > matched["trade_date"] + TASK.issue_offset)
     out = pd.DataFrame(
         {
             "trade_date": matched["trade_date"].astype("datetime64[ns]"),
             "holiday_name_ja": matched["holiday_name_ja"].astype("object"),
             "last_year_date": matched["last_year_date"].astype("datetime64[ns]"),
             "last_year_lag_days": lag,
-            "takes_reference": lag.between(newest, oldest).astype("bool"),
+            "takes_reference": takes.astype("bool"),
         }
     ).sort_values("trade_date", ignore_index=True)
     return SpecialDayReferences.from_df(out)
@@ -503,11 +520,6 @@ class SimilarDayRetrieval(DomainFrame):
     def _validate_extra(cls, df: pd.DataFrame) -> None:
         _check_reference_precedes(cls.__name__, df, "reference_date")
         _check_reference_precedes(cls.__name__, df, "oracle_date")
-
-
-def _empty(frame_cls: type[DomainFrame]) -> pd.DataFrame:
-    """An empty frame with ``frame_cls``'s columns and dtypes."""
-    return pd.DataFrame({col: pd.Series(dtype=dtype) for col, dtype in frame_cls.schema.items()})
 
 
 @dataclasses.dataclass(frozen=True)
@@ -847,6 +859,25 @@ class SimilarDaySelector:
             & (oldest_candidate >= self.first_candidate_day)
         )
         return index[ok]
+
+    def special_day_references(self, days: Iterable[pd.Timestamp]) -> SpecialDayReferences:
+        """The same-holiday references of the special days among ``days``.
+
+        ``special_day_references`` over the selector's calendar and pool, with
+        the pool's availability rule: a reference counts only when its whole
+        day's load was public by the special day's issue time.
+
+        Parameters
+        ----------
+        days : iterable of pandas.Timestamp
+
+        Returns
+        -------
+        SpecialDayReferences
+        """
+        return special_day_references(
+            self.calendar, days, self.pool, load_available_at=self._load_available_at
+        )
 
     def _pairs(self, targets: pd.DatetimeIndex) -> pd.DataFrame:
         """Every (target, candidate) pair of the pool, with the lag in days.
@@ -1248,7 +1279,7 @@ class SimilarDaySelector:
         known = selection.df[selection.df["trade_date"].isin(self._load.days)]
         scored = self._scored(known["trade_date"]) if not known.empty else pd.DataFrame()
         if scored.empty:
-            return SimilarDayRetrieval.from_df(_empty(SimilarDayRetrieval))
+            return SimilarDayRetrieval.from_df(SimilarDayRetrieval.empty_df())
         loads = self._load.values["load"]
         scored = scored.assign(
             load_difference=load_difference(

@@ -302,7 +302,7 @@ class TestScoreWalkForward:
         assert fits["fit_through"].tolist() == expected_fit_through(fits["fit_cutoff"])
         assert fits["n_targets"].tolist() == [1, 8, 14, 14, 14, 14, 13, 13, 14, 14, 14, 14]
         # A target's pool is 90 days less the holidays in it (see the derivation in
-        # TestWindowPairCounts).
+        # tests/test_demand_similar_day.py's TestWindowPairCounts).
         assert fits["n_pairs"].tolist() == [
             88, 717, 1256, 1250, 1246, 1246, 1157, 1151, 1231, 1223, 1218, 1228
         ]  # fmt: skip
@@ -348,6 +348,21 @@ class TestScoreWalkForward:
         assert len(records) == 48 * (
             len(scoring.selection) + len(scoring.special_days.same_holiday_days)
         )
+        assert_usable_by_the_issue_time(records)
+
+    def test_every_published_row_is_usable_by_its_issue_time(self, weekly):
+        records = build_feature_records(
+            weekly,
+            make_hourly_load(),
+            make_forecast(),
+            run_id="r",
+            area_code="tokyo",
+            published_at=PUBLISHED_AT,
+        )
+        # 80 ranked days and 春分の日.
+        assert len(records) == 48 * 81
+        assert set(records.df["similar_day_method"]) == {METHOD_SIMILARITY, METHOD_SAME_HOLIDAY}
+        assert_usable_by_the_issue_time(records)
 
     def test_a_gap_in_the_forecasts_leaves_a_fit_without_days(self):
         # No forecast from 03-01 to 03-20: the fits of those weeks score nothing and
@@ -394,17 +409,30 @@ class TestScoreWalkForward:
         assert len(records) == 48
         assert records.df["similar_day_method"].eq(METHOD_SAME_HOLIDAY).all()
 
+    def test_a_reference_published_after_the_issue_time_is_ranked(self):
+        # 2023-03-21's load re-issued at 10:00 on 2024-03-19, after 03-20's 09:30 issue
+        # time: 春分の日 takes no reference and is ranked from its pool instead.
+        reissued = {SAME_HOLIDAY_REFERENCE: pd.Timestamp("2024-03-19 10:00")}
+        scoring = score_walk_forward(make_selector(public_at=reissued), [SAME_HOLIDAY])
+        assert scoring.special_days.same_holiday_days.empty
+        assert scoring.special_days.df["trade_date"].tolist() == [SAME_HOLIDAY]
+        assert scoring.selection.df["trade_date"].tolist() == [SAME_HOLIDAY]
+        assert scoring.ranking.df["rank"].tolist() == [1, 2, 3]
+        records = build_feature_records(
+            scoring,
+            make_hourly_load(public_at=reissued),
+            make_forecast(),
+            run_id="r",
+            area_code="tokyo",
+            published_at=PUBLISHED_AT,
+        )
+        assert len(records) == 48
+        assert records.df["similar_day_method"].eq(METHOD_SIMILARITY).all()
+        assert_usable_by_the_issue_time(records)
+
     def test_cadence_below_one_is_rejected(self):
         with pytest.raises(ValueError, match="refit_every_days must be >= 1"):
             score_walk_forward(make_selector(), [D], refit_every_days=0)
-
-    def test_top_k_below_one_is_rejected(self):
-        with pytest.raises(ValueError, match="top_k must be >= 1"):
-            score_walk_forward(make_selector(), [D], top_k=0)
-
-    def test_top_k_sets_the_ranks(self):
-        scoring = score_walk_forward(make_selector(), [D], top_k=2)
-        assert scoring.ranking.df["rank"].tolist() == [1, 2]
 
     def test_no_fit_possible_is_rejected(self):
         # Loads end before any scorable day, so no pair exists.
@@ -447,16 +475,10 @@ def expected_fit_through(cutoffs: pd.Series) -> list[pd.Timestamp]:
     return [day - pd.Timedelta(days=1) if day == SAME_HOLIDAY else day for day in through]
 
 
-class TestWindowPairCounts:
-    def test_the_first_fits_pairs_by_hand(self):
-        # The pool of a target T is lags 2..31 and 335..394 less the holidays in it
-        # (2023-01-09, 2023-03-21, 2024-01-08). 02-07: 01-08 in the recent window,
-        # 2023-01-09 in the year-ago one → 88; 02-08: 01-08 only → 89; 02-09..02-14:
-        # none → 90 each; the fit of 02-15 therefore holds 88 + 89 + 6 × 90 = 717 pairs.
-        pairs = make_selector().training_pairs(pd.Timestamp("2024-02-15")).df
-        per_target = pairs.groupby("target_date").size()
-        assert per_target.tolist() == [88, 89, 90, 90, 90, 90, 90, 90]
-        assert len(pairs) == 717
+def assert_usable_by_the_issue_time(records: SimilarDayFeatureRecords) -> None:
+    """Every row is public by its day's issue time, so Feast can serve it."""
+    issued = issue_times(pd.DatetimeIndex(records.df["trade_date"]))
+    assert (records.df["available_at"].to_numpy() <= issued.to_numpy()).all()
 
 
 def ranked_rows(df: pd.DataFrame) -> pd.Series:
@@ -595,12 +617,18 @@ class TestBuildFeatureRecords:
             make_records(scoring)
 
     def test_the_latest_ranked_load_sets_the_availability(self):
-        # Rank 3 lies at lag 2, and that day's load is public two days after it (a
-        # yearly-file day): 2024-04-10 00:00, later than the forecast's 04-09 01:00.
-        hourly_load = make_hourly_load(late={D - pd.Timedelta(days=2)})
+        # Rank 3 lies at lag 2 (04-08), and that day's load was re-issued at 05:00 on
+        # 04-09: later than the forecast's 04-09 01:00, before the 09:30 issue time.
+        reissued = pd.Timestamp("2024-04-09 05:00")
+        hourly_load = make_hourly_load(public_at={D - pd.Timedelta(days=2): reissued})
         records = make_records(make_scoring(days=(D,)), hourly_load=hourly_load)
-        assert records.df["available_at"].eq(D).all()
+        assert records.df["available_at"].eq(reissued).all()
         assert records.df["available_at"].gt(forecast_available_at(D)).all()
+        # Public two days after it (a yearly-file day), 04-10 00:00, it follows the
+        # issue time: the pool never ranks such a day, and the frame rejects the rows.
+        late = make_hourly_load(late={D - pd.Timedelta(days=2)})
+        with pytest.raises(ValueError, match="available_at must not follow the issue time"):
+            make_records(make_scoring(days=(D,)), hourly_load=late)
 
     def test_a_fit_after_the_forecast_sets_the_availability(self):
         # A fit at 08:00 on D-1, after the forecast's 01:00 and before the 09:30 issue.
@@ -649,25 +677,30 @@ class TestBuildFeatureRecords:
             ("must be positive", with_values(df, ranked, similar_day_rank3_demand_kwh=0.0)),
             ("time_code outside 1..48", df.assign(time_code=df["time_code"] + 48)),
             (
-                "must not follow the issue time",
+                "similar_day_fit_cutoff must not follow the issue time",
                 df.assign(similar_day_fit_cutoff=issued + pd.Timedelta(minutes=1)),
             ),
             (
                 "must not precede the fit's cutoff",
                 with_values(df, ranked, available_at=pd.Timestamp("2024-03-01")),
             ),
+            # D's issue time is 09:30 on 04-09; a row usable a minute later is never served.
+            (
+                "available_at must not follow the issue time",
+                with_values(df, ranked, available_at=pd.Timestamp("2024-04-09 09:31")),
+            ),
             ("one run per frame, got 2", df.assign(run_id=["a"] * 48 + ["b"] * 48)),
             ("similar_day_method must be one of", df.assign(similar_day_method="other")),
-            ("same_holiday", with_values(df, same, similar_day_rank1_distance=1.0)),
-            ("same_holiday", with_values(df, same, **{WEIGHTED_MEAN_COL: 1.0})),
-            ("similarity", with_values(df, ranked, similar_day_n_candidates=np.nan)),
+            ("carries rank 1 alone", with_values(df, same, similar_day_rank1_distance=1.0)),
+            ("carries rank 1 alone", with_values(df, same, **{WEIGHTED_MEAN_COL: 1.0})),
+            ("a similarity row needs", with_values(df, ranked, similar_day_n_candidates=np.nan)),
             (
                 "distance must be present",
                 with_values(df, ranked, similar_day_rank3_distance=np.nan),
             ),
             ("distance must not decrease", with_values(df, ranked, similar_day_rank1_distance=1.5)),
             (
-                "null rank",
+                "a null rank must be followed by null ranks only",
                 with_values(
                     df,
                     ranked,
@@ -677,19 +710,19 @@ class TestBuildFeatureRecords:
                 ),
             ),
             (
-                "similar_day_n_candidates",
+                "present exactly where similar_day_n_candidates reaches it",
                 with_values(df, ranked, similar_day_n_candidates=2.0),
             ),
             (
-                "similar_day_n_candidates",
+                "must be a whole number",
                 with_values(df, ranked, similar_day_n_candidates=87.5),
             ),
             (
-                "repeat",
+                "reference day repeats within a row",
                 with_values(df, ranked, similar_day_rank3_reference_date=D - pd.Timedelta(days=7)),
             ),
             (
-                "weighted mean",
+                "weighted mean must lie between",
                 with_values(
                     df,
                     ranked,

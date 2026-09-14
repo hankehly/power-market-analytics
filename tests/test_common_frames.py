@@ -135,3 +135,11 @@ class TestProperties:
 
     def test_len_is_row_count(self):
         assert len(Sample.from_df(sample_df().iloc[:2])) == 2
+
+
+class TestEmptyDf:
+    def test_schema_columns_and_dtypes_without_rows(self):
+        df = Sample.empty_df()
+        assert df.empty
+        assert df.dtypes.astype(str).to_dict() == Sample.schema
+        assert len(Sample.from_df(df)) == 0
