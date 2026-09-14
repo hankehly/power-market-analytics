@@ -210,7 +210,11 @@
   the researcher's decision pending). Since 2026-09-14 these seven similar-day presets read
   `ftr_period_similar_day:similar_day_rank1_demand_kwh`, rank 1 of the paper-style pool
   (below), instead of the retired `similar_day_demand_kwh`; their reference runs predate
-  the switch (Demand task bullet below). Areas: `tokyo`, `kansai` = the TSO feeds loaded
+  the switch (Demand task bullet below). Research `demand/R-008` E-001 (2026-09-15) compares the
+  two features matched on 2024-08-18 … 2026-08-17 (control `3dc586c4…` MAE 594,900; old run
+  `9f02c385…` 585,788, its feature rebuilt into `pma_scratch` tables; new `d019a370…` 572,428;
+  new vs old −2.3 %, CI over days includes zero; the researcher's decision pending).
+  Areas: `tokyo`, `kansai` = the TSO feeds loaded
   into `fct_area_demand_generation_actual`. An area's feature marts need its representative JMA
   station's hourly weather loaded and current (`dim_area.representative_jma_station_id`:
   東京 s47662, 大阪 s47772 — both loaded and current as of the 2026-08-20 re-scope backfill;
