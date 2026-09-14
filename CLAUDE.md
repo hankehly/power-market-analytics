@@ -57,7 +57,8 @@
   CI — `.github/workflows/ci.yml` runs the same command on every push). Shared fixtures in
   `tests/conftest.py`: `spark` (local session, temp warehouse, no metastore),
   `curated_warehouse` (synthetic `pma_curated` star for both tasks), `feature_marts` (the eight
-  `pma_features` marts from it under a UTC session — the similar-day mart picks D − 364 —
+  `pma_features` marts from it under a UTC session — the similar-day mart holds ranks 1–3
+  at lags 364, 7 and 371, their mean and one same-holiday day, 2024-04-29 —
   with the Feast store in a temp registry; every test that builds a preset strategy takes
   it), an autouse temp MLflow file store, and
   a session-wide single-thread LightGBM cap. HTTP is never real: the
@@ -206,7 +207,12 @@
   its 2026-09-12 run skipped seven target days to the 2025-06-14 hole where the baseline
   skipped one, so that run compares with `--common-days`) and `…_simday_lags_weather` (research `demand/R-007`: the MSM
   forecast's population-weighted humidity, rain and solar radiation on top of that preset,
-  the researcher's decision pending). Areas: `tokyo`, `kansai` = the TSO feeds loaded into
+  the researcher's decision pending). Since 2026-09-14 these seven similar-day presets read
+  `ftr_period_similar_day:similar_day_rank1_demand_kwh`, rank 1 of the paper-style pool
+  (below), instead of the retired `similar_day_demand_kwh`. Their reference runs
+  (`008868fe…`, `e3e3bd61…`, `a8da46c5…`, `f7153839…`, `9182d469…`, `a3fde7eb…`,
+  `34707ed6…`, `d04e9d0c…`, `e6d6d4ef…`) predate the switch and no longer come from the
+  presets, so a comparison with them needs fresh baseline runs. Areas: `tokyo`, `kansai` = the TSO feeds loaded into
   `fct_area_demand_generation_actual`. An area's feature marts need its representative JMA
   station's hourly weather loaded and current (`dim_area.representative_jma_station_id`:
   東京 s47662, 大阪 s47772 — both loaded and current as of the 2026-08-20 re-scope backfill;
@@ -223,8 +229,9 @@
   importance for that tab's Feature importance section — `--importance-repeats`, default 5;
   the first is what its Run filter reads). Feast's retrieval needs a UTC Spark session (the
   devcontainer's), so the demand backtests run in the devcontainer only.
-- `just python scripts/fit_similar_day.py --area tokyo` — score the demand similar day walking
-  forward (since 2026-09-11, feature catalogue PR 7): every `--refit-every-days` (default 7,
+- `just python scripts/fit_similar_day.py --area tokyo` — score the demand similar days walking
+  forward (since 2026-09-11, feature catalogue PR 7; the paper-style pool since 2026-09-14,
+  spec `docs/superpowers/specs/2026-09-14-similar-day-top-k-design.md`): every `--refit-every-days` (default 7,
   the LightGBM strategies' refit cadence) a fit of the seven weights of the similar-day
   distance runs at a cutoff instant on the (target, candidate) pairs of the
   `--fit-window-days` days before it (default 730, the LightGBM strategies' training window;
@@ -232,23 +239,42 @@
   the fit grew without bound) whose target load was public by then
   (`tasks/demand/similar_day.py`'s selector; the loads' `available_at`, which
   `AreaHourlyLoad` carries: the daily files' update time from 2022-04, two days after the
-  day for the yearly files before) and scores the days whose 09:30 D-1 issue time follows the
-  cutoff until the next one, so no day is scored with weights that saw a load that was not
+  day for the yearly files before) and ranks the days whose 09:30 D-1 issue time follows the
+  cutoff until the next one, so no day is ranked with weights that saw a load that was not
   yet public (a cutoff whose window holds fewer than eight public pairs — a gap in the
   targets longer than the window — makes no fit, and the previous fit serves on;
-  `n_cutoffs_without_fit`) — and writes the feature to `pma_ml.similar_day`
-  (`tasks/demand/similar_day_feature.py`; 48 rows per day, partitioned by `run_id` like the
-  forecast tables); `--window-half-width-days` (default 30). Logs to the MLflow experiment
+  `n_cutoffs_without_fit`). A day's pool is Park, Song and Kwon (2020)'s, up to 90
+  candidates: D − 2 … D − 31 and D − 335 … D − 394, without special days
+  (`dim_date.is_holiday`) and without a day whose whole load was public only after D's issue
+  time; the training pairs follow the same rules, with no special day as target. The job
+  writes four features to `pma_ml.similar_day` (`tasks/demand/similar_day_feature.py`; 48
+  rows per day, partitioned by `run_id` like the forecast tables): the three nearest days'
+  hourly loads, halved per period, and their inverse-distance weighted mean. A special day
+  whose same holiday last year (`dim_date.holiday_name_ja`) lies 335 … 394 days back, with
+  that day's load public by the issue time, takes that day instead
+  (`similar_day_method = 'same_holiday'`): rank 1 and the mean carry its load, and the rest
+  is null. Any other special day is ranked. The pool has no flags
+  (`--window-half-width-days` was removed on 2026-09-14). Logs to the MLflow experiment
   `similar_day` (`refit_every_days`, `n_fits`, `n_cutoffs_without_fit`, `first_fit_cutoff`,
-  `last_fit_cutoff`, `n_days_scored`, the last fit's `similar_day_*` params; every fit's weights as
-  `similar_day_fits.csv`, the selection of every scored day as `similar_day_selection.csv`,
-  the retrieval check of every scored day with a known load as `similar_day_retrieval.csv`
-  and the four `similar_day_*` metrics over them; tag `feature_table`). Then
-  `just dbt build --select stg_ml__similar_day ftr_period_similar_day` passes the rows to
-  Feast; a re-run is a new run whose rows win wherever they overlap. The first run backfills
-  every day from 2019 (the first fit runs when eight pairs are public — with 61 candidates a
-  day, when the first scorable day's load is — so scoring starts 2019-04-04); scoring only
-  new days is the live-path spec's. Needs the devcontainer.
+  `last_fit_cutoff`; `n_days_scored`, `first_day_scored` and `last_day_scored` over every
+  published day; `n_days_ranked`, `n_special_days_ranked`, `n_days_same_holiday`,
+  `similar_day_pool` (`2-31,335-394`), `similar_day_top_k` and the last fit's
+  `similar_day_*` params; every fit's weights as `similar_day_fits.csv`, rank 1 of every
+  ranked day as `similar_day_selection.csv`, every ranked day × rank with its lag, distance
+  and weight as `similar_day_ranking.csv`, every special day with last year's day of its
+  name and how it was published as `similar_day_special_days.csv`, the retrieval check of
+  every ranked day with a known load against D − 7 and the oracle as
+  `similar_day_retrieval.csv`, and the four metrics over them —
+  `similar_day_load_difference_selected`, `similar_day_load_difference_lag_7`,
+  `similar_day_load_difference_oracle`, `similar_day_share_better_than_lag_7`; tag
+  `feature_table`). Then `just dbt build --select retired_features stg_ml__similar_day+
+  dim_feature` passes the rows to Feast. A re-run is a new run whose rows win where they tie
+  on `available_at`; a re-run that scores a day another way needs the older run's partition
+  dropped, and a job with new columns needs `pma_ml.similar_day` dropped first (the `pma_ml`
+  gotcha). The first run backfills every day from 2019 (the first fit runs when eight pairs
+  are public — with up to 90 candidates a day, when the first scorable day's load is — so
+  scoring starts 2019-04-04); scoring only new days is the live-path spec's. Needs the
+  devcontainer.
 - `just python scripts/compare_demand_runs.py --baseline <run_id> --candidate <run_id>` — the
   demand task's matched two-run comparison (`tasks/demand/compare.py`): MAE overall / MAPE /
   bias / by day part, day type, month, season, 2,000-MWh actual-demand band, top-10 % demand
@@ -565,9 +591,16 @@
   arithmetic over named columns, exact and order-free), `ftr_period_jepx` (each proven
   equal to the Python builder it mirrors for Tokyo 2025) and `ftr_period_similar_day`
   (since 2026-09-11: the demand
-  similar day as the fit-and-score job wrote it to `pma_ml.similar_day`, passed through
+  similar days as the fit-and-score job wrote them to `pma_ml.similar_day`, passed through
   the guarded `stg_ml__similar_day`, one row per scoring run, with `published_at` next to
-  `available_at`); every strategy reads them through Feast. `fct_feature_value` (curated,
+  `available_at`; since 2026-09-14 four tagged columns, `similar_day_rank1_demand_kwh`,
+  `similar_day_rank2_demand_kwh`, `similar_day_rank3_demand_kwh` and
+  `wavg_similar_day_top3_demand_kwh`, with the untagged
+  `similar_day_rank<r>_reference_date` and `similar_day_rank<r>_distance` for r = 1 … 3,
+  `similar_day_n_candidates`, `similar_day_fit_cutoff` and `similar_day_method`
+  (`similarity` / `same_holiday`); that day `similar_day_demand_kwh` was retired, with a
+  `retired_features` row, and its reference date, lag and distance columns dropped); every strategy
+  reads them through Feast. `fct_feature_value` (curated,
   since 2026-09-12, PR 3) unpivots every tagged column of every mart to the period grain as
   one long fact — day marts broadcast to the 48 periods, hour marts to their two through
   `dim_delivery_period`, a mart with `published_at` reduced to the newest published row per
@@ -738,30 +771,52 @@
   the column on 2026-09-05 — Not supported, the reasons in the investigation.
   `lightgbm_msm_popw_daytype_simday` (research `demand/R-004` E-002, kept 2026-09-06: the
   Tokyo demand baseline, reference run `008868fe59274abfb49f128e29aa28fe`) = the
-  `lightgbm_msm_popw_daytype` preset + `ftr_period_similar_day:similar_day_demand_kwh`, the
-  load of a learned similar day one year earlier, halved per period. Since 2026-09-11
-  (feature catalogue PR 7) a walk-forward job builds it: `scripts/fit_similar_day.py` refits
+  `lightgbm_msm_popw_daytype` preset + `ftr_period_similar_day:similar_day_rank1_demand_kwh`
+  since 2026-09-14 (spec `docs/superpowers/specs/2026-09-14-similar-day-top-k-design.md`).
+  Until then it read `similar_day_demand_kwh`, the load of one learned similar day from
+  D − 364 ± 30, halved per period, now retired (`retired_features` row). This preset and its
+  six variants below switched together. Every reference run named below (`008868fe…`,
+  `e3e3bd61…`, `a8da46c5…`, `f7153839…`, `9182d469…`, `a3fde7eb…`, `34707ed6…`,
+  `d04e9d0c…`, `e6d6d4ef…`) predates the switch and no longer comes from its preset; the
+  numbers stay as run, and a comparison with the new feature needs fresh baselines. Since
+  2026-09-11 (feature catalogue PR 7) a walk-forward job builds the feature:
+  `scripts/fit_similar_day.py` refits
   the seven softmax weights of `tasks/demand/similar_day.py`'s distance every 7 days
   (`scipy.optimize.least_squares` on the pairs of the 730 days before the fit's cutoff —
   the LightGBM training window, `--fit-window-days` — whose target load was public by the
-  cutoff, Park, Song and Kwon 2020 Eq. 1–3) and scores the days that follow with them — for a
-  delivery day D the nearest day in D − 364 ± 30 under seven parts: days from D − 364; the
+  cutoff, Park, Song and Kwon 2020 Eq. 1–3) and ranks the days that follow with them. For a
+  delivery day D the pool is the paper's (§3): D − 2 … D − 31 and D − 335 … D − 394, ranked
+  together, nearest first, ties to the smaller lag. The distance has seven parts: the lag in
+  days (the paper's calendar part); the
   24-h RMSE of D's population-weighted MSM forecast against the candidate's
   population-weighted observation for temperature, humidity and rain; |Δ| of `dim_date`'s
-  days since / until a named holiday and of `holiday_degree`; a candidate needs all 24
-  hourly loads of `fct_area_power_usage_hourly`, a full observed profile and a calendar
-  row, D a full forecast profile and a window on or after the first candidate day (first
+  days since / until a named holiday and of `holiday_degree`. A candidate needs all 24
+  hourly loads of `fct_area_power_usage_hourly`, public by D's issue time (the latest
+  `available_at` of its 24 hours; before 2022-04 the yearly files make D − 2 miss it, so
+  the recent window starts at D − 3), a full observed profile and a calendar row, and it is
+  not a special day (`dim_date.is_holiday`). D needs a full forecast profile and its oldest
+  pool day on or after the first candidate day (first
   scorable day 2019-04-01, the MSM start; the first fit runs when eight pairs are public,
-  with its load, so scoring starts 2019-04-04) — and writes the chosen day's hourly load over the period's
-  hour ÷ 2 to `pma_ml.similar_day` (`tasks/demand/similar_day_feature.py`: 48 rows per day
-  with the chosen day, lag, distance, candidate count and the fit's cutoff next to the
-  feature; `available_at` = the latest of the day's MSM forecast vintage's, from
-  `AreaWeatherForecast`, the fit's cutoff and the chosen day's load availability; under
-  the default window every candidate is at least 334 days older, so the first two decide).
+  with its load, so scoring starts 2019-04-04). Training pairs follow the same candidate
+  rules, and no special day is a target. The job writes the three nearest days' hourly
+  loads over the period's hour ÷ 2 and their inverse-distance weighted mean
+  (`w_r = (1 / d_r) / Σ_s (1 / d_s)`, summed one rank at a time in rank order; zero
+  distances share all the weight) to `pma_ml.similar_day`
+  (`tasks/demand/similar_day_feature.py`: 48 rows per day with each rank's day and
+  distance, the candidate count, the fit's cutoff and `similar_day_method` next to the
+  features; `available_at` = the latest of the day's MSM forecast vintage's, from
+  `AreaWeatherForecast`, the fit's cutoff and the three ranked days' load availability). A
+  special day whose same holiday last year (`dim_date.holiday_name_ja`, unique within a
+  calendar year) lies 335 … 394 days back, with that day's whole load public by D's issue
+  time, takes that day R instead (`same_holiday`): rank 1 and the mean are R's load ÷ 2;
+  ranks 2 and 3, the distances, the candidate count and the fit cutoff are null; and
+  `available_at` is R's load availability. Any other special day — a holiday moved far from
+  last year's date, or a name that did not exist last year — is ranked like any day
+  (`similarity`).
   A fit at cutoff C uses only the pairs of the 730 days before C whose target load was
   public by C (`AreaHourlyLoad` carries the fact's `available_at`;
   `SimilarDaySelector.fit(available_by)`, `fit_window_days`), and a day is
-  scored by the latest fit whose cutoff is on or before its issue time, so no day is scored
+  ranked by the latest fit whose cutoff is on or before its issue time, so no day is ranked
   with weights that saw a load that was not yet public — the similar-day spec's decision 7
   (one fit per backtest, frozen) replaced by its deferred follow-up, on Codex's findings in
   PR #67 that a separate fit through today would otherwise score the history in sample and
@@ -773,10 +828,13 @@
   `ftr_period_similar_day` pass the rows to Feast, one row per scoring run
   (`similar_day_run_id`): the join takes the newest run usable at the issue time and, among
   rows tied on `available_at`, the newest published (the view's `created_timestamp_column`),
-  so a re-run replaces the feature wherever it scored. The job's run (MLflow experiment
+  so a re-run replaces an older run's row where the two tie on `available_at` (a
+  same-holiday row, public about a year before its day, never replaces a ranked one; drop
+  the older partition when the rules change). The job's run (MLflow experiment
   `similar_day`) logs every fit's weights (the weight-stability follow-up of E-002), the
-  selection and the retrieval check (selected vs D − 364 vs oracle load difference) that the
-  deleted strategy's `diagnostics` used to log per backtest. Reproduced 2026-09-11 (PR 7,
+  selection and the retrieval check (selected vs D − 7 vs oracle load difference; D − 364
+  before 2026-09-14) that the deleted strategy's `diagnostics` used to log per backtest, and
+  since 2026-09-14 the ranking with its weights and the special days. Reproduced 2026-09-11 (PR 7,
   before the walk-forward): the one fit through 2024-08-16 equalled run `008868fe…`'s and
   the old and new code were identical period by period; with the walk-forward the run is a
   matched comparison instead — numbers in
@@ -940,7 +998,9 @@
   never altered, so a job that gains a column fails on an existing table with
   `INSERT_COLUMN_ARITY_MISMATCH`; drop the table (its rows are re-published by the next
   run) before the first run with the new column. Hit on 2026-09-11 when
-  `pma_ml.similar_day` gained `similar_day_fit_through`.
+  `pma_ml.similar_day` gained `similar_day_fit_through`, and again on 2026-09-14, when its
+  columns changed to the ranks 1–3, their weighted mean and `similar_day_method`, so that
+  change's rollout drops the table before the job's first run.
 - `scipy` is a declared dependency since 2026-09-05 (the similar-day weight fit uses
   `scipy.optimize.least_squares`); `scipy.*` is mypy-ignored like `shap.*`.
 - `scikit-learn` is a declared dependency since 2026-09-08 (`sklearn.inspection.permutation_importance`;
@@ -1145,7 +1205,8 @@
   order, `ftr_hour_msm` in station order).
 - A feature a Python job fits and scores (spec §5 Form B; the similar day) is written
   back to `pma_ml.<feature>` (partitioned by `run_id`, with `available_at` = the latest of
-  every input of the row and the cutoff of the fit that scored it, and `published_at`),
+  every input of the row and the cutoff of the fit that scored it, if a fit did, and
+  `published_at`),
   read by a guarded staging model, and passed through by a mart with one row per scoring
   run and `published_at` next to `available_at` (the view generator turns that column into
   Feast's `created_timestamp_column`, so the newest published run wins among rows tied on

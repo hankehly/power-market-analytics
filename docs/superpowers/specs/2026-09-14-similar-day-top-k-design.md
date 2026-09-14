@@ -1,6 +1,6 @@
 # Paper-style similar days for the demand task — design
 
-Date: 2026-09-14. Status: **draft**, awaiting the researcher's review.
+Date: 2026-09-14. Status: **approved** on 2026-09-14; implemented on branch feature/similar-day-top-k.
 Branch: `feature/similar-day-top-k`.
 
 ## 1. Goal
