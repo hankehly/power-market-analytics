@@ -8,14 +8,17 @@ candidate's observation for temperature, humidity and rain, and the absolute
 differences of three ``dim_date`` holiday attributes. A candidate counts only
 if it is not a ``dim_date.is_holiday`` day and its whole day's load was public
 by D's issue time (09:30 on D − 1). The weights are fitted on past pairs that
-follow the same rules, with no special day as target (§2.2). Since the feature
-catalogue's PR 7 ``scripts/fit_similar_day.py`` walks forward through history,
-refitting every few days on the targets of the 730 days before each step (the
-LightGBM strategies' training window) and scoring the days that follow with
-that fit (``similar_day_feature.score_walk_forward``), and
-writes the chosen day's でんき予報 hourly load, halved per period, to
-``pma_ml.similar_day`` as the feature ``similar_day_demand_kwh``. This module
-holds the fit, the selection and the retrieval check. Design:
+follow the same rules, with no special day as target (§2.2). The nearest days
+come first, ties to the smaller lag; the three nearest are weighted by inverse
+distance. A special day takes the same holiday last year instead when that day
+lies in the pool's year-ago window. Since the feature catalogue's PR 7
+``scripts/fit_similar_day.py`` walks forward through history, refitting every
+few days on the targets of the 730 days before each step (the LightGBM
+strategies' training window) and scoring the days that follow with that fit
+(``similar_day_feature.score_walk_forward``), and writes the features to
+``pma_ml.similar_day``. This module holds the pool, the fit, the ranking and its
+weights, the same-holiday references and the retrieval check against D − 7.
+Design:
 docs/superpowers/specs/2026-09-05-demand-similar-day-reference-design.md;
 the job: docs/superpowers/specs/2026-09-10-feature-catalogue-design.md §5;
 the pool: docs/superpowers/specs/2026-09-14-similar-day-top-k-design.md.
@@ -136,9 +139,6 @@ SIMILAR_DAY_TOP_K = 3
 #: The retrieval check's plain reference: the same weekday one week back (the paper's
 #: previous-week model).
 SIMILAR_DAY_BASELINE_LAG_DAYS = 7
-#: The lag the ``lag_364_*`` selection and retrieval columns still read, until they
-#: move to ``SIMILAR_DAY_BASELINE_LAG_DAYS``.
-_SAME_WEEKDAY_YEAR_AGO_LAG_DAYS = 364
 #: Days of target days before its cutoff a fit sees: the LightGBM strategies'
 #: training window, so the feature and the model rest on the same span of history.
 SIMILAR_DAY_FIT_WINDOW_DAYS = DEFAULT_TRAIN_WINDOW_DAYS
@@ -181,6 +181,13 @@ def _check_reference_precedes(name: str, df: pd.DataFrame, column: str) -> None:
     """A reference day must lie strictly in the past of its delivery day (no leakage)."""
     if (df[column] >= df["trade_date"]).any():
         raise ValueError(f"{name}: {column} must precede trade_date")
+
+
+def _check_reference_lag(name: str, df: pd.DataFrame) -> None:
+    """``reference_lag_days`` must be the days from ``reference_date`` to ``trade_date``."""
+    lag = (df["trade_date"] - df["reference_date"]).dt.days
+    if (lag != df["reference_lag_days"]).any():
+        raise ValueError(f"{name}: reference_lag_days must equal trade_date - reference_date")
 
 
 class DayPairDifferences(DomainFrame):
@@ -235,9 +242,9 @@ class SimilarDaySelection(DomainFrame):
     positive: a reference day lies strictly in the past (the frame rejects
     the delivery day itself or a later day, whatever produced the row; the
     selector's own rows come from its pool only). ``n_candidates`` is the
-    pool days that could be scored; ``lag_364_rank`` the distance rank
-    (1 = nearest) of the plain same-weekday day one year back, NaN when it
-    was not a candidate.
+    pool days that could be scored; ``lag_7_rank`` the distance rank
+    (1 = nearest, tied days sharing the smallest rank) of the plain
+    same-weekday day one week back, NaN when it was not a candidate.
 
     Grain: (trade_date).
     """
@@ -248,7 +255,7 @@ class SimilarDaySelection(DomainFrame):
         "distance": "float64",
         "reference_lag_days": "int64",
         "n_candidates": "int64",
-        "lag_364_rank": "float64",
+        "lag_7_rank": "float64",
     }
     keys = ["trade_date"]
     non_null_cols = ["reference_date", "distance", "reference_lag_days", "n_candidates"]
@@ -256,17 +263,214 @@ class SimilarDaySelection(DomainFrame):
     @classmethod
     def _validate_extra(cls, df: pd.DataFrame) -> None:
         _check_reference_precedes(cls.__name__, df, "reference_date")
-        lag = (df["trade_date"] - df["reference_date"]).dt.days
-        if (lag != df["reference_lag_days"]).any():
+        _check_reference_lag(cls.__name__, df)
+
+
+def inverse_distance_weights(distances: np.ndarray) -> np.ndarray:
+    """Inverse-distance weights of each day's ranked similar days.
+
+    ``w_r = (1 / d_r) / Σ_s (1 / d_s)`` over the ranks present. When a day has a
+    distance of 0, its zero-distance ranks share the weight equally and the rest
+    get 0. The denominator is summed one rank at a time, in rank order, so a
+    re-run gives the same weights to the bit.
+
+    Parameters
+    ----------
+    distances : numpy.ndarray
+        Shape (days, k), non-negative and non-decreasing along a row; NaN for a
+        missing rank.
+
+    Returns
+    -------
+    numpy.ndarray
+        Shape (days, k); each row sums to 1 over its ranks; NaN where the rank is
+        missing.
+
+    Raises
+    ------
+    ValueError
+        If ``distances`` is not two-dimensional, a distance is negative, or a day
+        has no distance at all.
+    """
+    d = np.asarray(distances, dtype="float64")
+    if d.ndim != 2:
+        raise ValueError(
+            f"inverse_distance_weights: distances must be a days × k array, got shape {d.shape}"
+        )
+    present = ~np.isnan(d)
+    if (~present.any(axis=1)).any():
+        raise ValueError("inverse_distance_weights: a day has no distance")
+    if (d[present] < 0).any():
+        raise ValueError("inverse_distance_weights: distances must be >= 0")
+    zero = present & (d == 0.0)
+    inverse = np.divide(1.0, d, out=np.zeros_like(d), where=present & ~zero)
+    inverse = np.where(zero.any(axis=1)[:, None], zero.astype("float64"), inverse)
+    total = np.zeros(d.shape[0])
+    for rank in range(d.shape[1]):
+        total = total + inverse[:, rank]
+    return np.where(present, inverse / total[:, None], np.nan)
+
+
+class SimilarDayRanking(DomainFrame):
+    """The nearest pool days of each ranked delivery day, under the fit that scored it.
+
+    ``rank`` runs 1, 2, … within a day, nearest first (ties to the smaller lag),
+    so ``distance`` never decreases by rank; a day holds fewer ranks when its
+    pool is smaller. ``reference_lag_days`` = ``trade_date − reference_date`` in
+    days; a reference day lies strictly in the past and appears once per day.
+
+    Grain: (trade_date, rank).
+    """
+
+    schema = {
+        "trade_date": _DATE,
+        "rank": "int64",
+        "reference_date": _DATE,
+        "reference_lag_days": "int64",
+        "distance": "float64",
+    }
+    keys = ["trade_date", "rank"]
+    non_null_cols = ["reference_date", "reference_lag_days", "distance"]
+
+    @classmethod
+    def _validate_extra(cls, df: pd.DataFrame) -> None:
+        name = cls.__name__
+        _check_reference_precedes(name, df, "reference_date")
+        _check_reference_lag(name, df)
+        ordered = df.sort_values(["trade_date", "rank"])
+        by_day = ordered.groupby("trade_date", sort=False)
+        if (ordered["rank"] != by_day.cumcount() + 1).any():
+            raise ValueError(f"{name}: rank must run 1..n within each trade_date")
+        if (by_day["distance"].diff() < 0).any():
+            raise ValueError(f"{name}: distance must not decrease by rank")
+        if df.duplicated(["trade_date", "reference_date"]).any():
+            raise ValueError(f"{name}: a reference day repeats within a day")
+
+    def with_weights(self) -> pd.DataFrame:
+        """The ranking plus each rank's inverse-distance ``weight``.
+
+        A day's weights come from its own ranks (``inverse_distance_weights``).
+
+        Returns
+        -------
+        pandas.DataFrame
+            The ranking's columns and ``weight`` (float64), sorted by day and rank.
+        """
+        df = self.df.sort_values(["trade_date", "rank"], ignore_index=True)
+        if df.empty:
+            return df.assign(weight=pd.Series(dtype="float64"))
+        days = pd.DatetimeIndex(df["trade_date"]).unique()
+        row = days.get_indexer(pd.DatetimeIndex(df["trade_date"]))
+        col = df["rank"].to_numpy(dtype="int64") - 1
+        wide = np.full((len(days), int(col.max()) + 1), np.nan)
+        wide[row, col] = df["distance"].to_numpy(dtype="float64")
+        return df.assign(weight=inverse_distance_weights(wide)[row, col])
+
+
+class SpecialDayReferences(DomainFrame):
+    """The special days (``dim_date.is_holiday``) of a span and their same-holiday reference.
+
+    ``last_year_date`` is the day of the previous calendar year with the same
+    ``holiday_name_ja`` (NaT when that name has no day there) and
+    ``last_year_lag_days`` the days back to it (NaN without one).
+    ``takes_reference`` is true when that day lies in the pool's year-ago
+    window: the special day then takes it instead of a ranked pick. Every other
+    special day is ranked like any day.
+
+    Grain: (trade_date).
+    """
+
+    schema = {
+        "trade_date": _DATE,
+        "holiday_name_ja": "object",
+        "last_year_date": _DATE,
+        "last_year_lag_days": "float64",
+        "takes_reference": "bool",
+    }
+    keys = ["trade_date"]
+    non_null_cols = ["holiday_name_ja", "takes_reference"]
+
+    @classmethod
+    def _validate_extra(cls, df: pd.DataFrame) -> None:
+        name = cls.__name__
+        if (df["takes_reference"] & df["last_year_date"].isna()).any():
+            raise ValueError(f"{name}: takes_reference needs last_year_date")
+        _check_reference_precedes(name, df, "last_year_date")
+        gap = (df["trade_date"] - df["last_year_date"]).dt.days.astype("float64")
+        lag = df["last_year_lag_days"]
+        if not ((gap == lag) | (gap.isna() & lag.isna())).all():
             raise ValueError(
-                f"{cls.__name__}: reference_lag_days must equal trade_date - reference_date"
+                f"{name}: last_year_lag_days must equal trade_date - last_year_date "
+                "(NaN without a last_year_date)"
             )
+
+    @property
+    def same_holiday_days(self) -> pd.DatetimeIndex:
+        """The special days that take their same-holiday reference.
+
+        Returns
+        -------
+        pandas.DatetimeIndex
+        """
+        return pd.DatetimeIndex(self.df.loc[self.df["takes_reference"], "trade_date"])
+
+
+def special_day_references(
+    calendar: DayCalendar, days: Iterable[pd.Timestamp], pool: SimilarDayPool
+) -> SpecialDayReferences:
+    """The same-holiday reference of every special day among ``days``.
+
+    For a ``calendar`` holiday D, the day of the previous calendar year with the
+    same ``holiday_name_ja`` is its reference when it lies ``pool.year_ago`` days
+    back (both bounds inclusive); otherwise D is ranked like any day. Names are
+    matched exactly: the naming lives in ``dim_date`` alone, and a name is unique
+    within its calendar year. Days that are not holidays, or not in the
+    calendar, get no row.
+
+    Parameters
+    ----------
+    calendar : DayCalendar
+    days : iterable of pandas.Timestamp
+    pool : SimilarDayPool
+        Its year-ago window bounds the reference's lag.
+
+    Returns
+    -------
+    SpecialDayReferences
+        One row per special day among ``days``, sorted by day.
+    """
+    cal = calendar.df
+    wanted = pd.DatetimeIndex(pd.to_datetime(list(days)))
+    holidays = cal.loc[cal["is_holiday"], ["trade_date", "holiday_name_ja"]]
+    special = holidays[holidays["trade_date"].isin(wanted)]
+    last_year = pd.DataFrame(
+        {
+            "year": holidays["trade_date"].dt.year + 1,
+            "holiday_name_ja": holidays["holiday_name_ja"],
+            "last_year_date": holidays["trade_date"],
+        }
+    )
+    matched = special.assign(year=special["trade_date"].dt.year).merge(
+        last_year, how="left", on=["year", "holiday_name_ja"], validate="one_to_one"
+    )
+    lag = (matched["trade_date"] - matched["last_year_date"]).dt.days.astype("float64")
+    newest, oldest = pool.year_ago
+    out = pd.DataFrame(
+        {
+            "trade_date": matched["trade_date"].astype("datetime64[ns]"),
+            "holiday_name_ja": matched["holiday_name_ja"].astype("object"),
+            "last_year_date": matched["last_year_date"].astype("datetime64[ns]"),
+            "last_year_lag_days": lag,
+            "takes_reference": lag.between(newest, oldest).astype("bool"),
+        }
+    ).sort_values("trade_date", ignore_index=True)
+    return SpecialDayReferences.from_df(out)
 
 
 class SimilarDayRetrieval(DomainFrame):
     """After-the-fact check of a selection once the delivery day's load is known.
 
-    Per day: the selected day's realised load difference, the plain D − 364
+    Per day: the selected day's realised load difference, the plain D − 7
     day's (NaN when not a candidate), the best candidate (``oracle_date``) and
     its load difference, and where the selected day ranked by that outcome
     (1 = the oracle).
@@ -279,7 +483,7 @@ class SimilarDayRetrieval(DomainFrame):
         "reference_date": _DATE,
         "distance": "float64",
         "selected_load_difference": "float64",
-        "lag_364_load_difference": "float64",
+        "lag_7_load_difference": "float64",
         "oracle_date": _DATE,
         "oracle_load_difference": "float64",
         "selected_rank_by_outcome": "int64",
@@ -510,7 +714,7 @@ def fit_similar_day_weights(pairs: SimilarDayTrainingPairs) -> SimilarDayWeights
 
 
 class SimilarDaySelector:
-    """Scores, fits and selects similar days for the demand task.
+    """Scores, fits, ranks and selects similar days for the demand task.
 
     Parameters
     ----------
@@ -869,11 +1073,96 @@ class SimilarDaySelector:
             "similar_day_periods_per_hour": PERIODS_PER_HOUR,
         }
 
-    def _scored(self, days: Iterable[pd.Timestamp]) -> pd.DataFrame:
-        """Pool pairs with their distance and lag in days."""
+    def _ranked(self, days: Iterable[pd.Timestamp]) -> pd.DataFrame:
+        """Pool pairs with their distance, lag and rank, nearest first per day.
+
+        Ties go to the smaller lag.
+
+        Parameters
+        ----------
+        days : iterable of pandas.Timestamp
+
+        Returns
+        -------
+        pandas.DataFrame
+            ``target_date``, ``candidate_date``, the seven parts, ``distance``,
+            ``lag_days`` and ``rank`` (1 = nearest), sorted by day and rank.
+
+        Raises
+        ------
+        RuntimeError
+            Before any fit.
+        """
         diffs = self.differences(days)
         df = diffs.df.assign(distance=self.weights.distance(diffs))
-        return df.assign(lag_days=(df["target_date"] - df["candidate_date"]).dt.days)
+        df = df.assign(lag_days=(df["target_date"] - df["candidate_date"]).dt.days)
+        # (target_date, lag_days) is unique, so this three-key sort is a total order.
+        df = df.sort_values(["target_date", "distance", "lag_days"], ignore_index=True)
+        return df.assign(rank=df.groupby("target_date").cumcount() + 1)
+
+    def select_and_rank(
+        self, days: Iterable[pd.Timestamp], k: int = SIMILAR_DAY_TOP_K
+    ) -> tuple[SimilarDaySelection, SimilarDayRanking]:
+        """Score the pool once and return the nearest day and the ``k`` nearest days.
+
+        Both come from one sort (nearest first, ties to the smaller lag), so the
+        selection is always rank 1 of the ranking.
+
+        Parameters
+        ----------
+        days : iterable of pandas.Timestamp
+        k : int, optional
+            How many nearest days to rank; a day with a smaller pool gets fewer.
+
+        Returns
+        -------
+        tuple of (SimilarDaySelection, SimilarDayRanking)
+            One selection row and up to ``k`` ranking rows per scorable day; both
+            empty when no day is scorable.
+
+        Raises
+        ------
+        ValueError
+            If ``k`` is below 1.
+        RuntimeError
+            Before any fit.
+        """
+        if k < 1:
+            raise ValueError(f"k must be at least 1, got {k}")
+        ranked = self._ranked(days)
+        top = ranked[ranked["rank"] <= k]
+        ranking = SimilarDayRanking.from_df(
+            pd.DataFrame(
+                {
+                    "trade_date": top["target_date"].to_numpy(),
+                    "rank": top["rank"].to_numpy(dtype="int64"),
+                    "reference_date": top["candidate_date"].to_numpy(),
+                    "reference_lag_days": top["lag_days"].to_numpy(dtype="int64"),
+                    "distance": top["distance"].to_numpy(dtype="float64"),
+                }
+            )
+        )
+        best = ranked[ranked["rank"] == 1].set_index("target_date")
+        # D - 7's distance rank, tied days sharing the smallest rank.
+        min_rank = ranked.groupby("target_date")["distance"].rank(method="min")
+        baseline = ranked.assign(min_rank=min_rank)
+        at_baseline = baseline[baseline["lag_days"] == SIMILAR_DAY_BASELINE_LAG_DAYS].set_index(
+            "target_date"
+        )["min_rank"]
+        counts = ranked.groupby("target_date").size()
+        selection = SimilarDaySelection.from_df(
+            pd.DataFrame(
+                {
+                    "trade_date": best.index.to_numpy(),
+                    "reference_date": best["candidate_date"].to_numpy(),
+                    "distance": best["distance"].to_numpy(dtype="float64"),
+                    "reference_lag_days": best["lag_days"].to_numpy(dtype="int64"),
+                    "n_candidates": counts.reindex(best.index).to_numpy(dtype="int64"),
+                    "lag_7_rank": at_baseline.reindex(best.index).to_numpy(dtype="float64"),
+                }
+            )
+        )
+        return selection, ranking
 
     def select(self, days: Iterable[pd.Timestamp]) -> SimilarDaySelection:
         """Pick the nearest pool day for every scorable day among ``days``.
@@ -894,32 +1183,32 @@ class SimilarDaySelector:
         RuntimeError
             Before any fit.
         """
-        scored = self._scored(days)
-        if scored.empty:
-            return SimilarDaySelection.from_df(_empty(SimilarDaySelection))
-        # (target_date, lag_days) is unique, so this three-key sort is a total order.
-        best = (
-            scored.sort_values(["target_date", "distance", "lag_days"])
-            .groupby("target_date", sort=True)
-            .head(1)
-            .set_index("target_date")
-        )
-        ranks = scored.assign(rank=scored.groupby("target_date")["distance"].rank(method="min"))
-        at_centre = ranks[ranks["lag_days"] == _SAME_WEEKDAY_YEAR_AGO_LAG_DAYS].set_index(
-            "target_date"
-        )["rank"]
-        counts = scored.groupby("target_date").size()
-        out = pd.DataFrame(
-            {
-                "trade_date": best.index,
-                "reference_date": best["candidate_date"].to_numpy(),
-                "distance": best["distance"].to_numpy(dtype="float64"),
-                "reference_lag_days": best["lag_days"].to_numpy(dtype="int64"),
-                "n_candidates": counts.loc[best.index].to_numpy(dtype="int64"),
-                "lag_364_rank": at_centre.reindex(best.index).to_numpy(dtype="float64"),
-            }
-        )
-        return SimilarDaySelection.from_df(out)
+        return self.select_and_rank(days, 1)[0]
+
+    def rank(self, days: Iterable[pd.Timestamp], k: int = SIMILAR_DAY_TOP_K) -> SimilarDayRanking:
+        """The ``k`` nearest pool days of every scorable day among ``days``.
+
+        Ties go to the smaller lag.
+
+        Parameters
+        ----------
+        days : iterable of pandas.Timestamp
+        k : int, optional
+            How many nearest days to rank; a day with a smaller pool gets fewer.
+
+        Returns
+        -------
+        SimilarDayRanking
+            Up to ``k`` rows per scorable day; empty when none is.
+
+        Raises
+        ------
+        ValueError
+            If ``k`` is below 1.
+        RuntimeError
+            Before any fit.
+        """
+        return self.select_and_rank(days, k)[1]
 
     def retrieval(self, selection: SimilarDaySelection) -> SimilarDayRetrieval:
         """Judge a selection against what every candidate's load turned out to be.
@@ -936,7 +1225,7 @@ class SimilarDaySelector:
             Empty when no selected day has a known load yet.
         """
         known = selection.df[selection.df["trade_date"].isin(self._load.days)]
-        scored = self._scored(known["trade_date"]) if not known.empty else pd.DataFrame()
+        scored = self._ranked(known["trade_date"]) if not known.empty else pd.DataFrame()
         if scored.empty:
             return SimilarDayRetrieval.from_df(_empty(SimilarDayRetrieval))
         loads = self._load.values["load"]
@@ -957,7 +1246,7 @@ class SimilarDaySelector:
             on=["target_date", "candidate_date"],
             validate="one_to_one",
         ).set_index("target_date")
-        at_centre = scored[scored["lag_days"] == _SAME_WEEKDAY_YEAR_AGO_LAG_DAYS].set_index(
+        at_baseline = scored[scored["lag_days"] == SIMILAR_DAY_BASELINE_LAG_DAYS].set_index(
             "target_date"
         )["load_difference"]
         # Ties go to the smaller lag, as in the selection.
@@ -973,7 +1262,7 @@ class SimilarDaySelector:
                 "reference_date": chosen["candidate_date"].to_numpy(),
                 "distance": chosen["distance"].to_numpy(dtype="float64"),
                 "selected_load_difference": chosen["load_difference"].to_numpy(dtype="float64"),
-                "lag_364_load_difference": at_centre.reindex(chosen.index).to_numpy(
+                "lag_7_load_difference": at_baseline.reindex(chosen.index).to_numpy(
                     dtype="float64"
                 ),
                 "oracle_date": oracle.loc[chosen.index, "candidate_date"].to_numpy(),
@@ -987,8 +1276,8 @@ class SimilarDaySelector:
 
 
 def retrieval_metrics(retrieval: SimilarDayRetrieval) -> dict[str, float]:
-    """Mean realised load differences of the selected, D − 364 and oracle days,
-    and the share of days the selected day beat D − 364 (over days where the
+    """Mean realised load differences of the selected, D − 7 and oracle days,
+    and the share of days the selected day beat D − 7 (over days where the
     latter was a candidate). NaN where a mean has no rows.
 
     Parameters
@@ -1000,12 +1289,12 @@ def retrieval_metrics(retrieval: SimilarDayRetrieval) -> dict[str, float]:
     dict of str to float
     """
     df = retrieval.df
-    comparable = df.dropna(subset=["lag_364_load_difference"])
+    comparable = df.dropna(subset=["lag_7_load_difference"])
     return {
         "similar_day_load_difference_selected": float(df["selected_load_difference"].mean()),
-        "similar_day_load_difference_lag_364": float(df["lag_364_load_difference"].mean()),
+        "similar_day_load_difference_lag_7": float(df["lag_7_load_difference"].mean()),
         "similar_day_load_difference_oracle": float(df["oracle_load_difference"].mean()),
-        "similar_day_share_better_than_lag_364": float(
-            (comparable["selected_load_difference"] < comparable["lag_364_load_difference"]).mean()
+        "similar_day_share_better_than_lag_7": float(
+            (comparable["selected_load_difference"] < comparable["lag_7_load_difference"]).mean()
         ),
     }
