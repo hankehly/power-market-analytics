@@ -207,16 +207,45 @@ class TestSimilarDayPool:
 
     @pytest.mark.parametrize(
         "windows",
-        [(), ((0, 5),), ((5, 4),), ((2, 10), (10, 20)), ((335, 394), (2, 31))],
-        ids=["empty", "newest-below-one", "reversed", "overlapping", "descending"],
+        [
+            (),
+            ((0, 5),),
+            ((5, 4),),
+            ((2, 10), (10, 20)),
+            ((335, 394), (2, 31)),
+            (2, 31),
+            ((2, 10, 20),),
+            ((2.0, 31),),
+            ((True, 31),),
+        ],
+        ids=[
+            "empty",
+            "newest-below-one",
+            "reversed",
+            "overlapping",
+            "descending",
+            "not-a-sequence-of-windows",
+            "not-a-pair",
+            "float",
+            "bool",
+        ],
     )
     def test_a_bad_pool_is_rejected(self, windows):
         with pytest.raises(ValueError, match="pool"):
             SimilarDayPool(windows)
 
+    def test_adjacent_windows_are_accepted(self):
+        assert SimilarDayPool(((2, 10), (11, 20))).lags.tolist() == list(range(2, 21))
+
+    def test_any_sequence_of_whole_number_pairs_is_stored_as_tuples(self):
+        pool = SimilarDayPool([[2, 31], [np.int64(335), np.int64(394)]])
+        assert pool == SIMILAR_DAY_POOL
+        assert hash(pool) == hash(SIMILAR_DAY_POOL)
+        assert all(type(lag) is int for window in pool.windows for lag in window)
+
 
 class TestSelectorSetup:
-    def test_window_and_candidates(self, selector):
+    def test_pool_and_candidates(self, selector):
         assert selector.pool == SIMILAR_DAY_POOL
         assert selector.lags.tolist() == [*range(2, 32), *range(335, 395)]
         assert selector.calendar.df.equals(make_calendar().df)
@@ -257,7 +286,7 @@ class TestSelectorSetup:
         days = [
             D,
             pd.Timestamp("2023-12-31"),  # no forecast profile
-            pd.Timestamp("2024-01-20"),  # window starts 2022-12-22, before the first candidate
+            pd.Timestamp("2024-01-20"),  # oldest pool day 2022-12-22 precedes the first candidate
             pd.Timestamp("2024-04-30"),  # calendar ends at the last holiday 04-29
             D,  # duplicate
         ]
@@ -288,6 +317,13 @@ class TestDifferences:
             pd.Timestamp("2024-03-20")
             not in selector.differences([D]).df["candidate_date"].tolist()
         )
+
+    def test_a_special_target_keeps_its_pool(self, selector):
+        # Only training drops special targets. 2024-03-20's pool is 2023-02-20 .. 2023-04-20
+        # and 2024-02-18 .. 2024-03-18: 90 days less the holiday 2023-03-21 (lag 365).
+        diffs = selector.differences([pd.Timestamp("2024-03-20")]).df
+        assert len(diffs) == 89
+        assert not diffs["candidate_date"].isin(HOLIDAYS).any()
 
     def test_a_candidate_public_after_the_issue_time_is_left_out(self, selector):
         # D - 2's load is public at 00:00 on D - 1, before the 09:30 issue time; a day
@@ -775,7 +811,8 @@ class TestRetrieval:
         assert row["selected_load_difference"] == pytest.approx(realised[sel["reference_date"]])
         assert row["lag_364_load_difference"] == pytest.approx(realised[D_MINUS_364])
         assert row["oracle_load_difference"] == pytest.approx(min(realised.values()))
-        assert row["oracle_date"] == min(realised, key=lambda c: (realised[c], c))
+        # Ties go to the smaller lag.
+        assert row["oracle_date"] == min(realised, key=lambda c: (realised[c], D - c))
         assert row["oracle_load_difference"] <= row["selected_load_difference"]
         assert row["selected_rank_by_outcome"] >= 1
 
@@ -828,7 +865,7 @@ class TestRetrievalMetrics:
 
 
 class TestSelectorParams:
-    def test_the_window_the_parts_the_weights_and_the_span(self, fitted):
+    def test_the_pool_the_parts_the_weights_and_the_span(self, fitted):
         params = fitted.as_params()
         assert params["similar_day_pool"] == "2-31,335-394"
         assert "similar_day_center_lag_days" not in params

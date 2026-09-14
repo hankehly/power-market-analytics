@@ -49,22 +49,41 @@ class SimilarDayPool:
     Attributes
     ----------
     windows : tuple of (int, int)
-        ``(newest, oldest)`` lag pairs, ascending and not overlapping.
+        ``(newest, oldest)`` lag pairs, ascending and not overlapping. Any sequence
+        of pairs of whole numbers is accepted and stored as a tuple of int tuples,
+        so two pools with the same windows are equal and hashable.
 
     Raises
     ------
     ValueError
-        If there is no window, a window's newest lag is below 1 or above its
-        oldest, or the windows are not ascending and apart.
+        If a window is not a pair of whole numbers, there is no window, a window's
+        newest lag is below 1 or above its oldest, or the windows are not ascending
+        and apart.
     """
 
     windows: tuple[tuple[int, int], ...]
 
     def __post_init__(self) -> None:
-        if not self.windows:
+        try:
+            pairs = tuple((newest, oldest) for newest, oldest in self.windows)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"similar-day pool windows {self.windows!r} must be (newest, oldest) pairs"
+            ) from exc
+        if not all(
+            isinstance(lag, (int, np.integer)) and not isinstance(lag, bool)
+            for pair in pairs
+            for lag in pair
+        ):
+            raise ValueError(
+                f"similar-day pool windows {self.windows!r} must hold whole numbers of days"
+            )
+        windows = tuple((int(newest), int(oldest)) for newest, oldest in pairs)
+        object.__setattr__(self, "windows", windows)
+        if not windows:
             raise ValueError("similar-day pool must hold at least one window")
         previous_oldest = 0
-        for newest, oldest in self.windows:
+        for newest, oldest in windows:
             if newest < 1 or newest > oldest:
                 raise ValueError(
                     f"similar-day pool window {(newest, oldest)} must satisfy 1 <= newest <= oldest"
@@ -602,8 +621,9 @@ class SimilarDaySelector:
     def scorable_days(self, days: Iterable[pd.Timestamp]) -> pd.DatetimeIndex:
         """The delivery days among ``days`` that can be scored.
 
-        A day needs a complete forecast profile, a calendar row, and a pool
-        whose oldest lag lies on or after the first candidate day.
+        A day needs a complete forecast profile, a calendar row, and its oldest
+        pool day (the day minus the pool's oldest lag) on or after the first
+        candidate day.
 
         Parameters
         ----------
@@ -660,8 +680,11 @@ class SimilarDaySelector:
     def differences(self, days: Iterable[pd.Timestamp]) -> DayPairDifferences:
         """The seven parts for every pool pair of the scorable days among ``days``.
 
-        The pairs follow the pool's rules (see ``_pairs``); the calendar part is
-        the lag in days.
+        A candidate is a day at one of the pool's lags that has an observed
+        profile, a load profile and a calendar row, is not a special day
+        (``dim_date.is_holiday``), and had its whole day's load public by the
+        target's issue time. A special target keeps its pool. The calendar part
+        is the lag in days.
 
         Parameters
         ----------
@@ -874,8 +897,9 @@ class SimilarDaySelector:
         scored = self._scored(days)
         if scored.empty:
             return SimilarDaySelection.from_df(_empty(SimilarDaySelection))
+        # (target_date, lag_days) is unique, so this three-key sort is a total order.
         best = (
-            scored.sort_values(["target_date", "distance", "lag_days"], kind="mergesort")
+            scored.sort_values(["target_date", "distance", "lag_days"])
             .groupby("target_date", sort=True)
             .head(1)
             .set_index("target_date")
@@ -936,8 +960,9 @@ class SimilarDaySelector:
         at_centre = scored[scored["lag_days"] == _SAME_WEEKDAY_YEAR_AGO_LAG_DAYS].set_index(
             "target_date"
         )["load_difference"]
+        # Ties go to the smaller lag, as in the selection.
         oracle = (
-            scored.sort_values(["target_date", "load_difference", "candidate_date"])
+            scored.sort_values(["target_date", "load_difference", "lag_days"])
             .groupby("target_date", sort=True)
             .head(1)
             .set_index("target_date")

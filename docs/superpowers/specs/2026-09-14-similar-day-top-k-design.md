@@ -390,6 +390,9 @@ The PR shows:
   - The largest and smallest weight per ranked day.
   - A few days with their three picks, distances and weights.
   - The retrieval metrics against D − 7 and the oracle.
+  - How many candidates the availability rule drops that a next-day 00:30 rule would
+    keep. A daily file's `available_at` is its update time, and a re-issue moves it
+    later.
 - **The dbt build passing,** including the `retired_features` row in `dim_feature`.
 - **The generator's `--check` passing.**
 - **The backtest of §11 finishing,** with its run id and MAE. No comparison is drawn:
