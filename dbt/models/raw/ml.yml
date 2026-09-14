@@ -308,8 +308,9 @@ sources:
           on days before D give four features per period: their hourly loads,
           halved, and their inverse-distance weighted mean. A special day whose
           same holiday last year (dim_date.holiday_name_ja) lies 335 ... 394
-          days back takes that day instead: rank 1 and the mean carry its load,
-          and the ranked-only columns are null. One row per MLflow run, area and
+          days back, with that day's whole load public by D's issue time, takes
+          that day instead: rank 1 and the mean carry its load, and the
+          ranked-only columns are null. Otherwise it is ranked. One row per MLflow run, area and
           period; partitioned by run_id and overwritten per run like the
           forecast tables, so a re-run is a new run whose rows the
           ftr_period_similar_day mart passes to Feast next to the older runs'.
