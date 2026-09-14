@@ -32,14 +32,11 @@ compose stack to be up):
 
 ```bash
 just refresh-all                         # every source: each download/load script with its defaults, one dbt build at the end
-just python scripts/download_jma_hourly_all.py --prefecture 44   # one source = its download + load scripts (pairs in CLAUDE.md) ...
-just python scripts/load_jma_hourly.py && just dbt build          # ... then rebuild + test dbt
-just python scripts/load_jepx_spot.py    # python in the devcontainer
-just python -c "import power_market_analytics"
+just python scripts/download_jma_hourly_all.py --prefecture 44   # one source's download + load scripts (pairs in CLAUDE.md), then...
+just python scripts/load_jma_hourly.py && just dbt build          # ...rebuild + test dbt
 just python scripts/spot_price_backtest.py --strategy lightgbm --area tokyo  # forecast backtest
 just python scripts/compare_spot_price_runs.py --baseline <run_id> --candidate <run_id>  # matched run comparison
-just dbt run                             # dbt, run from /workspace/dbt
-just dbt test --select stg_jepx__spot
+just dbt test --select stg_jepx__spot    # dbt, run from /workspace/dbt
 just exec spark-submit --version         # any command in the devcontainer
 just sql                                 # beeline SQL shell on the thriftserver
 just shell                               # interactive bash in the devcontainer
@@ -54,14 +51,12 @@ directly with `cd dbt && DBT_THRIFT_HOST=localhost uv run dbt <command>`.
 ## Code review process
 
 Every pull request is reviewed by a bot before it is merged, documentation-only ones
-included. **Codex** is the reviewer, and it reviews every push on its own. **Copilot**
-is the fallback, for when Codex cannot review — in practice when it has run out of
-credits. Claude drives the loop and reports the PR as ready; the researcher merges
-unless they have explicitly asked Claude to.
-
-Both are worth keeping, because they miss different things. Codex reads the change for
-what it is trying to do. Copilot is better at the gap between what a file promises and
-what the tool it configures actually enforces.
+included. **Codex** is the reviewer and reviews every push on its own; **Copilot** is
+the fallback for when Codex cannot review — in practice when it has run out of
+credits. The two are worth keeping side by side: Codex reads the change for what it is
+trying to do, while Copilot is better at spotting the gap between what a file promises
+and what the tool it configures actually enforces. Claude drives the loop and reports
+the PR as ready; the researcher merges unless they have explicitly asked Claude to.
 
 The mechanics are in `CLAUDE.md` under *Code review (pull requests)*: the exact
 `gh api` polls and their timestamps, why the Codex trigger is never spelled out in a
