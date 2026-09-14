@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime
 import types
 
 import pytest
@@ -53,6 +54,23 @@ class TestParseHolidays:
         content = f"{SOURCE_HEADER}\r\n2025/13/1,元日\r\n".encode("shift_jis")
         with pytest.raises(ValueError, match="does not match format"):
             script.parse_holidays(content)
+
+
+class TestDropBefore:
+    def test_keeps_the_first_date_and_drops_earlier_rows(self, script):
+        rows = [("2015-12-23", "天皇誕生日"), ("2016-01-01", "元日"), ("2016-01-11", "成人の日")]
+        assert script.drop_before(rows) == [("2016-01-01", "元日"), ("2016-01-11", "成人の日")]
+
+    def test_first_date_is_dim_dates_spine_start(self, script):
+        assert script.FIRST_HOLIDAY_DATE.isoformat() == "2016-01-01"
+
+    def test_an_explicit_first_date(self, script):
+        rows = [("2025-01-01", "元日"), ("2025-01-13", "成人の日")]
+        assert script.drop_before(rows, datetime.date(2025, 1, 2)) == [("2025-01-13", "成人の日")]
+
+    def test_rejects_a_source_with_nothing_left(self, script):
+        with pytest.raises(ValueError, match="no holidays on or after 2016-01-01"):
+            script.drop_before([("2015-12-23", "天皇誕生日")])
 
 
 class TestWriteSeed:
@@ -107,6 +125,15 @@ class TestMain:
         assert http["calls"] == [
             ("https://www8.cao.go.jp/chosei/shukujitsu/syukujitsu.csv", 60),
         ]
+        assert dest.read_bytes() == EXPECTED_SEED
+
+    def test_holidays_before_2016_are_not_written(self, script, http, tmp_path):
+        http["response"] = FakeResponse(
+            f"{SOURCE_HEADER}\r\n1955/1/1,元日\r\n2015/12/23,天皇誕生日\r\n".encode("shift_jis")
+            + SOURCE_CONTENT.split(b"\r\n", 1)[1]
+        )
+        dest = tmp_path / "holidays.csv"
+        script.main(["--dest", str(dest)])
         assert dest.read_bytes() == EXPECTED_SEED
 
     def test_source_url_override(self, script, http, tmp_path):
