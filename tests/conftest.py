@@ -1499,10 +1499,12 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
             continue
         same_holiday = day == SIMILAR_DAY_SAME_HOLIDAY
         references = [similar_day_reference(day, rank) for rank in (1, 2, 3)]
+        rank1_reference = references[0]
+        assert rank1_reference is not None  # rank 1 is never null
         # A same-holiday row is usable once its reference's day of load is (the next
         # midnight); a ranked row an hour after its fit.
         available_at = (
-            day - pd.Timedelta(days=SIMILAR_DAY_SAME_HOLIDAY_LAG_DAYS - 1)
+            rank1_reference + pd.Timedelta(days=1)
             if same_holiday
             else day - pd.Timedelta(days=1) + pd.Timedelta(hours=1)
         )

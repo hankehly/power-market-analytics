@@ -109,7 +109,8 @@ LIGHTGBM_MSM_POPW = LIGHTGBM.with_changes(
 LIGHTGBM_MSM_POPW_DAYTYPE = LIGHTGBM_MSM_POPW.with_changes(
     name="lightgbm_msm_popw_daytype", add=("ftr_day_calendar:day_type",)
 )
-#: Plus the similar day's load (demand/R-004 E-002; the Tokyo demand baseline).
+#: Plus rank 1 of the similar-day pool (SIMILAR_DAY_FEATURE); it was R-004 E-002's
+#: year-ago similar day, the Tokyo demand baseline, until 2026-09-14.
 #: Its reference run 008868fe… predates the rank-1 feature (2026-09-14) and no
 #: longer comes from this preset. Tokyo-only until another TSO's でんき予報
 #: hourly load is loaded and its weights fitted.
