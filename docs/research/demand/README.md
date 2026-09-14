@@ -29,6 +29,9 @@ Since 2026-09-12 `ftr_period_actuals` carries every recent lag under one
 `available_at`, so a matched baseline is a fresh run on the current mart
 ([R-006](research/demand/R-006-recent-load-features.md) explains why
 `008868fe…` is no longer matched).
+Since 2026-09-14 the preset reads rank 1 of the paper-style similar-day pool
+(`similar_day_rank1_demand_kwh`), so `008868fe…` no longer comes from it; a
+matched baseline is a fresh run.
 So `scripts/demand_backtest.py` keeps `lightgbm_msm_popw_daytype` as its
 default and as the Kansai baseline
 ([R-003](research/demand/R-003-day-type-feature.md), 2026-08-26). `lightgbm`,

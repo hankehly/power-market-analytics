@@ -40,7 +40,8 @@ tag and into `dim_feature`, the feature dimension every label reads.
      pairs: `gap=(2d, 335d), window=(30, 60)` is 30 days from 2 days back and
      60 days from 335 days back.
    - **`holidays=last_year`** means a holiday takes the same holiday last year,
-     when that day lies in the year-ago window, instead of a ranked pick.
+     when that day lies in the year-ago window and its load is public by the
+     issue time, instead of a ranked pick.
 6. **Composition** reads outer to inner. The outermost primitive is the step
    applied last. Arithmetic between expressions is written infix:
    `EWA(…) - EWA(…)`, `SIMILAR_DAY(…) / 2`.
