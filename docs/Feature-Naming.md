@@ -32,9 +32,16 @@ tag and into `dim_feature`, the feature dimension every label reads.
    before, and the period before period 1 is period 48 of the day before.
    A suffix ` by <col>` means group-by.
 5. **Window arguments** come in this order: `gap` (how far back the newest term
-   is), `window` (how many terms), `step`, `halflife` (in steps). `center=true`
-   centres the window on the term instead of a `gap`. `time=HH:MM-HH:MM` keeps
-   the periods of a day inside that time window.
+   is), `window` (how many terms), `step`, `halflife` (in steps), then `rank`
+   (which nearest day), `k` (how many nearest days), `weight` and `holidays`.
+   `center=true` centres the window on the term instead of a `gap`.
+   `time=HH:MM-HH:MM` keeps the periods of a day inside that time window.
+   - **A pool of several windows** writes `gap` and `window` as tuples, read in
+     pairs: `gap=(2d, 335d), window=(30, 60)` is 30 days from 2 days back and
+     60 days from 335 days back.
+   - **`holidays=last_year`** means a holiday takes the same holiday last year,
+     when that day lies in the year-ago window and its load is public by the
+     issue time, instead of a ranked pick.
 6. **Composition** reads outer to inner. The outermost primitive is the step
    applied last. Arithmetic between expressions is written infix:
    `EWA(…) - EWA(…)`, `SIMILAR_DAY(…) / 2`.
@@ -62,7 +69,8 @@ A column passed through unchanged keeps its name as its expression
 | `… by col` | The window runs over the days with the delivery day's value of `col`. | `ROLLING_MEAN(demand_kwh, gap=2d, window=4) by day_type` |
 | `MEAN(x, weight)` | Over the area's stations, weighted by `weight`. | `MEAN(forecast_temperature_c, weight=population)` |
 | `DAYS_SINCE(flag)` / `DAYS_UNTIL(flag)` | Calendar days to the nearest day the flag is true. | `DAYS_SINCE(is_holiday)` |
-| `SIMILAR_DAY(x, gap, window)` | `x` on the most similar of `window` candidate days, the newest `gap` back. | `SIMILAR_DAY(power_usage_demand_kwh, gap=334d, window=61) / 2` |
+| `SIMILAR_DAY(x, gap, window, rank, holidays)` | `x` on the `rank`-th most similar day of the pool: `window` candidate days, the newest `gap` back. | `SIMILAR_DAY(power_usage_demand_kwh, gap=(2d, 335d), window=(30, 60), rank=1, holidays=last_year) / 2` |
+| `SIMILAR_DAY_MEAN(x, gap, window, k, weight, holidays)` | The mean of `x` over the `k` most similar days of the pool, weighted by `weight`. `weight=inverse_distance` weighs each day by one over its distance. It weighs days, unlike `MEAN(x, weight=population)`, which weighs stations. | `SIMILAR_DAY_MEAN(power_usage_demand_kwh, gap=(2d, 335d), window=(30, 60), k=3, weight=inverse_distance, holidays=last_year) / 2` |
 
 ## Adding or changing a feature
 

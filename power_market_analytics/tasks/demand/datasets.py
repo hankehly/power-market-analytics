@@ -263,12 +263,14 @@ def load_area_hourly_load(
 def load_day_calendar(spark: SparkSession | None = None) -> DayCalendar:
     """Load the holiday attributes the similar-day selector reads from ``dim_date``.
 
-    The two holiday distances count calendar days to the nearest named holiday
-    (``is_holiday``: the 国民の祝日 plus the customary 年末年始 / ゴールデン
-    ウィーク / お盆 days; 0 on a holiday itself), computed over the gapless
-    spine with a forward and a backward fill; days before the spine's first
-    holiday or after its last have no distance and are dropped.
-    ``holiday_degree`` is the dimension's column.
+    ``is_holiday`` is the dimension's flag: the 国民の祝日 plus the customary
+    年末年始 / ゴールデンウィーク / お盆 days. ``holiday_name_ja`` is the
+    dimension's name on a holiday and null on any other day (``dim_date`` writes
+    "Not Applicable" there); a name is unique within its calendar year. The two
+    holiday distances count calendar days to the nearest holiday (0 on a holiday
+    itself), computed over the spine with a forward and a backward fill; days
+    before the spine's first holiday or after its last have no distance and are
+    dropped. ``holiday_degree`` is the dimension's column.
 
     Parameters
     ----------
@@ -282,7 +284,8 @@ def load_day_calendar(spark: SparkSession | None = None) -> DayCalendar:
     Raises
     ------
     ValueError
-        If ``dim_date`` returns no rows, holds no holiday, or the result
+        If ``dim_date`` returns no rows, has a null ``is_holiday``, holds no
+        holiday, or the result
         violates the DayCalendar contract.
     """
     pdf = query_pandas(
@@ -290,6 +293,7 @@ def load_day_calendar(spark: SparkSession | None = None) -> DayCalendar:
         select
           d.date_key as trade_date,
           d.is_holiday,
+          case when d.is_holiday then d.holiday_name_ja end as holiday_name_ja,
           d.holiday_degree
         from pma_curated.dim_date d
         """,
@@ -297,10 +301,13 @@ def load_day_calendar(spark: SparkSession | None = None) -> DayCalendar:
     )
     if pdf.empty:
         raise ValueError("No calendar days found in dim_date")
-    pdf = pdf.assign(trade_date=lambda d: pd.to_datetime(d["trade_date"])).sort_values(
-        "trade_date", ignore_index=True
-    )
-    holiday_dates = pdf["trade_date"].where(pdf["is_holiday"].astype(bool))
+    if pdf["is_holiday"].isna().any():
+        raise ValueError("dim_date has a null is_holiday")
+    pdf = pdf.assign(
+        trade_date=lambda d: pd.to_datetime(d["trade_date"]),
+        is_holiday=lambda d: d["is_holiday"].astype("bool"),
+    ).sort_values("trade_date", ignore_index=True)
+    holiday_dates = pdf["trade_date"].where(pdf["is_holiday"])
     last_holiday = holiday_dates.ffill()
     next_holiday = holiday_dates.bfill()
     pdf = (
@@ -311,6 +318,7 @@ def load_day_calendar(spark: SparkSession | None = None) -> DayCalendar:
         .dropna(subset=["days_since_holiday", "days_until_holiday"])
         .astype(
             {
+                "holiday_name_ja": "object",
                 "days_since_holiday": "int64",
                 "days_until_holiday": "int64",
                 "holiday_degree": "float64",
@@ -327,7 +335,7 @@ def load_day_calendar(spark: SparkSession | None = None) -> DayCalendar:
         len(pdf),
         pdf["trade_date"].iloc[0].date(),
         pdf["trade_date"].iloc[-1].date(),
-        int(pdf["is_holiday"].astype(bool).sum()),
+        int(pdf["is_holiday"].sum()),
         int((pdf["holiday_degree"] > 0).sum()),
     )
     return DayCalendar.from_df(pdf)

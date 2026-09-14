@@ -1,8 +1,8 @@
--- The demand similar-day feature as scripts/fit_similar_day.py scored it
--- walking forward and wrote it (pma_ml.similar_day): the staging model passed
+-- The demand similar-day features as scripts/fit_similar_day.py scored them
+-- walking forward and wrote them (pma_ml.similar_day): the staging model passed
 -- through, one row per scoring run and period. The as-of join takes the
--- newest run usable at the issue time; among rows tied on available_at the
--- newest published wins, so a re-run replaces the feature wherever it scored.
+-- newest row usable at the issue time; among rows tied on available_at the
+-- newest published wins.
 with
   final as (
   select
@@ -10,12 +10,19 @@ with
     trade_date,
     time_code,
     run_id as similar_day_run_id,
-    similar_day_demand_kwh,
-    similar_day_reference_date,
-    similar_day_reference_lag_days,
-    similar_day_distance,
+    similar_day_rank1_demand_kwh,
+    similar_day_rank2_demand_kwh,
+    similar_day_rank3_demand_kwh,
+    wavg_similar_day_top3_demand_kwh,
+    similar_day_rank1_reference_date,
+    similar_day_rank2_reference_date,
+    similar_day_rank3_reference_date,
+    similar_day_rank1_distance,
+    similar_day_rank2_distance,
+    similar_day_rank3_distance,
     similar_day_n_candidates,
     similar_day_fit_cutoff,
+    similar_day_method,
     available_at,
     published_at
   from

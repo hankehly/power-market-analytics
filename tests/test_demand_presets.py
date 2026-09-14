@@ -33,7 +33,7 @@ SIMDAY_COLUMNS = (
     "lag_7d_demand_kwh",
     "popw_forecast_temperature_c",
     "day_type",
-    "similar_day_demand_kwh",
+    "similar_day_rank1_demand_kwh",
 )
 MSM_ELEMENT_COLUMNS = (
     "popw_forecast_relative_humidity_pct",
@@ -83,7 +83,7 @@ def test_the_eleven_presets_keep_the_old_feature_order():
 
 
 def test_the_similar_day_presets_add_the_mart_column_then_the_calendar_columns():
-    assert SIMILAR_DAY_FEATURE == "ftr_period_similar_day:similar_day_demand_kwh"
+    assert SIMILAR_DAY_FEATURE == "ftr_period_similar_day:similar_day_rank1_demand_kwh"
     assert LIGHTGBM_MSM_POPW_DAYTYPE_SIMDAY.features[-1] == SIMILAR_DAY_FEATURE
     assert LIGHTGBM_MSM_POPW_DAYTYPE_SIMDAY.columns == SIMDAY_COLUMNS
     assert LIGHTGBM_MSM_POPW_DAYTYPE_SIMDAY_CALENDAR.columns == (
@@ -119,14 +119,19 @@ def test_the_similar_day_presets_add_the_mart_column_then_the_calendar_columns()
 
 def test_the_weather_preset_adds_the_three_msm_elements_to_the_lags_preset():
     assert MSM_ELEMENT_FEATURES == tuple(f"ftr_hour_msm:{c}" for c in MSM_ELEMENT_COLUMNS)
-    assert LIGHTGBM_MSM_POPW_DAYTYPE_SIMDAY_LAGS_WEATHER.base == "lightgbm_msm_popw_daytype_simday_lags"
+    assert (
+        LIGHTGBM_MSM_POPW_DAYTYPE_SIMDAY_LAGS_WEATHER.base
+        == "lightgbm_msm_popw_daytype_simday_lags"
+    )
     assert LIGHTGBM_MSM_POPW_DAYTYPE_SIMDAY_LAGS_WEATHER.columns == (
         *SIMDAY_COLUMNS,
         *RECENT_LOAD_COLUMNS,
         *MSM_ELEMENT_COLUMNS,
     )
     # The forecast temperature is already the base's: the preset adds three refs, not four.
-    assert "ftr_hour_msm:popw_forecast_temperature_c" in LIGHTGBM_MSM_POPW_DAYTYPE_SIMDAY_LAGS.features
+    assert (
+        "ftr_hour_msm:popw_forecast_temperature_c" in LIGHTGBM_MSM_POPW_DAYTYPE_SIMDAY_LAGS.features
+    )
     assert len(LIGHTGBM_MSM_POPW_DAYTYPE_SIMDAY_LAGS_WEATHER.features) == (
         len(LIGHTGBM_MSM_POPW_DAYTYPE_SIMDAY_LAGS.features) + 3
     )
@@ -163,7 +168,7 @@ def test_types_and_categoricals_come_from_the_views():
         "lag_7d_demand_kwh": "int64",
         "popw_forecast_temperature_c": "float64",
         "day_type": "int64",
-        "similar_day_demand_kwh": "float64",
+        "similar_day_rank1_demand_kwh": "float64",
     }
     assert feature_dtypes(LIGHTGBM_MSM)["forecast_temperature_c"] == "float64"
     calendar = feature_dtypes(LIGHTGBM_MSM_POPW_DAYTYPE_SIMDAY_CALENDAR)
