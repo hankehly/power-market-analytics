@@ -35,6 +35,7 @@ from tests.conftest import (
     DEMAND_DAYS,
     DEMAND_HOLE_DAY,
     DEMAND_HOLE_TIME_CODES,
+    HOLIDAY_NAMES_2024_SPRING,
     HOLIDAYS_2024_SPRING,
     HOURLY_LOAD_DAYS,
     SECOND_STATION_FORECAST_HUMIDITY_OFFSET_PCT,
@@ -130,11 +131,22 @@ class TestLoadDayCalendar:
             assert by_day.loc[day, "days_until_holiday"] == until
             assert by_day.loc[day, "holiday_degree"] == synthetic_holiday_degree(day)
         assert list(by_day.columns) == [
+            "is_holiday",
+            "holiday_name_ja",
             "days_since_holiday",
             "days_until_holiday",
             "holiday_degree",
         ]
         assert by_day["days_since_holiday"].dtype == "int64"
+        assert by_day["is_holiday"].dtype == "bool"
+        # dim_date's name on a holiday; null (not "Not Applicable") on any other day.
+        assert by_day.loc[pd.Timestamp("2024-04-29"), "is_holiday"]
+        assert by_day.loc[pd.Timestamp("2024-04-29"), "holiday_name_ja"] == "昭和の日"
+        assert by_day.loc[pd.Timestamp("2024-05-06"), "holiday_name_ja"] == "こどもの日（振替休日）"
+        assert not by_day.loc[pd.Timestamp("2024-04-10"), "is_holiday"]
+        assert pd.isna(by_day.loc[pd.Timestamp("2024-04-10"), "holiday_name_ja"])
+        holidays = by_day[by_day["is_holiday"]]
+        assert holidays["holiday_name_ja"].to_dict() == HOLIDAY_NAMES_2024_SPRING
 
     def test_empty_dim_date_raises(self, spark, monkeypatch):
         monkeypatch.setattr(
@@ -142,6 +154,23 @@ class TestLoadDayCalendar:
             lambda *a, **k: pd.DataFrame(),
         )
         with pytest.raises(ValueError, match="No calendar days found in dim_date"):
+            load_day_calendar(spark=spark)
+
+    def test_a_null_is_holiday_raises(self, spark, monkeypatch):
+        # A null flag must not become False and silently drop the holiday's name.
+        days = pd.date_range("2024-04-28", "2024-04-30")
+        monkeypatch.setattr(
+            "power_market_analytics.tasks.demand.datasets.query_pandas",
+            lambda *a, **k: pd.DataFrame(
+                {
+                    "trade_date": [d.date() for d in days],
+                    "is_holiday": [False, None, False],
+                    "holiday_name_ja": [None, None, None],
+                    "holiday_degree": [0.0, 1.0, 0.0],
+                }
+            ),
+        )
+        with pytest.raises(ValueError, match="dim_date has a null is_holiday"):
             load_day_calendar(spark=spark)
 
     def test_dim_date_without_a_holiday_raises(self, spark, monkeypatch):
@@ -152,6 +181,7 @@ class TestLoadDayCalendar:
                 {
                     "trade_date": [d.date() for d in days],
                     "is_holiday": [False] * 5,
+                    "holiday_name_ja": [None] * 5,
                     "holiday_degree": [0.0] * 5,
                 }
             ),

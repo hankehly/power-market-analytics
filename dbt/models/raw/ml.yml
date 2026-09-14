@@ -298,52 +298,81 @@ sources:
             description: Same instant as the run's spot_price_forecast rows (naive JST).
       - name: similar_day
         description: >
-          The demand task's similar-day feature as scripts/fit_similar_day.py
-          scored it walking forward: for every delivery day that can be scored,
-          the load of the learned similar day one year earlier, halved per
-          30-minute period, chosen by weights fitted only on days before it
-          (tasks/demand/similar_day.py selects the day, similar_day_feature.py
-          refits every few days and writes the rows). One row per MLflow run,
-          area and period; partitioned by run_id and overwritten per run like
-          the forecast tables, so a re-run is a new run whose rows the
-          ftr_period_similar_day mart passes to Feast next to the older runs'. The table exists only
-          once a run has published to it, so no test runs against the source
-          itself: the guarded staging model is the only node that reads it, and
-          its contract and tests check every column.
+          The demand task's similar-day features as scripts/fit_similar_day.py
+          scored them walking forward (tasks/demand/similar_day.py ranks the
+          days, similar_day_feature.py refits every few days and writes the
+          rows). A delivery day D's pool is the paper's (Park, Song and Kwon
+          2020): D - 2 ... D - 31 and D - 335 ... D - 394, without special days
+          (dim_date.is_holiday) and without days whose load was not public by
+          D's issue time. The three nearest pool days under weights fitted only
+          on days before D give four features per period: their hourly loads,
+          halved, and their inverse-distance weighted mean. A special day whose
+          same holiday last year (dim_date.holiday_name_ja) lies 335 ... 394
+          days back, with that day's whole load public by D's issue time, takes
+          that day instead: rank 1 and the mean carry its load, and the
+          ranked-only columns are null. Otherwise it is ranked. One row per MLflow run, area and
+          period; partitioned by run_id and overwritten per run like the
+          forecast tables, so a re-run is a new run whose rows the
+          ftr_period_similar_day mart passes to Feast next to the older runs'.
+          The table exists only once a run has published to it, so no test
+          runs against the source itself: the guarded staging model is the
+          only node that reads it, and its contract and tests check every
+          column.
         columns:
           - name: run_id
             description: >
               MLflow run id (experiment similar_day) of the fit-and-score run; the run's tag feature_table points back here.
           - name: area_code
             description: >
-              Bidding zone the feature was scored for; joins to dim_area.area_code.
+              Bidding zone the features were scored for; joins to dim_area.area_code.
           - name: trade_date
             description: >
               The delivery day D.
           - name: time_code
             description: >
               30-minute delivery period of the day, 1-48.
-          - name: similar_day_demand_kwh
+          - name: similar_day_rank1_demand_kwh
             description: >
-              The chosen similar day's hourly load (fct_area_power_usage_hourly, kWh over the hour containing the period) halved, kWh per 30-minute period.
-          - name: similar_day_reference_date
+              The nearest pool day's hourly load (fct_area_power_usage_hourly, kWh over the hour containing the period) halved, kWh per 30-minute period; on a same-holiday day, the load of last year's same holiday. Never null.
+          - name: similar_day_rank2_demand_kwh
             description: >
-              The chosen similar day, the nearest of D - 364 +- 30 under the run's fitted weights.
-          - name: similar_day_reference_lag_days
+              The second nearest pool day's hourly load halved, kWh per 30-minute period. Null on a same-holiday day and when the pool has fewer than two days.
+          - name: similar_day_rank3_demand_kwh
             description: >
-              trade_date minus the chosen day, in days.
-          - name: similar_day_distance
+              The third nearest pool day's hourly load halved, kWh per 30-minute period. Null on a same-holiday day and when the pool has fewer than three days.
+          - name: wavg_similar_day_top3_demand_kwh
             description: >
-              The chosen day's distance from D under the run's weights (logged as the run's similar_day_* params).
+              The mean of the rank loads present, weighted by inverse distance (w_r = (1 / d_r) / sum_s (1 / d_s), summed in rank order; zero-distance days share the weight when there are any), kWh per 30-minute period. Equals rank 1 on a same-holiday day. Never null.
+          - name: similar_day_rank1_reference_date
+            description: >
+              Rank 1's day: the nearest pool day, or last year's same holiday on a same-holiday day. Never null.
+          - name: similar_day_rank2_reference_date
+            description: >
+              Rank 2's day; null where its load is.
+          - name: similar_day_rank3_reference_date
+            description: >
+              Rank 3's day; null where its load is.
+          - name: similar_day_rank1_distance
+            description: >
+              Rank 1's distance from D under the run's fitted weights; null on a same-holiday day.
+          - name: similar_day_rank2_distance
+            description: >
+              Rank 2's distance from D; null where its load is.
+          - name: similar_day_rank3_distance
+            description: >
+              Rank 3's distance from D; null where its load is.
           - name: similar_day_n_candidates
             description: >
-              Window days that could be scored for D.
+              Pool days that could be ranked for D (up to 90); null on a same-holiday day.
           - name: similar_day_fit_cutoff
             description: >
-              When the fit whose weights chose the day ran, naive JST, on or before D's issue time: the job refits every few days as it walks forward, each fit on the pairs of the 730 days before its cutoff whose target load was public by then, and scores each day with the latest fit before its issue time.
+              When the fit whose weights ranked the day ran, naive JST, on or before D's issue time: the job refits every few days as it walks forward, each fit on the pairs of the 730 days before its cutoff whose target load was public by then, and ranks each day with the latest fit before its issue time. Null on a same-holiday day.
+          - name: similar_day_method
+            description: >
+              similarity (the day was ranked) or same_holiday (the day took last year's same holiday).
           - name: available_at
             description: >
-              When the row became usable, naive JST: the latest of D's MSM forecast vintage (reference + 4 h, 01:00 on D-1), similar_day_fit_cutoff and the chosen day's load availability; under the default window every candidate is at least 334 days older, so the first two decide.
+              When the row became usable, naive JST, never after D's issue time: on a ranked day the latest of D's MSM forecast vintage (reference + 4 h, 01:00 on D-1), similar_day_fit_cutoff and the load availability of the ranked days; on a same-holiday day the load availability of last year's same holiday.
           - name: published_at
             description: >
               When the run's rows were written to the warehouse (naive JST); the newest published run wins among rows tied on available_at.

@@ -117,6 +117,8 @@ def calendar(**overrides) -> pd.DataFrame:
     df = pd.DataFrame(
         {
             "trade_date": [DAY, DAY + pd.Timedelta(days=1)],
+            "is_holiday": [False, True],
+            "holiday_name_ja": [None, "春分の日"],
             "days_since_holiday": np.array([3, 0], dtype="int64"),
             "days_until_holiday": np.array([1, 0], dtype="int64"),
             "holiday_degree": [0.0, 1.0],
@@ -134,11 +136,14 @@ class TestDayCalendar:
         assert frame.keys == ["trade_date"]
         assert list(frame.df.columns) == [
             "trade_date",
+            "is_holiday",
+            "holiday_name_ja",
             "days_since_holiday",
             "days_until_holiday",
             "holiday_degree",
         ]
         assert frame.df["days_since_holiday"].tolist() == [3, 0]
+        assert "holiday_name_ja" not in DayCalendar.non_null_cols
 
     def test_a_null_attribute_is_rejected(self):
         with pytest.raises(ValueError, match="'holiday_degree' has 1 null"):
@@ -153,3 +158,39 @@ class TestDayCalendar:
     def test_holiday_degree_outside_levels_is_rejected(self):
         with pytest.raises(ValueError, match=r"holiday_degree outside \(0.0, 0.3, 0.5, 0.8, 1.0\)"):
             DayCalendar.from_df(calendar(holiday_degree=[0.0, 0.9]))
+
+    def test_a_name_repeated_within_a_calendar_year_is_rejected(self):
+        df = pd.DataFrame(
+            {
+                "trade_date": pd.to_datetime(["2024-01-08", "2024-03-20"]),
+                "is_holiday": [True, True],
+                "holiday_name_ja": ["成人の日", "成人の日"],
+                "days_since_holiday": np.array([0, 0], dtype="int64"),
+                "days_until_holiday": np.array([0, 0], dtype="int64"),
+                "holiday_degree": [1.0, 1.0],
+            }
+        )
+        with pytest.raises(
+            ValueError,
+            match="holiday_name_ja repeats within a calendar year: 2024 成人の日$",
+        ):
+            DayCalendar.from_df(df)
+
+    def test_the_same_name_in_two_years_is_accepted(self):
+        df = calendar(
+            trade_date=pd.to_datetime(["2023-03-21", "2024-03-20"]),
+            is_holiday=[True, True],
+            holiday_name_ja=["春分の日", "春分の日"],
+            days_since_holiday=np.array([0, 0], dtype="int64"),
+            days_until_holiday=np.array([0, 0], dtype="int64"),
+            holiday_degree=[1.0, 1.0],
+        )
+        assert len(DayCalendar.from_df(df)) == 2
+
+    def test_a_holiday_without_a_name_is_rejected(self):
+        with pytest.raises(ValueError, match="a name exactly on holidays"):
+            DayCalendar.from_df(calendar(holiday_name_ja=[None, None]))
+
+    def test_a_named_ordinary_day_is_rejected(self):
+        with pytest.raises(ValueError, match="a name exactly on holidays"):
+            DayCalendar.from_df(calendar(holiday_name_ja=["平日", "春分の日"]))
