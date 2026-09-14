@@ -33,6 +33,20 @@ models:
                 and wavg_similar_day_top3_demand_kwh = similar_day_rank1_demand_kwh
                 and datediff(trade_date, similar_day_rank1_reference_date) between 335 and 394
               )
+      # A ranked day's rank r is present exactly when its pool reaches r, so a null
+      # rank is followed only by null ranks and the coalesces below skip no rank.
+      - dbt_utils.expression_is_true:
+          name: stg_ml__similar_day_ranks_present_exactly_up_to_the_pool_size
+          arguments:
+            expression: >
+              similar_day_method = 'same_holiday' or (
+                (similar_day_rank2_demand_kwh is null) = (similar_day_n_candidates < 2)
+                and (similar_day_rank2_reference_date is null) = (similar_day_n_candidates < 2)
+                and (similar_day_rank2_distance is null) = (similar_day_n_candidates < 2)
+                and (similar_day_rank3_demand_kwh is null) = (similar_day_n_candidates < 3)
+                and (similar_day_rank3_reference_date is null) = (similar_day_n_candidates < 3)
+                and (similar_day_rank3_distance is null) = (similar_day_n_candidates < 3)
+              )
       - dbt_utils.expression_is_true:
           name: stg_ml__similar_day_distances_do_not_decrease_by_rank
           arguments:
