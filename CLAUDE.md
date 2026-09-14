@@ -592,11 +592,21 @@
   row order). Proven on Tokyo 2025 against the marts inside the devcontainer. `feast[spark]`
   is a dependency since 2026-09-10 (`docker compose build devcontainer` after pulling the
   lock).
-- Japanese holidays: Cabinet Office CSV → `scripts/update_holidays_seed.py` → seed → `dim_date`
+- Japanese holidays: Cabinet Office CSV → `scripts/update_holidays_seed.py` (keeps 2016-01-01 on,
+  `dim_date`'s spine start; the source goes back to 1955) → seed → `dim_date`
   (spine end derives from the seed's max year). `dim_date.is_holiday` is the seed's 国民の祝日
   **plus** the customary non-working days computed in SQL — 年末年始 12/30–1/3, ゴールデンウィーク
   4/30–5/2 (the 休日 set every family-A TSO 託送供給等約款 uses; 東北/北陸/中国/沖縄 differ) and
   お盆 8/13–16 (convention only) — so `is_business_day` means "working day", not "banks open".
+  `dim_date.holiday_name_ja` (since 2026-09-14) is unique within a calendar year, so the same
+  holiday can be found a year back; the seed keeps the Cabinet Office text. By date: 小晦日,
+  大晦日, 正月（1日目）…（3日目） (over the seed's 元日 and 1/2 振替休日). From the seed: 体育の日 →
+  スポーツの日 in every year; 天皇誕生日（平成） (12/23, to 2018) / 天皇誕生日（令和） (2/23); the 2019
+  休日（祝日扱い） days → 即位の日, 即位礼正殿の儀; a 休日 → `<holiday>（振替休日）` after a run of
+  holidays holding a Sunday 祝日, else `<holiday>・<holiday>（国民の休日）`. Customary days that are
+  not 祝日: ゴールデンウィーク（2日目）…（4日目） (the place in 4/29–5/5), お盆（1日目）…（4日目）.
+  Tests fail on a leftover generic name, a name repeated within a year, or a 天皇誕生日 off its
+  era's date (a new emperor).
   `holiday_degree` (double, since 2026-09-05) is the graded 休日度合い of patent JP 4448226 B2
   (新日本製鐵; `docs/research/papers.md`): the largest of 1.0 on a Sunday / 祝日, 0.8 on a
   Saturday, 0.8 on the first day of 年末年始 (12/30) / ゴールデンウィーク (4/29) / お盆 (8/13) and
