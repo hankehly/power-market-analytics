@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Collection
+from collections.abc import Collection, Mapping
 
 import numpy as np
 import pandas as pd
@@ -194,15 +194,22 @@ def make_observed(
     return AreaObservedWeather.from_df(pd.DataFrame(rows).astype({"hour_ending": "int64"}))
 
 
-def make_hourly_load(days=HISTORY_DAYS, *, late: Collection[pd.Timestamp] = ()) -> AreaHourlyLoad:
+def make_hourly_load(
+    days=HISTORY_DAYS,
+    *,
+    late: Collection[pd.Timestamp] = (),
+    public_at: Mapping[pd.Timestamp, pd.Timestamp] | None = None,
+) -> AreaHourlyLoad:
     """Loads public at midnight after the day (a daily file); two days after for ``late``
-    days (the yearly files before 2022-04)."""
+    days (the yearly files before 2022-04); at ``public_at[day]`` for the days it names
+    (a re-issued file)."""
+    public_at = public_at or {}
     rows = [
         {
             "load_date": day,
             "hour_ending": h,
             "demand_kwh": load_at(day, h),
-            "available_at": day + pd.Timedelta(days=2 if day in late else 1),
+            "available_at": public_at.get(day, day + pd.Timedelta(days=2 if day in late else 1)),
         }
         for day in days
         for h in range(1, 25)
@@ -769,6 +776,61 @@ class TestSpecialDayReferences:
             assert not special_day_references(
                 calendar, [pd.Timestamp("2026-01-12")], pool
             ).same_holiday_days.empty
+
+    def test_a_reference_published_after_the_issue_time_is_ranked(self):
+        calendar = make_named_calendar(
+            {"2025-01-13": "成人の日", "2026-01-12": "成人の日"}, "2025-01-01", "2026-01-31"
+        )
+        day = pd.Timestamp("2026-01-12")
+        issued = pd.Timestamp("2026-01-11 09:30")
+        # Public at the issue time counts; a minute later (a re-issued file) does not.
+        for public_at, takes in ((issued, True), (issued + pd.Timedelta(minutes=1), False)):
+            refs = special_day_references(
+                calendar,
+                [day],
+                SIMILAR_DAY_POOL,
+                load_available_at=pd.Series({pd.Timestamp("2025-01-13"): public_at}),
+            )
+            row = refs.df.iloc[0]
+            assert bool(row["takes_reference"]) is takes
+            assert row["last_year_date"] == pd.Timestamp("2025-01-13")
+        # A reference with no load has no availability: it still counts, so building
+        # its rows raises.
+        refs = special_day_references(
+            calendar,
+            [day],
+            SIMILAR_DAY_POOL,
+            load_available_at=pd.Series({pd.Timestamp("2025-01-14"): issued}),
+        )
+        assert refs.same_holiday_days.tolist() == [day]
+
+    def test_the_selector_applies_its_loads_availability(self, selector):
+        day = pd.Timestamp("2024-03-20")
+        assert selector.special_day_references([day]).same_holiday_days.tolist() == [day]
+        # 2023-03-21's load re-issued after 2024-03-20's issue time: 03-20 is ranked.
+        late = SimilarDaySelector(
+            make_calendar(),
+            make_forecast(),
+            make_observed(),
+            make_hourly_load(
+                public_at={pd.Timestamp("2023-03-21"): pd.Timestamp("2024-03-19 10:00")}
+            ),
+        )
+        refs = late.special_day_references([day])
+        assert refs.same_holiday_days.empty
+        assert refs.df["last_year_date"].tolist() == [pd.Timestamp("2023-03-21")]
+
+
+class TestWindowPairCounts:
+    def test_the_first_fits_pairs_by_hand(self, selector):
+        # The pool of a target T is lags 2..31 and 335..394 less the holidays in it
+        # (2023-01-09, 2023-03-21, 2024-01-08). 02-07: 01-08 in the recent window,
+        # 2023-01-09 in the year-ago one → 88; 02-08: 01-08 only → 89; 02-09..02-14:
+        # none → 90 each; the fit of 02-15 therefore holds 88 + 89 + 6 × 90 = 717 pairs.
+        pairs = selector.training_pairs(pd.Timestamp("2024-02-15")).df
+        per_target = pairs.groupby("target_date").size()
+        assert per_target.tolist() == [88, 89, 90, 90, 90, 90, 90, 90]
+        assert len(pairs) == 717
 
 
 class TestLoadDifference:

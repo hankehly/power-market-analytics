@@ -13,12 +13,20 @@ Four features per period are written to ``pma_ml.similar_day``, partitioned by
 the job's MLflow run like the forecast tables: the hourly loads of the three
 nearest days, halved per period, and their inverse-distance weighted mean. A
 special day (``dim_date.is_holiday``) whose same holiday last year lies in the
-pool's year-ago window takes that day instead: rank 1 and the mean carry its
-load, and the rest is null. A ranked day's row is usable from the latest of its
-forecast's availability, its fit's cutoff and its ranked days' load
-availability; a same-holiday day's row from its reference's load availability.
-The ``ftr_period_similar_day`` mart passes the rows through to Feast; a
-re-run's rows win by ``published_at`` wherever they overlap.
+pool's year-ago window, with its load public by the issue time, takes that day
+instead: rank 1 and the mean carry its load, and the rest is null. A ranked
+day's row is usable from the latest of its forecast's availability, its fit's
+cutoff and its ranked days' load availability; a same-holiday day's row from
+its reference's load availability. Every row is usable by its day's issue time.
+
+The ``ftr_period_similar_day`` mart passes the rows through to Feast. For each
+period Feast takes the row with the newest ``available_at`` at or before the
+issue time, and the newest ``published_at`` only among rows tied on it. So a
+re-run replaces an older run's row only where the two rows share
+``available_at``. A same-holiday row, public about a year before its day, never
+replaces an older run's ranked row. A re-run that scores a day another way (a
+different method or fit cutoff) therefore needs the older run's partition
+dropped; the rollout drops the whole table.
 Design: docs/superpowers/specs/2026-09-14-similar-day-top-k-design.md.
 """
 
@@ -26,6 +34,7 @@ from __future__ import annotations
 
 import dataclasses
 from collections.abc import Iterable
+from typing import Final
 
 import numpy as np
 import pandas as pd
@@ -52,7 +61,6 @@ from power_market_analytics.tasks.demand.similar_day import (
     SimilarDaySelector,
     SimilarDayWeights,
     SpecialDayReferences,
-    special_day_references,
 )
 
 #: The MLflow experiment of the fit-and-score runs, named after the feature.
@@ -88,7 +96,7 @@ _RANKED_ONLY_COLS: tuple[str, ...] = (
 )
 #: The two ends of the weighted mean's range allow this relative slack.
 _WEIGHTED_MEAN_TOLERANCE = 1e-9
-_DATE = "datetime64[ns]"
+_DATE: Final = "datetime64[ns]"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -100,7 +108,7 @@ class WalkForwardScoring:
     selection : SimilarDaySelection
         Rank 1 of every ranked day: any scored day without a same-holiday reference.
     ranking : SimilarDayRanking
-        The up to ``top_k`` nearest pool days of every ranked day.
+        The up to ``SIMILAR_DAY_TOP_K`` nearest pool days of every ranked day.
     special_days : SpecialDayReferences
         Every special day of the scored span (issue time on or after the first
         cutoff), with its same-holiday reference or none.
@@ -145,11 +153,6 @@ def _fit_row(
     }
 
 
-def _empty_frame(frame_cls: type[DomainFrame]) -> pd.DataFrame:
-    """An empty frame with ``frame_cls``'s columns and dtypes."""
-    return pd.DataFrame({col: pd.Series(dtype=dtype) for col, dtype in frame_cls.schema.items()})
-
-
 def issue_times(days: pd.DatetimeIndex) -> pd.DatetimeIndex:
     """The demand task's issue time of each delivery day (09:30 on D-1, naive JST).
 
@@ -169,14 +172,15 @@ def score_walk_forward(
     days: Iterable[pd.Timestamp],
     *,
     refit_every_days: int = DEFAULT_REFIT_EVERY_DAYS,
-    top_k: int = SIMILAR_DAY_TOP_K,
 ) -> WalkForwardScoring:
     """Score the scorable days among ``days``, refitting the weights as time passes.
 
     The scored span is every scorable day whose issue time is on or after the
     first cutoff. Its special days that take the same holiday last year
-    (``special_day_references``) are not ranked; every other day, special or
-    not, is ranked from its pool.
+    (``SimilarDaySelector.special_day_references``: in the year-ago window, with
+    its load public by the issue time) are not ranked; every other day, special
+    or not, is ranked from its pool, to ``SIMILAR_DAY_TOP_K`` days. That depth
+    is a constant, not an argument, because the table's column names carry it.
 
     The first fit runs at the first instant a fit is possible (when
     ``MIN_FIT_PAIRS`` pairs were public) and every ``refit_every_days`` after
@@ -198,8 +202,6 @@ def score_walk_forward(
         Candidate delivery days, e.g. every day with a forecast.
     refit_every_days : int, optional
         Days between two fits.
-    top_k : int, optional
-        How many nearest days to rank per day.
 
     Returns
     -------
@@ -208,13 +210,11 @@ def score_walk_forward(
     Raises
     ------
     ValueError
-        If ``refit_every_days`` or ``top_k`` is below one, no fit is possible,
-        or no day can be scored.
+        If ``refit_every_days`` is below one, no fit is possible, or no day can
+        be scored.
     """
     if refit_every_days < 1:
         raise ValueError(f"refit_every_days must be >= 1, got {refit_every_days}")
-    if top_k < 1:
-        raise ValueError(f"top_k must be >= 1, got {top_k}")
     first = selector.first_fit_cutoff
     if first is None:
         raise ValueError(
@@ -225,7 +225,7 @@ def score_walk_forward(
     if scorable.empty or issued.max() < first:
         raise ValueError(f"no day can be scored: the first fit can run at {first}")
     span = scorable[issued >= first]
-    special = special_day_references(selector.calendar, span, selector.pool)
+    special = selector.special_day_references(span)
     ranked_days = span[~span.isin(special.same_holiday_days)]
     ranked_issued = issue_times(ranked_days)
     step = pd.Timedelta(days=refit_every_days)
@@ -253,7 +253,7 @@ def score_walk_forward(
                 fitted[-1][0],
             )
         # An empty block (a gap in the forecasts) gives empty frames.
-        selection, ranking = selector.select_and_rank(ranked_days[served], top_k)
+        selection, ranking = selector.select_and_rank(ranked_days[served], SIMILAR_DAY_TOP_K)
         n_served[-1] += len(selection)
         if len(selection):
             selections.append(selection.df.assign(fit_cutoff=fitted[-1][0]))
@@ -261,9 +261,9 @@ def score_walk_forward(
     scored = (
         pd.concat(selections, ignore_index=True)
         if selections
-        else _empty_frame(SimilarDaySelection).assign(fit_cutoff=pd.Series(dtype=_DATE))
+        else SimilarDaySelection.empty_df().assign(fit_cutoff=pd.Series(dtype=_DATE))
     )
-    ranked = pd.concat(rankings, ignore_index=True) if rankings else _empty_frame(SimilarDayRanking)
+    ranked = pd.concat(rankings, ignore_index=True) if rankings else SimilarDayRanking.empty_df()
     fits = [_fit_row(cutoff, weights, n) for (cutoff, weights), n in zip(fitted, n_served)]
     logger.info(
         "score_walk_forward: {} days ranked ({}..{}) and {} same-holiday days by {} fits "
@@ -298,13 +298,13 @@ class SimilarDayFeatureRecords(DomainFrame):
     the pool's size; and the cutoff of the fit that ranked the day (on or before
     its issue time). A rank beyond the pool's size is null. ``available_at`` is
     the latest of the day's forecast availability, that cutoff and its ranked
-    days' load availability.
+    days' load availability, and never follows the day's issue time.
 
     On a special day that takes the same holiday last year
     (``similar_day_method = 'same_holiday'``): rank 1 and the mean both hold that
     day's load, halved; rank 1's day is that day; ranks 2 and 3, every distance,
     the pool's size and the fit cutoff are null. ``available_at`` is its
-    reference's load availability.
+    reference's load availability, which also never follows the issue time.
 
     ``similar_day_n_candidates`` is float64 so it can be null; it holds whole
     numbers.
@@ -356,6 +356,9 @@ class SimilarDayFeatureRecords(DomainFrame):
             raise ValueError(f"{name}: similar_day_fit_cutoff must not follow the issue time")
         if (df["available_at"] < df["similar_day_fit_cutoff"]).any():
             raise ValueError(f"{name}: available_at must not precede the fit's cutoff")
+        # A row published after its issue time is one Feast never serves.
+        if (df["available_at"].to_numpy() > issued).any():
+            raise ValueError(f"{name}: available_at must not follow the issue time")
         if df["run_id"].nunique() != 1:
             raise ValueError(f"{name}: one run per frame, got {df['run_id'].nunique()}")
         if not df["similar_day_method"].isin(METHODS).all():
@@ -393,11 +396,11 @@ class SimilarDayFeatureRecords(DomainFrame):
         if (~present[:, :-1] & present[:, 1:]).any():
             raise ValueError(f"{name}: a null rank must be followed by null ranks only")
         n_candidates = df["similar_day_n_candidates"].to_numpy()
-        reaches = n_candidates[:, None] >= np.array(RANKS)[None, :]
-        if (n_candidates != np.floor(n_candidates)).any() or (reaches != present).any():
+        if (n_candidates != np.floor(n_candidates)).any():
+            raise ValueError(f"{name}: similar_day_n_candidates must be a whole number")
+        if ((n_candidates[:, None] >= np.array(RANKS)[None, :]) != present).any():
             raise ValueError(
-                f"{name}: similar_day_n_candidates must be a whole number, with a rank "
-                "present exactly where it reaches the rank"
+                f"{name}: a rank must be present exactly where similar_day_n_candidates reaches it"
             )
         distances = df[list(RANK_DISTANCE_COLS)].to_numpy(dtype="float64")
         if (distances[:, 1:] < distances[:, :-1]).any():
@@ -420,8 +423,30 @@ class SimilarDayFeatureRecords(DomainFrame):
 def _ranked_days(
     scoring: WalkForwardScoring, forecast: AreaWeatherForecast, day_available_at: pd.Series
 ) -> pd.DataFrame:
-    """One row per ranked day: each rank's day, distance and weight, the pool's
-    size, the fit's cutoff and the day's availability."""
+    """One row per ranked day, before it is spread over its periods.
+
+    Parameters
+    ----------
+    scoring : WalkForwardScoring
+        Its ranking, selection and fit cutoffs.
+    forecast : AreaWeatherForecast
+        The forecasts the days were scored with.
+    day_available_at : pandas.Series
+        When each day's whole load was public, indexed by day.
+
+    Returns
+    -------
+    pandas.DataFrame
+        ``trade_date``, each rank's reference date, distance and ``weight_<r>``,
+        ``similar_day_n_candidates``, ``similar_day_fit_cutoff``,
+        ``similar_day_method`` and ``available_at``.
+
+    Raises
+    ------
+    ValueError
+        If the ranking holds ranks beyond ``SIMILAR_DAY_TOP_K``, or a ranked day
+        has no forecast availability.
+    """
     ranked = scoring.ranking.with_weights()
     if (ranked["rank"] > SIMILAR_DAY_TOP_K).any():
         raise ValueError(
@@ -441,7 +466,7 @@ def _ranked_days(
     if forecast_available_at.isna().any():
         unknown = sorted(d.date() for d in days.loc[forecast_available_at.isna(), "trade_date"])
         raise ValueError(f"{len(unknown)} day(s) have no forecast availability, e.g. {unknown[0]}")
-    fit_cutoff = days["trade_date"].map(scoring.fit_cutoff).astype("datetime64[ns]")
+    fit_cutoff = days["trade_date"].map(scoring.fit_cutoff).astype(_DATE)
     # Each rank's whole day of load is public before the row can be.
     availability = {
         "forecast": forecast_available_at,
@@ -458,7 +483,22 @@ def _ranked_days(
 
 
 def _same_holiday_days(scoring: WalkForwardScoring, day_available_at: pd.Series) -> pd.DataFrame:
-    """One row per same-holiday day: its reference as rank 1 with all the weight."""
+    """One row per same-holiday day: its reference as rank 1 with all the weight.
+
+    Parameters
+    ----------
+    scoring : WalkForwardScoring
+        Its special days; only those that take their reference get a row.
+    day_available_at : pandas.Series
+        When each day's whole load was public, indexed by day.
+
+    Returns
+    -------
+    pandas.DataFrame
+        The columns of ``_ranked_days``: rank 1's date is the reference, ranks 2
+        and 3, the distances, the pool's size and the fit cutoff are null, and
+        ``available_at`` is the reference's load availability.
+    """
     references = scoring.special_days.df
     references = references[references["takes_reference"]]
     n = len(references)
@@ -524,7 +564,9 @@ def build_feature_records(
     ValueError
         If the scoring has no ranked and no same-holiday day, the ranking holds
         ranks beyond ``SIMILAR_DAY_TOP_K``, a ranked or reference day lacks an
-        hourly load, or a ranked day has no forecast availability.
+        hourly load, a ranked day has no forecast availability, or a row fails
+        a ``SimilarDayFeatureRecords`` check (e.g. it is usable only after its
+        issue time).
     """
     day_available_at = hourly_load.df.groupby("load_date")["available_at"].max()
     frames = []
@@ -591,7 +633,8 @@ def build_feature_records(
     return SimilarDayFeatureRecords.from_df(df)
 
 
-#: Spark SQL types of the published columns; every other float64 column is a double.
+#: Spark SQL types of the published columns; a float64 column without an entry is a double,
+#: and any other column needs one.
 _SQL_TYPES: dict[str, str] = {
     "area_code": "string",
     "trade_date": "date",
@@ -606,7 +649,26 @@ _SQL_TYPES: dict[str, str] = {
 
 
 def _sql_type(col: str) -> str:
-    return _SQL_TYPES.get(col, "double")
+    """The Spark SQL type a published column is created and cast as.
+
+    Parameters
+    ----------
+    col : str
+        A column of ``SimilarDayFeatureRecords.schema``.
+
+    Returns
+    -------
+    str
+        Its ``_SQL_TYPES`` entry; ``double`` for a float64 column without one.
+
+    Raises
+    ------
+    KeyError
+        If a column that is not float64 has no ``_SQL_TYPES`` entry.
+    """
+    if SimilarDayFeatureRecords.schema[col] == "float64" and col not in _SQL_TYPES:
+        return "double"
+    return _SQL_TYPES[col]
 
 
 def publish_feature_records(

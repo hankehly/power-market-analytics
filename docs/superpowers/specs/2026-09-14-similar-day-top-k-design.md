@@ -138,6 +138,9 @@ A same-holiday day's row:
 - `similar_day_rank1_reference_date` is R, and `similar_day_method` is `same_holiday`.
 - `available_at` is R's load availability. No forecast and no fit enter the row.
 - R's load missing raises, as a ranked day's does.
+- R's whole day of load must be public by D's issue time, as a pool candidate's must
+  (§4). If R's file was re-issued later, D is ranked instead. Otherwise the row
+  would be public only after the issue time, and Feast would never serve it.
 
 A ranked special day's row is a ranked day's row (§6, §7), with `similar_day_method =
 'similarity'`.
@@ -225,7 +228,10 @@ for a near day. Inverse distance has no such case.
 - `special_day_references(calendar, days, pool)`: the same-holiday reference R of §5 for
   every special day among `days` that has one; every other day among `days` is left to
   the ranking. It matches names exactly, holds no name list of its own (the naming
-  lives in `dim_date` alone) and takes the year-ago window from `pool`. `DayCalendar`
+  lives in `dim_date` alone) and takes the year-ago window from `pool`. Given
+  `load_available_at`, it also drops a reference whose load was public after the
+  special day's issue time (§5). `SimilarDaySelector.special_day_references(days)`
+  passes the selector's calendar, pool and load availability. `DayCalendar`
   gains `is_holiday` and `holiday_name_ja`, and validates that no name repeats within
   a calendar year.
 
@@ -247,6 +253,7 @@ for a near day. Inverse distance has no such case.
   - Reference days are distinct and before D, and loads are positive.
   - The weighted mean lies between the smallest and largest rank load, within a
     relative 1e-9.
+  - `available_at` is on or before the day's issue time.
 - `publish_feature_records` writes the new columns. The table is created if absent
   and never altered (the `pma_ml` gotcha), so the rollout drops it first (§11).
 
@@ -366,7 +373,8 @@ the special-day rule, the new columns and the retired one.
 - A ranked day's rank loads halved and its weighted mean on a hand-computed day.
 - A same-holiday day's row: rank 1 and the mean equal R's load, the rest null.
 - A ranked special day's row: three ranks, `similar_day_method = 'similarity'`.
-- `available_at` for both kinds of day.
+- `available_at` for both kinds of day, never after the issue time.
+- A same-holiday reference re-issued after the issue time leaves its day ranked.
 - Each frame check rejects a bad row.
 - The published table's columns.
 
