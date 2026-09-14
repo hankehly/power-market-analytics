@@ -13,7 +13,8 @@ from D − 364 ± 30. After this change:
    day and 60 days one year back, ranked together.
 2. **Four features come out of it:** the loads of the 3 nearest days, and their
    distance-weighted mean.
-3. **A special day takes the same holiday last year** instead of a ranked pick.
+3. **A special day takes the same holiday last year** when that day lies in the pool's
+   year-ago window. Any other special day is ranked like an ordinary day.
 4. **Today's `similar_day_demand_kwh` is retired.** The presets that use it read the
    new rank 1 instead.
 
@@ -31,20 +32,24 @@ The researcher's answers of 2026-09-13 and 2026-09-14.
 3. **A special day is a `dim_date.is_holiday` day:** 国民の祝日, 年末年始 12/30–1/3,
    ゴールデンウィーク 4/30–5/2 and お盆 8/13–16.
 4. **A special day's reference is the same holiday last year**, found by its
-   `dim_date.holiday_name_ja`, else the same calendar date (§5). Rank 1 and the
-   weighted mean carry its load. Ranks 2 and 3 are null.
-5. **`similar_day_demand_kwh` is retired.** The seven presets that read it switch to
+   `dim_date.holiday_name_ja`, when that day lies in D − 335 … D − 394 (§5). Rank 1 and
+   the weighted mean carry its load. Ranks 2 and 3 are null.
+5. **Every other special day is ranked** from the same pool with the same fit: a
+   holiday moved far from last year's date (スポーツの日 2020-07-24 and 2019-10-14 are
+   284 days apart) and a holiday whose name did not exist last year. A same-date
+   fallback was rejected: two of its references were ordinary working days.
+6. **`similar_day_demand_kwh` is retired.** The seven presets that read it switch to
    the new rank 1.
-6. **Flat expressions.** `SIMILAR_DAY` gains `rank` and `holidays` arguments, and a new
+7. **Flat expressions.** `SIMILAR_DAY` gains `rank` and `holidays` arguments, and a new
    primitive `SIMILAR_DAY_MEAN` takes `k` and `weight`. The nested form
    (`NTH(SIMILAR_DAYS(…), 2)`) was rejected: one feature could be spelled with
    different `k`, and it would change what `WEIGHTED_MEAN` means.
-7. **`/ 2` stays in every expression.** The source is the hourly でんき予報 load. Each
+8. **`/ 2` stays in every expression.** The source is the hourly でんき予報 load. Each
    half-hour gets half of its hour's kWh, and the label should name that scale.
-8. **One fit per scoring step.** A day's three nearest days and their distances come
+9. **One fit per scoring step.** A day's three nearest days and their distances come
    from the one fit that scores the day.
-9. **No new preset.** The existing similar-day presets change their feature (decision
-   5). `--add` tries the other three on any preset.
+10. **No new preset.** The existing similar-day presets change their feature (decision
+    6). `--add` tries the other three on any preset.
 
 ## 3. The paper, and where this design differs
 
@@ -53,7 +58,7 @@ What §2.2 and §3 of the paper say, next to this design:
 | Topic | Paper | This design |
 |---|---|---|
 | Candidate pool | "the past 30 days and 60 days from the previous year" (§3). §2.2's own range is "determined through trial and error". | D − 2 … D − 31 and D − 335 … D − 394 (§4) |
-| Special days | Left out of the test days and the training episodes | Same holiday last year (§5), the researcher's rule. Left out of the pool and the fit, as in the paper. |
+| Special days | Left out of the test days and the training episodes | Same holiday last year when it is in the year-ago window, else ranked (§5): the researcher's rule. Left out of the pool and the fit, as in the paper. |
 | Distance parts (Eq. 1) | Days between the dates; 24-hour temperature, sun irradiation, rain | Days between the dates; 24-hour temperature, humidity, rain; days since and until a holiday; holiday degree. Unchanged apart from the calendar part. |
 | Target day's weather | Actual values, "to avoid the prediction error" | The MSM forecast. The actual weather is not public at the issue time. Unchanged. |
 | Weight fit (Eq. 2) | Least squares, α · WED + β against the load difference | The same. Unchanged. |
@@ -67,7 +72,8 @@ around D − 364, the same weekday one year back.
 
 ## 4. The pool
 
-For a delivery day D that is not a special day:
+For a ranked delivery day D: any day that is not a special day, and a special day
+without a same-holiday reference (§5):
 
 | Window | Lags | Days |
 |---|---|---|
@@ -90,46 +96,51 @@ For a delivery day D that is not a special day:
 - **One fit for the whole pool**, on the same schedule as today: every 7 days, on the
   730 days before the cutoff. A training pair (target T, candidate C) is used only if
   neither day is a special day, C was in T's pool and public by T's issue time, and T's
-  load was public by the cutoff.
+  load was public by the cutoff. A ranked special day is scored with these weights,
+  fitted on ordinary days.
 - **The retrieval check compares the pick with D − 7**, the paper's previous-week
   model, where D − 7 is in the pool.
 
 ## 5. Special days
 
-For a delivery day D with `dim_date.is_holiday`, the reference day R is:
+For a delivery day D with `dim_date.is_holiday`:
 
-1. **The day last year with D's `dim_date.holiday_name_ja`.** Since PR #123 every
-   holiday's name is unique within its calendar year, so there is at most one.
-   Examples: 成人の日 2026-01-12 → 2025-01-13; お盆（1日目） → the previous 8/13;
-   スポーツの日 2020-07-24, moved for the Olympics → 2019-10-14.
-2. **Otherwise the same calendar date last year.** No holiday falls on 29 February, so
-   that date always exists.
+1. **Same holiday.** If the day last year with D's `dim_date.holiday_name_ja` lies in
+   the pool's year-ago window, D − 335 … D − 394, that day is D's reference R. Since
+   PR #123 every holiday's name is unique within its calendar year, so there is at most
+   one such day. Examples: 成人の日 2026-01-12 → 2025-01-13; お盆（1日目） → the
+   previous 8/13.
+2. **Otherwise D is ranked** like an ordinary day (§4). That covers two cases:
+   - **The holiday moved far from last year's date.** スポーツの日 2020-07-24, moved
+     for the Olympics, is 284 days after 2019-10-14. スポーツの日 2022-10-10 is 444
+     days after 2021's Olympic date, 2021-07-23.
+   - **The name did not exist last year.** These are the names that depend on the
+     year: substitute and between-holiday days such as `こどもの日（振替休日）` (none
+     occurs in two years running in 2017–2027), the 2019 one-offs `即位の日` and
+     `即位礼正殿の儀`, 天皇誕生日（令和） on 2020-02-23, and 2020's
+     ゴールデンウィーク（2日目）…（4日目）, whose 2019 dates carried the enthronement
+     names.
 
-How the rule plays out on the names of 2017–2027 (`dim_date` as of 2026-09-14):
+The window reuses the pool's year-ago bounds, so there is no separate threshold. Every
+same-name match in the window is 361–374 days back: the Happy Monday shifts, and 2021's
+Olympic moves matching 2020's.
 
-- **288 holidays find their name last year; 29 take the same date.** In the scoring
-  span, from 2019-04-04, 25 take the same date.
-- **The same-date days are the ones whose name depends on the year:**
-  - 23 substitute or between-holiday days, such as `こどもの日（振替休日）`. The same
-    one never occurs in two years running in 2017–2027.
-  - The 2019 one-offs `即位の日` and `即位礼正殿の儀`.
-  - 天皇誕生日（令和） on 2020-02-23, the first of its era.
-  - 2020's ゴールデンウィーク（2日目）…（4日目）, whose 2019 dates carried the
-    enthronement names.
-- **Most same-date references are a weekend or another holiday.** Two land on ordinary
-  working days: 2019-10-22 (即位礼正殿の儀) → 2018-10-22, and 2026-09-22
-  (敬老の日・秋分の日（国民の休日）) → 2025-09-22.
+On the names of 2017–2027 (`dim_date` as of 2026-09-14): 286 special days take the same
+holiday and 31 are ranked (2 moved, 29 without a name last year). From 2019-04-04, the
+first scored day, it is 227 and 27.
 
-A special day's row:
+A same-holiday day's row:
 
 - `similar_day_rank1_demand_kwh` and `wavg_similar_day_top3_demand_kwh` both hold R's
   hourly load, halved.
 - The rank 2 and 3 loads, all distances, `similar_day_n_candidates` and
   `similar_day_fit_cutoff` are null.
-- `similar_day_rank1_reference_date` is R, and `similar_day_method` names the rule:
-  `same_holiday` or `same_date`.
+- `similar_day_rank1_reference_date` is R, and `similar_day_method` is `same_holiday`.
 - `available_at` is R's load availability. No forecast and no fit enter the row.
-- R's load missing raises, as a ranked day's does today.
+- R's load missing raises, as a ranked day's does.
+
+A ranked special day's row is a ranked day's row (§6, §7), with `similar_day_method =
+'similarity'`.
 
 ## 6. The columns
 
@@ -151,10 +162,10 @@ Untagged:
 | Column | Type | Null when |
 |---|---|---|
 | `similar_day_rank1_reference_date` … `similar_day_rank3_reference_date` | date | the rank is absent |
-| `similar_day_rank1_distance` … `similar_day_rank3_distance` | double | a special day, or the rank is absent |
-| `similar_day_n_candidates` | int | a special day |
-| `similar_day_fit_cutoff` | timestamp | a special day |
-| `similar_day_method` | string: `similarity`, `same_holiday`, `same_date` | never |
+| `similar_day_rank1_distance` … `similar_day_rank3_distance` | double | a same-holiday day, or the rank is absent |
+| `similar_day_n_candidates` | int | a same-holiday day |
+| `similar_day_fit_cutoff` | timestamp | a same-holiday day |
+| `similar_day_method` | string: `similarity`, `same_holiday` | never |
 
 - **A ranked day's rank 2 or 3 is absent** only when its pool has fewer days than the
   rank.
@@ -184,7 +195,7 @@ wavg = (Σ_r w_r · L_r) / 2
 - **A distance of 0** gets all the weight: the days at distance 0 share it equally,
   and the rest get none. This is the limit of the formula. It is practically
   impossible, because the weather parts are continuous.
-- **On a special day** the mean is R's load (§5).
+- **On a same-holiday day** the mean is R's load (§5).
 
 Why not weight by the fit's predicted load difference, 1 / (α·d + β)? β has no lower
 bound. In run `30ab12e9…`, 35 of the 388 fits have β < 0, all with cutoffs in 2019,
@@ -211,23 +222,26 @@ for a near day. Inverse distance has no such case.
   `lag_364_load_difference` become `lag_7_rank` and `lag_7_load_difference`.
 - `inverse_distance_weights(distances)`: a pure function from a days × k array (NaN
   for a missing rank) to the weights of §7, with the zero-distance rule.
-- `special_day_references(calendar, days)`: the reference day and rule of §5 for every
-  special day among `days`. It matches names exactly and holds no name list of its
-  own; the naming lives in `dim_date` alone. `DayCalendar` gains `is_holiday` and
-  `holiday_name_ja`, and validates that no name repeats within a calendar year.
+- `special_day_references(calendar, days, pool)`: the same-holiday reference R of §5 for
+  every special day among `days` that has one; every other day among `days` is left to
+  the ranking. It matches names exactly, holds no name list of its own (the naming
+  lives in `dim_date` alone) and takes the year-ago window from `pool`. `DayCalendar`
+  gains `is_holiday` and `holiday_name_ja`, and validates that no name repeats within
+  a calendar year.
 
 `tasks/demand/similar_day_feature.py`:
 
-- `score_walk_forward` scores the non-special days as today, and adds `ranking` to
-  `WalkForwardScoring`.
-- `build_feature_records` builds the ranked days' rows from the ranking and the special
-  days' rows from their references. Both kinds come from the job's day list: every day
-  with a full forecast profile whose issue time is on or after the first fit's cutoff.
+- `score_walk_forward` ranks every day without a same-holiday reference, special or
+  not, and adds `ranking` to `WalkForwardScoring`.
+- `build_feature_records` builds the ranked days' rows from the ranking and the
+  same-holiday days' rows from their references. Both kinds come from the job's day
+  list: every day with a full forecast profile whose issue time is on or after the first
+  fit's cutoff.
   A ranked day's `available_at` is the latest of its forecast availability, its fit's
   cutoff and the load availability of its three ranked days.
 - `SimilarDayFeatureRecords` holds the columns of §6 and checks them:
-  - `similar_day_method` agrees with `is_holiday`.
-  - On special days, the columns §5 makes null are null.
+  - `same_holiday` only on a special day.
+  - On same-holiday days, the columns §5 makes null are null.
   - On ranked days, distances are non-decreasing by rank, and a null rank is followed
     only by null ranks.
   - Reference days are distinct and before D, and loads are positive.
@@ -241,10 +255,11 @@ for a near day. Inverse distance has no such case.
 - **Kept:** the params, `similar_day_fits.csv`, `similar_day_selection.csv` and
   `similar_day_retrieval.csv`. The last two describe ranked days' rank 1.
 - **New params:** `similar_day_pool` and `similar_day_top_k`.
-- **New counts:** `n_days_ranked`, `n_days_same_holiday` and `n_days_same_date`.
+- **New counts:** `n_days_ranked`, `n_special_days_ranked` and `n_days_same_holiday`.
 - **New artifacts:** `similar_day_ranking.csv`, every ranked day × rank with its day,
   lag, distance and weight; and `similar_day_special_days.csv`, every special day with
-  its reference and rule.
+  its name, last year's day of that name and its lag (empty when none), and whether it
+  took that day or was ranked.
 - **Renamed metrics:** `similar_day_load_difference_lag_7` and
   `similar_day_share_better_than_lag_7` replace the `lag_364` pair.
   `…_selected` and `…_oracle` stay.
@@ -278,14 +293,15 @@ for a near day. Inverse distance has no such case.
   - `not_null` on each rank 2 and 3 load, reference date and distance where
     `similar_day_method = 'similarity'` and `similar_day_n_candidates` reaches the
     rank.
-  - `expression_is_true`: on special days the distances, `similar_day_n_candidates`,
-    `similar_day_fit_cutoff` and ranks 2 and 3 are null, and the weighted mean equals
-    rank 1.
+  - `expression_is_true`: on same-holiday days the distances,
+    `similar_day_n_candidates`, `similar_day_fit_cutoff` and ranks 2 and 3 are null,
+    the weighted mean equals rank 1, and rank 1's reference date lies 335 … 394 days
+    back.
   - `expression_is_true`: on ranked days the distances do not decrease by rank.
   - `expression_is_true`: on ranked days with three ranks and no zero distance, the
     weighted mean recomputed in SQL matches within a relative 1e-9.
 - `ftr_period_similar_day`: the new columns, the four tags and expressions of §6, and
-  the unit test's rows: two scoring runs, one ranked day, one special day.
+  the unit test's rows: two scoring runs, one ranked day, one same-holiday day.
 - `just feature-views` regenerates `views.py`, `fct_feature_value.sql` and
   `dim_feature.sql`. `fct_feature_value` loses the retired feature and gains four, about
   3 × 48 × 2,714 ≈ 390,000 more Tokyo rows.
@@ -311,8 +327,8 @@ read.
     `gap=(2d, 335d), window=(30, 60)`.
   - `rank` (which nearest day), `k` (how many), `weight` and `holidays` come after
     `halflife`.
-  - `holidays=last_year` means a holiday takes the same holiday last year instead of a
-    ranked pick.
+  - `holidays=last_year` means a holiday takes the same holiday last year, when that day
+    lies in the year-ago window, instead of a ranked pick.
 - **The `SIMILAR_DAY` row** becomes `SIMILAR_DAY(x, gap, window, rank, holidays)`:
   `x` on the `rank`-th most similar day of the pool. Its example is rank 1 of §6.
 - **A new row:** `SIMILAR_DAY_MEAN(x, gap, window, k, weight, holidays)`, the weighted
@@ -336,15 +352,20 @@ the special-day rule, the new columns and the retired one.
   weight; NaN ranks are ignored.
 - The retrieval check against D − 7.
 - `special_day_references`:
-  - A name found last year on another date → that day (成人の日).
-  - A name missing last year → the same calendar date (天皇誕生日（令和） 2020,
+  - A name found last year inside the year-ago window → that day (成人の日, a Happy
+    Monday shift).
+  - A name found last year outside the window → no reference (スポーツの日 2020-07-24).
+  - A name missing last year → no reference (天皇誕生日（令和） 2020,
     `こどもの日（振替休日）`).
   - A non-holiday day among `days` gets no reference.
+- A special day without a reference is ranked, and its ranking skips holidays in the
+  pool like any day's.
 - `DayCalendar` rejects a name repeated within a calendar year.
 
 `tests/test_demand_similar_day_feature.py`:
 - A ranked day's rank loads halved and its weighted mean on a hand-computed day.
-- A special day's row: rank 1 and the mean equal R's load, the rest null.
+- A same-holiday day's row: rank 1 and the mean equal R's load, the rest null.
+- A ranked special day's row: three ranks, `similar_day_method = 'similarity'`.
 - `available_at` for both kinds of day.
 - Each frame check rejects a bad row.
 - The published table's columns.
@@ -354,8 +375,8 @@ names.
 
 `tests/test_demand_presets.py`: the new reference.
 
-`tests/conftest.py`: the `feature_marts` fixture writes the new columns, with a special
-day among its rows.
+`tests/conftest.py`: the `feature_marts` fixture writes the new columns, with a
+same-holiday day among its rows.
 
 Coverage stays at 100 %.
 
@@ -363,7 +384,8 @@ Coverage stays at 100 %.
 
 The PR shows:
 - **The job run:**
-  - Days by rule: ranked, `same_holiday`, `same_date`.
+  - Days by rule: ordinary ranked, special ranked, `same_holiday`. The special-day
+    counts should match §5 over the scored span.
   - The share of each rank's picks from the recent window and from one year back.
   - The largest and smallest weight per ranked day.
   - A few days with their three picks, distances and weights.
