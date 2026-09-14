@@ -616,16 +616,34 @@ class TestBuildFeatureRecords:
         with pytest.raises(ValueError, match="ranks beyond 3"):
             make_records(scoring)
 
-    def test_the_latest_ranked_load_sets_the_availability(self):
-        # Rank 3 lies at lag 2 (04-08), and that day's load was re-issued at 05:00 on
-        # 04-09: later than the forecast's 04-09 01:00, before the 09:30 issue time.
+    @pytest.mark.parametrize("rank", [1, 2, 3])
+    @pytest.mark.parametrize("shape", ["public_at", "last_hour_public_at"])
+    def test_the_latest_ranked_load_sets_the_availability(self, rank, shape):
+        # Rank r's day (lags 364, 7, 2 in REFS) had its load re-issued at 05:00 on 04-09,
+        # the whole day or its hour 24 alone: later than the forecast's 04-09 01:00 and
+        # every other rank's load, before the 09:30 issue time.
         reissued = pd.Timestamp("2024-04-09 05:00")
-        hourly_load = make_hourly_load(public_at={D - pd.Timedelta(days=2): reissued})
+        day = D - pd.Timedelta(days=REFS[rank - 1][0])
+        hourly_load = make_hourly_load(**{shape: {day: reissued}})
         records = make_records(make_scoring(days=(D,)), hourly_load=hourly_load)
         assert records.df["available_at"].eq(reissued).all()
         assert records.df["available_at"].gt(forecast_available_at(D)).all()
-        # Public two days after it (a yearly-file day), 04-10 00:00, it follows the
-        # issue time: the pool never ranks such a day, and the frame rejects the rows.
+
+    def test_a_same_holiday_reference_waits_for_its_last_hour(self):
+        # 2023-03-21's hours 1-23 are public at 00:00 on 2023-03-22; hour 24 re-issued at
+        # 05:00 on 2024-03-19, before 03-20's 09:30 issue time, dates the whole row.
+        reissued = pd.Timestamp("2024-03-19 05:00")
+        scoring = make_scoring(days=(D,), same_holiday=((SAME_HOLIDAY, SAME_HOLIDAY_REFERENCE),))
+        hourly_load = make_hourly_load(last_hour_public_at={SAME_HOLIDAY_REFERENCE: reissued})
+        records = make_records(scoring, hourly_load=hourly_load)
+        rows = records.df[records.df["trade_date"] == SAME_HOLIDAY]
+        assert len(rows) == 48
+        assert rows["available_at"].eq(reissued).all()
+
+    def test_a_ranked_load_public_after_the_issue_time_is_rejected(self):
+        # Rank 3's day (04-08) public two days after it (a yearly-file day), 04-10 00:00,
+        # follows the issue time: the pool never ranks such a day, and the frame rejects
+        # the rows.
         late = make_hourly_load(late={D - pd.Timedelta(days=2)})
         with pytest.raises(ValueError, match="available_at must not follow the issue time"):
             make_records(make_scoring(days=(D,)), hourly_load=late)
