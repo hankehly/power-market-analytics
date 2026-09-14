@@ -156,6 +156,23 @@ class TestLoadDayCalendar:
         with pytest.raises(ValueError, match="No calendar days found in dim_date"):
             load_day_calendar(spark=spark)
 
+    def test_a_null_is_holiday_raises(self, spark, monkeypatch):
+        # A null flag must not become False and silently drop the holiday's name.
+        days = pd.date_range("2024-04-28", "2024-04-30")
+        monkeypatch.setattr(
+            "power_market_analytics.tasks.demand.datasets.query_pandas",
+            lambda *a, **k: pd.DataFrame(
+                {
+                    "trade_date": [d.date() for d in days],
+                    "is_holiday": [False, None, False],
+                    "holiday_name_ja": [None, None, None],
+                    "holiday_degree": [0.0, 1.0, 0.0],
+                }
+            ),
+        )
+        with pytest.raises(ValueError, match="dim_date has a null is_holiday"):
+            load_day_calendar(spark=spark)
+
     def test_dim_date_without_a_holiday_raises(self, spark, monkeypatch):
         days = pd.date_range("2024-04-01", "2024-04-05")
         monkeypatch.setattr(

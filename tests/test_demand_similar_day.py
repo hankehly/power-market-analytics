@@ -39,15 +39,7 @@ from power_market_analytics.tasks.demand.similar_day import (
 HISTORY_DAYS = pd.date_range("2023-01-01", "2024-04-30", freq="D")
 #: Forecast profiles exist for these delivery days only.
 FORECAST_DAYS = pd.date_range("2024-01-01", "2024-04-30", freq="D")
-HOLIDAYS = (
-    pd.Timestamp("2023-01-09"),
-    pd.Timestamp("2023-03-21"),
-    pd.Timestamp("2023-05-03"),
-    pd.Timestamp("2024-01-08"),
-    pd.Timestamp("2024-03-20"),
-    pd.Timestamp("2024-04-29"),
-)
-#: ``dim_date.holiday_name_ja`` of each day in HOLIDAYS.
+#: The synthetic calendar's holidays, each with its ``dim_date.holiday_name_ja``.
 HOLIDAY_NAMES: dict[pd.Timestamp, str] = {
     pd.Timestamp("2023-01-09"): "成人の日",
     pd.Timestamp("2023-03-21"): "春分の日",
@@ -56,6 +48,8 @@ HOLIDAY_NAMES: dict[pd.Timestamp, str] = {
     pd.Timestamp("2024-03-20"): "春分の日",
     pd.Timestamp("2024-04-29"): "昭和の日",
 }
+#: The days of HOLIDAY_NAMES, in date order.
+HOLIDAYS = tuple(HOLIDAY_NAMES)
 D = pd.Timestamp("2024-04-10")  # a Wednesday; D - 364 = 2023-04-12, also a Wednesday
 D_MINUS_364 = D - pd.Timedelta(days=364)
 

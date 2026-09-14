@@ -170,7 +170,10 @@ class TestDayCalendar:
                 "holiday_degree": [1.0, 1.0],
             }
         )
-        with pytest.raises(ValueError, match="holiday_name_ja repeats within a calendar year"):
+        with pytest.raises(
+            ValueError,
+            match="holiday_name_ja repeats within a calendar year: 2024 成人の日$",
+        ):
             DayCalendar.from_df(df)
 
     def test_the_same_name_in_two_years_is_accepted(self):
