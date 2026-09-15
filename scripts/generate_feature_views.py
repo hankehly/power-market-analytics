@@ -8,7 +8,7 @@ mart has one) and one ``FeatureView`` on the entities of its grain, in
 unpivoted to the period grain in the dbt model
 ``dbt/models/curated/fct_feature_value.sql`` (the Superset surface of the
 catalogue): day marts are broadcast to the 48 periods and hour marts joined
-on the period's hour through ``dim_delivery_period``, every value cast to
+on the period's hour through ``dim_half_hour``, every value cast to
 double, and a mart with ``published_at`` keeps the newest published row per
 key and ``available_at``, the row Feast serves. A generated model gives the
 fact real ``ref`` edges, which a model walking ``graph`` at parse time
@@ -65,7 +65,7 @@ with
     time_code,
     hour_of_day + 1 as hour_ending
   from
-    {{ ref('dim_delivery_period') }}
+    {{ ref('dim_half_hour') }}
   ),
 """
 FACT_FOOTER = """\

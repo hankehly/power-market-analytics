@@ -38,7 +38,7 @@ from tests.conftest import (
 #   * candidate forecast = actual + 0.5 for time codes 1..24 -> abs 0.5, signed +0.5
 #                        = actual - 2.5 for time codes 25..48 -> abs 2.5, signed -2.5
 #
-# Day parts (dim_delivery_period): Overnight = tc 1..12, Morning = 13..16,
+# Day parts (dim_half_hour): Overnight = tc 1..12, Morning = 13..16,
 # Daytime = 17..36, Evening = 37..48.
 
 DAY_1 = pd.Timestamp("2024-01-31")
@@ -344,7 +344,7 @@ class TestLoadRunErrors:
     def test_dtypes_follow_the_contract(self, errors):
         assert errors.df.dtypes.astype(str).to_dict() == RunErrors.schema
 
-    def test_day_part_joined_from_dim_delivery_period(self, errors):
+    def test_day_part_joined_from_dim_half_hour(self, errors):
         by_tc = errors.df.drop_duplicates("time_code").set_index("time_code")["day_part"]
         assert by_tc[1] == "Overnight"
         assert by_tc[12] == "Overnight"

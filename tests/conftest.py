@@ -695,7 +695,7 @@ def synthetic_price(day: pd.Timestamp, time_code: int) -> float:
 
 
 def day_part(time_code: int) -> str:
-    """dim_delivery_period.day_part for a time code."""
+    """dim_half_hour.day_part for a time code."""
     if time_code <= 12:
         return "Overnight"
     if time_code <= 16:
@@ -771,9 +771,9 @@ class CuratedWarehouse:
 
     Attributes
     ----------
-    areas, prices, occto, delivery_periods, accuracy : pandas.DataFrame
+    areas, prices, occto, half_hours, accuracy : pandas.DataFrame
         Contents of ``dim_area``, ``fct_jepx_spot_area_price``,
-        ``fct_occto_demand_supply_forecast_daily``, ``dim_delivery_period``
+        ``fct_occto_demand_supply_forecast_daily``, ``dim_half_hour``
         and ``fct_spot_price_forecast_accuracy`` (tokyo rows only, except the
         area dimension).
     demand : pandas.DataFrame
@@ -808,7 +808,7 @@ class CuratedWarehouse:
     areas: pd.DataFrame
     prices: pd.DataFrame
     occto: pd.DataFrame
-    delivery_periods: pd.DataFrame
+    half_hours: pd.DataFrame
     accuracy: pd.DataFrame
     demand: pd.DataFrame
     weather: pd.DataFrame
@@ -856,7 +856,7 @@ def curated_warehouse(spark: SparkSession) -> CuratedWarehouse:
             for i, day in enumerate(OCCTO_DAYS)
         ]
     )
-    delivery_periods = pd.DataFrame(
+    half_hours = pd.DataFrame(
         {
             "time_code": range(1, 49),
             "hour_of_day": [(tc - 1) // 2 for tc in range(1, 49)],
@@ -1121,9 +1121,9 @@ def curated_warehouse(spark: SparkSession) -> CuratedWarehouse:
         "date_key date, area_key int, max_demand_hour_ending int, max_demand_mw int, "
         "max_supply_capacity_mw int",
     ).write.mode("overwrite").saveAsTable("pma_curated.fct_occto_demand_supply_forecast_daily")
-    spark.createDataFrame(
-        delivery_periods, "time_code int, hour_of_day int, day_part string"
-    ).write.mode("overwrite").saveAsTable("pma_curated.dim_delivery_period")
+    spark.createDataFrame(half_hours, "time_code int, hour_of_day int, day_part string").write.mode(
+        "overwrite"
+    ).saveAsTable("pma_curated.dim_half_hour")
     spark.createDataFrame(
         accuracy,
         "date_key date, time_code int, area_key int, run_id string, "
@@ -1170,7 +1170,7 @@ def curated_warehouse(spark: SparkSession) -> CuratedWarehouse:
         areas=AREAS,
         prices=prices,
         occto=occto,
-        delivery_periods=delivery_periods,
+        half_hours=half_hours,
         accuracy=accuracy,
         demand=demand,
         weather=weather,

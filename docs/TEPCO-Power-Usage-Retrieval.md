@@ -167,10 +167,10 @@ requires the history to have no gaps.
 `demand_kwh` = 万kW × 10,000, energy over the hour in the A-1 fact's unit and
 additive. The other three measures stay in `std`.
 The fact is this series alone — it is *not* stitched with the A-1 series
-after 2022-04. Its `hour_of_day` references `dim_delivery_hour`, the 24-row
-shrunken rollup of `dim_delivery_period`, so the two facts drill across:
+after 2022-04. Its `hour_of_day` references `dim_hour`, the 24-row
+shrunken rollup of `dim_half_hour`, so the two facts drill across:
 `fct_area_demand_generation_actual` summed per
-`dim_delivery_period.hour_of_day` is the hourly kWh comparable to this
+`dim_half_hour.hour_of_day` is the hourly kWh comparable to this
 fact's `demand_kwh` (the comparison in [§5](#5-comparison-with-the-a-1-series-2022-04-01--2026-08-27-38621-hours)
 is exactly that join).
 

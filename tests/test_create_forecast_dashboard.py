@@ -415,7 +415,7 @@ select
   f.abs_pct_error
 from pma_curated.fct_spot_price_forecast_accuracy f
 join pma_curated.dim_area a on f.area_key = a.area_key
-join pma_curated.dim_delivery_period p on f.time_code = p.time_code
+join pma_curated.dim_half_hour p on f.time_code = p.time_code
 join pma_curated.dim_date d on f.date_key = d.date_key
 """
 
@@ -476,7 +476,7 @@ select
   f.abs_pct_error
 from pma_curated.fct_demand_forecast_accuracy f
 join pma_curated.dim_area a on f.area_key = a.area_key
-join pma_curated.dim_delivery_period p on f.time_code = p.time_code
+join pma_curated.dim_half_hour p on f.time_code = p.time_code
 join pma_curated.dim_date d on f.date_key = d.date_key
 """
 
@@ -565,7 +565,7 @@ def explanation_sql_tail(contribution_table: str, accuracy_table: str) -> str:
     return f"""\
 from {contribution_table} c
 join pma_curated.dim_area a on c.area_key = a.area_key
-join pma_curated.dim_delivery_period p on c.time_code = p.time_code
+join pma_curated.dim_half_hour p on c.time_code = p.time_code
 join pma_curated.dim_date d on c.date_key = d.date_key
 left join pma_curated.dim_feature e on e.feature_name = c.component
 left join {accuracy_table} f
@@ -790,7 +790,7 @@ select
   avg(m.delta_{abs}) over (partition by m.date_key) as daily_delta_{abs},
   row_number() over (partition by m.date_key order by m.time_code) = 1 as is_first_matched_period
 from matched m
-join pma_curated.dim_delivery_period p on m.time_code = p.time_code
+join pma_curated.dim_half_hour p on m.time_code = p.time_code
 join pma_curated.dim_date d on m.date_key = d.date_key
 """
 SPOT_COMPARISON_VALUES = """\
@@ -1031,7 +1031,7 @@ select
 {value_select}
 from matched m
 join pma_curated.dim_area a on m.area_key = a.area_key
-join pma_curated.dim_delivery_period p on m.time_code = p.time_code
+join pma_curated.dim_half_hour p on m.time_code = p.time_code
 join pma_curated.dim_date d on m.date_key = d.date_key
 left join pma_curated.dim_feature e on e.feature_name = m.component
 """
@@ -1272,7 +1272,7 @@ class TestDashboardSpecs:
         assert "  f.published_at,\n  f.issue_time\nfrom asof f\n" in sql
         assert sql.endswith(
             "join pma_curated.dim_area a on f.area_code = a.area_code\n"
-            "join pma_curated.dim_delivery_period p on f.time_code = p.time_code\n"
+            "join pma_curated.dim_half_hour p on f.time_code = p.time_code\n"
             "join pma_curated.dim_date d on f.trade_date = d.date_key\n"
             "left join pma_curated.dim_feature e on e.feature_name = f.feature_name\n"
             "where f.vintage_rank = 1\n"
