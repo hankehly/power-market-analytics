@@ -527,11 +527,11 @@
   - Curated: `fct_area_power_usage_hourly` = `union all` of the `std_<tso>__power_usage_hourly`
     models joined to `dim_area` (grain `date_key × hour_of_day × area_key`, `demand_kwh` =
     万kW × 10,000 only — energy over the hour, the A-1 fact's unit; this series alone, not
-    stitched with A-1). `hour_of_day` references `dim_hour`, the 24-row shrunken rollup
-    of `dim_half_hour` (built from it — `group by hour_of_day, is_daytime, day_part` —
-    so `day_part` cannot diverge; `dim_half_hour.hour_of_day` is the rollup FK), which is
-    how the hourly fact and the 30-minute fact drill across: sum the 30-minute `demand_kwh`
-    per `hour_of_day`. Adding a TSO = new spec + contract + stg/std models + one union branch.
+    stitched with A-1). `hour_of_day` references `dim_hour`, the 24-row shrunken rollup of
+    `dim_half_hour` (built from it — `group by hour_of_day, is_daytime, day_part` — so
+    `day_part` cannot diverge; `dim_half_hour.hour_of_day` is the rollup FK), which is how
+    the hourly fact and the 30-minute fact drill across: sum the 30-minute `demand_kwh` per
+    `hour_of_day`. Adding a TSO = new spec + contract + stg/std models + one union branch.
 - e-Stat census 500 m population mesh (国勢調査 4次メッシュ, one CP932 text file per 第１次地域区画):
   `scripts/download_estat_census_population_mesh.py` (`EstatCensusMeshDownloader` in
   `power_market_analytics/ingestion/estat/download.py`; per-vintage `CensusVintage` config
