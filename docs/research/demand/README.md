@@ -63,6 +63,34 @@ dates and training rows for baseline and candidate. Accuracy rows land in
 `fct_demand_forecast_accuracy` after
 `just dbt build --select +fct_demand_forecast_accuracy`.
 
+## Backlog
+
+Candidate investigations are GitHub issues with the `feature idea` label, ranked in
+the [Load Forecasting](https://github.com/users/hankehly/projects/3) Project.
+Open one with the **Feature idea**
+issue form: the feature, why it should help, its expression, source data, grain
+and mart, when its values are public, and what it takes to build. The Project
+takes it in as `Ready`.
+
+The Project's fields: Status (`Ready`, `Needs a decision`, `In progress`,
+`Done`), Task, Impact and Feasibility (1 to 3, 3 the highest), Priority (the
+researcher's order), Build (`Preset only`, `Mart column`, `New mart`,
+`Ingestion`, `Framework`), Investigation (`demand/R-009`) and Decision
+(`Supported`, `Not supported`, `Inconclusive`, `Superseded`, `Set aside`).
+
+- **Starting one:** copy the investigation template to the next `R-XXX`, set
+  the issue `In progress` with the investigation in its field, and name the
+  issue in the investigation's header.
+- **Finishing:** the PR that records the decision closes the issue
+  (`Closes #N`), which sets `Done`; the Decision field takes the verdict.
+- **Setting aside:** close the issue as not planned with the reason in its
+  body or a comment, and set Decision to `Set aside`. It stays searchable, so
+  the idea is not re-proposed.
+
+The first twelve items (#129 to #140) and the three set-aside ideas (#141 to
+#143) were suggested by Claude on 2026-09-15 at the researcher's request; their
+Impact and Feasibility scores are Claude's estimates.
+
 ## Investigation index
 
 | ID | Investigation | Status | Current conclusion |

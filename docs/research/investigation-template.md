@@ -8,6 +8,7 @@
 **Created:** YYYY-MM-DD  
 **Last updated:** YYYY-MM-DD  
 **Triggering observations:** O-XXX or `None — modeling idea`  
+**Backlog item:** #NNN, or `None`  
 **Related investigations:** —
 
 ## Question

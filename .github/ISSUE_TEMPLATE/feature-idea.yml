@@ -1,0 +1,157 @@
+name: Feature idea
+description: A candidate feature for a forecasting model, to be ranked in the backlog
+labels: [feature idea]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        The title is the feature's short name. Physical names never change once a run
+        has used them, so the expression is the name to get right; the physical name
+        follows at build time (docs/Feature-Naming.md).
+  - type: dropdown
+    id: task
+    attributes:
+      label: Task
+      description: The forecasting task, as named under power_market_analytics/tasks/.
+      options:
+        - demand
+        - spot_price
+    validations:
+      required: true
+  - type: textarea
+    id: feature
+    attributes:
+      label: Feature
+      description: >-
+        What the model sees at each period, in one or two sentences: which value, from
+        which data, over which days or hours.
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why it should help
+      description: >-
+        The predictive hypothesis and its evidence. "We believe that <feature> will lower
+        MAE because <observation, result or reasoning>." Say which segments should move
+        (day part, season, day type) if you expect a specific one.
+    validations:
+      required: true
+  - type: input
+    id: follows_from
+    attributes:
+      label: Follows from
+      description: >-
+        The observation, investigation or paper it follows from (demand/O-002,
+        demand/R-007, a papers.md row), or a dash.
+  - type: input
+    id: expression
+    attributes:
+      label: Expression
+      description: >-
+        The feature's expression in the docs/Feature-Naming.md grammar, e.g.
+        LAG(demand_kwh, 7d) or MEAN(forecast_temperature_c, weight=population). A draft is
+        fine; a column passed through keeps its name.
+    validations:
+      required: true
+  - type: checkboxes
+    id: source
+    attributes:
+      label: Source data
+      description: What the feature reads.
+      options:
+        - label: fct_area_demand_generation_actual (A-1 30-minute actuals)
+        - label: fct_area_power_usage_hourly (でんき予報 hourly load)
+        - label: fct_jma_weather_hourly (JMA observations)
+        - label: fct_jma_msm_weather_forecast_hourly (MSM forecast)
+        - label: fct_occto_demand_supply_forecast_daily / _30m (OCCTO 翌々日)
+        - label: fct_jepx_spot_area_price
+        - label: fct_census_population_jma_station
+        - label: dim_date
+        - label: pma_ml.similar_day (the fit-and-score job)
+        - label: Another loaded table, or a new source (say which under Build notes)
+  - type: dropdown
+    id: grain
+    attributes:
+      label: Grain
+      description: The mart family the column belongs to.
+      options:
+        - day (area_code × trade_date)
+        - hour (… × hour_ending)
+        - period (… × time_code)
+    validations:
+      required: true
+  - type: dropdown
+    id: mart
+    attributes:
+      label: Mart
+      description: The feature mart that holds the column, or a new one.
+      options:
+        - ftr_day_actuals
+        - ftr_day_calendar
+        - ftr_day_occto
+        - ftr_hour_jma_obs
+        - ftr_hour_msm
+        - ftr_period_actuals
+        - ftr_period_jepx
+        - ftr_period_similar_day
+        - a new mart
+    validations:
+      required: true
+  - type: dropdown
+    id: categorical
+    attributes:
+      label: Categorical
+      description: Whether LightGBM should treat it as a categorical (the mart's categorical tag).
+      options:
+        - "No"
+        - "Yes"
+      default: 0
+    validations:
+      required: true
+  - type: textarea
+    id: available_at
+    attributes:
+      label: Available at
+      description: >-
+        When each value is public, against the task's issue time (09:30 JST D-1 for
+        demand). Which column or rule gives the mart's available_at? A value that needs a
+        later forecast run or a re-issued file cannot be used.
+    validations:
+      required: true
+  - type: dropdown
+    id: build
+    attributes:
+      label: Build
+      description: What has to be built before the feature can be run.
+      options:
+        - Preset only (the column exists)
+        - Mart column
+        - New mart
+        - Ingestion (a new source, a new element, a backfill)
+        - Framework (a change to the forecasting code)
+    validations:
+      required: true
+  - type: textarea
+    id: build_notes
+    attributes:
+      label: Build notes
+      description: >-
+        Any cost that is not obvious: a backfill and its size, a new download, a fitted
+        job, a column that crosses two marts.
+  - type: input
+    id: suggested_by
+    attributes:
+      label: Suggested by
+      description: Who suggested it and when, if not the researcher.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: Not already a mart column (the Feature Catalogue dashboard, or the marts' YAML)
+          required: true
+        - label: Not among the set-aside ideas (closed feature-idea issues)
+          required: true
+        - label: The expression follows docs/Feature-Naming.md and no other feature has it
+          required: true

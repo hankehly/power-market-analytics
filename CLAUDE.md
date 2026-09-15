@@ -1182,6 +1182,20 @@
 - Do not generate hypotheses, explanations, or initial ideas for the research log unless the
   researcher explicitly asks; record the researcher's thinking faithfully.
 - Update the investigation index in the task's `README.md`.
+- The backlog of candidate investigations lives on GitHub since 2026-09-16: issues with the
+  `feature idea` label (opened with the *Feature idea* issue form,
+  `.github/ISSUE_TEMPLATE/feature-idea.yml`: expression, source, grain, mart, available_at
+  rule, build), ranked in the user-level Project **Load Forecasting**
+  (https://github.com/users/hankehly/projects/3, number 3; fields Status / Task / Impact /
+  Feasibility / Priority / Build / Investigation / Decision, listed in
+  `docs/research/demand/README.md`). Starting an item = the next `R-XXX`, the issue set
+  `In progress` with the investigation named; the PR that records the decision closes it
+  (`Closes #N`); a ruled-out idea is closed as not planned with the reason and Decision
+  `Set aside` (Status is the pipeline only: the item-closed workflow sets `Done` on every
+  close). The Project's views and built-in workflows have no API and are edited in the
+  browser; `gh project` needs the `project` token scope (`gh auth refresh -s project`,
+  granted 2026-09-16). The first fifteen issues, #129 to #143, are Claude's 2026-09-15
+  suggestions, with Claude's Impact and Feasibility estimates.
 - Docs links are docsify site-root-relative (`research/spot_price/observations.md#o-001-…`);
   image paths are page-relative (`assets/…`).
 - Keep reasoning, interpretations, and decisions in the research documents; keep run-level
