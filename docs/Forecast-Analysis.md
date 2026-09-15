@@ -53,7 +53,7 @@ with the D-1 gap closed, since its window runs to D-1.
 A missing feature does not stop a forecast: LightGBM takes it as NaN and
 sends it down each split's missing-value branch — the training rows with a
 missing feature are what teach the trees that branch, since without them a
-missing value would read as 0.0. Only a row with no feature value at all is
+missing value would read as 0.0. Only a training row with no feature value at all is
 dropped, and a day whose periods are all like that raises
 `ForecastUnavailableError`, skipped and reported on `BacktestRun.skipped_days`
 while the rest of the window continues. Forecasts are joined one-to-one to
