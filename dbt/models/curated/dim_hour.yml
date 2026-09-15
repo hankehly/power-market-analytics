@@ -1,27 +1,27 @@
 models:
-  - name: dim_delivery_hour
+  - name: dim_hour
     config:
       contract:
         enforced: true
     description: >
       Time-of-day dimension at the hour grain: the shrunken rollup of
-      dim_delivery_period (24 rows) for facts whose business process captures
+      dim_half_hour (24 rows) for facts whose business process captures
       data hourly (fct_area_power_usage_hourly). Derived from the base
       dimension, never hand-typed, so is_daytime / day_part can never disagree
       between the two grains — the day-part boundaries (06:00, 08:00, 18:00)
       fall on full hours. hour_of_day (0-23) is the hour starting then and
-      equals dim_delivery_period.hour_of_day, the base dimension's foreign key
+      equals dim_half_hour.hour_of_day, the base dimension's foreign key
       to this one, which is how an hourly fact and a 30-minute fact drill
       across; hour_ending (1-24) is the same hour under the JMA / MSM / OCCTO
       hour-ending label; first_time_code / last_time_code are the two
       30-minute periods the hour contains.
 
       Same deliberate deviation from the Kimball anonymous-surrogate-key rule
-      as dim_delivery_period: hour_of_day is a smart key, because the 24 hours
+      as dim_half_hour: hour_of_day is a smart key, because the 24 hours
       are a fixed enumeration from a single national standard.
     data_tests:
       - dbt_utils.expression_is_true:
-          name: dim_delivery_hour_time_codes_bracket_the_hour
+          name: dim_hour_time_codes_bracket_the_hour
           arguments:
             expression: "first_time_code = 2 * hour_of_day + 1 and last_time_code = first_time_code + 1"
     columns:
@@ -61,7 +61,7 @@ models:
           - not_null
           - relationships:
               arguments:
-                to: ref('dim_delivery_period')
+                to: ref('dim_half_hour')
                 field: time_code
       - name: last_time_code
         data_type: int
@@ -70,16 +70,16 @@ models:
           - not_null
           - relationships:
               arguments:
-                to: ref('dim_delivery_period')
+                to: ref('dim_half_hour')
                 field: time_code
       - name: is_daytime
         data_type: boolean
-        description: The JEPX daytime window (08:00-18:00), inherited from dim_delivery_period.
+        description: The JEPX daytime window (08:00-18:00), inherited from dim_half_hour.
         data_tests:
           - not_null
       - name: day_part
         data_type: string
-        description: Overnight / Morning / Daytime / Evening, inherited from dim_delivery_period.
+        description: Overnight / Morning / Daytime / Evening, inherited from dim_half_hour.
         data_tests:
           - not_null
           - accepted_values:

@@ -7,7 +7,7 @@ REST API, so everything is reproducible from the repo after a
 ``docker compose down -v``:
 
 - five virtual datasets per dashboard: ``<task>_forecast_analysis`` — the
-  task's forecast accuracy mart joined to dim_area / dim_delivery_period /
+  task's forecast accuracy mart joined to dim_area / dim_half_hour /
   dim_date, plus presentation columns (``run_label``, actual-value bands, day
   types) — ``<task>_forecast_explanation`` — the contribution fact, one
   row per period x component, joined to the accuracy mart —
@@ -156,7 +156,7 @@ select
   f.published_at{extra_columns}
 from {source} f
 join pma_curated.dim_area a on f.area_code = a.area_code
-join pma_curated.dim_delivery_period p on f.time_code = p.time_code
+join pma_curated.dim_half_hour p on f.time_code = p.time_code
 join pma_curated.dim_date d on f.trade_date = d.date_key
 {feature_join}{where}
 """
@@ -285,7 +285,7 @@ select
   f.abs_pct_error
 from {accuracy_table} f
 join pma_curated.dim_area a on f.area_key = a.area_key
-join pma_curated.dim_delivery_period p on f.time_code = p.time_code
+join pma_curated.dim_half_hour p on f.time_code = p.time_code
 join pma_curated.dim_date d on f.date_key = d.date_key
 """
 
@@ -355,7 +355,7 @@ select
 {explanation_value_columns_sql}
 from {contribution_table} c
 join pma_curated.dim_area a on c.area_key = a.area_key
-join pma_curated.dim_delivery_period p on c.time_code = p.time_code
+join pma_curated.dim_half_hour p on c.time_code = p.time_code
 join pma_curated.dim_date d on c.date_key = d.date_key
 {feature_join_sql}
 left join {accuracy_table} f
@@ -521,7 +521,7 @@ $value_select_sql
   avg(m.$delta_abs_error_col) over (partition by m.date_key) as $daily_delta_abs_error_col,
   row_number() over (partition by m.date_key order by m.time_code) = 1 as is_first_matched_period
 from matched m
-join pma_curated.dim_delivery_period p on m.time_code = p.time_code
+join pma_curated.dim_half_hour p on m.time_code = p.time_code
 join pma_curated.dim_date d on m.date_key = d.date_key
 """)
 
@@ -660,7 +660,7 @@ select
 $value_select_sql
 from matched m
 join pma_curated.dim_area a on m.area_key = a.area_key
-join pma_curated.dim_delivery_period p on m.time_code = p.time_code
+join pma_curated.dim_half_hour p on m.time_code = p.time_code
 join pma_curated.dim_date d on m.date_key = d.date_key
 $feature_join_sql
 """)

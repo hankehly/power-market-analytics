@@ -278,7 +278,7 @@ class TestRenderFact:
         assert text.startswith("-- fct_feature_value:")
         assert (
             "  periods as (\n  select\n    time_code,\n    hour_of_day + 1 as hour_ending\n"
-            "  from\n    {{ ref('dim_delivery_period') }}\n  ),\n"
+            "  from\n    {{ ref('dim_half_hour') }}\n  ),\n"
         ) in text
         day = cte(text, "ftr_day_y")
         assert "    p.time_code,\n" in day

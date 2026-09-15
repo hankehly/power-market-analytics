@@ -95,7 +95,7 @@ blank or 0: demand runs from 922 万kW (2025-05-05 01:00) to 2,915 万kW
 
 Hourly `当日実績` against `fct_area_demand_generation_actual` (Kansai) aggregated to
 the hour (the two half-hours' kWh ÷ 10,000 = mean 万kW over the hour;
-`h:00` = time codes 2h+1, 2h+2, i.e. `dim_delivery_period.hour_of_day`). The
+`h:00` = time codes 2h+1, 2h+2, i.e. `dim_half_hour.hour_of_day`). The
 hour convention is TEPCO's: shifted by one hour either way the MAE is 58 万kW
 instead of 1.5.
 

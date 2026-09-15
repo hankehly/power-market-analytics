@@ -13,7 +13,7 @@ models:
       are 0 — TEPCO's "not yet observed" sentinel, which survived in the
       archive for 2025-06-14 time codes 11-48 — have all three measures set
       to null; the row is kept so the grain stays dense. The published
-      period-label strings are dropped (dim_delivery_period carries them).
+      period-label strings are dropped (dim_half_hour carries them).
     data_tests:
       - dbt_utils.unique_combination_of_columns:
           arguments:

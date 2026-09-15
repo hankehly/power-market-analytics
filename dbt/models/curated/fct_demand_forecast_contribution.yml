@@ -41,7 +41,7 @@ models:
           - not_null
           - relationships:
               arguments:
-                to: ref('dim_delivery_period')
+                to: ref('dim_half_hour')
                 field: time_code
       - name: area_key
         data_type: int

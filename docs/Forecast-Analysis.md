@@ -110,7 +110,7 @@ forecast-analysis dashboard per task: **Spot Price Forecast Analysis** and
 dashboard; `--task spot_price` or `--task demand` rebuilds one. It creates each
 task's virtual dataset (`spot_price_forecast_analysis` /
 `demand_forecast_analysis`, the accuracy mart joined to `dim_area`,
-`dim_delivery_period` and `dim_date`), every chart, the sectioned layout and the
+`dim_half_hour` and `dim_date`), every chart, the sectioned layout and the
 run filter. Rerunning it is safe, so it is how everything is rebuilt after a
 `docker compose down -v`.
 

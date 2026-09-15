@@ -287,7 +287,7 @@
   days, plus the daily paired comparison (share of days lower, seeded percentile-bootstrap CI
   over days of the mean daily-MAE difference, share of the gain from the k most-improved days)
   as markdown; `--mae-by-month-png` also writes the research figure. Reads
-  `fct_demand_forecast_accuracy` (+ `dim_delivery_period`, `dim_date`), so run
+  `fct_demand_forecast_accuracy` (+ `dim_half_hour`, `dim_date`), so run
   `just dbt build --select +fct_demand_forecast_accuracy` after the runs. Options:
   `--high-demand-quantile`, `--band-mwh`, `--resamples`, `--seed`, `--top-days`,
   `--common-days` (since 2026-09-12: compare on the delivery days both runs scored and list
@@ -527,9 +527,9 @@
   - Curated: `fct_area_power_usage_hourly` = `union all` of the `std_<tso>__power_usage_hourly`
     models joined to `dim_area` (grain `date_key × hour_of_day × area_key`, `demand_kwh` =
     万kW × 10,000 only — energy over the hour, the A-1 fact's unit; this series alone, not
-    stitched with A-1). `hour_of_day` references `dim_delivery_hour`, the 24-row shrunken rollup
-    of `dim_delivery_period` (built from it — `group by hour_of_day, is_daytime, day_part` —
-    so `day_part` cannot diverge; `dim_delivery_period.hour_of_day` is the rollup FK), which is
+    stitched with A-1). `hour_of_day` references `dim_hour`, the 24-row shrunken rollup
+    of `dim_half_hour` (built from it — `group by hour_of_day, is_daytime, day_part` —
+    so `day_part` cannot diverge; `dim_half_hour.hour_of_day` is the rollup FK), which is
     how the hourly fact and the 30-minute fact drill across: sum the 30-minute `demand_kwh`
     per `hour_of_day`. Adding a TSO = new spec + contract + stg/std models + one union branch.
 - e-Stat census 500 m population mesh (国勢調査 4次メッシュ, one CP932 text file per 第１次地域区画):
@@ -609,7 +609,7 @@
   every strategy reads them through Feast. `fct_feature_value` (curated,
   since 2026-09-12, PR 3) unpivots every tagged column of every mart to the period grain as
   one long fact — day marts broadcast to the 48 periods, hour marts to their two through
-  `dim_delivery_period`, a mart with `published_at` reduced to the newest published row per
+  `dim_half_hour`, a mart with `published_at` reduced to the newest published row per
   key and `available_at` — with `feature_ref` = `view:column`, the name presets use, and
   `is_categorical` from the tag: the Superset surface of the catalogue (the datasets in the
   dashboard bullet), generated with the Feast views (`just feature-views`); design

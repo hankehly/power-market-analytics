@@ -16,41 +16,41 @@ once-per-census snapshot, joins its own mesh dimension instead):
 | `fct_occto_demand_supply_forecast_daily` | target date × JEPX area | OCCTO day-after-next (翌々日) demand and peak supply-capacity forecasts (periodic snapshot; formulated on target date − 2, so it is known before the day-ahead auction and usable as a spot-price feature). Covers 2024-04-01 onward: the published エリア計 roll-ups, Okinawa, and OCCTO's pre-FY2024 trial rows (試験データ, 2024-03-13..31) stay in `std_occto__demand_forecast_dad` only. |
 | `fct_occto_demand_supply_forecast_30m` | delivery period × JEPX area (joins `fct_jepx_spot_area_price` 1:1) | The half-hourly counterpart: OCCTO day-after-next area demand and supply-capacity forecasts (MW) from the 広域予備率 エリア・広域ブロック情報 publication. Covers 2025-04-01 onward — the 48-point 翌々日 series began with FY2025; before that only the daily peak/min points above exist. Okinawa and the wide-area block / reserve columns stay in `std_occto__area_reserve_rate_dad`. |
 | `fct_area_demand_generation_actual` | delivery period × area (same grain as `fct_jepx_spot_area_price`) | TSO-published area actuals, the インバランス料金 「系統の需給に関する情報」 items A-1/B-1/B-4: total demand, total generation and wind+solar generation, energy in kWh and additive. Tokyo (TEPCO Power Grid) and Kansai (関西電力送配電) today, one `std_<tso>__…` model per TSO unioned underneath. Covers 2022-04-01 onward through the last finalized day; measures are null where the TSO published no observation (Tokyo 2025-06-14 time codes 11-48, Kansai 2025-10-12 × 22 periods). |
-| `fct_area_power_usage_hourly` | date × `hour_of_day` × area | The TSO でんき予報 hourly 電力使用状況 display series for Tokyo and Kansai. Energy in kWh = the published 1時間平均 万kW × 10,000, additive. Covers 2016-04-01, the only public area demand before A-1 begins, through yesterday, with no gaps except Kansai 2024-03-31. It is this series alone, not stitched with A-1: a display product at 万kW resolution, revised without notice at best, and the two differ by 0.05 % MAE over their overlap. `hour_of_day` references `dim_delivery_hour`, the 24-row shrunken rollup of `dim_delivery_period`, so the two facts drill across by summing the 30-minute fact per `dim_delivery_period.hour_of_day`. The daily files' 予測値 / 使用率 / 供給力 stay in the `std_<tso>__power_usage_hourly` models. |
+| `fct_area_power_usage_hourly` | date × `hour_of_day` × area | The TSO でんき予報 hourly 電力使用状況 display series for Tokyo and Kansai. Energy in kWh = the published 1時間平均 万kW × 10,000, additive. Covers 2016-04-01, the only public area demand before A-1 begins, through yesterday, with no gaps except Kansai 2024-03-31. It is this series alone, not stitched with A-1: a display product at 万kW resolution, revised without notice at best, and the two differ by 0.05 % MAE over their overlap. `hour_of_day` references `dim_hour`, the 24-row shrunken rollup of `dim_half_hour`, so the two facts drill across by summing the 30-minute fact per `dim_half_hour.hour_of_day`. The daily files' 予測値 / 使用率 / 供給力 stay in the `std_<tso>__power_usage_hourly` models. |
 | `fct_census_population_mesh` | census vintage × nine-digit `mesh_code` | Population Census total population per 500 m mesh (e-Stat 統計GIS 4次メッシュ). A periodic snapshot at the census date (2015 and 2020, both JGD2000 products). Additive across meshes, since the population is as published at every mesh with the privacy processing untouched, but not across census years. Joins `dim_population_mesh_500m` (one row per mesh: primary mesh, datum, bounding box and centroid decoded from the code). Intended for population-weighted weather aggregation later; no weights or weather-grid crosswalk are stored. |
 
 ```mermaid
 erDiagram
     dim_date ||--o{ fct_jepx_spot_market : "date_key"
-    dim_delivery_period ||--o{ fct_jepx_spot_market : "time_code"
+    dim_half_hour ||--o{ fct_jepx_spot_market : "time_code"
     dim_date ||--o{ fct_jepx_spot_area_price : "date_key"
-    dim_delivery_period ||--o{ fct_jepx_spot_area_price : "time_code"
+    dim_half_hour ||--o{ fct_jepx_spot_area_price : "time_code"
     dim_area ||--o{ fct_jepx_spot_area_price : "area_key"
     dim_date ||--o{ fct_jma_weather_hourly : "date_key"
     dim_jma_station ||--o{ fct_jma_weather_hourly : "station_id"
     dim_date ||--o{ fct_spot_price_forecast : "date_key"
-    dim_delivery_period ||--o{ fct_spot_price_forecast : "time_code"
+    dim_half_hour ||--o{ fct_spot_price_forecast : "time_code"
     dim_area ||--o{ fct_spot_price_forecast : "area_key"
     dim_date ||--o{ fct_spot_price_forecast_accuracy : "date_key"
-    dim_delivery_period ||--o{ fct_spot_price_forecast_accuracy : "time_code"
+    dim_half_hour ||--o{ fct_spot_price_forecast_accuracy : "time_code"
     dim_area ||--o{ fct_spot_price_forecast_accuracy : "area_key"
     dim_date ||--o{ fct_demand_forecast : "date_key"
-    dim_delivery_period ||--o{ fct_demand_forecast : "time_code"
+    dim_half_hour ||--o{ fct_demand_forecast : "time_code"
     dim_area ||--o{ fct_demand_forecast : "area_key"
     dim_date ||--o{ fct_demand_forecast_accuracy : "date_key"
-    dim_delivery_period ||--o{ fct_demand_forecast_accuracy : "time_code"
+    dim_half_hour ||--o{ fct_demand_forecast_accuracy : "time_code"
     dim_area ||--o{ fct_demand_forecast_accuracy : "area_key"
     dim_date ||--o{ fct_occto_demand_supply_forecast_daily : "date_key"
     dim_area ||--o{ fct_occto_demand_supply_forecast_daily : "area_key"
     dim_date ||--o{ fct_occto_demand_supply_forecast_30m : "date_key"
-    dim_delivery_period ||--o{ fct_occto_demand_supply_forecast_30m : "time_code"
+    dim_half_hour ||--o{ fct_occto_demand_supply_forecast_30m : "time_code"
     dim_area ||--o{ fct_occto_demand_supply_forecast_30m : "area_key"
     dim_date ||--o{ fct_area_demand_generation_actual : "date_key"
-    dim_delivery_period ||--o{ fct_area_demand_generation_actual : "time_code"
+    dim_half_hour ||--o{ fct_area_demand_generation_actual : "time_code"
     dim_area ||--o{ fct_area_demand_generation_actual : "area_key"
-    dim_delivery_hour ||--o{ dim_delivery_period : "hour_of_day"
+    dim_hour ||--o{ dim_half_hour : "hour_of_day"
     dim_date ||--o{ fct_area_power_usage_hourly : "date_key"
-    dim_delivery_hour ||--o{ fct_area_power_usage_hourly : "hour_of_day"
+    dim_hour ||--o{ fct_area_power_usage_hourly : "hour_of_day"
     dim_area ||--o{ fct_area_power_usage_hourly : "area_key"
     dim_population_mesh_500m ||--o{ fct_census_population_mesh : "mesh_code"
 
@@ -75,7 +75,7 @@ erDiagram
         double holiday_degree
     }
 
-    dim_delivery_period {
+    dim_half_hour {
         int time_code PK
         int start_minute_of_day
         int hour_of_day FK
@@ -85,7 +85,7 @@ erDiagram
         string day_part
     }
 
-    dim_delivery_hour {
+    dim_hour {
         int hour_of_day PK
         int hour_ending
         string period_start_time
@@ -303,7 +303,7 @@ erDiagram
 
     classDef dim fill:#DBEAFE,stroke:#2563EB,color:#1E3A8A
     classDef fact fill:#FEF3C7,stroke:#B45309,color:#78350F
-    class dim_date,dim_delivery_period,dim_area,dim_jma_station,dim_population_mesh_500m dim
+    class dim_date,dim_half_hour,dim_area,dim_jma_station,dim_population_mesh_500m dim
     class fct_jepx_spot_market,fct_jepx_spot_area_price,fct_jma_weather_hourly,fct_spot_price_forecast,fct_spot_price_forecast_accuracy,fct_demand_forecast,fct_demand_forecast_accuracy,fct_occto_demand_supply_forecast_daily,fct_occto_demand_supply_forecast_30m,fct_area_demand_generation_actual,fct_census_population_mesh fact
 ```
 

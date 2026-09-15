@@ -49,7 +49,7 @@ COLUMNS = [
 def model_sql(tables: dict[str, str] | None = None) -> str:
     """The model with every ``ref`` replaced by a table (``pma_features.<mart>`` unless given)."""
     text = MODEL_PATH.read_text()
-    tables = {"dim_delivery_period": "pma_curated.dim_delivery_period", **(tables or {})}
+    tables = {"dim_half_hour": "pma_curated.dim_half_hour", **(tables or {})}
     return REF.sub(lambda m: tables.get(m.group(1), f"pma_features.{m.group(1)}"), text)
 
 
