@@ -44,7 +44,7 @@ from tests.conftest import (
 #   * candidate forecast = actual +   500,000 for time codes 1..24  -> abs 0.5 M, signed +0.5 M
 #                        = actual - 2,500,000 for time codes 25..48 -> abs 2.5 M, signed -2.5 M
 #
-# Day parts (dim_delivery_period): Overnight = tc 1..12, Morning = 13..16,
+# Day parts (dim_half_hour): Overnight = tc 1..12, Morning = 13..16,
 # Daytime = 17..36, Evening = 37..48. Both days are in Winter (Dec-Feb).
 
 DAY_1 = pd.Timestamp("2024-01-31")

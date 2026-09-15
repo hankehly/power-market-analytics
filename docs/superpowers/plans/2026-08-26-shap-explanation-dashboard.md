@@ -1601,7 +1601,7 @@ models:
           - not_null
           - relationships:
               arguments:
-                to: ref('dim_delivery_period')
+                to: ref('dim_half_hour')
                 field: time_code
       - name: area_key
         data_type: int
@@ -2107,7 +2107,7 @@ models:
           - not_null
           - relationships:
               arguments:
-                to: ref('dim_delivery_period')
+                to: ref('dim_half_hour')
                 field: time_code
       - name: area_key
         data_type: int
@@ -2296,7 +2296,7 @@ def explanation_sql_tail(contribution_table: str, accuracy_table: str) -> str:
     return f"""\
 from {contribution_table} c
 join pma_curated.dim_area a on c.area_key = a.area_key
-join pma_curated.dim_delivery_period p on c.time_code = p.time_code
+join pma_curated.dim_half_hour p on c.time_code = p.time_code
 join pma_curated.dim_date d on c.date_key = d.date_key
 left join {accuracy_table} f
   on c.run_id = f.run_id
@@ -2495,7 +2495,7 @@ select
 {explanation_value_columns_sql}
 from {contribution_table} c
 join pma_curated.dim_area a on c.area_key = a.area_key
-join pma_curated.dim_delivery_period p on c.time_code = p.time_code
+join pma_curated.dim_half_hour p on c.time_code = p.time_code
 join pma_curated.dim_date d on c.date_key = d.date_key
 left join {accuracy_table} f
   on c.run_id = f.run_id

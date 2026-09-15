@@ -235,7 +235,7 @@ that serves its forecasts, is then to be settled.
   generated from the manifest by `scripts/generate_feature_views.py` beside the Feast views,
   not by a macro — a model walking `graph` at parse time has no `ref` edges, so it could
   build before its marts. Every mart's tagged columns go through Spark `stack()`; day marts
-  are broadcast to the 48 periods and hour marts to their two through `dim_delivery_period`;
+  are broadcast to the 48 periods and hour marts to their two through `dim_half_hour`;
   a mart with `published_at` keeps the newest published row per key and `available_at`, the
   row Feast serves. A singular test reads the model's SQL from the graph and fails the build
   when a tagged column is missing from it. The Kimball guidance accepts this measure-type

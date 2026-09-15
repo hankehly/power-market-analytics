@@ -9,7 +9,7 @@ with
     time_code,
     hour_of_day + 1 as hour_ending
   from
-    {{ ref('dim_delivery_period') }}
+    {{ ref('dim_half_hour') }}
   ),
   ftr_day_actuals as (
   select

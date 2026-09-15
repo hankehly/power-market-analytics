@@ -184,7 +184,7 @@ on its grain.
   `strategy`); `feature_value` is a non-additive attribute; `contribution_demand_kwh` is
   additive across the components of one period only — never across runs. Tests: uniqueness of
   `(run_id, date_key, time_code, area_key, component)`, `not_null` on keys and measures,
-  `relationships` to `dim_date`, `dim_delivery_period`, `dim_area`,
+  `relationships` to `dim_date`, `dim_half_hour`, `dim_area`,
   `dbt_utils.accepted_range` `component_order >= 0`.
 - Singular tests in `dbt/dbt_tests/`:
   `assert_fct_demand_forecast_contribution_has_one_base_per_period.sql` (periods whose base
@@ -230,7 +230,7 @@ select
 {explanation_value_columns_sql}
 from {contribution_table} c
 join pma_curated.dim_area a on c.area_key = a.area_key
-join pma_curated.dim_delivery_period p on c.time_code = p.time_code
+join pma_curated.dim_half_hour p on c.time_code = p.time_code
 join pma_curated.dim_date d on c.date_key = d.date_key
 left join {accuracy_table} f
   on c.run_id = f.run_id

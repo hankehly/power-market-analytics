@@ -1883,7 +1883,7 @@ models:
       Standardized Kansai でんき予報 hourly 電力使用状況
       (stg_kansai__power_usage_hourly) with a typed time axis: delivery_date;
       hour_start (0-23, the hour starting then — Kansai's own label, equal to
-      dim_delivery_period.hour_of_day; verified against the A-1 series summed
+      dim_half_hour.hour_of_day; verified against the A-1 series summed
       per hour, MAE 0.5 万kW, vs 50-100 shifted by one hour); hour_ending
       (1-24, the JMA / MSM / OCCTO convention); delivery_datetime = hour start;
       Japanese fiscal_year. One row per delivery_date and hour_start, gapless
@@ -2151,7 +2151,7 @@ a1 as (
   select f.date_key, d.hour_of_day, sum(f.demand_kwh) / 10000.0 as a1_mankw
   from pma_curated.fct_area_demand_generation_actual f
   join pma_curated.dim_area a on a.area_key = f.area_key and a.area_code = 'kansai'
-  join pma_curated.dim_delivery_period d on d.time_code = f.time_code
+  join pma_curated.dim_half_hour d on d.time_code = f.time_code
   group by f.date_key, d.hour_of_day
   having count(f.demand_kwh) = 2
 ),

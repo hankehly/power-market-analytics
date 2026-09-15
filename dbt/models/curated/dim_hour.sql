@@ -3,10 +3,10 @@ with
   select
     *
   from
-    {{ ref('dim_delivery_period') }}
+    {{ ref('dim_half_hour') }}
   ),
 
-  -- Shrunken rollup of dim_delivery_period at the hour grain, derived from
+  -- Shrunken rollup of dim_half_hour at the hour grain, derived from
   -- the base dimension so the two can never disagree: grouping by the
   -- attributes as well as the hour yields more than 24 rows — and fails the
   -- unique test on hour_of_day — should a day-part boundary ever stop

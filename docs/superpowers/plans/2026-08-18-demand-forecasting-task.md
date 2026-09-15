@@ -5225,7 +5225,7 @@ select * from final
       fct_area_demand_generation_actual on (date_key, time_code, area_key).
       Grain: one row per MLflow run x delivery period x area, same as the
       forecast fact. This is the intended BI surface — slice error by
-      dim_date (holidays, fiscal year), dim_delivery_period (day parts) or
+      dim_date (holidays, fiscal year), dim_half_hour (day parts) or
       weather. Error columns are null when the actual is missing (the TSO
       holes: Tokyo 2025-06-14 time codes 11-48, Kansai 2025-10-12); the
       percentage errors are additionally null when the actual is 0, so

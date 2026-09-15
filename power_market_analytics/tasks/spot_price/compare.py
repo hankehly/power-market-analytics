@@ -101,7 +101,7 @@ def load_run_errors(run_ids: list[str], spark: SparkSession | None = None) -> Ru
           acc.actual_price_jpy_kwh,
           acc.forecast_price_jpy_kwh
         from pma_curated.fct_spot_price_forecast_accuracy acc
-        join pma_curated.dim_delivery_period period
+        join pma_curated.dim_half_hour period
           on acc.time_code = period.time_code
         left join pma_curated.fct_occto_demand_supply_forecast_daily occto
           on acc.date_key = occto.date_key
