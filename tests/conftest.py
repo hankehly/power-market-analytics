@@ -1121,9 +1121,10 @@ def curated_warehouse(spark: SparkSession) -> CuratedWarehouse:
         "date_key date, area_key int, max_demand_hour_ending int, max_demand_mw int, "
         "max_supply_capacity_mw int",
     ).write.mode("overwrite").saveAsTable("pma_curated.fct_occto_demand_supply_forecast_daily")
-    spark.createDataFrame(half_hours, "time_code int, hour_of_day int, day_part string").write.mode(
-        "overwrite"
-    ).saveAsTable("pma_curated.dim_half_hour")
+    spark.createDataFrame(
+        half_hours,
+        "time_code int, hour_of_day int, day_part string",
+    ).write.mode("overwrite").saveAsTable("pma_curated.dim_half_hour")
     spark.createDataFrame(
         accuracy,
         "date_key date, time_code int, area_key int, run_id string, "
