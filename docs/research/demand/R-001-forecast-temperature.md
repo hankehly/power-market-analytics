@@ -154,7 +154,7 @@ depends mainly on a few extreme days. Otherwise reject the change.
   the baseline features are unchanged, so `forecast_temperature_c` is the only
   difference
 - **Segment definitions:** as implemented in `tasks/demand/compare.py`.
-  - Day parts follow `dim_delivery_period.day_part`: Overnight 00–06,
+  - Day parts follow `dim_half_hour.day_part`: Overnight 00–06,
     Morning 06–08, Daytime 08–18, Evening 18–24.
   - Day types come from `dim_date`.
   - Demand bands are 2,000 MWh wide on the actual.

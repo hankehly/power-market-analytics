@@ -236,7 +236,7 @@ not null).
 - no row on 2024-03-31;
 - supply null exactly before 2019-09-12;
 - the fact against the Kansai A-1 fact summed per
-  `dim_delivery_period.hour_of_day` (bias, MAE, MAE %), which also fills the
+  `dim_half_hour.hour_of_day` (bias, MAE, MAE %), which also fills the
   doc's comparison section.
 - Review loop per CLAUDE.md: Codex, then Copilot, then report ready.
 

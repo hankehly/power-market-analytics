@@ -850,7 +850,7 @@ models:
       are 0 — TEPCO's "not yet observed" sentinel, which survived in the
       archive for 2025-06-14 time codes 11-48 — have all three measures set
       to null; the row is kept so the grain stays dense. The published
-      period-label strings are dropped (dim_delivery_period carries them).
+      period-label strings are dropped (dim_half_hour carries them).
     data_tests:
       - dbt_utils.unique_combination_of_columns:
           arguments:
@@ -945,7 +945,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 - Modify: `docs/README.md` (fact list near the top; mermaid ER diagram: edges, entity block, `class … fact` line)
 
 **Interfaces:**
-- Consumes: `std_tepco__area_demand_generation_actual` (Task 3), `dim_area` (`area_key int`, `area_code string`; Tokyo is `area_code = 'tokyo'`), `dim_date.date_key`, `dim_delivery_period.time_code`.
+- Consumes: `std_tepco__area_demand_generation_actual` (Task 3), `dim_area` (`area_key int`, `area_code string`; Tokyo is `area_code = 'tokyo'`), `dim_date.date_key`, `dim_half_hour.time_code`.
 - Produces: `fct_tepco_area_demand_generation_actual (date_key date, time_code int, area_key int, delivery_datetime timestamp, demand_kwh bigint, generation_kwh bigint, wind_solar_generation_kwh bigint)`.
 
 - [ ] **Step 1: Write `dbt/models/curated/fct_tepco_area_demand_generation_actual.sql`**
@@ -1046,7 +1046,7 @@ models:
           - not_null
           - relationships:
               arguments:
-                to: ref('dim_delivery_period')
+                to: ref('dim_half_hour')
                 field: time_code
       - name: area_key
         data_type: int
@@ -1116,7 +1116,7 @@ Expected: query 1 — `fact_rows` = days × 48 (76,704 on 2026-08-16), `first_da
 
 ```
     dim_date ||--o{ fct_tepco_area_demand_generation_actual : "date_key"
-    dim_delivery_period ||--o{ fct_tepco_area_demand_generation_actual : "time_code"
+    dim_half_hour ||--o{ fct_tepco_area_demand_generation_actual : "time_code"
     dim_area ||--o{ fct_tepco_area_demand_generation_actual : "area_key"
 ```
 
