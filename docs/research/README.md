@@ -21,7 +21,7 @@ docs/research/
 ├── investigation-template.md  # shared template, copied for every investigation
 ├── papers.md                  # link index of external papers cited by the research docs
 ├── spot_price/                # JEPX day-ahead spot price
-│   ├── README.md              # task index + scope defaults
+│   ├── README.md              # task index, scope defaults, backlog
 │   ├── observations.md        # O-XXX log
 │   ├── R-XXX-*.md             # investigations
 │   └── assets/                # plots cited in this task's conclusions
@@ -56,6 +56,11 @@ row per paper: what it is, the PDF, and which research doc cites it.
   README's scope defaults and records only what the investigation changes.
 - The task README's investigation index carries the verdict, the headline
   number and the decision date. The reasoning stays in the investigation.
+- A task README may carry a *Backlog* section: candidate investigations in
+  priority order, each with what it needs and where it came from, unnumbered
+  until one is started. A started item becomes the next `R-XXX` and moves to
+  the index. An idea the researcher did not supply says who suggested it and
+  when.
 - Writing style: `CLAUDE.md`, *Writing style*.
 - IDs are stable and **numbered per task**: each task folder has its own
   `O-001…` observations and `R-001…` investigations, and experiments are
@@ -88,3 +93,4 @@ example:
 - Investigations: `Backlog`, `In progress`, `Supported`, `Not supported`,
   `Inconclusive`, `Superseded`.
 - Experiment decisions: `Keep`, `Reject`, `Refine`, `Inconclusive`.
+- Backlog items: `Ready`, `Needs a decision`.

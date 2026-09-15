@@ -63,6 +63,39 @@ dates and training rows for baseline and candidate. Accuracy rows land in
 `fct_demand_forecast_accuracy` after
 `just dbt build --select +fct_demand_forecast_accuracy`.
 
+## Backlog
+
+Candidate investigations, in priority order. An item has no ID until it is
+started; it then becomes the next `R-XXX`, leaves this table and enters the
+index below. Unless the *From* column says otherwise, Claude suggested the
+idea on 2026-09-15 at the researcher's request, after reading the feature
+marts, the presets and this log.
+
+| # | Idea | Needs | From | State |
+|---:|---|---|---|---|
+| 1 | Rank 2, rank 3 and the inverse-distance top-3 mean of the similar-day pool next to rank 1. | Nothing to build: `similar_day_rank2_demand_kwh`, `similar_day_rank3_demand_kwh` and `wavg_similar_day_top3_demand_kwh` are in `ftr_period_similar_day`; a preset. | [R-008](research/demand/R-008-similar-day-top-k.md) | Ready |
+| 2 | The nine untried MSM forecast columns: cloud cover in four layers, wind speed with its two components, surface and sea-level pressure. | Nothing to build: in `ftr_hour_msm` since 2026-09-13; a preset. | [R-007](research/demand/R-007-forecast-weather-elements.md) follow-up | Ready |
+| 3 | A special-period class as a second categorical: none, 年末年始, ゴールデンウィーク, お盆, single 祝日, sandwiched working day. It gives the tree the holiday's position without a day-of-year to split ordinary days on. | A case expression over `dim_date.holiday_name_ja` in `ftr_day_calendar`. | [R-003](research/demand/R-003-day-type-feature.md) open question, [R-005](research/demand/R-005-calendar-features.md) E-004; the sandwiched level is the researcher's [O-002](research/demand/observations.md#o-002-the-working-day-between-山の日-and-お盆-is-heavily-over-forecast-driven-by-the-d-7-lag) idea | Ready |
+| 4 | Day-level summaries of D's forecast weather: the daily max, min and mean of the population-weighted forecast temperature, and the hour of the max. The hourly model sees only its own hour's temperature. | A new day mart over `fct_jma_msm_weather_forecast_hourly`. | — | Ready |
+| 5 | The day before delivery: the forecast for D-1 from 13:00 JST, leads 16–27 of the run already downloaded. Observations end at D-2 and the forecast covers D, so D-1 is unseen. | Twelve more leads read from the FH16-33 file in the MSM extractor, then a reload; no new download. | — | Ready |
+| 6 | Weather on the lag days: the observed same-hour temperature on D-2 and D-7, and the forecast temperature minus the recent observed one. A lagged load is only readable against the weather it happened under. | Lag columns in `ftr_hour_jma_obs`; the difference crosses two marts and needs a home. | [O-002](research/demand/observations.md#o-002-the-working-day-between-山の日-and-お盆-is-heavily-over-forecast-driven-by-the-d-7-lag) | Ready |
+| 7 | Solar generation lags: the A-1 fact's `wind_solar_generation_kwh` on D-2 and D-7 with the station's observed radiation on those days, so the model can scale the daytime PV dent as capacity grows. | Lag columns in `ftr_period_actuals` and `ftr_hour_jma_obs`. | [R-007](research/demand/R-007-forecast-weather-elements.md) open question: the spring gain | Ready |
+| 8 | The 不快指数 from the population-weighted forecast temperature and humidity: one column for the part of the R-007 gain that acts through summer comfort. | One column in `ftr_hour_msm`. | [R-007](research/demand/R-007-forecast-weather-elements.md) open question | Ready |
+| 9 | Shape without level: D-7's load at the period divided by D-7's daily mean, next to D-2's daily mean. The recent-load marts give many levels but no normalised profile. | One column in `ftr_period_actuals`. | [R-006](research/demand/R-006-recent-load-features.md) | Ready |
+| 10 | The similar day's distance and its lag in days as features, so the model can discount a poor match or one from last month rather than last year. | Tag `similar_day_rank1_distance`; a lag column from `similar_day_rank1_reference_date`. | [R-008](research/demand/R-008-similar-day-top-k.md) | Ready |
+| 11 | OCCTO's forecast for D as the TSO submits it: peak demand, its hour and supply capacity, public at 18:00 on D-2 from 2024-04-01; earlier training rows null. | Nothing to build: `ftr_day_occto`; a preset. | — | Needs a decision: the TSO's own forecast may dominate and make the model its corrector. It is also the first external benchmark. |
+| 12 | OCCTO's half-hourly forecast for D, from 2025-04-01. | A period mart over `fct_occto_demand_supply_forecast_30m`. | — | Needs a decision, as 11. |
+
+Set aside on 2026-09-15, checked and not to be re-proposed without new
+evidence:
+
+- A fresher MSM vintage. The 21 UTC D-2 run stops at 21:00 JST of D, and the
+  00 UTC D-1 run is distributed after the 09:30 cutoff
+  ([MSM retrieval doc, §3](JMA-MSM-GPV-Retrieval.md#3-vintage-policy)).
+- TEPCO's でんき予報 forecast for D. Its file is public only on D.
+- The holiday name as a categorical. A name has fewer rows in a 730-day
+  window than LightGBM's default minimum per category.
+
 ## Investigation index
 
 | ID | Investigation | Status | Current conclusion |
