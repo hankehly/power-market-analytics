@@ -157,7 +157,7 @@ with an interval that excludes zero.
   2024-08-18..2026-08-17, identical training rows and refit schedule (one day,
   2025-06-21, skipped by both for its D-7 lag in the 2025-06-14 TSO hole)
 - **Segment definitions:** as in R-001, i.e. as implemented in
-  `tasks/demand/compare.py` (day parts per `dim_delivery_period.day_part`, day
+  `tasks/demand/compare.py` (day parts per `dim_half_hour.day_part`, day
   types from `dim_date`, 2,000-MWh bands, top-10 % demand days; daily paired
   comparison = percentile bootstrap of the mean daily-MAE difference over days,
   10,000 resamples, seed 0)

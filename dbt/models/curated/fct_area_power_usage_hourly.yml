@@ -10,11 +10,10 @@ models:
       Power Grid, std_tepco__power_usage_hourly) and Kansai (関西電力送配電,
       std_kansai__power_usage_hourly). Grain: one row per delivery
       hour (date_key x hour_of_day, 0-23 = the hour starting then) per area.
-      hour_of_day references dim_delivery_hour, the shrunken rollup of
-      dim_delivery_period, so this fact and fct_area_demand_generation_actual
-      drill across on (date_key, hour_of_day, area_key): summing the
-      30-minute fact's demand_kwh by dim_delivery_period.hour_of_day gives
-      the same hourly kWh. This fact is the でんき予報 series alone — NOT
+      hour_of_day references dim_hour, the shrunken rollup of dim_half_hour,
+      so this fact and fct_area_demand_generation_actual drill across on
+      (date_key, hour_of_day, area_key): summing the 30-minute fact's
+      demand_kwh by dim_half_hour.hour_of_day gives the same hourly kWh. This fact is the でんき予報 series alone — NOT
       stitched with the A-1 series after 2022-04: they are different
       measurements (a display product at 万kW resolution that TEPCO never
       revises, vs the imbalance-settlement actuals); over their 2022-04 ->
@@ -52,12 +51,12 @@ models:
                 field: date_key
       - name: hour_of_day
         data_type: int
-        description: Hour of date_key the row covers (0-23, the hour starting then); references dim_delivery_hour.
+        description: Hour of date_key the row covers (0-23, the hour starting then); references dim_hour.
         data_tests:
           - not_null
           - relationships:
               arguments:
-                to: ref('dim_delivery_hour')
+                to: ref('dim_hour')
                 field: hour_of_day
       - name: area_key
         data_type: int

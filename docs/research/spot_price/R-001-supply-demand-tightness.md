@@ -112,7 +112,7 @@ than the variation across time segments. Otherwise reject the change.
   made 72 weekly refits with identical training-row counts (17,520 rows growing to the
   35,040-row / 730-day cap from 2026-04-01). Model parameters, refit cadence and base
   features are unchanged; the three OCCTO columns are the only difference.
-- **Segment definitions:** day parts follow `dim_delivery_period.day_part`
+- **Segment definitions:** day parts follow `dim_half_hour.day_part`
   (Daytime = 08:00–18:00, time codes 17–36). "Near the forecast maximum-demand hour" =
   periods whose hour of day is within ±1 h of the OCCTO `max_demand_hour_ending` hour
   (six 30-min periods per day). "High-price days" = the top 10 % of delivery days by mean

@@ -656,7 +656,7 @@ select
   avg(m.baseline_{abs}) over (partition by m.date_key) as daily_baseline_{abs},
   avg(m.delta_{abs}) over (partition by m.date_key) as daily_delta_{abs}
 from matched m
-join pma_curated.dim_delivery_period p on m.time_code = p.time_code
+join pma_curated.dim_half_hour p on m.time_code = p.time_code
 join pma_curated.dim_date d on m.date_key = d.date_key
 """
 SPOT_COMPARISON_VALUES = """\
@@ -957,7 +957,7 @@ $value_select_sql
   avg(m.$baseline_abs_error_col) over (partition by m.date_key) as $daily_baseline_abs_error_col,
   avg(m.$delta_abs_error_col) over (partition by m.date_key) as $daily_delta_abs_error_col
 from matched m
-join pma_curated.dim_delivery_period p on m.time_code = p.time_code
+join pma_curated.dim_half_hour p on m.time_code = p.time_code
 join pma_curated.dim_date d on m.date_key = d.date_key
 """)
 

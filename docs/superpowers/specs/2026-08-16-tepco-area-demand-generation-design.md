@@ -149,7 +149,7 @@ Mirrors `JmaHourlyCsvLoader`:
     same row (the unpublished sentinel, quirk 2) all three become null.
   - `file_updated_at` carried through.
   - Drops `period_start_time` / `period_end_time` (redundant with
-    `dim_delivery_period`).
+    `dim_half_hour`).
   - Tests: unique combination (delivery_date, time_code); not_null on keys;
     `accepted_range` 1–48 on time_code; `accepted_range min 0` on measures.
 - `fct_tepco_area_demand_generation_actual` (curated):
@@ -163,7 +163,7 @@ Mirrors `JmaHourlyCsvLoader`:
     in the published unit (30-minute kWh). `file_updated_at` stays in std.
   - Tests: `unique_combination_of_columns` on the three keys; `not_null` on
     keys and `delivery_datetime`; `relationships` to `dim_date.date_key`,
-    `dim_delivery_period.time_code`, `dim_area.area_key`; `accepted_range
+    `dim_half_hour.time_code`, `dim_area.area_key`; `accepted_range
     min_value: 0` on the measures (null allowed for the sentinel rows).
   - Description explains the grain, unit, additivity, Tokyo-only coverage,
     2022-04-01 start, and the nulled 2025-06-14 periods.
@@ -176,7 +176,7 @@ Mirrors `JmaHourlyCsvLoader`:
   run, and how to extend to 予測/BG計画 or the live files.
 - `docs/_sidebar.md`: add the new doc. `docs/README.md`: add the fact to the
   list ("seven fact tables") and to the mermaid ER diagram (dim_date,
-  dim_delivery_period, dim_area edges + entity block).
+  dim_half_hour, dim_area edges + entity block).
 - `CLAUDE.md`: `just refresh-tepco` command line, an Architecture data-flow
   bullet, and a Gotchas bullet (sci-notation → double in raw; 2025-06-14
   sentinel zeros → null in std; re-download-all policy).

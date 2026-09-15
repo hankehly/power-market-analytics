@@ -7,7 +7,7 @@ models:
       Standardized TEPCO でんき予報 hourly 電力使用状況
       (stg_tepco__power_usage_hourly) with a typed time axis: delivery_date;
       hour_start (0-23, the hour starting then — TEPCO's own label, equal to
-      dim_delivery_period.hour_of_day); hour_ending (1-24, the same hour under
+      dim_half_hour.hour_of_day); hour_ending (1-24, the same hour under
       the JMA / MSM / OCCTO hour-ending convention, the demand task's hourly
       join key); delivery_datetime = hour start; Japanese fiscal_year. One row
       per delivery_date and hour_start, gapless from 2016-04-01 (singular test

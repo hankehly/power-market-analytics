@@ -106,7 +106,7 @@ select
 from candidate c
 join baseline b on b.date_key = c.date_key and b.time_code = c.time_code
   and b.area_key = c.area_key
-join pma_curated.dim_area a ... join dim_delivery_period p ... join dim_date d ...
+join pma_curated.dim_area a ... join dim_half_hour p ... join dim_date d ...
 ```
 
 - Both sides are pinned inside the SQL, so the join touches two runs. Superset also

@@ -12,7 +12,7 @@ models:
       observe are blank in the source and stay null here (22 periods on
       2025-10-12, a 広域需給調整 中断 day) — the rows are kept so the grain
       stays dense. The published period-label strings are dropped
-      (dim_delivery_period carries them).
+      (dim_half_hour carries them).
     data_tests:
       - dbt_utils.unique_combination_of_columns:
           arguments:

@@ -25,7 +25,7 @@ models:
       day_of_month (day), day_of_week_iso (wday, Monday = 1 here and 0 there),
       day_name (wday_lbl), day_of_quarter (qday) and day_of_year (yday). Not
       carried: year_iso, week, and the sub-daily ones (hour through hour12),
-      which are dim_delivery_period's business.
+      which are dim_half_hour's business.
     data_tests:
       - dbt_utils.expression_is_true:
           name: dim_date_weekend_matches_day_of_week
