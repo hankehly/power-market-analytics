@@ -54,22 +54,25 @@ body:
         fine; a column passed through keeps its name.
     validations:
       required: true
-  - type: checkboxes
+  - type: dropdown
     id: source
     attributes:
       label: Source data
-      description: What the feature reads.
+      description: What the feature reads; pick every table it needs.
+      multiple: true
       options:
-        - label: fct_area_demand_generation_actual (A-1 30-minute actuals)
-        - label: fct_area_power_usage_hourly (でんき予報 hourly load)
-        - label: fct_jma_weather_hourly (JMA observations)
-        - label: fct_jma_msm_weather_forecast_hourly (MSM forecast)
-        - label: fct_occto_demand_supply_forecast_daily / _30m (OCCTO 翌々日)
-        - label: fct_jepx_spot_area_price
-        - label: fct_census_population_jma_station
-        - label: dim_date
-        - label: pma_ml.similar_day (the fit-and-score job)
-        - label: Another loaded table, or a new source (say which under Build notes)
+        - fct_area_demand_generation_actual (A-1 30-minute actuals)
+        - fct_area_power_usage_hourly (でんき予報 hourly load)
+        - fct_jma_weather_hourly (JMA observations)
+        - fct_jma_msm_weather_forecast_hourly (MSM forecast)
+        - fct_occto_demand_supply_forecast_daily / _30m (OCCTO 翌々日)
+        - fct_jepx_spot_area_price
+        - fct_census_population_jma_station
+        - dim_date
+        - pma_ml.similar_day (the fit-and-score job)
+        - Another loaded table, or a new source (say which under Build notes)
+    validations:
+      required: true
   - type: dropdown
     id: grain
     attributes:
