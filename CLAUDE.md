@@ -1187,7 +1187,7 @@
   `.github/ISSUE_TEMPLATE/feature-idea.yml`: expression, source, grain, mart, available_at
   rule, build), ranked in the user-level Project **Load Forecasting**
   (https://github.com/users/hankehly/projects/3, number 3; fields Status / Task / Impact /
-  Feasibility / Priority / Build / Investigation / Decision, listed in
+  Feasibility / Build / Investigation / Decision, listed in
   `docs/research/demand/README.md`). Starting an item = the next `R-XXX`, the issue set
   `In progress` with the investigation named; the PR that records the decision closes it
   (`Closes #N`); a ruled-out idea is closed as not planned with the reason and Decision
