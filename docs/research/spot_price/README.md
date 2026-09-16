@@ -42,6 +42,15 @@ dates and training rows for baseline and candidate. Accuracy rows land in
 `fct_spot_price_forecast_accuracy` after
 `just dbt build --select +fct_spot_price_forecast_accuracy`.
 
+## Backlog
+
+A spot-price feature idea uses the same **Feature idea** issue form as the
+demand task, with Task `spot_price`, and lands in the same
+[Load Forecasting](https://github.com/users/hankehly/projects/3) Project under
+Task `spot_price` until the spot task has a Project of its own. The lifecycle
+is the [demand README's](research/demand/README.md#backlog). No spot-price item
+exists yet.
+
 ## Investigation index
 
 | ID | Investigation | Status | Current conclusion |
