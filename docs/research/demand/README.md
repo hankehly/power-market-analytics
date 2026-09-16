@@ -73,10 +73,11 @@ and mart, when its values are public, and what it takes to build. The Project
 takes it in as `Ready`.
 
 The Project's fields: Status (`Ready`, `Needs a decision`, `In progress`,
-`Done`), Task, Impact and Feasibility (1 to 3, 3 the highest), Priority (the
-researcher's order), Build (`Preset only`, `Mart column`, `New mart`,
-`Ingestion`, `Framework`), Investigation (`demand/R-009`) and Decision
-(`Supported`, `Not supported`, `Inconclusive`, `Superseded`, `Set aside`).
+`Done`), Task, Impact and Feasibility (1 to 3, 3 the highest; the ranking
+reads both, there is no priority field), Build (`Preset only`, `Mart column`,
+`New mart`, `Ingestion`, `Framework`), Investigation (`demand/R-009`) and
+Decision (`Supported`, `Not supported`, `Inconclusive`, `Superseded`,
+`Set aside`).
 
 - **Starting one:** copy the investigation template to the next `R-XXX`, set
   the issue `In progress` with the investigation in its field, and name the
