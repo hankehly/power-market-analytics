@@ -8,12 +8,10 @@ This document covers the portal's request framework, the bulk-download protocol
 that returns the **entire history in a single CSV**, the file format, the
 catalog of other datasets reachable through the same endpoint, and how to use
 the downloader and loader in `power_market_analytics/ingestion/occto.py`.
-
 [§9](#9-広域予備率-エリア広域ブロック情報-翌々日-half-hourly-area-demand--supply)
 covers the second dataset the same code retrieves: the half-hourly 広域予備率
-エリア・広域ブロック情報 (翌々日) publication, the source of
-`fct_occto_demand_supply_forecast_30m`. It includes the 150,000-row download
-cap and the alternative 広域予備率Web公表システム portal.
+エリア・広域ブロック情報 (翌々日) publication behind `fct_occto_demand_supply_forecast_30m`,
+including its 150,000-row download cap and the alternative 広域予備率Web公表システム portal.
 
 All protocol details were established empirically on 2026-08-16 by driving the portal in
 a browser, capturing its network traffic, and replaying the requests with plain HTTP
@@ -26,16 +24,15 @@ re-verify against the live site.
   `https://occtonet3.occto.or.jp/public/dfw/RP11/OCCTO/SD/LOGIN_login`. The 公表
   (public disclosure) section requires **no account**: a plain GET of `LOGIN_login`
   creates an anonymous session and lands on the menu.
-- **Two retrieval paths** exist for the demand-forecast data:
-  1. **Interactive screens** (`CC01S030C`…`CC01S035C`): per-tab search UIs (長期 / 年間 /
-     月間 / 週間 / 翌々日 / 翌日・当日) with paged tables and a per-screen CSV button.
-  2. **情報ダウンロード bulk download** (`CF01S010C`, menu section ダウンロード情報):
-     one request returns the **full history of a whole dataset as one CSV** — for
-     需要予想・ピーク時供給力(翌々日) that is every 対象日 since 2024/03/13, all areas,
-     ~700 KB. It also supports a date-range filter for incremental pulls.
-- **The bulk path is the recommended one.** Three HTTP requests, no HTML parsing, no
-  pagination. The interactive screens are documented in [§6](#6-interactive-screens) only
-  for completeness.
+- **Two retrieval paths** exist for the demand-forecast data: **interactive screens**
+  (`CC01S030C`…`CC01S035C`, per-tab search UIs — 長期 / 年間 / 月間 / 週間 / 翌々日 /
+  翌日・当日 — with paged tables and a per-screen CSV button, documented in
+  [§6](#6-interactive-screens) only for completeness), and **情報ダウンロード bulk
+  download** (`CF01S010C`, menu section ダウンロード情報) — **the recommended path**:
+  three HTTP requests return the **full history of a whole dataset as one CSV**, no HTML
+  parsing or pagination, and a date-range filter is also available for incremental
+  pulls. For 需要予想・ピーク時供給力(翌々日) that is every 対象日 since 2024/03/13,
+  all areas, ~700 KB.
 - **翌々日 dataset key facts**: available from **2024/03/13** (対象日); 12 rows per day
   (10 areas + 9エリア計 + 10エリア計); one row per (対象日, エリア); 策定日 is always
   対象日 − 2 (verified across all rows). The series exists because the 翌々日 publication
@@ -58,25 +55,23 @@ The portal is a 2010s-era JSP framework ("gem2"/"sd") where everything is a POST
 
 Request styles:
 
-- **HTML navigation**: normal form POST; returns a full screen page. Opening a screen:
-  `POST /SD/<SCR>?fwExtention.pathInfo=<SCR>&fwExtention.prgbrh=0` with an **empty
-  body**.
-- **AJAX**: same URL, plus header `sdReqType: AJAX`; returns a JSON envelope
-  `{"root": {"actionResult": {...}, "bizRoot": {"header": {...}, "table": {...}},
-  "errMessage": ..., "returnCode": ...}}`.
+| Style | Request | Response |
+|---|---|---|
+| HTML navigation | Normal form POST. Opening a screen: `POST /SD/<SCR>?fwExtention.pathInfo=<SCR>&fwExtention.prgbrh=0` with an **empty body** | A full screen page |
+| AJAX | Same URL, plus header `sdReqType: AJAX` | JSON envelope `{"root": {"actionResult": {...}, "bizRoot": {"header": {...}, "table": {...}}, "errMessage": ..., "returnCode": ...}}` |
 
 Empirically verified properties:
 
 - **Session cookies are required** (`JSESSIONID` + `HSERVERID`, both scoped to
-  `/public/dfw/RP11/OCCTO`, issued by the `LOGIN_login` GET). Without them every call
-  returns a session-timeout error.
-- **No User-Agent, Referer, or Origin checks** — none of them affect any response.
+  `/public/dfw/RP11/OCCTO`, issued by the `LOGIN_login` GET); without them every call
+  returns a session-timeout error. **No User-Agent, Referer, or Origin checks** affect
+  any response.
 - **Pitfall**: posting a body that contains `fwExtention.pathInfo=<some other screen>`
   (e.g. a stale `MENU`) yields 利用権限がないため、利用出来ません ("no permission") even
   when the URL's query string is correct — the body value wins. Send an empty body when
-  opening screens, or make the body's `pathInfo` match the target screen.
-- Error pages (不正なリクエストです, 利用権限がない…) come back with **HTTP 200**, so
-  status codes alone prove nothing; check content (see [§3.4](#34-failure-modes)).
+  opening screens, or make the body's `pathInfo` match the target screen. Error pages
+  (不正なリクエストです, 利用権限がない…) come back with **HTTP 200**, so status codes
+  alone prove nothing; check content ([§3.4](#34-failure-modes)).
 - The menu tree (screen ids) can be enumerated with
   `POST /SD/MENU_show` (AJAX): the JSON lists every public screen's `prgId`.
 
@@ -204,11 +199,10 @@ same second (`YYYYMMDDHHMMSS_CF01S010C` is session-scoped, and both succeed).
 
 ## 4. The 翌々日 CSV format
 
-- **Encoding**: Shift_JIS (`cp932`). **Line endings**: LF. One header row, no
-  preamble; data rows immediately follow.
-- **Filename** (from `Content-Disposition`):
-  `<YYYYMMDDhhmmssSSS>_電力需要予想ピーク時供給力翌々日.csv`.
-- **Sort order**: newest 対象日付 first.
+**Encoding**: Shift_JIS (`cp932`). **Line endings**: LF. One header row, no preamble;
+data rows immediately follow. **Filename** (from `Content-Disposition`):
+`<YYYYMMDDhhmmssSSS>_電力需要予想ピーク時供給力翌々日.csv`. **Sort order**: newest
+対象日付 first.
 
 Columns:
 
@@ -361,13 +355,12 @@ next morning covers rare late updates. Sources:
 
 ### 7.2 Operational notes
 
-- A **daily refresh is 3 HTTP calls** for the full-history file (~700 KB) — cheap enough
-  that incremental range pulls are an optimization, not a necessity. Prefer re-downloading
-  the whole file and reloading idempotently (same pattern as the JEPX loaders).
-- This is OCCTO's operational portal; keep access minimal (no polling loops, no
-  per-day request storms — the bulk file makes them unnecessary anyway).
-- The data lives server-side per session-issued `downloadKey`; keys are cheap but
-  single-use. Do not cache them.
+A **daily refresh is 3 HTTP calls** for the full-history file (~700 KB) — cheap enough
+that incremental range pulls are an optimization, not a necessity. Prefer re-downloading
+the whole file and reloading idempotently (same pattern as the JEPX loaders). Keep access
+to this operational portal minimal: no polling loops, no per-day request storms, which the
+bulk file makes unnecessary anyway. The data lives server-side per session-issued
+`downloadKey`; keys are cheap but single-use, so do not cache them.
 
 ## 8. Downloading and loading with `power_market_analytics.ingestion.occto`
 
