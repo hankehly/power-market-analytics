@@ -1188,7 +1188,9 @@
   rule, build), ranked in the user-level Project **Load Forecasting**
   (https://github.com/users/hankehly/projects/3, number 3; fields Status / Task / Impact /
   Feasibility / Build / Investigation / Decision, listed in
-  `docs/research/demand/README.md`). Starting an item = the next `R-XXX`, the issue set
+  `docs/research/demand/README.md`; auto-add sets Status only, so Task, Build, Impact and
+  Feasibility are set by hand when an item first comes up). Starting an item = the next
+  `R-XXX`, the issue set
   `In progress` with the investigation named; the PR that records the decision closes it
   (`Closes #N`); a ruled-out idea is closed as not planned with the reason and Decision
   `Set aside` (Status is the pipeline only: the item-closed workflow sets `Done` on every

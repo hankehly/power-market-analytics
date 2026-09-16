@@ -70,7 +70,10 @@ the [Load Forecasting](https://github.com/users/hankehly/projects/3) Project.
 Open one with the **Feature idea**
 issue form: the feature, why it should help, its expression, source data, grain
 and mart, when its values are public, and what it takes to build. The Project
-takes it in as `Ready`.
+takes it in as `Ready` with every other field blank, since GitHub's auto-add
+copies nothing from an issue into Project fields: when the item first comes
+up, set Task and Build from the form's answers and Impact and Feasibility
+from your own reading.
 
 The Project's fields: Status (`Ready`, `Needs a decision`, `In progress`,
 `Done`), Task, Impact and Feasibility (1 to 3, 3 the highest; the ranking
