@@ -395,6 +395,22 @@ def synthetic_special_period(day: pd.Timestamp) -> int:
     return 0
 
 
+def ratio_or_none(numerator: float | None, denominator: float | None) -> float | None:
+    """One division as ``ftr_period_actuals`` takes its ratios: null on a null or a zero denominator.
+
+    Parameters
+    ----------
+    numerator, denominator : float or None
+
+    Returns
+    -------
+    float or None
+    """
+    if numerator is None or not denominator:
+        return None
+    return numerator / denominator
+
+
 def mean_of_present(values: list[int | None]) -> float | None:
     """The plain mean over the values present, as ``ftr_period_actuals`` takes it.
 
@@ -1433,6 +1449,8 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
     delivery_days = pd.date_range(
         DEMAND_DAYS[0] + pd.Timedelta(days=2), DEMAND_DAYS[-1] + pd.Timedelta(days=28), freq="D"
     )
+    # A complete day's 48 periods added up: the mart divides D-2 and D-7 by their mean.
+    day_sums = {day: sum(demand_at[(day, tc)] for tc in range(1, 49)) for day in complete_days}
     actuals_rows = []
     for day in delivery_days:
         # The last four complete days of D's day type at or before D-2, newest
@@ -1475,6 +1493,32 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
             for k in WEEKLY_LAG_DAYS:
                 current, previous = lags[k], neighbour_values[(k, -1)]
                 ramps.append(None if current is None or previous is None else current - previous)
+            # The 28 days D-2 to D-29 the position reads, the values present; an
+            # input of the row only when D-2 is there.
+            range_days = (
+                [
+                    d
+                    for d in (day - pd.Timedelta(days=k) for k in range(2, 30))
+                    if (d, tc) in demand_at
+                ]
+                if lags[2] is not None
+                else []
+            )
+            range_values = [demand_at[(d, tc)] for d in range_days]
+            # The complete days whose mean D-2 and D-7 are divided by.
+            mean_days = [
+                d for d in (day - pd.Timedelta(days=2), day - pd.Timedelta(days=7)) if d in day_sums
+            ]
+            change_2d_9d = None if lags[2] is None or lags[9] is None else lags[2] - lags[9]
+            lag_2d = lags[2]
+            # 48 x lag / the day's sum, one division, for the complete days only.
+            over_day_mean: dict[int, float | None] = {}
+            for k in (2, 7):
+                lag_value = lags[k]
+                over_day_mean[k] = ratio_or_none(
+                    None if lag_value is None else 48 * lag_value,
+                    day_sums.get(day - pd.Timedelta(days=k)),
+                )
             actuals_rows.append(
                 {
                     "area_code": "tokyo",
@@ -1487,9 +1531,7 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
                     "std_weekly_lags_demand_kwh": std,
                     "median_weekly_lags_demand_kwh": median,
                     "zscore_7d_vs_14d_28d_demand_kwh": zscore_of_last_week(weekly),
-                    "change_2d_9d_demand_kwh": (
-                        None if lags[2] is None or lags[9] is None else lags[2] - lags[9]
-                    ),
+                    "change_2d_9d_demand_kwh": change_2d_9d,
                     "mean_daytype_4d_demand_kwh": mean_of_present(window),
                     "ewm_daytype_4d_demand_kwh": ewm_of_present(window),
                     "ewm_5d_demand_kwh": ewm_5d,
@@ -1504,7 +1546,27 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
                     ),
                     "lag_7d_ramp_demand_kwh": ramps[0],
                     "mean_weekly_lags_ramp_demand_kwh": mean_of_present(ramps),
-                    "available_at": max(file_available_at[d] for d in [*used_days, *window_days]),
+                    "lag_2d_over_daily_mean_demand": over_day_mean[2],
+                    "lag_7d_over_daily_mean_demand": over_day_mean[7],
+                    "lag_2d_position_28d_demand": (
+                        ratio_or_none(
+                            lag_2d - min(range_values), max(range_values) - min(range_values)
+                        )
+                        if lag_2d is not None and range_values
+                        else None
+                    ),
+                    "rel_ewm_5d_minus_ewm_weekly_lags_demand": ratio_or_none(
+                        None if ewm_5d is None or ewm_weekly is None else ewm_5d - ewm_weekly,
+                        ewm_weekly,
+                    ),
+                    "rel_change_2d_9d_demand": ratio_or_none(change_2d_9d, lags[9]),
+                    "lag_7d_minus_median_weekly_lags_demand_kwh": (
+                        None if lags[7] is None or median is None else lags[7] - median
+                    ),
+                    "available_at": max(
+                        file_available_at[d]
+                        for d in [*used_days, *window_days, *range_days, *mean_days]
+                    ),
                 }
             )
     period_actuals = pd.DataFrame(actuals_rows)
@@ -1529,6 +1591,12 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
         "ewstd_weekly_lags_demand_kwh",
         "lag_7d_adjacent_mean_demand_kwh",
         "mean_weekly_lags_ramp_demand_kwh",
+        "lag_2d_over_daily_mean_demand",
+        "lag_7d_over_daily_mean_demand",
+        "lag_2d_position_28d_demand",
+        "rel_ewm_5d_minus_ewm_weekly_lags_demand",
+        "rel_change_2d_9d_demand",
+        "lag_7d_minus_median_weekly_lags_demand_kwh",
     ):
         period_actuals[col] = nullable_column(period_actuals[col], float)
     shapes = {
@@ -1732,7 +1800,10 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
         "ewm_5d_minus_ewm_weekly_lags_demand_kwh double, std_5d_demand_kwh double, "
         "ewstd_5d_demand_kwh double, ewstd_weekly_lags_demand_kwh double, "
         "lag_7d_adjacent_mean_demand_kwh double, lag_7d_ramp_demand_kwh bigint, "
-        "mean_weekly_lags_ramp_demand_kwh double, available_at timestamp",
+        "mean_weekly_lags_ramp_demand_kwh double, lag_2d_over_daily_mean_demand double, "
+        "lag_7d_over_daily_mean_demand double, lag_2d_position_28d_demand double, "
+        "rel_ewm_5d_minus_ewm_weekly_lags_demand double, rel_change_2d_9d_demand double, "
+        "lag_7d_minus_median_weekly_lags_demand_kwh double, available_at timestamp",
         "pma_features.ftr_period_actuals",
     )
     write_table(
