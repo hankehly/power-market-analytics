@@ -14,6 +14,7 @@ aside or put off: nothing was applied, and the spec is kept for what it measured
 
 | Date | Work | Spec | Plan |
 |---|---|---|---|
+| 2026-09-20 | Feature candidate #204, put off — the forecast temperature of the hours before the target hour; sidelined by the researcher; kept for what it measured: the 3-hour lag and the 6-hour mean are one signal (0.98), it tracks the baseline's error at 0.13 at most, and #132's built daily maximum tracks the summer error as well | [spec](superpowers/specs/2026-09-20-candidate-204-forecast-temperature-of-earlier-hours-design.md) | Not built |
 | 2026-09-20 | Feature candidate #202 — the mean and the 8:4:2:1 weighted mean over the newest four weekly lags, D-7 to D-56, that have D's day type, in `ftr_period_actuals`; equal to the plain weekly means where those already have the day type | [spec](superpowers/specs/2026-09-20-candidate-202-weekly-lags-of-the-day-type-design.md) | — |
 | 2026-09-20 | Feature candidate #203 — how many days back the newest and the oldest day of the day-type window lie, in `ftr_period_actuals` next to the two means they describe; on a holiday the oldest is often months back | [spec](superpowers/specs/2026-09-20-candidate-203-day-type-window-age-design.md) | — |
 | 2026-09-20 | Feature candidate #201 — the day types of D-2, D-3 and D-7 in `ftr_day_calendar`, so the model can tell when a load lag is a holiday's; D-3 added by the researcher | [spec](superpowers/specs/2026-09-20-candidate-201-lag-day-types-design.md) | — |
