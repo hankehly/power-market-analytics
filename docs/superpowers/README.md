@@ -14,6 +14,7 @@ applied without one.
 | Date | Work | Spec | Plan |
 |---|---|---|---|
 | 2026-09-19 | Presets as YAML files — one file per preset under `conf/presets/<task>/`, a full list or a base plus add/drop, loaded into the same `Preset`; the thirteen presets pinned | [spec](superpowers/specs/2026-09-19-yaml-presets-design.md) | [plan](superpowers/plans/2026-09-19-yaml-presets.md) |
+| 2026-09-19 | Research on GitHub issues — the research ledger moved from `docs/research/` to issues of four kinds (observation, investigation, feature candidate, experiment), the 26 records migrated, family batches as one experiment | [spec](superpowers/specs/2026-09-19-research-on-issues-design.md) | [plan](superpowers/plans/2026-09-19-research-on-issues.md) |
 | 2026-09-14 | Paper-style similar days — ranks 1-3, weighted mean, same-holiday references | [spec](superpowers/specs/2026-09-14-similar-day-top-k-design.md) | [plan](superpowers/plans/2026-09-14-similar-day-top-k.md) |
 | 2026-09-12 | Recent load features — thirteen features from the area's last four weeks of demand in the feature marts, one preset and a matched run (demand R-006) | [spec](superpowers/specs/2026-09-12-demand-recent-load-features-design.md) | [plan](superpowers/plans/2026-09-12-demand-recent-load-features.md) |
 | 2026-09-12 | Feature-value fact — every tagged mart column unpivoted to the period grain, generated from the dbt manifest, as the Superset surface of the feature catalogue | — | [plan](superpowers/plans/2026-09-12-feature-value-fact.md) |

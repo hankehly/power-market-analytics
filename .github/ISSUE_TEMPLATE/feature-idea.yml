@@ -1,6 +1,6 @@
-name: Feature idea
-description: A candidate feature for a forecasting model, to be ranked in the backlog
-labels: [feature idea]
+name: Feature candidate
+description: A possible model input, ranked in the Load Forecasting Project and tested in a family batch
+labels: [feature candidate]
 body:
   - type: markdown
     attributes:
@@ -42,8 +42,8 @@ body:
     attributes:
       label: Follows from
       description: >-
-        The observation, investigation or paper it follows from (demand/O-002,
-        demand/R-007, a papers.md row), or a dash.
+        The observation, investigation or paper it follows from (an issue number, or a
+        docs/research/papers.md row), or a dash.
   - type: input
     id: expression
     attributes:
@@ -154,7 +154,7 @@ body:
       options:
         - label: Not already a mart column (the Feature Catalogue dashboard, or the marts' YAML)
           required: true
-        - label: Not among the set-aside ideas (closed feature-idea issues)
+        - label: Not among the set-aside ideas (closed feature-candidate issues)
           required: true
         - label: The expression follows docs/Feature-Naming.md and no other feature has it
           required: true
