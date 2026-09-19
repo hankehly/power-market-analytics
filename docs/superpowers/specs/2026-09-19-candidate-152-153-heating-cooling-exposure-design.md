@@ -5,7 +5,7 @@ built.** The researcher's words: needs more looking into, we'll put this off unt
 #152 and #153 stay open. The design and its measurements are kept for that later look. Feature candidates
 [#152](https://github.com/hankehly/power-market-analytics/issues/152) and
 [#153](https://github.com/hankehly/power-market-analytics/issues/153), both suggested by
-Codex on 2026-09-13. Nothing is built.
+Codex on 2026-09-13.
 
 One spec for the two: they share the thresholds and the `POSITIVE_PART` primitive, and #153
 is the day's total of #152's hourly columns.
@@ -19,7 +19,8 @@ From the MSM forecast for the delivery day D, as the issues describe them:
   threshold. The threshold is applied to each station before the stations are averaged.
 - **#153, per day:** the two exposures added up over D's 24 hours, as degree-hours.
 
-The columns only. No preset and no backtest: an experiment tests them later in a batch.
+If it is taken up later: the columns only, with no preset and no backtest. An experiment
+would test them in a batch.
 
 ## 2. The decision that blocks both: the thresholds
 
