@@ -70,7 +70,8 @@ def test_the_similar_day_source_breaks_ties_on_the_vintages_published_at():
     query = views.FTR_PERIOD_SIMILAR_DAY_SOURCE.query
     assert query.endswith(
         "time_code, similar_day_rank1_demand_kwh, similar_day_rank2_demand_kwh, "
-        "similar_day_rank3_demand_kwh, wavg_similar_day_top3_demand_kwh, available_at, "
+        "similar_day_rank3_demand_kwh, wavg_similar_day_top3_demand_kwh, "
+        "similar_day_rank1_distance, similar_day_rank1_lag_days, available_at, "
         "published_at from pma_features.ftr_period_similar_day"
     )
     assert views.FTR_PERIOD_SIMILAR_DAY_SOURCE.created_timestamp_column == "published_at"
@@ -81,7 +82,7 @@ def test_the_similar_day_source_breaks_ties_on_the_vintages_published_at():
     ]
 
 
-def test_the_similar_day_view_carries_ranks_1_to_3_and_their_weighted_mean():
+def test_the_similar_day_view_carries_the_ranks_their_mean_and_rank_1s_distance_and_lag():
     fields = {field.name: field for field in views.FTR_PERIOD_SIMILAR_DAY.features}
     pool = "power_usage_demand_kwh, gap=(2d, 335d), window=(30, 60)"
     assert {name: field.tags for name, field in fields.items()} == {
@@ -98,13 +99,25 @@ def test_the_similar_day_view_carries_ranks_1_to_3_and_their_weighted_mean():
                 f"SIMILAR_DAY_MEAN({pool}, k=3, weight=inverse_distance, holidays=last_year) / 2"
             ),
         },
+        # Columns passed through keep their names as their expressions.
+        "similar_day_rank1_distance": {
+            "categorical": "false",
+            "expression": "similar_day_rank1_distance",
+        },
+        "similar_day_rank1_lag_days": {
+            "categorical": "false",
+            "expression": "similar_day_rank1_lag_days",
+        },
     }
     assert list(fields) == [
         "similar_day_rank1_demand_kwh",
         "similar_day_rank2_demand_kwh",
         "similar_day_rank3_demand_kwh",
         "wavg_similar_day_top3_demand_kwh",
+        "similar_day_rank1_distance",
+        "similar_day_rank1_lag_days",
     ]
+    assert fields.pop("similar_day_rank1_lag_days").dtype == Int64
     assert all(field.dtype == Float64 for field in fields.values())
 
 

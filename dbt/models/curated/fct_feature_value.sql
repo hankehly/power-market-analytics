@@ -228,11 +228,13 @@ with
     m.available_at,
     m.published_at,
     stack(
-      4,
+      6,
       'similar_day_rank1_demand_kwh', cast(m.similar_day_rank1_demand_kwh as double), false,
       'similar_day_rank2_demand_kwh', cast(m.similar_day_rank2_demand_kwh as double), false,
       'similar_day_rank3_demand_kwh', cast(m.similar_day_rank3_demand_kwh as double), false,
-      'wavg_similar_day_top3_demand_kwh', cast(m.wavg_similar_day_top3_demand_kwh as double), false
+      'wavg_similar_day_top3_demand_kwh', cast(m.wavg_similar_day_top3_demand_kwh as double), false,
+      'similar_day_rank1_distance', cast(m.similar_day_rank1_distance as double), false,
+      'similar_day_rank1_lag_days', cast(m.similar_day_rank1_lag_days as double), false
     ) as (feature_name, feature_value, is_categorical)
   from
     (
