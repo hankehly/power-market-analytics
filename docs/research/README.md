@@ -89,8 +89,8 @@ candidate aside: close it as not planned with the reason, Decision `Set aside`.
 ## Family batches
 
 A candidate is a record, not a queue slot. When a family has enough candidates
-worth a run, one experiment names them, a preset adds their columns to the
-baseline preset, one matched run against a fresh baseline run on the same
+worth a run, one experiment names them, a preset named after it (`e<issue number>`,
+optionally with a batch slug) adds their columns to the baseline preset, one matched run against a fresh baseline run on the same
 window, one compare (`scripts/compare_<task>_runs.py`), one decision. The
 decision closes each candidate with its verdict, and a kept batch's preset
 becomes the baseline. Cheap column transforms go in together; a new source
