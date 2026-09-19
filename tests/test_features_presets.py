@@ -93,6 +93,12 @@ class TestPreset:
         with pytest.raises(ValueError, match=r"cannot add \['ftr_period_jepx:lag_1d_price'\]"):
             preset().with_changes(add=(LAG,), name="q")
 
+    def test_description_is_empty_unless_given_and_a_change_clears_it(self):
+        assert preset().description == ""
+        described = preset(description="Calendar and the lag.")
+        assert described.description == "Calendar and the lag."
+        assert described.with_changes(add=(DAY_TYPE,), name="q").description == ""
+
 
 class TestFeatureDtypes:
     def test_reads_the_views_types_in_feature_order(self):
@@ -193,6 +199,12 @@ class TestFeatureService:
             "ftr_period_jepx": ["lag_1d_price"],
         }
         assert service.tags == {"task": "spot_price", "preset": "p", "categorical": "day_type"}
+
+    def test_the_description_is_the_presets_or_a_summary(self):
+        assert feature_service(preset(description="The lag.")).description == "The lag."
+        assert feature_service(preset()).description == (
+            "Preset 'p' of the spot_price task: ftr_day_calendar:month, ftr_period_jepx:lag_1d_price."
+        )
 
     def test_the_catalogue_lists_every_tasks_presets(self):
         assert sorted(s.name for s in feature_services()) == REGISTERED_SERVICES
