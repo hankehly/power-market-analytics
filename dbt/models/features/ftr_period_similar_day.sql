@@ -23,6 +23,9 @@ with
     similar_day_n_candidates,
     similar_day_fit_cutoff,
     similar_day_method,
+    -- How many days back the rank-1 day lies: within 2 to 31 or 335 to 394 on a
+    -- ranked day, the pool's two windows; the same holiday last year otherwise.
+    datediff(trade_date, similar_day_rank1_reference_date) as similar_day_rank1_lag_days,
     available_at,
     published_at
   from
