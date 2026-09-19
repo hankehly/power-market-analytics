@@ -656,7 +656,13 @@
   `lag_7d_wind_solar_generation_kwh`, the fact's wind and solar generation riding the
   demand lags' shifts — demand alone makes the rows, 0 is a value, and the issue's
   observed solar radiation was left out by the researcher because only some stations
-  observe it, so it cannot be population-weighted; the
+  observe it, so it cannot be population-weighted; also since 2026-09-20 (feature
+  candidate #203) `newest_daytype_4d_lag_days` and `oldest_daytype_4d_lag_days`, how many
+  days before D the newest and the oldest day of the day-type window lie — the window has
+  no bound, so on a holiday its oldest day is often months back; ints, the same on all 48
+  periods because the window takes complete days only, the oldest being the oldest present
+  with fewer than four days, their expressions their names as #138's lag is, one value per
+  day kept in the period mart next to the two means they describe; in no preset yet; the
   28-day range is a window function read at D-2, not more shifts, because the shifts are
   the row spine and `available_at`'s inputs — it and the two days still feed
   `available_at`, which moved on no real row — each over the values present — one union of the actuals shifted
