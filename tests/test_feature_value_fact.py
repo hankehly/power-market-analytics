@@ -31,6 +31,8 @@ SIMILAR_DAY_FEATURES = (
     "similar_day_rank2_demand_kwh",
     "similar_day_rank3_demand_kwh",
     "wavg_similar_day_top3_demand_kwh",
+    "similar_day_rank1_distance",
+    "similar_day_rank1_lag_days",
 )
 COLUMNS = [
     "area_code",
