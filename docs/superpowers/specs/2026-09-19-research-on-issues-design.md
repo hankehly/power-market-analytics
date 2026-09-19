@@ -53,9 +53,9 @@ The researcher's, 2026-09-19, unless marked as Claude's default.
    `lightgbm_msm_popw_daytype`, the preset that runs for Kansai.
 5. **A family batch is one experiment.** The Project gets a `Family` field;
    an experiment lists the candidates it tests and its decision closes each
-   one with the verdict. *Superseded on 2026-09-19 (PR #185): the Family field
-   was removed the day it was added; families live only in the repository, on
-   the mart columns, and an experiment names the candidates it tests.*
+   one with the verdict. *Superseded on 2026-09-19 (PR #185, then the removal PR of the same day):
+   the Family field was removed the day it was added, and the family concept
+   with it; an experiment names the related candidates it tests.*
 6. **Markdown templates for the three new types** (Claude's default): `gh`
    cannot fill an issue form, and Claude opens most issues. The Feature idea
    form stays as it is, with its label renamed `feature candidate`. Loosening
@@ -139,6 +139,8 @@ The `E-XXX` section of the investigation template, made a record of its own:
 
 The form as it is, with `name: Feature candidate` and `labels: [feature
 candidate]`. Its `Follows from` field takes an issue number or a paper row.
+*On 2026-09-19 (PR #186) the form became the Markdown template `feature-candidate.md`,
+so `gh` opens it like the other three.*
 
 ## 4. Labels, Project and links
 

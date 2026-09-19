@@ -56,8 +56,8 @@ presets.
    references, and two presets that share a family repeat the list. Which
    family a feature belongs to is a Project field on its issue (the
    research-on-issues spec), and an experiment issue names its batch.
-   *Superseded on 2026-09-19 (PR #185): the Project field was removed; a
-   feature's family belongs on its mart column, in the repository.*
+   *Superseded on 2026-09-19 (PR #185, then the removal PR of the same day):
+   the Project field and the family concept were removed.*
 7. **The task `presets.py` modules go.** The registry is the directory.
    `features/catalogue.py` stops importing the tasks, so its import-cycle
    workaround goes with it.
