@@ -8,13 +8,21 @@ preset is registered or changed with ``--add`` (``categorical_columns``). The
 preset's name is the strategy label the runs are published under.
 ``feature_service`` turns a preset into the Feast ``FeatureService`` of the
 same features, so the registry and the UI list it.
+
+A preset is a YAML file under ``conf/presets/<task>/<name>.yaml``: ``description``
+and either ``features`` (the full list, in feature order) or ``base`` with ``add``
+and/or ``drop`` (a change to another preset of the task). ``load_presets`` reads
+a task's directory into presets by name; the file's stem is the name.
 """
 
 from __future__ import annotations
 
 import dataclasses
+import re
 from collections.abc import Iterable, Iterator
+from pathlib import Path
 
+import yaml
 from feast import FeatureService, FeatureView, Field
 from feast.types import Float64, Int64
 
@@ -30,6 +38,12 @@ CATEGORICAL_TAG = "categorical"
 #: The field tag the view generator writes from the mart's ``meta.expression``:
 #: the name people read for the column (``LAG(demand_kwh, 2d)``).
 EXPRESSION_TAG = "expression"
+#: The directory of preset files: one subdirectory per task, one YAML file per preset.
+PRESETS_DIR = Path(__file__).resolve().parents[2] / "conf" / "presets"
+#: The keys a preset file may carry.
+PRESET_KEYS = frozenset({"description", "features", "base", "add", "drop"})
+#: A preset name: the file's stem, the strategy label.
+NAME_PATTERN = re.compile(r"^[a-z0-9_]+$")
 
 
 def feature_column(ref: str) -> str:
@@ -279,3 +293,136 @@ def feature_service(preset: Preset) -> FeatureService:
             CATEGORICAL_TAG: ",".join(categorical_columns(preset)),
         },
     )
+
+
+@dataclasses.dataclass(frozen=True)
+class _PresetFile:
+    """One preset file, read and checked, before its base is resolved."""
+
+    description: str
+    features: tuple[str, ...] | None
+    base: str | None
+    add: tuple[str, ...]
+    drop: tuple[str, ...]
+
+
+class _PresetFileError(ValueError):
+    """A ``ValueError`` whose message already names the offending file."""
+
+
+def _refs(file: Path, data: dict, key: str) -> tuple[str, ...]:
+    value = data.get(key)
+    if value is None:
+        return ()
+    if not isinstance(value, list) or not all(isinstance(ref, str) for ref in value):
+        raise ValueError(f"{file}: {key} must be a list of 'view:column' strings")
+    for ref in value:
+        try:
+            feature_column(ref)
+        except ValueError as exc:
+            raise ValueError(f"{file}: {exc}") from None
+    return tuple(value)
+
+
+def _read_preset_file(file: Path) -> _PresetFile:
+    data = yaml.safe_load(file.read_text())
+    if not isinstance(data, dict):
+        raise ValueError(f"{file}: is not a mapping")
+    unknown = sorted(set(data) - PRESET_KEYS)
+    if unknown:
+        raise ValueError(f"{file}: unknown keys {unknown}")
+    description = data.get("description")
+    if not isinstance(description, str) or not description.strip():
+        raise ValueError(f"{file}: description is required")
+    if ("features" in data) == ("base" in data):
+        raise ValueError(f"{file}: exactly one of features and base")
+    if "base" not in data and ("add" in data or "drop" in data):
+        raise ValueError(f"{file}: add and drop need a base")
+    base = data.get("base")
+    if "base" in data and not isinstance(base, str):
+        raise ValueError(f"{file}: base must be a preset name")
+    add, drop = _refs(file, data, "add"), _refs(file, data, "drop")
+    if base is not None and not add and not drop:
+        raise ValueError(f"{file}: a base needs add or drop")
+    features = _refs(file, data, "features") if "features" in data else None
+    return _PresetFile(description.strip(), features, base, add, drop)
+
+
+def preset_tasks(presets_dir: Path = PRESETS_DIR) -> tuple[str, ...]:
+    """The tasks with a preset directory, sorted.
+
+    Parameters
+    ----------
+    presets_dir : pathlib.Path, optional
+        The directory of preset files; ``PRESETS_DIR`` when omitted.
+
+    Returns
+    -------
+    tuple of str
+    """
+    return tuple(sorted(p.name for p in presets_dir.iterdir() if p.is_dir()))
+
+
+def load_presets(task: str, presets_dir: Path = PRESETS_DIR) -> dict[str, Preset]:
+    """The presets of a task, read from its files, by name and sorted by name.
+
+    A ``features`` file becomes a preset from scratch; a ``base`` file becomes
+    the base preset changed with ``add`` and ``drop``, under the file's name
+    and description, so ``Preset.base`` names the file it started from.
+
+    Parameters
+    ----------
+    task : str
+        The task's name: the subdirectory of ``presets_dir``.
+    presets_dir : pathlib.Path, optional
+        The directory of preset files; ``PRESETS_DIR`` when omitted.
+
+    Returns
+    -------
+    dict of str to Preset
+
+    Raises
+    ------
+    ValueError
+        If the task has no file, a file's name is not lowercase ``a-z0-9_``,
+        a file breaks a rule of the format, a base is not a preset of the
+        task, a chain of bases loops, or the resolved list breaks a
+        :class:`Preset` rule. The message starts with the file's path.
+    """
+    files = {path.stem: path for path in sorted((presets_dir / task).glob("*.yaml"))}
+    if not files:
+        raise ValueError(f"{presets_dir / task}: no preset files")
+    for stem, path in files.items():
+        if not NAME_PATTERN.match(stem):
+            raise ValueError(f"{path}: a preset name is lowercase a-z0-9_")
+    specs = {stem: _read_preset_file(path) for stem, path in files.items()}
+    presets: dict[str, Preset] = {}
+
+    def resolve(name: str, chain: tuple[str, ...]) -> Preset:
+        if name in presets:
+            return presets[name]
+        if name in chain:
+            raise _PresetFileError(
+                f"{files[name]}: base chain loops: {' -> '.join((*chain, name))}"
+            )
+        spec = specs[name]
+        try:
+            if spec.base is None:
+                assert spec.features is not None  # exactly one of the two, checked on read
+                preset = Preset(task, name, spec.features, description=spec.description)
+            else:
+                if spec.base not in specs:
+                    raise ValueError(f"base {spec.base!r} is not a preset of {task}")
+                base = resolve(spec.base, (*chain, name))
+                changed = base.with_changes(add=spec.add, drop=spec.drop, name=name)
+                preset = dataclasses.replace(changed, description=spec.description)
+        except _PresetFileError:
+            raise
+        except ValueError as exc:
+            raise _PresetFileError(f"{files[name]}: {exc}") from None
+        presets[name] = preset
+        return preset
+
+    for name in files:
+        resolve(name, ())
+    return {name: presets[name] for name in sorted(presets)}
