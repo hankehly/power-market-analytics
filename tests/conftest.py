@@ -364,6 +364,35 @@ def synthetic_day_type(day: pd.Timestamp) -> int:
     return 1 if day.dayofweek >= 5 else 0
 
 
+def synthetic_special_period(day: pd.Timestamp) -> int:
+    """``ftr_day_calendar.special_period`` of the fixture, by the mart's rule.
+
+    Parameters
+    ----------
+    day : pandas.Timestamp
+        The calendar day.
+
+    Returns
+    -------
+    int
+        The first that matches: 1 on 12/30-1/3, 2 on 4/29-5/5, 3 on 8/13-8/16,
+        4 on another day of ``HOLIDAYS_2024_SPRING`` (2024-05-06, the 振替休日),
+        5 on a working day with a ``synthetic_holiday_degree``, else 0.
+    """
+    month_day = (day.month, day.day)
+    if month_day >= (12, 30) or month_day <= (1, 3):
+        return 1
+    if (4, 29) <= month_day <= (5, 5):
+        return 2
+    if (8, 13) <= month_day <= (8, 16):
+        return 3
+    if day in HOLIDAYS_2024_SPRING:
+        return 4
+    if day.dayofweek < 5 and synthetic_holiday_degree(day) > 0:
+        return 5
+    return 0
+
+
 def mean_of_present(values: list[int | None]) -> float | None:
     """The plain mean over the values present, as ``ftr_period_actuals`` takes it.
 
@@ -1244,6 +1273,7 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
                     "month": day.month,
                     "day_of_week": day.dayofweek,
                     "day_type": synthetic_day_type(day),
+                    "special_period": synthetic_special_period(day),
                     "holiday_degree": synthetic_holiday_degree(day),
                     **{
                         k: counts[k]
@@ -1615,6 +1645,7 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
     spark.createDataFrame(
         calendar,
         "area_code string, trade_date date, month int, day_of_week int, day_type int, "
+        "special_period int, "
         "holiday_degree double, half int, quarter int, day_of_month int, day_of_quarter int, "
         "day_of_year int, is_business_day int, fiscal_quarter int, days_since_holiday int, "
         "days_until_holiday int, available_at timestamp",

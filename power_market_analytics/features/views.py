@@ -149,7 +149,7 @@ FTR_DAY_ACTUALS = FeatureView(
 
 FTR_DAY_CALENDAR_SOURCE = SparkSource(
     name="ftr_day_calendar",
-    query="select area_code, cast(date_format(trade_date, 'yyyyMMdd') as int) as trade_date_key, month, day_of_week, day_type, holiday_degree, half, quarter, day_of_month, day_of_quarter, day_of_year, is_business_day, fiscal_quarter, days_since_holiday, days_until_holiday, available_at from pma_features.ftr_day_calendar",
+    query="select area_code, cast(date_format(trade_date, 'yyyyMMdd') as int) as trade_date_key, month, day_of_week, day_type, special_period, holiday_degree, half, quarter, day_of_month, day_of_quarter, day_of_year, is_business_day, fiscal_quarter, days_since_holiday, days_until_holiday, available_at from pma_features.ftr_day_calendar",
     timestamp_field="available_at",
     description="Calendar features of every delivery day for every bidding zone: dim_date's attributes as the demand strategies read them (research demand/R-003 and R-005) plus the two distances in days to the nearest named holiday. Grain: area_code x trade_date. The values do not depend on the area; the key is there so every feature mart joins on the same keys. Feature columns carry config.meta.feature; keys and available_at do not.",
 )
@@ -174,6 +174,12 @@ FTR_DAY_CALENDAR = FeatureView(
             dtype=Int64,
             description="0 Weekday, 1 Weekend, 2 Holiday; a holiday wins over the weekend flag (research demand/R-003). A LightGBM categorical.",
             tags={"categorical": "true", "expression": "day_type"},
+        ),
+        Field(
+            name="special_period",
+            dtype=Int64,
+            description="The special period the day belongs to, the first that matches: 1 年末年始 (12/30-1/3), 2 ゴールデンウィーク (4/29-5/5), 3 お盆 (8/13-8/16), the three periods of dim_date.holiday_degree, by date, so a weekend or a 祝日 inside one takes the period; 4 any other holiday (dim_date.is_holiday), a 振替休日 on 5/6 included; 5 a sandwiched working day, one with holiday_degree 0.5 or 0.3 (one or two working days between off days); 0 none, an ordinary weekend included (feature candidate #131). A LightGBM categorical.",
+            tags={"categorical": "true", "expression": "special_period"},
         ),
         Field(
             name="holiday_degree",
