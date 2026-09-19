@@ -96,9 +96,9 @@ before it `lightgbm_occto` trains with the three columns null, and
 `just dbt build --select +fct_spot_price_forecast_accuracy`, and
 `scripts/compare_spot_price_runs.py --baseline <run_id> --candidate <run_id>`
 prints matched MAE/bias tables by day part, near the OCCTO peak hour, by month
-and for high-price days. Experiments are written up under
-[`research/spot_price/`](research/spot_price/README.md), with conventions in
-[`research/`](research/README.md).
+and for high-price days. Experiments are recorded as GitHub issues
+(the [research README](research/README.md)); the task's scope defaults are in
+[`research/spot_price/`](research/spot_price/README.md).
 
 ## Superset dashboards
 

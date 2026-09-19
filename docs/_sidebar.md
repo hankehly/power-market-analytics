@@ -13,24 +13,10 @@
 - Forecasting
   - [Forecast analysis](Forecast-Analysis.md)
   - [Feature naming](Feature-Naming.md)
-  - [Research index](research/README.md)
+  - [Research](research/README.md)
   - [Papers](research/papers.md)
-  - [Investigation template](research/investigation-template.md)
-  - Spot price
-    - [Index](research/spot_price/README.md)
-    - [Observation Log](research/spot_price/observations.md)
-    - [R-001 — Supply and Demand Tightness](research/spot_price/R-001-supply-demand-tightness.md)
-  - Demand
-    - [Index](research/demand/README.md)
-    - [Observation Log](research/demand/observations.md)
-    - [R-001 — Forecast Temperature](research/demand/R-001-forecast-temperature.md)
-    - [R-002 — Population-Weighted Temperature](research/demand/R-002-population-weighted-temperature.md)
-    - [R-003 — Day Type Feature](research/demand/R-003-day-type-feature.md)
-    - [R-004 — Prior-Year Load Lag](research/demand/R-004-prior-year-load-lag.md)
-    - [R-005 — Calendar Features](research/demand/R-005-calendar-features.md)
-    - [R-006 — Recent Load Features](research/demand/R-006-recent-load-features.md)
-    - [R-007 — Forecast Weather Elements](research/demand/R-007-forecast-weather-elements.md)
-    - [R-008 — Similar Days From the Paper's Pool](research/demand/R-008-similar-day-top-k.md)
+  - [Demand — scope defaults](research/demand/README.md)
+  - [Spot price — scope defaults](research/spot_price/README.md)
 - [Development and code review](Development.md)
 - Reference
   - [Kimball dimensional modeling](Kimball-Dimensional-Modeling-Techniques.md)
