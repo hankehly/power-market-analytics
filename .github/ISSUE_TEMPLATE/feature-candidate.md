@@ -58,10 +58,6 @@ assignees: []
 
 <!-- When each value is public, against the task's issue time (09:30 JST D-1 for demand). Which column or rule gives the mart's available_at? A value that needs a later forecast run or a re-issued file cannot be used. -->
 
-## Build
-
-<!-- One of: Preset only (the column exists), Mart column, New mart, Ingestion (a new source, a new element, a backfill), Framework (a change to the forecasting code). -->
-
 ## Build notes
 
 <!-- Any cost that is not obvious: a backfill and its size, a new download, a fitted job, a column that crosses two marts. -->
