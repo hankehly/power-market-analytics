@@ -126,7 +126,12 @@ models:
       - name: similar_day_rank1_distance
         data_type: double
         description: >
-          Rank 1's distance from D under the run's weights; null on a same-holiday day.
+          Rank 1's distance from D under the run's weights: how good the match is, smaller is closer. Null on a same-holiday day, which is not ranked and has no distance (7 % of Tokyo's days). A feature since 2026-09-19 (feature candidate #138).
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "similar_day_rank1_distance"
       - name: similar_day_rank2_distance
         data_type: double
         description: >
@@ -143,6 +148,17 @@ models:
         data_type: timestamp
         description: >
           When the fit whose weights ranked the day ran, naive JST: on or before D's issue time, and every pair it used was public by then. Null on a same-holiday day.
+      - name: similar_day_rank1_lag_days
+        data_type: int
+        description: >
+          The days from the rank-1 day to D: trade_date minus similar_day_rank1_reference_date (feature candidate #138). On a ranked day it falls in one of the pool's two windows, 2 to 31 or 335 to 394, and nowhere between; on a same-holiday day it is the days back to the same holiday last year.
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "similar_day_rank1_lag_days"
+        data_tests:
+          - not_null
       - name: similar_day_method
         data_type: string
         description: >
@@ -166,7 +182,9 @@ unit_tests:
   - name: ftr_period_similar_day_passes_every_run_through
     description: >
       Two scoring runs, each with a ranked day and a same-holiday day, pass
-      through as four rows, the run id renamed; nothing is computed here.
+      through as four rows, the run id renamed. One value is computed: the
+      rank-1 day's lag, the days from it to the delivery day, 364 and 363 on
+      the ranked rows. A same-holiday row has its lag, 365, and no distance.
     model: ftr_period_similar_day
     given:
       - input: ref('stg_ml__similar_day')
@@ -229,6 +247,7 @@ unit_tests:
           cast(1.0 as double) as similar_day_rank3_distance,
           87 as similar_day_n_candidates, timestamp '2025-03-02 00:00:00' as similar_day_fit_cutoff,
           'similarity' as similar_day_method,
+          364 as similar_day_rank1_lag_days,
           timestamp '2025-03-09 01:00:00' as available_at,
           timestamp '2025-01-02 10:00:00' as published_at
         union all
@@ -237,7 +256,7 @@ unit_tests:
           cast(410000 as double), cast(null as double), cast(null as double), cast(410000 as double),
           date '2024-03-20', cast(null as date), cast(null as date),
           cast(null as double), cast(null as double), cast(null as double),
-          cast(null as int), cast(null as timestamp), 'same_holiday',
+          cast(null as int), cast(null as timestamp), 'same_holiday', 365,
           timestamp '2024-03-21 00:05:00', timestamp '2025-01-02 10:00:00'
         union all
         select
@@ -245,7 +264,7 @@ unit_tests:
           cast(1008000 as double), cast(994000 as double), cast(1022000 as double), cast(1006000 as double),
           date '2024-03-12', date '2025-03-04', date '2024-03-05',
           cast(0.5 as double), cast(1.0 as double), cast(2.0 as double),
-          86, timestamp '2025-03-09 00:00:00', 'similarity',
+          86, timestamp '2025-03-09 00:00:00', 'similarity', 363,
           timestamp '2025-03-09 01:00:00', timestamp '2025-06-02 10:00:00'
         union all
         select
@@ -253,5 +272,5 @@ unit_tests:
           cast(420000 as double), cast(null as double), cast(null as double), cast(420000 as double),
           date '2024-03-20', cast(null as date), cast(null as date),
           cast(null as double), cast(null as double), cast(null as double),
-          cast(null as int), cast(null as timestamp), 'same_holiday',
+          cast(null as int), cast(null as timestamp), 'same_holiday', 365,
           timestamp '2024-03-21 00:05:00', timestamp '2025-06-02 10:00:00'
