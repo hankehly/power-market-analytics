@@ -165,6 +165,8 @@ HOLIDAY_NAMES_2024_SPRING: dict[pd.Timestamp, str] = {
 }
 #: The days of HOLIDAY_NAMES_2024_SPRING, in date order.
 HOLIDAYS_2024_SPRING = tuple(HOLIDAY_NAMES_2024_SPRING)
+#: The fact's wind and solar generation, the same on every row, the hole's included.
+WIND_SOLAR_GENERATION_KWH = 1_000_000
 #: One partial-day hole like Tokyo 2025-06-14: time codes 11..48 have null demand.
 DEMAND_HOLE_DAY = pd.Timestamp("2024-04-20")
 DEMAND_HOLE_TIME_CODES = range(11, 49)
@@ -1025,7 +1027,7 @@ def curated_warehouse(spark: SparkSession) -> CuratedWarehouse:
                     (day + pd.Timedelta(minutes=30 * (tc - 1))).to_pydatetime(),
                     demand_kwh,
                     synthetic_demand(day, tc) + 500_000,
-                    1_000_000,
+                    WIND_SOLAR_GENERATION_KWH,
                 )
             )
             demand_records.append(
@@ -1525,6 +1527,14 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
                     "trade_date": day.date(),
                     "time_code": tc,
                     **{f"lag_{k}d_demand_kwh": lags[k] for k in ACTUALS_LAG_DAYS},
+                    # A period without demand makes no row in the mart, so the
+                    # generation lag is there exactly where the demand lag is.
+                    **{
+                        f"lag_{k}d_wind_solar_generation_kwh": (
+                            None if lags[k] is None else WIND_SOLAR_GENERATION_KWH
+                        )
+                        for k in (2, 7)
+                    },
                     "mean_weekly_lags_demand_kwh": mean_of_present(weekly),
                     "ewm_weekly_lags_demand_kwh": ewm_weekly,
                     "trend_weekly_lags_demand_kwh": trend,
@@ -1573,6 +1583,8 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
     for col in [f"lag_{k}d_demand_kwh" for k in ACTUALS_LAG_DAYS] + [
         "change_2d_9d_demand_kwh",
         "lag_7d_ramp_demand_kwh",
+        "lag_2d_wind_solar_generation_kwh",
+        "lag_7d_wind_solar_generation_kwh",
     ]:
         period_actuals[col] = nullable_column(period_actuals[col], int)
     for col in (
@@ -1803,7 +1815,9 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
         "mean_weekly_lags_ramp_demand_kwh double, lag_2d_over_daily_mean_demand double, "
         "lag_7d_over_daily_mean_demand double, lag_2d_position_28d_demand double, "
         "rel_ewm_5d_minus_ewm_weekly_lags_demand double, rel_change_2d_9d_demand double, "
-        "lag_7d_minus_median_weekly_lags_demand_kwh double, available_at timestamp",
+        "lag_7d_minus_median_weekly_lags_demand_kwh double, "
+        "lag_2d_wind_solar_generation_kwh bigint, lag_7d_wind_solar_generation_kwh bigint, "
+        "available_at timestamp",
         "pma_features.ftr_period_actuals",
     )
     write_table(
