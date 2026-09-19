@@ -765,6 +765,17 @@ def popw_forecast(day: pd.Timestamp, hour_ending: int, value: float, offset: flo
     return value + STATION_POPULATION_WEIGHTS[2020][TOKYO_SECOND_STATION_ID] * offset
 
 
+def discomfort_index(temperature_c: float, relative_humidity_pct: float) -> float:
+    """The 不快指数 of a temperature, C, and a relative humidity, %.
+
+    ``ftr_hour_msm.popw_forecast_discomfort_index`` of the fixture: the
+    ``discomfort_index`` dbt macro's formula, of the two weighted means.
+    """
+    return (
+        0.81 * temperature_c + 0.01 * relative_humidity_pct * (0.99 * temperature_c - 14.3) + 46.3
+    )
+
+
 @dataclasses.dataclass(frozen=True)
 class CuratedWarehouse:
     """What ``curated_warehouse`` created, as the pandas frames it wrote.
@@ -1307,6 +1318,20 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
                 )
                 for element, (_, _, offset) in MSM_EXTRA_ELEMENTS.items()
             },
+            "popw_forecast_discomfort_index": discomfort_index(
+                popw_forecast(
+                    day,
+                    hour,
+                    synthetic_forecast_temperature(day, hour),
+                    SECOND_STATION_FORECAST_OFFSET_C,
+                ),
+                popw_forecast(
+                    day,
+                    hour,
+                    synthetic_forecast_humidity(day, hour),
+                    SECOND_STATION_FORECAST_HUMIDITY_OFFSET_PCT,
+                ),
+            ),
             # The D-2 12 UTC vintage, reference 21:00 JST, public four hours later.
             "available_at": day - pd.Timedelta(days=1) + pd.Timedelta(hours=1),
         }
@@ -1589,7 +1614,7 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
         "popw_forecast_temperature_c double, popw_forecast_relative_humidity_pct double, "
         "popw_forecast_precipitation_mm double, popw_forecast_solar_radiation_mjm2 double, "
         + "".join(f"popw_forecast_{element} double, " for element in MSM_EXTRA_ELEMENTS)
-        + "available_at timestamp",
+        + "popw_forecast_discomfort_index double, available_at timestamp",
     ).write.mode("overwrite").saveAsTable("pma_features.ftr_hour_msm")
     spark.createDataFrame(
         period_actuals,
