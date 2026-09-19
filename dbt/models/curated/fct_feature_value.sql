@@ -141,7 +141,7 @@ with
     m.available_at,
     cast(null as timestamp) as published_at,
     stack(
-      15,
+      16,
       'forecast_temperature_c', cast(m.forecast_temperature_c as double), false,
       'popw_forecast_temperature_c', cast(m.popw_forecast_temperature_c as double), false,
       'popw_forecast_relative_humidity_pct', cast(m.popw_forecast_relative_humidity_pct as double), false,
@@ -156,7 +156,8 @@ with
       'popw_forecast_v_wind_ms', cast(m.popw_forecast_v_wind_ms as double), false,
       'popw_forecast_surface_pressure_hpa', cast(m.popw_forecast_surface_pressure_hpa as double), false,
       'popw_forecast_sea_level_pressure_hpa', cast(m.popw_forecast_sea_level_pressure_hpa as double), false,
-      'popw_forecast_discomfort_index', cast(m.popw_forecast_discomfort_index as double), false
+      'popw_forecast_discomfort_index', cast(m.popw_forecast_discomfort_index as double), false,
+      'cum_popw_forecast_solar_radiation_mjm2', cast(m.cum_popw_forecast_solar_radiation_mjm2 as double), false
     ) as (feature_name, feature_value, is_categorical)
   from
     {{ ref('ftr_hour_msm') }} m
