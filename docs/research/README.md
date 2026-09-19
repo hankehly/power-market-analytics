@@ -67,9 +67,8 @@ fields:
 - **Status**: `Ready`, `Needs a decision`, `In progress`, `Done`. `Done` is set
   on close by the built-in workflow, so it is the pipeline, not the verdict.
 - **Task**: `demand` or `spot_price`.
-- **Build**, **Impact**, **Feasibility**: candidates only. Impact and
-  Feasibility run 1 to 3, 3 the highest; the ranking reads both, and there is
-  no priority field.
+- **Impact**, **Feasibility**: candidates only, 1 to 3, 3 the highest; the
+  ranking reads both, and there is no priority field.
 - **Decision**: `Supported`, `Not supported`, `Inconclusive`, `Superseded`,
   `Set aside`, the verdict of an investigation, an experiment or a candidate.
   An experiment's body keeps the words Keep / Reject / Refine / Inconclusive;
@@ -79,8 +78,8 @@ fields:
 The Project's auto-add workflow admits an issue by its label filter, which has
 no API and is edited in the browser: it must name all four labels, or a new
 record never enters the Project. Auto-add copies nothing from an issue into the
-fields, so set Task, Build, Impact and Feasibility by hand when an item first
-comes up. Setting a
+fields, so set Task, Impact and Feasibility by hand when an item first comes
+up. Setting a
 candidate aside: close it as not planned with the reason, Decision `Set aside`.
 
 ## Batches

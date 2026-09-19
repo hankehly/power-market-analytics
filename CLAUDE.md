@@ -1175,7 +1175,8 @@
 - The research ledger is GitHub issues, four kinds by label — `observation`, `investigation`,
   `feature candidate`, `experiment` — ranked in the user-level Project **Load Forecasting**
   (https://github.com/users/hankehly/projects/3, number 3, id `PVT_kwHOALGbus4BjoLc`; fields
-  Status / Task / Impact / Feasibility / Build / Decision). What each kind is, when it
+  Status / Task / Impact / Feasibility / Decision; the Build field went on 2026-09-19, its
+  value belongs in the candidate's Build notes). What each kind is, when it
   closes, the Project's fields and the batch rule:
   [docs/research/README.md](docs/research/README.md). The repo keeps each task's scope
   defaults (`docs/research/<task>/README.md`), the papers index (`docs/research/papers.md`)
@@ -1205,7 +1206,7 @@
   open it), or `gh issue create --template <Name> --label <kind>` (`gh` copies a template's
   body, not its label). Titles are plain, no prefix. The Project's auto-add workflow admits an issue by its
   label filter, browser-only, which must name all four labels; it sets Status only, so
-  Task, Build, Impact and Feasibility are set by hand when an item first comes up.
+  Task, Impact and Feasibility are set by hand when an item first comes up.
   Setting a candidate aside = close as not planned with the reason and Decision `Set aside`
   (Status is the pipeline only: the item-closed workflow sets `Done` on every close). The
   Project's views and built-in workflows have no API and are edited in the browser; `gh
