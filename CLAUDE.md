@@ -1175,11 +1175,8 @@
 - The research ledger is GitHub issues, four kinds by label — `observation`, `investigation`,
   `feature candidate`, `experiment` — ranked in the user-level Project **Load Forecasting**
   (https://github.com/users/hankehly/projects/3, number 3, id `PVT_kwHOALGbus4BjoLc`; fields
-  Status / Task / Impact / Feasibility / Build / Decision; no Family field — a built feature's family
-  belongs in the repository, on its mart column (a `meta.family` key checked against a
-  `feature_families` seed: a design awaiting the researcher's approval), never on GitHub, the researcher's decision of 2026-09-19; a candidate has no
-  family until its column exists, and an experiment names the candidates it tests). What each kind is, when it
-  closes, the Project's fields and the family-batch rule:
+  Status / Task / Impact / Feasibility / Build / Decision). What each kind is, when it
+  closes, the Project's fields and the batch rule:
   [docs/research/README.md](docs/research/README.md). The repo keeps each task's scope
   defaults (`docs/research/<task>/README.md`), the papers index (`docs/research/papers.md`)
   and the figures (`docs/research/<task>/assets/`, embedded in issues by raw URL on `main`).
@@ -1192,11 +1189,13 @@
   worth keeping; "does this batch lower MAE" is an experiment. An experiment that belongs to
   an investigation is its sub-issue (the migrated ones are). Closing an observation means it
   needs no attention, not that it stopped being true.
-- Family batches: a candidate is a record, not a queue slot. One experiment tests the
-  candidates of a family together — one preset adding their columns to the baseline preset,
-  one matched run against a fresh baseline run on the same window, one compare, one decision —
-  and its decision closes each candidate with the verdict; a kept batch's preset becomes the
-  baseline. A new source gets its own experiment; pruning is an experiment whose preset drops.
+- Batches: a candidate is a record, not a queue slot. One experiment tests several related
+  candidates together — one preset adding their columns to the baseline preset, one matched
+  run against a fresh baseline run on the same window, one compare, one decision — and its
+  decision closes each candidate with the verdict; a kept batch's preset becomes the baseline.
+  A new source gets its own experiment; pruning is an experiment whose preset drops. There is
+  no "feature family" concept: a Project field, then a planned `meta.family` mart tag, were
+  tried and removed on 2026-09-19 for adding no immediate value; do not reintroduce one.
 - Do not generate hypotheses, explanations, or initial ideas for the research ledger unless the
   researcher explicitly asks; record the researcher's thinking faithfully. An idea the
   researcher did not supply says who suggested it and when (the first fifteen candidates,

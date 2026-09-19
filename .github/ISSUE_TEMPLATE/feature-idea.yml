@@ -1,5 +1,5 @@
 name: Feature candidate
-description: A possible model input, ranked in the Load Forecasting Project and tested in a family batch
+description: A possible model input, ranked in the Load Forecasting Project and tested in a batch with related candidates
 labels: [feature candidate]
 body:
   - type: markdown
