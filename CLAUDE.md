@@ -196,7 +196,7 @@
   day-ahead area demand backtest. Strategies: the eleven presets of `tasks/demand/presets.py`
   — `lightgbm`, `lightgbm_msm`, `lightgbm_msm_popw`, `lightgbm_msm_popw_daytype` (the
   script default and the Kansai baseline), `lightgbm_msm_popw_daytype_simday` (the Tokyo
-  demand baseline, reference run `008868fe…`; Tokyo-only, because its
+  demand baseline until 2026-09-19, reference run `008868fe…`; Tokyo-only, because its
   `ftr_period_similar_day` mart needs the でんき予報 hourly load of
   `fct_area_power_usage_hourly` and a fit of the similar-day weights, below) and its four
   calendar variants `…_simday_calendar`, `…_simday_holidaydegree`,
