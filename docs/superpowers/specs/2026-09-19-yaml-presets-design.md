@@ -131,9 +131,15 @@ A reference that names an unknown view or column is not the loader's to catch:
 
 **The name** is the stem: lowercase `a-z0-9_`. It is the `strategy` column of
 the forecast facts, the MLflow `strategy` tag and `feature_preset` param, and
-the Feast service `<task>__<name>`. Today's chain names
-(`lightgbm_msm_popw_daytype_simday_lags`) are a habit, not a rule; a new preset
-takes any name that reads well in an issue.
+the Feast service `<task>__<name>`. Since 2026-09-19 (the researcher's decision)
+a new preset is named after the experiment issue that tests it, `e<issue number>`,
+with an optional short slug for the batch under test: `e185`, `e185_recent_load`.
+The number points at the hypothesis, the diff, the runs and the decision, and
+makes the name unique; the slug names the batch, never the ancestry, which is the
+file's `base`, and never the algorithm, which is the same for every preset. No
+task prefix (the directory is the task) and no baseline alias file (the task README
+names the baseline). The thirteen presets of 2026-09-19 keep their chain names
+(`lightgbm_msm_popw_daytype_simday_lags`), because their runs carry them.
 
 ## 4. Loading
 
