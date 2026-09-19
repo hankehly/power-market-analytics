@@ -68,7 +68,9 @@ Task `demand`: [observations](https://github.com/hankehly/power-market-analytics
 [investigations](https://github.com/hankehly/power-market-analytics/issues?q=label%3Ainvestigation),
 [feature candidates](https://github.com/hankehly/power-market-analytics/issues?q=label%3A%22feature+candidate%22)
 and [experiments](https://github.com/hankehly/power-market-analytics/issues?q=label%3Aexperiment),
-open and closed. How the ledger works, the kinds of record and the Project's
+open and closed. Each search lists both tasks' records, because Task is a
+Project field, not a label: in the Project, filter `task:demand`. How the
+ledger works, the kinds of record and the Project's
 fields: the [research README](research/README.md). The records written before
 2026-09-19 keep their `O-XXX` / `R-XXX` / `E-XXX` IDs in their titles
 (`demand/R-006 — Recent load features`).
