@@ -264,6 +264,65 @@ models:
             feature: true
             categorical: false
             expression: "EWA(demand_kwh, gap=2d, window=5, step=1d, halflife=1) - EWA(demand_kwh, gap=7d, window=4, step=7d, halflife=1)"
+      - name: lag_2d_over_daily_mean_demand
+        data_type: double
+        description: >
+          D-2's demand at the period over the mean of D-2's 48 periods: the shape of the day without its level, 1.0 at the day's average (feature candidate #137). One division, 48 x lag / the day's sum, so the integers stay exact. Null unless D-2 is complete, all 48 periods, or when its sum is 0.
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "LAG(demand_kwh, 2d) / LAG(DAILY_MEAN(demand_kwh), 2d)"
+      - name: lag_7d_over_daily_mean_demand
+        data_type: double
+        description: >
+          D-7's demand at the period over the mean of D-7's 48 periods, as lag_2d_over_daily_mean_demand (feature candidate #137). Null unless D-7 is complete or when its sum is 0.
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "LAG(demand_kwh, 7d) / LAG(DAILY_MEAN(demand_kwh), 7d)"
+      - name: lag_2d_position_28d_demand
+        data_type: double
+        description: >
+          Where D-2's demand at the period sits between the lowest and the highest of the same period over the 28 days D-2 to D-29, the values present: 0 at the lowest, 1 at the highest (feature candidate #149). D-2 is inside the window, so the value is within 0 to 1. Null when D-2 is absent or the highest equals the lowest.
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "(LAG(demand_kwh, 2d) - ROLLING_MIN(demand_kwh, gap=2d, window=28, step=1d)) / (ROLLING_MAX(demand_kwh, gap=2d, window=28, step=1d) - ROLLING_MIN(demand_kwh, gap=2d, window=28, step=1d))"
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 1
+      - name: rel_ewm_5d_minus_ewm_weekly_lags_demand
+        data_type: double
+        description: >
+          ewm_5d_minus_ewm_weekly_lags_demand_kwh over ewm_weekly_lags_demand_kwh: the recent level against the weekly one as a fraction of the weekly one, -0.05 when the last five days ran 5 % under it (feature candidate #146). A fraction, not a percentage. Null when either mean is null or the weekly one is 0.
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "(EWA(demand_kwh, gap=2d, window=5, step=1d, halflife=1) - EWA(demand_kwh, gap=7d, window=4, step=7d, halflife=1)) / EWA(demand_kwh, gap=7d, window=4, step=7d, halflife=1)"
+      - name: rel_change_2d_9d_demand
+        data_type: double
+        description: >
+          change_2d_9d_demand_kwh over lag_9d_demand_kwh: the week-on-week change from D-9 to D-2 as a fraction of D-9 (feature candidate #147). A fraction, not a percentage. Null when D-2 or D-9 is absent or D-9 is 0.
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "LAG(DIFF(demand_kwh, 7d), 2d) / LAG(demand_kwh, 9d)"
+      - name: lag_7d_minus_median_weekly_lags_demand_kwh
+        data_type: double
+        description: >
+          lag_7d_demand_kwh minus median_weekly_lags_demand_kwh, kWh: how far D-7 sits from the middle of the four weekly lags present, itself among them (feature candidate #154). Null when D-7 is absent.
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "LAG(demand_kwh, 7d) - ROLLING_MEDIAN(demand_kwh, gap=7d, window=4, step=7d)"
       - name: available_at
         data_type: timestamp
         description: >
@@ -295,7 +354,9 @@ unit_tests:
       Thursday and Friday after it: rows with no other value. With one
       Saturday a week a window holds one input at most, so the weights and
       the D-2 to D-6 standard deviations have their own test. The weekly
-      weighted standard deviation takes the weekly lags present.
+      weighted standard deviation takes the weekly lags present. The position
+      reads the 28 days D-2 to D-29, so 02-17 and 02-24, which hold 02-01 in
+      that window and in no lag, wait for its file too.
     model: ftr_period_actuals
     given:
       - input: ref('dim_area')
@@ -371,6 +432,18 @@ unit_tests:
           cast(case when p.time_code > 1 and t.lag_7d is not null then 0 end as bigint) as lag_7d_ramp_demand_kwh,
           cast(case when p.time_code > 1 and coalesce(t.lag_7d, t.lag_14d, t.lag_21d, t.lag_28d) is not null then 0 end as double)
             as mean_weekly_lags_ramp_demand_kwh,
+          -- Every period of a Saturday holds the same value, so its load over
+          -- its day's mean is exactly 1: 48 v / 48 v.
+          cast(case when t.lag_2d is not null then 1 end as double) as lag_2d_over_daily_mean_demand,
+          cast(case when t.lag_7d is not null then 1 end as double) as lag_7d_over_daily_mean_demand,
+          -- The Saturdays rise, so D-2 is the highest of its 28 days: 1. 01-27
+          -- has 01-25 alone in its window, so no range.
+          cast(case when t.lag_2d is not null and t.trade_date > date '2025-01-27' then 1 end as double)
+            as lag_2d_position_28d_demand,
+          -- No row has both weighted means.
+          cast(null as double) as rel_ewm_5d_minus_ewm_weekly_lags_demand,
+          cast(t.change / t.lag_9d as double) as rel_change_2d_9d_demand,
+          cast(t.lag_7d - t.median_weekly as double) as lag_7d_minus_median_weekly_lags_demand_kwh,
           t.available_at
         from (values
           (date '2025-01-27',   40, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,   40, null, timestamp '2025-01-26 00:05:00'),
@@ -391,13 +464,13 @@ unit_tests:
           (date '2025-02-13', null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  220, null, timestamp '2025-02-09 00:05:00'),
           (date '2025-02-14', null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  220, null, timestamp '2025-02-09 00:05:00'),
           (date '2025-02-15', null, null,  220, null,  100,   40, null,  120,  160, sqrt(1008000 / 112), 540 / 6, sqrt(50400 / 6), 100, 300 / (2 * sqrt(3600 / 2)), null,  120,  160, null, null, timestamp '2025-03-10 00:05:00'),
-          (date '2025-02-17',  280, null, null,  220, null, null, null, null, null, null, null, null, null, null,   60, null, null,  280, null, timestamp '2025-02-16 00:05:00'),
+          (date '2025-02-17',  280, null, null,  220, null, null, null, null, null, null, null, null, null, null,   60, null, null,  280, null, timestamp '2025-03-10 00:05:00'),
           (date '2025-02-18', null,  280, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  280, null, timestamp '2025-02-16 00:05:00'),
           (date '2025-02-19', null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  280, null, timestamp '2025-02-16 00:05:00'),
           (date '2025-02-20', null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  280, null, timestamp '2025-02-16 00:05:00'),
           (date '2025-02-21', null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  280, null, timestamp '2025-02-16 00:05:00'),
           (date '2025-02-22', null, null,  280, null,  220,  100,   40,  160,  224, sqrt(1346400 / 140), 1680 / 20, sqrt(144000 / 12), 160, 480 / (3 * sqrt(50400 / 6)), null,  160,  224, null, null, timestamp '2025-03-10 00:05:00'),
-          (date '2025-02-24',  340, null, null,  280, null, null, null, null, null, null, null, null, null, null,   60, null, null,  340, null, timestamp '2025-02-23 00:05:00'),
+          (date '2025-02-24',  340, null, null,  280, null, null, null, null, null, null, null, null, null, null,   60, null, null,  340, null, timestamp '2025-03-10 00:05:00'),
           (date '2025-02-25', null,  340, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  340, null, timestamp '2025-02-23 00:05:00'),
           (date '2025-02-26', null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  340, null, timestamp '2025-02-23 00:05:00'),
           (date '2025-02-27', null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  340, null, timestamp '2025-02-23 00:05:00'),
@@ -687,3 +760,84 @@ unit_tests:
         - {area_code: tokyo, trade_date: 2025-03-31, time_code: 47, lag_7d_adjacent_mean_demand_kwh: null, lag_7d_ramp_demand_kwh: null, mean_weekly_lags_ramp_demand_kwh: null}
         - {area_code: tokyo, trade_date: 2025-03-31, time_code: 48, lag_7d_adjacent_mean_demand_kwh: null, lag_7d_ramp_demand_kwh: null, mean_weekly_lags_ramp_demand_kwh: -100.0}
         - {area_code: tokyo, trade_date: 2025-04-01, time_code: 1, lag_7d_adjacent_mean_demand_kwh: null, lag_7d_ramp_demand_kwh: null, mean_weekly_lags_ramp_demand_kwh: 50.0}
+
+  - name: ftr_period_actuals_ratios_position_and_relative_changes
+    description: >
+      One period on seven days: 03-01 = 0, 03-02 = 50, 03-03 = 300, 03-08 = 800,
+      03-10 = 600, 03-29 = 450 and 03-30 = 700 kWh. The position puts D-2
+      between the lowest and highest of D-2 to D-29, the values present: 03-31
+      still holds 03-02, its D-29, the lowest of all ((450 - 50) / 750); 04-01
+      has lost it at D-30 ((700 - 300) / 500, where keeping it would give
+      650 / 750). 03-04 has one value in its window, so no range, and a row
+      without D-2 has no position. A zero denominator gives null, not an error:
+      03-10's D-9 is the 0 of 03-01, and 03-08's weekly mean is that 0 alone
+      while its recent mean has two days. The relative values are fractions,
+      not percentages. D-7 minus the weekly median is 0 with one weekly lag.
+      No day has 48 periods, so both ratios to a day's mean are null. 03-03 was
+      replaced and is public only on 04-15: every row that read it waits for
+      it, 04-01 too, which read it through the 28-day window alone. The
+      expected doubles are the same operations in the same order in Python.
+    model: ftr_period_actuals
+    given:
+      - input: ref('dim_area')
+        rows:
+          - {area_key: 1, area_code: tokyo}
+      - input: ref('ftr_day_calendar')
+        rows:
+          - {area_code: tokyo, trade_date: 2025-03-10, day_type: 0}
+      - input: ref('fct_area_demand_generation_actual')
+        format: sql
+        rows: |
+          select
+            d as date_key,
+            1 as time_code,
+            1 as area_key,
+            cast(v as bigint) as demand_kwh,
+            a as available_at
+          from (values
+            (date '2025-03-01', 0, timestamp '2025-03-02 00:30:00'),
+            (date '2025-03-02', 50, timestamp '2025-03-03 00:30:00'),
+            (date '2025-03-03', 300, timestamp '2025-04-15 00:30:00'),
+            (date '2025-03-08', 800, timestamp '2025-03-09 00:30:00'),
+            (date '2025-03-10', 600, timestamp '2025-03-11 00:30:00'),
+            (date '2025-03-29', 450, timestamp '2025-03-30 00:30:00'),
+            (date '2025-03-30', 700, timestamp '2025-03-31 00:30:00')
+          ) as t(d, v, a)
+    expect:
+      rows:
+        - {area_code: tokyo, trade_date: 2025-03-03, time_code: 1, lag_2d_over_daily_mean_demand: null, lag_7d_over_daily_mean_demand: null, lag_2d_position_28d_demand: null, rel_ewm_5d_minus_ewm_weekly_lags_demand: null, rel_change_2d_9d_demand: null, lag_7d_minus_median_weekly_lags_demand_kwh: null, available_at: "2025-03-02 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-03-04, time_code: 1, lag_2d_over_daily_mean_demand: null, lag_7d_over_daily_mean_demand: null, lag_2d_position_28d_demand: 1.0, rel_ewm_5d_minus_ewm_weekly_lags_demand: null, rel_change_2d_9d_demand: null, lag_7d_minus_median_weekly_lags_demand_kwh: null, available_at: "2025-03-03 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-03-05, time_code: 1, lag_2d_over_daily_mean_demand: null, lag_7d_over_daily_mean_demand: null, lag_2d_position_28d_demand: 1.0, rel_ewm_5d_minus_ewm_weekly_lags_demand: null, rel_change_2d_9d_demand: null, lag_7d_minus_median_weekly_lags_demand_kwh: null, available_at: "2025-04-15 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-03-06, time_code: 1, lag_2d_over_daily_mean_demand: null, lag_7d_over_daily_mean_demand: null, lag_2d_position_28d_demand: null, rel_ewm_5d_minus_ewm_weekly_lags_demand: null, rel_change_2d_9d_demand: null, lag_7d_minus_median_weekly_lags_demand_kwh: null, available_at: "2025-04-15 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-03-07, time_code: 1, lag_2d_over_daily_mean_demand: null, lag_7d_over_daily_mean_demand: null, lag_2d_position_28d_demand: null, rel_ewm_5d_minus_ewm_weekly_lags_demand: null, rel_change_2d_9d_demand: null, lag_7d_minus_median_weekly_lags_demand_kwh: null, available_at: "2025-04-15 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-03-08, time_code: 1, lag_2d_over_daily_mean_demand: null, lag_7d_over_daily_mean_demand: null, lag_2d_position_28d_demand: null, rel_ewm_5d_minus_ewm_weekly_lags_demand: null, rel_change_2d_9d_demand: null, lag_7d_minus_median_weekly_lags_demand_kwh: 0.0, available_at: "2025-04-15 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-03-09, time_code: 1, lag_2d_over_daily_mean_demand: null, lag_7d_over_daily_mean_demand: null, lag_2d_position_28d_demand: null, rel_ewm_5d_minus_ewm_weekly_lags_demand: 5.0, rel_change_2d_9d_demand: null, lag_7d_minus_median_weekly_lags_demand_kwh: 0.0, available_at: "2025-04-15 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-03-10, time_code: 1, lag_2d_over_daily_mean_demand: null, lag_7d_over_daily_mean_demand: null, lag_2d_position_28d_demand: 1.0, rel_ewm_5d_minus_ewm_weekly_lags_demand: 1.6666666666666667, rel_change_2d_9d_demand: null, lag_7d_minus_median_weekly_lags_demand_kwh: 0.0, available_at: "2025-04-15 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-03-11, time_code: 1, lag_2d_over_daily_mean_demand: null, lag_7d_over_daily_mean_demand: null, lag_2d_position_28d_demand: null, rel_ewm_5d_minus_ewm_weekly_lags_demand: null, rel_change_2d_9d_demand: null, lag_7d_minus_median_weekly_lags_demand_kwh: null, available_at: "2025-03-09 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-03-12, time_code: 1, lag_2d_over_daily_mean_demand: null, lag_7d_over_daily_mean_demand: null, lag_2d_position_28d_demand: 0.75, rel_ewm_5d_minus_ewm_weekly_lags_demand: null, rel_change_2d_9d_demand: 1.0, lag_7d_minus_median_weekly_lags_demand_kwh: null, available_at: "2025-04-15 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-03-13, time_code: 1, lag_2d_over_daily_mean_demand: null, lag_7d_over_daily_mean_demand: null, lag_2d_position_28d_demand: null, rel_ewm_5d_minus_ewm_weekly_lags_demand: null, rel_change_2d_9d_demand: null, lag_7d_minus_median_weekly_lags_demand_kwh: null, available_at: "2025-03-11 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-03-14, time_code: 1, lag_2d_over_daily_mean_demand: null, lag_7d_over_daily_mean_demand: null, lag_2d_position_28d_demand: null, rel_ewm_5d_minus_ewm_weekly_lags_demand: null, rel_change_2d_9d_demand: null, lag_7d_minus_median_weekly_lags_demand_kwh: null, available_at: "2025-03-11 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-03-15, time_code: 1, lag_2d_over_daily_mean_demand: null, lag_7d_over_daily_mean_demand: null, lag_2d_position_28d_demand: null, rel_ewm_5d_minus_ewm_weekly_lags_demand: 0.12499999999999992, rel_change_2d_9d_demand: null, lag_7d_minus_median_weekly_lags_demand_kwh: 400.0, available_at: "2025-03-11 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-03-16, time_code: 1, lag_2d_over_daily_mean_demand: null, lag_7d_over_daily_mean_demand: null, lag_2d_position_28d_demand: null, rel_ewm_5d_minus_ewm_weekly_lags_demand: 11.0, rel_change_2d_9d_demand: null, lag_7d_minus_median_weekly_lags_demand_kwh: null, available_at: "2025-03-11 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-03-17, time_code: 1, lag_2d_over_daily_mean_demand: null, lag_7d_over_daily_mean_demand: null, lag_2d_position_28d_demand: null, rel_ewm_5d_minus_ewm_weekly_lags_demand: null, rel_change_2d_9d_demand: null, lag_7d_minus_median_weekly_lags_demand_kwh: 150.0, available_at: "2025-04-15 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-03-19, time_code: 1, lag_2d_over_daily_mean_demand: null, lag_7d_over_daily_mean_demand: null, lag_2d_position_28d_demand: null, rel_ewm_5d_minus_ewm_weekly_lags_demand: null, rel_change_2d_9d_demand: null, lag_7d_minus_median_weekly_lags_demand_kwh: null, available_at: "2025-03-11 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-03-22, time_code: 1, lag_2d_over_daily_mean_demand: null, lag_7d_over_daily_mean_demand: null, lag_2d_position_28d_demand: null, rel_ewm_5d_minus_ewm_weekly_lags_demand: null, rel_change_2d_9d_demand: null, lag_7d_minus_median_weekly_lags_demand_kwh: null, available_at: "2025-03-09 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-03-23, time_code: 1, lag_2d_over_daily_mean_demand: null, lag_7d_over_daily_mean_demand: null, lag_2d_position_28d_demand: null, rel_ewm_5d_minus_ewm_weekly_lags_demand: null, rel_change_2d_9d_demand: null, lag_7d_minus_median_weekly_lags_demand_kwh: null, available_at: "2025-03-03 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-03-24, time_code: 1, lag_2d_over_daily_mean_demand: null, lag_7d_over_daily_mean_demand: null, lag_2d_position_28d_demand: null, rel_ewm_5d_minus_ewm_weekly_lags_demand: null, rel_change_2d_9d_demand: null, lag_7d_minus_median_weekly_lags_demand_kwh: null, available_at: "2025-04-15 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-03-29, time_code: 1, lag_2d_over_daily_mean_demand: null, lag_7d_over_daily_mean_demand: null, lag_2d_position_28d_demand: null, rel_ewm_5d_minus_ewm_weekly_lags_demand: null, rel_change_2d_9d_demand: null, lag_7d_minus_median_weekly_lags_demand_kwh: null, available_at: "2025-03-09 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-03-30, time_code: 1, lag_2d_over_daily_mean_demand: null, lag_7d_over_daily_mean_demand: null, lag_2d_position_28d_demand: null, rel_ewm_5d_minus_ewm_weekly_lags_demand: null, rel_change_2d_9d_demand: null, lag_7d_minus_median_weekly_lags_demand_kwh: null, available_at: "2025-03-03 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-03-31, time_code: 1, lag_2d_over_daily_mean_demand: null, lag_7d_over_daily_mean_demand: null, lag_2d_position_28d_demand: 0.5333333333333333, rel_ewm_5d_minus_ewm_weekly_lags_demand: -0.1, rel_change_2d_9d_demand: null, lag_7d_minus_median_weekly_lags_demand_kwh: null, available_at: "2025-04-15 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-04-01, time_code: 1, lag_2d_over_daily_mean_demand: null, lag_7d_over_daily_mean_demand: null, lag_2d_position_28d_demand: 0.8, rel_ewm_5d_minus_ewm_weekly_lags_demand: null, rel_change_2d_9d_demand: null, lag_7d_minus_median_weekly_lags_demand_kwh: null, available_at: "2025-04-15 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-04-02, time_code: 1, lag_2d_over_daily_mean_demand: null, lag_7d_over_daily_mean_demand: null, lag_2d_position_28d_demand: null, rel_ewm_5d_minus_ewm_weekly_lags_demand: null, rel_change_2d_9d_demand: null, lag_7d_minus_median_weekly_lags_demand_kwh: null, available_at: "2025-03-31 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-04-03, time_code: 1, lag_2d_over_daily_mean_demand: null, lag_7d_over_daily_mean_demand: null, lag_2d_position_28d_demand: null, rel_ewm_5d_minus_ewm_weekly_lags_demand: null, rel_change_2d_9d_demand: null, lag_7d_minus_median_weekly_lags_demand_kwh: null, available_at: "2025-03-31 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-04-04, time_code: 1, lag_2d_over_daily_mean_demand: null, lag_7d_over_daily_mean_demand: null, lag_2d_position_28d_demand: null, rel_ewm_5d_minus_ewm_weekly_lags_demand: null, rel_change_2d_9d_demand: null, lag_7d_minus_median_weekly_lags_demand_kwh: null, available_at: "2025-03-31 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-04-05, time_code: 1, lag_2d_over_daily_mean_demand: null, lag_7d_over_daily_mean_demand: null, lag_2d_position_28d_demand: null, rel_ewm_5d_minus_ewm_weekly_lags_demand: 0.43181818181818177, rel_change_2d_9d_demand: null, lag_7d_minus_median_weekly_lags_demand_kwh: -175.0, available_at: "2025-03-31 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-04-06, time_code: 1, lag_2d_over_daily_mean_demand: null, lag_7d_over_daily_mean_demand: null, lag_2d_position_28d_demand: null, rel_ewm_5d_minus_ewm_weekly_lags_demand: null, rel_change_2d_9d_demand: null, lag_7d_minus_median_weekly_lags_demand_kwh: 0.0, available_at: "2025-03-31 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-04-07, time_code: 1, lag_2d_over_daily_mean_demand: null, lag_7d_over_daily_mean_demand: null, lag_2d_position_28d_demand: null, rel_ewm_5d_minus_ewm_weekly_lags_demand: null, rel_change_2d_9d_demand: null, lag_7d_minus_median_weekly_lags_demand_kwh: null, available_at: "2025-03-30 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-04-08, time_code: 1, lag_2d_over_daily_mean_demand: null, lag_7d_over_daily_mean_demand: null, lag_2d_position_28d_demand: null, rel_ewm_5d_minus_ewm_weekly_lags_demand: null, rel_change_2d_9d_demand: null, lag_7d_minus_median_weekly_lags_demand_kwh: null, available_at: "2025-03-31 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-04-12, time_code: 1, lag_2d_over_daily_mean_demand: null, lag_7d_over_daily_mean_demand: null, lag_2d_position_28d_demand: null, rel_ewm_5d_minus_ewm_weekly_lags_demand: null, rel_change_2d_9d_demand: null, lag_7d_minus_median_weekly_lags_demand_kwh: null, available_at: "2025-03-30 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-04-13, time_code: 1, lag_2d_over_daily_mean_demand: null, lag_7d_over_daily_mean_demand: null, lag_2d_position_28d_demand: null, rel_ewm_5d_minus_ewm_weekly_lags_demand: null, rel_change_2d_9d_demand: null, lag_7d_minus_median_weekly_lags_demand_kwh: null, available_at: "2025-03-31 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-04-19, time_code: 1, lag_2d_over_daily_mean_demand: null, lag_7d_over_daily_mean_demand: null, lag_2d_position_28d_demand: null, rel_ewm_5d_minus_ewm_weekly_lags_demand: null, rel_change_2d_9d_demand: null, lag_7d_minus_median_weekly_lags_demand_kwh: null, available_at: "2025-03-30 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-04-20, time_code: 1, lag_2d_over_daily_mean_demand: null, lag_7d_over_daily_mean_demand: null, lag_2d_position_28d_demand: null, rel_ewm_5d_minus_ewm_weekly_lags_demand: null, rel_change_2d_9d_demand: null, lag_7d_minus_median_weekly_lags_demand_kwh: null, available_at: "2025-03-31 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-04-26, time_code: 1, lag_2d_over_daily_mean_demand: null, lag_7d_over_daily_mean_demand: null, lag_2d_position_28d_demand: null, rel_ewm_5d_minus_ewm_weekly_lags_demand: null, rel_change_2d_9d_demand: null, lag_7d_minus_median_weekly_lags_demand_kwh: null, available_at: "2025-03-30 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-04-27, time_code: 1, lag_2d_over_daily_mean_demand: null, lag_7d_over_daily_mean_demand: null, lag_2d_position_28d_demand: null, rel_ewm_5d_minus_ewm_weekly_lags_demand: null, rel_change_2d_9d_demand: null, lag_7d_minus_median_weekly_lags_demand_kwh: null, available_at: "2025-03-31 00:30:00"}
