@@ -28,7 +28,7 @@ assignees: []
 
 <!-- The candidate preset, so the diff reads as its base, add and drop; or the one other change under test (a window, a rule). One change per experiment. -->
 
-- **Preset:**
+- **Preset:** `e<this issue's number>`, with an optional batch slug (`e185_recent_load`); its file under `conf/presets/<task>/`
 
 ## Expected evidence
 
