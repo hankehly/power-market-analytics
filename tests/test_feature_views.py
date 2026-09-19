@@ -42,6 +42,11 @@ def test_fields_carry_the_marts_types_and_categorical_and_expression_tags():
     calendar = {field.name: field for field in views.FTR_DAY_CALENDAR.features}
     assert calendar["day_type"].dtype == Int64
     assert calendar["day_type"].tags == {"categorical": "true", "expression": "day_type"}
+    assert calendar["special_period"].dtype == Int64
+    assert calendar["special_period"].tags == {
+        "categorical": "true",
+        "expression": "special_period",
+    }
     assert calendar["holiday_degree"].dtype == Float64
     assert calendar["holiday_degree"].tags == {
         "categorical": "false",

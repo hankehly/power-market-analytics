@@ -32,6 +32,7 @@ with
     ('month', 'month', 'ftr_day_calendar', 'day', 'int', false, 'Calendar month 1-12: the strategies\' month feature.'),
     ('day_of_week', 'day_of_week', 'ftr_day_calendar', 'day', 'int', false, 'Day of week with Monday = 0 and Sunday = 6, pandas dayofweek, as the strategies use it (dim_date.day_of_week_iso - 1).'),
     ('day_type', 'day_type', 'ftr_day_calendar', 'day', 'int', true, '0 Weekday, 1 Weekend, 2 Holiday; a holiday wins over the weekend flag (research demand/R-003). A LightGBM categorical.'),
+    ('special_period', 'special_period', 'ftr_day_calendar', 'day', 'int', true, 'The special period the day belongs to, the first that matches: 1 年末年始 (12/30-1/3), 2 ゴールデンウィーク (4/29-5/5), 3 お盆 (8/13-8/16), the three periods of dim_date.holiday_degree, by date, so a weekend or a 祝日 inside one takes the period; 4 any other holiday (dim_date.is_holiday), a 振替休日 on 5/6 included; 5 a sandwiched working day, one with holiday_degree 0.5 or 0.3 (one or two working days between off days); 0 none, an ordinary weekend included (feature candidate #131). A LightGBM categorical.'),
     ('holiday_degree', 'holiday_degree', 'ftr_day_calendar', 'day', 'double', false, 'dim_date.holiday_degree, the graded 休日度合い from 0 to 1 (research demand/R-005).'),
     ('half', 'half', 'ftr_day_calendar', 'day', 'int', false, 'dim_date.half: 1 before July, else 2.'),
     ('quarter', 'quarter', 'ftr_day_calendar', 'day', 'int', false, 'dim_date.quarter, calendar quarter 1-4.'),
