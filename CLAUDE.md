@@ -166,8 +166,9 @@
 - `just python scripts/spot_price_backtest.py --strategy lightgbm --area tokyo` — day-ahead
   backtest (strategies: `previous_day`, and the presets `lightgbm`, `lightgbm_occto`; areas =
   `dim_area.area_code`). Since 2026-09-11 a LightGBM strategy is a **preset**
-  (`tasks/spot_price/presets.py`: a named list of `<view>:<column>` references into the
-  Feast feature views; a feature is categorical when its view field carries the mart's
+  (a YAML file under `conf/presets/spot_price/` since 2026-09-19, `features.presets.load_presets`:
+  `description` and either `features`, the full ordered list of `<view>:<column>` references into
+  the Feast feature views, or `base` plus `add` / `drop`; the name is the file's stem; a feature is categorical when its view field carries the mart's
   `categorical` tag — `features.presets.categorical_columns`, so an added feature is
   treated as its mart declares it); `build_strategy` retrieves the
   preset's features once for the run's days through Feast (`features/retrieval.py`, each
@@ -176,7 +177,7 @@
   feature. `--add VIEW:COLUMN …` / `--drop VIEW:COLUMN …` change the list for one run and
   need `--name`, which becomes the run's strategy label (`strategy` column, MLflow tag;
   params `feature_preset`, `feature_preset_base`, `feature_refs`, `lgbm_feature_cols`). A
-  new preset = an entry in `PRESETS`; new features come from the marts (`just feature-views`
+  new preset = a new file under `conf/presets/<task>/` (a published preset's file is never edited); new features come from the marts (`just feature-views`
   after a mart changes). The spot `LightGbmStrategy` / `LightGbmOcctoStrategy` classes and
   the OCCTO loader/frame were deleted with PR 5 of the feature catalogue (reproduced at
   0 difference first). Logs to MLflow (`just open mlflow`) and publishes forecasts to the
@@ -193,7 +194,7 @@
   month / high-price days, plus bias) as markdown; needs
   `just dbt build --select +fct_spot_price_forecast_accuracy` after the runs.
 - `just python scripts/demand_backtest.py --strategy lightgbm_msm_popw_daytype --area tokyo` —
-  day-ahead area demand backtest. Strategies: the eleven presets of `tasks/demand/presets.py`
+  day-ahead area demand backtest. Strategies: the eleven files under `conf/presets/demand/`
   — `lightgbm`, `lightgbm_msm`, `lightgbm_msm_popw`, `lightgbm_msm_popw_daytype` (the
   script default and the Kansai baseline), `lightgbm_msm_popw_daytype_simday` (the Tokyo
   demand baseline, reference run `008868fe…`; Tokyo-only, because its
@@ -745,7 +746,7 @@
   (`history_lead_days = 2`, TSO files finalise after midnight). Null-demand rows (TSO holes)
   are dropped at load; a target day whose D-7 lag falls in a hole is forecast with that lag
   null (skipped before 2026-09-13). Since 2026-09-11
-  (feature catalogue PRs 6 and 7) every strategy is a **preset** (`tasks/demand/presets.py`,
+  (feature catalogue PRs 6 and 7) every strategy is a **preset** (a YAML file under `conf/presets/demand/` since 2026-09-19,
   `<view>:<column>` references into the Feast views of the feature marts, retrieved by
   `build_strategy` and run by `PresetLightGbmStrategy`; the nine strategy classes, their
   eval sets, `demand/features.py`, the `AreaTemperature`, `AreaTemperatureForecast` and
@@ -850,23 +851,21 @@
   `e3e3bd61…`: MAE +7.3 % on the matched window, rejected by the researcher, Not supported;
   kept as a reference preset) = that + the ten `ftr_day_calendar` columns `half`, `quarter`,
   `day_of_month`, `day_of_quarter`, `day_of_year`, `holiday_degree`, `is_business_day` (1/0),
-  `fiscal_quarter`, `days_since_holiday`, `days_until_holiday` (`DAY_CALENDAR_FEATURES` in
-  `presets.py`, the old join order); no new categorical. Three subsets of it (research
+  `fiscal_quarter`, `days_since_holiday`, `days_until_holiday` (the old join order); no new categorical. Three subsets of it (research
   `demand/R-005` E-002 / E-003 / E-004, run 2026-09-06, all rejected by the researcher the
   same day, kept as reference presets): `lightgbm_msm_popw_daytype_simday_holidaydegree`
-  (`HOLIDAY_DEGREE_FEATURES` = `holiday_degree`; run `a8da46c5…`: MAE +0.3 %, CI over days
+  (`holiday_degree`; run `a8da46c5…`: MAE +0.3 %, CI over days
   includes zero, holidays +1.8 %, 4.8 % of the SHAP mass mostly from `day_type`),
-  `lightgbm_msm_popw_daytype_simday_holidaydistance` (`HOLIDAY_DISTANCE_FEATURES` =
-  `days_since_holiday`, `days_until_holiday`; run `f7153839…`: MAE +6.5 %, CI excludes zero,
+  `lightgbm_msm_popw_daytype_simday_holidaydistance` (`days_since_holiday`, `days_until_holiday`; run `f7153839…`: MAE +6.5 %, CI excludes zero,
   every day part / day type / season worse) and `lightgbm_msm_popw_daytype_simday_calendarcounts`
-  (`CALENDAR_COUNT_FEATURES` = `half`, `quarter`, `day_of_month`, `day_of_quarter`,
+  (`half`, `quarter`, `day_of_month`, `day_of_quarter`,
   `day_of_year`, `fiscal_quarter`; run `9182d469…`: MAE +4.2 %, CI excludes zero, weekdays
   +7.7 % but holidays −13.4 % — E-001's holiday gain comes with this subset; `half` /
   `quarter` never split on). `lightgbm_msm_popw_daytype_simday_lags` (research
   `demand/R-006` E-001, run 2026-09-12 `34707ed6…` against the fresh baseline `a3fde7eb…`
   on the 723 days both scored: MAE −0.6 %, CI over days includes zero, holidays −8.9 %,
   overnight −8.5 %, daytime +1.3 %, the top-10 % demand days +2.9 %; the researcher's
-  decision pending) = the Tokyo baseline + `RECENT_LOAD_FEATURES`, the thirteen columns of
+  decision pending) = the Tokyo baseline + the thirteen columns of
   `ftr_period_actuals` and `ftr_day_actuals` above but `lag_9d_demand_kwh`; the 2025-06-14
   hole reaches every lag it reads, so that run skipped seven target days where the baseline
   skipped one (compared with `--common-days`; since 2026-09-13 both forecast them).
@@ -878,7 +877,7 @@
   20 of 25 months lower, spring −7.4 % but summer −1.2 % and autumn +0.6 %; no single
   element's permutation importance approaches the joint gain, so which of the three carries
   it is unknown; the researcher's decision pending) = `…_simday_lags` +
-  `MSM_ELEMENT_FEATURES`, the three `ftr_hour_msm` columns
+  the three `ftr_hour_msm` columns
   `popw_forecast_relative_humidity_pct`, `popw_forecast_precipitation_mm` and
   `popw_forecast_solar_radiation_mjm2`. The forecast temperature is not repeated: every
   preset since `lightgbm_msm_popw` carries it, so this adds three features, not four.
