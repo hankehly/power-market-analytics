@@ -1,7 +1,7 @@
 # Research on GitHub issues — design
 
-Date: 2026-09-19. Status: **draft**, for the researcher's review.
-Branch: `feature/research-on-issues`. Companion:
+Date: 2026-09-19. Status: **approved** on 2026-09-19; implemented on branch `chore/research-on-issues`
+(plan `docs/superpowers/plans/2026-09-19-research-on-issues.md`). Companion:
 `docs/superpowers/specs/2026-09-19-yaml-presets-design.md` (the preset files an
 experiment issue names).
 
