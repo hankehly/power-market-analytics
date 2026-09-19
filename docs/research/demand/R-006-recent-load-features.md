@@ -1,7 +1,7 @@
 # R-006 — Recent load features
 
-- **Status:** In progress
-- **Last updated:** 2026-09-12 (E-001 run; the researcher's decision pending)
+- **Status:** Supported
+- **Last updated:** 2026-09-19 (the researcher kept E-001, tentatively)
 - **Created:** 2026-09-12
 - **Triggering observation:** None — modeling idea
 - **Related investigations:**
@@ -210,7 +210,9 @@ little. The model leans on the new columns in place of `time_code`,
 
 ### Decision
 
-**Decision:** Pending — the researcher's.
+**Decision:** Keep — provisionally, the researcher's on 2026-09-19, to confirm. Kept together
+with R-007 and R-008: `lightgbm_msm_popw_daytype_simday_lags_weather`, the preset that
+carries all three, is the Tokyo baseline from that date.
 
 ### Follow-up ideas
 
@@ -222,14 +224,16 @@ One experiment. All thirteen features together lower Tokyo MAE by 0.6 % on
 the 723 days both runs scored, with the CI over days including zero, holidays
 and overnight periods improving and daytime, autumn and the highest-demand
 days getting worse. The features are in the catalogue and the preset is
-registered; the decision is the researcher's.
+registered. The researcher kept them on 2026-09-19, tentatively, together with R-007
+and R-008.
 
 ## Open questions
 
-- The researcher's verdict.
+- Whether the tentative keep holds once the new baseline has a fresh matched run.
 
 ## Final disposition
 
-**Investigation status:** In progress  
-**Recommended action:** —  
+**Investigation status:** Supported — provisionally, 2026-09-19; researcher to confirm  
+**Recommended action:** Run `lightgbm_msm_popw_daytype_simday_lags_weather` fresh on the current marts as the
+baseline of the next experiment.  
 **Superseded by:** —

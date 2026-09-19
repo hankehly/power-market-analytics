@@ -1,7 +1,7 @@
 # R-007 — Forecast weather elements beyond temperature
 
-- **Status:** In progress
-- **Last updated:** 2026-09-12 (E-001 run; the researcher's decision pending)
+- **Status:** Supported
+- **Last updated:** 2026-09-19 (the researcher kept E-001, tentatively)
 - **Created:** 2026-09-12
 - **Triggering observation:** None — modeling idea
 - **Related investigations:**
@@ -205,7 +205,9 @@ what the model picked up.
 
 ### Decision
 
-**Decision:** Pending the researcher's review.
+**Decision:** Keep — provisionally, the researcher's on 2026-09-19, to confirm. Kept together
+with R-006 and R-008: `lightgbm_msm_popw_daytype_simday_lags_weather`, the preset that
+carries all three, is the Tokyo baseline from that date.
 
 ### Follow-up ideas
 
@@ -226,7 +228,8 @@ One experiment, run on 2026-09-12: the three forecast elements lower Tokyo
 MAE 2.9 % on 723 matched days with a bootstrap interval clear of zero, and
 the improvement holds in 20 of 25 months. The seasonal pattern does not match
 the air-conditioning reasoning in the hypothesis, and which of the three
-carries the gain is not yet known.
+carries the gain is not yet known. The researcher kept the three on 2026-09-19,
+tentatively, together with R-006 and R-008.
 
 ## Open questions
 
@@ -237,6 +240,7 @@ carries the gain is not yet known.
 
 ## Final disposition
 
-- **Investigation status:** In progress
-- **Recommended action:** the researcher's decision on E-001
+- **Investigation status:** Supported — provisionally, 2026-09-19; researcher to confirm
+- **Recommended action:** Run `lightgbm_msm_popw_daytype_simday_lags_weather` fresh on the current marts as the
+baseline of the next experiment.
 - **Superseded by:** —
