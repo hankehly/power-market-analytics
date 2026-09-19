@@ -1,0 +1,174 @@
+models:
+  - name: ftr_day_msm
+    config:
+      contract:
+        enforced: true
+    description: >
+      Day-level summaries of the MSM forecast for each delivery day per bidding zone, one row per forecast vintage: the maximum, minimum and mean over the day's 24 hours of ftr_hour_msm's population-weighted forecast temperature, and the hour of the maximum (feature candidate #132). Complete days only: the four columns are null unless all 24 hours of the vintage have a temperature. Grain: area_code x trade_date x forecast_reference_at. available_at is the latest of the day's hours: the vintage's, reference + 4 h.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - area_code
+              - trade_date
+              - forecast_reference_at
+    columns:
+      - name: area_code
+        data_type: string
+        description: >
+          dim_area.area_code of the bidding zone.
+        data_tests:
+          - not_null
+      - name: trade_date
+        data_type: date
+        description: >
+          The delivery day D the forecast hours fall on.
+        data_tests:
+          - not_null
+      - name: forecast_reference_at
+        data_type: timestamp
+        description: >
+          The MSM run's reference time, naive JST (the vintage key).
+        data_tests:
+          - not_null
+      - name: max_popw_forecast_temperature_c
+        data_type: double
+        description: >
+          The highest of the day's 24 hourly population-weighted forecast temperatures, C. Null unless all 24 hours have one.
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "DAILY_MAX(MEAN(forecast_temperature_c, weight=population))"
+      - name: min_popw_forecast_temperature_c
+        data_type: double
+        description: >
+          The lowest of the day's 24 hourly population-weighted forecast temperatures, C. Null unless all 24 hours have one.
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "DAILY_MIN(MEAN(forecast_temperature_c, weight=population))"
+      - name: mean_popw_forecast_temperature_c
+        data_type: double
+        description: >
+          The mean of the day's 24 hourly population-weighted forecast temperatures, C, added in hour order so the value is the same on every build (the ordered_weighted_mean macro, every weight 1). Null unless all 24 hours have one.
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "DAILY_MEAN(MEAN(forecast_temperature_c, weight=population))"
+      - name: max_popw_forecast_temperature_hour_ending
+        data_type: int
+        description: >
+          The hour ending, 1-24, of the day's highest hourly population-weighted forecast temperature; the earliest on a tie. Null unless all 24 hours have a temperature.
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "DAILY_ARGMAX(MEAN(forecast_temperature_c, weight=population))"
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 1
+                max_value: 24
+      - name: available_at
+        data_type: timestamp
+        description: >
+          When the row became public, naive JST: the latest available_at of the day's hours in ftr_hour_msm.
+        data_tests:
+          - not_null
+
+unit_tests:
+  - name: ftr_day_msm_complete_days_tied_maximum_and_vintages
+    description: >
+      Three Tokyo delivery days with the same 24 temperatures. 2025-08-01 is
+      complete: the maximum 33.1 falls on hours 14 and 15, so the hour is 14, the
+      earliest; the mean is the 24 values added in hour order, which is
+      28.549999999999997 (the same values added in reverse give 28.55); and
+      available_at is hour 24's, the latest. 2025-08-02 has no temperature at
+      hour 5, so its four columns are null. 2025-08-03 has hours 1-23 in one
+      vintage and hour 24 only in another: neither vintage is complete, so both
+      rows are null. Pooling the two vintages would make a complete day.
+    model: ftr_day_msm
+    given:
+      - input: ref('ftr_hour_msm')
+        rows:
+          - {area_code: tokyo, trade_date: 2025-08-01, hour_ending: 1, forecast_reference_at: "2025-07-30 21:00:00", popw_forecast_temperature_c: 25.9, available_at: "2025-07-31 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-01, hour_ending: 2, forecast_reference_at: "2025-07-30 21:00:00", popw_forecast_temperature_c: 25.4, available_at: "2025-07-31 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-01, hour_ending: 3, forecast_reference_at: "2025-07-30 21:00:00", popw_forecast_temperature_c: 25.0, available_at: "2025-07-31 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-01, hour_ending: 4, forecast_reference_at: "2025-07-30 21:00:00", popw_forecast_temperature_c: 24.6, available_at: "2025-07-31 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-01, hour_ending: 5, forecast_reference_at: "2025-07-30 21:00:00", popw_forecast_temperature_c: 24.3, available_at: "2025-07-31 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-01, hour_ending: 6, forecast_reference_at: "2025-07-30 21:00:00", popw_forecast_temperature_c: 24.5, available_at: "2025-07-31 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-01, hour_ending: 7, forecast_reference_at: "2025-07-30 21:00:00", popw_forecast_temperature_c: 25.7, available_at: "2025-07-31 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-01, hour_ending: 8, forecast_reference_at: "2025-07-30 21:00:00", popw_forecast_temperature_c: 27.2, available_at: "2025-07-31 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-01, hour_ending: 9, forecast_reference_at: "2025-07-30 21:00:00", popw_forecast_temperature_c: 28.8, available_at: "2025-07-31 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-01, hour_ending: 10, forecast_reference_at: "2025-07-30 21:00:00", popw_forecast_temperature_c: 30.1, available_at: "2025-07-31 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-01, hour_ending: 11, forecast_reference_at: "2025-07-30 21:00:00", popw_forecast_temperature_c: 31.2, available_at: "2025-07-31 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-01, hour_ending: 12, forecast_reference_at: "2025-07-30 21:00:00", popw_forecast_temperature_c: 32.0, available_at: "2025-07-31 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-01, hour_ending: 13, forecast_reference_at: "2025-07-30 21:00:00", popw_forecast_temperature_c: 32.7, available_at: "2025-07-31 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-01, hour_ending: 14, forecast_reference_at: "2025-07-30 21:00:00", popw_forecast_temperature_c: 33.1, available_at: "2025-07-31 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-01, hour_ending: 15, forecast_reference_at: "2025-07-30 21:00:00", popw_forecast_temperature_c: 33.1, available_at: "2025-07-31 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-01, hour_ending: 16, forecast_reference_at: "2025-07-30 21:00:00", popw_forecast_temperature_c: 32.6, available_at: "2025-07-31 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-01, hour_ending: 17, forecast_reference_at: "2025-07-30 21:00:00", popw_forecast_temperature_c: 31.8, available_at: "2025-07-31 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-01, hour_ending: 18, forecast_reference_at: "2025-07-30 21:00:00", popw_forecast_temperature_c: 30.7, available_at: "2025-07-31 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-01, hour_ending: 19, forecast_reference_at: "2025-07-30 21:00:00", popw_forecast_temperature_c: 29.5, available_at: "2025-07-31 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-01, hour_ending: 20, forecast_reference_at: "2025-07-30 21:00:00", popw_forecast_temperature_c: 28.6, available_at: "2025-07-31 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-01, hour_ending: 21, forecast_reference_at: "2025-07-30 21:00:00", popw_forecast_temperature_c: 27.9, available_at: "2025-07-31 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-01, hour_ending: 22, forecast_reference_at: "2025-07-30 21:00:00", popw_forecast_temperature_c: 27.3, available_at: "2025-07-31 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-01, hour_ending: 23, forecast_reference_at: "2025-07-30 21:00:00", popw_forecast_temperature_c: 26.8, available_at: "2025-07-31 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-01, hour_ending: 24, forecast_reference_at: "2025-07-30 21:00:00", popw_forecast_temperature_c: 26.4, available_at: "2025-07-31 02:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-02, hour_ending: 1, forecast_reference_at: "2025-07-31 21:00:00", popw_forecast_temperature_c: 25.9, available_at: "2025-08-01 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-02, hour_ending: 2, forecast_reference_at: "2025-07-31 21:00:00", popw_forecast_temperature_c: 25.4, available_at: "2025-08-01 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-02, hour_ending: 3, forecast_reference_at: "2025-07-31 21:00:00", popw_forecast_temperature_c: 25.0, available_at: "2025-08-01 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-02, hour_ending: 4, forecast_reference_at: "2025-07-31 21:00:00", popw_forecast_temperature_c: 24.6, available_at: "2025-08-01 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-02, hour_ending: 5, forecast_reference_at: "2025-07-31 21:00:00", popw_forecast_temperature_c: null, available_at: "2025-08-01 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-02, hour_ending: 6, forecast_reference_at: "2025-07-31 21:00:00", popw_forecast_temperature_c: 24.5, available_at: "2025-08-01 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-02, hour_ending: 7, forecast_reference_at: "2025-07-31 21:00:00", popw_forecast_temperature_c: 25.7, available_at: "2025-08-01 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-02, hour_ending: 8, forecast_reference_at: "2025-07-31 21:00:00", popw_forecast_temperature_c: 27.2, available_at: "2025-08-01 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-02, hour_ending: 9, forecast_reference_at: "2025-07-31 21:00:00", popw_forecast_temperature_c: 28.8, available_at: "2025-08-01 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-02, hour_ending: 10, forecast_reference_at: "2025-07-31 21:00:00", popw_forecast_temperature_c: 30.1, available_at: "2025-08-01 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-02, hour_ending: 11, forecast_reference_at: "2025-07-31 21:00:00", popw_forecast_temperature_c: 31.2, available_at: "2025-08-01 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-02, hour_ending: 12, forecast_reference_at: "2025-07-31 21:00:00", popw_forecast_temperature_c: 32.0, available_at: "2025-08-01 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-02, hour_ending: 13, forecast_reference_at: "2025-07-31 21:00:00", popw_forecast_temperature_c: 32.7, available_at: "2025-08-01 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-02, hour_ending: 14, forecast_reference_at: "2025-07-31 21:00:00", popw_forecast_temperature_c: 33.1, available_at: "2025-08-01 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-02, hour_ending: 15, forecast_reference_at: "2025-07-31 21:00:00", popw_forecast_temperature_c: 33.1, available_at: "2025-08-01 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-02, hour_ending: 16, forecast_reference_at: "2025-07-31 21:00:00", popw_forecast_temperature_c: 32.6, available_at: "2025-08-01 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-02, hour_ending: 17, forecast_reference_at: "2025-07-31 21:00:00", popw_forecast_temperature_c: 31.8, available_at: "2025-08-01 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-02, hour_ending: 18, forecast_reference_at: "2025-07-31 21:00:00", popw_forecast_temperature_c: 30.7, available_at: "2025-08-01 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-02, hour_ending: 19, forecast_reference_at: "2025-07-31 21:00:00", popw_forecast_temperature_c: 29.5, available_at: "2025-08-01 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-02, hour_ending: 20, forecast_reference_at: "2025-07-31 21:00:00", popw_forecast_temperature_c: 28.6, available_at: "2025-08-01 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-02, hour_ending: 21, forecast_reference_at: "2025-07-31 21:00:00", popw_forecast_temperature_c: 27.9, available_at: "2025-08-01 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-02, hour_ending: 22, forecast_reference_at: "2025-07-31 21:00:00", popw_forecast_temperature_c: 27.3, available_at: "2025-08-01 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-02, hour_ending: 23, forecast_reference_at: "2025-07-31 21:00:00", popw_forecast_temperature_c: 26.8, available_at: "2025-08-01 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-02, hour_ending: 24, forecast_reference_at: "2025-07-31 21:00:00", popw_forecast_temperature_c: 26.4, available_at: "2025-08-01 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-03, hour_ending: 1, forecast_reference_at: "2025-08-01 21:00:00", popw_forecast_temperature_c: 25.9, available_at: "2025-08-02 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-03, hour_ending: 2, forecast_reference_at: "2025-08-01 21:00:00", popw_forecast_temperature_c: 25.4, available_at: "2025-08-02 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-03, hour_ending: 3, forecast_reference_at: "2025-08-01 21:00:00", popw_forecast_temperature_c: 25.0, available_at: "2025-08-02 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-03, hour_ending: 4, forecast_reference_at: "2025-08-01 21:00:00", popw_forecast_temperature_c: 24.6, available_at: "2025-08-02 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-03, hour_ending: 5, forecast_reference_at: "2025-08-01 21:00:00", popw_forecast_temperature_c: 24.3, available_at: "2025-08-02 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-03, hour_ending: 6, forecast_reference_at: "2025-08-01 21:00:00", popw_forecast_temperature_c: 24.5, available_at: "2025-08-02 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-03, hour_ending: 7, forecast_reference_at: "2025-08-01 21:00:00", popw_forecast_temperature_c: 25.7, available_at: "2025-08-02 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-03, hour_ending: 8, forecast_reference_at: "2025-08-01 21:00:00", popw_forecast_temperature_c: 27.2, available_at: "2025-08-02 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-03, hour_ending: 9, forecast_reference_at: "2025-08-01 21:00:00", popw_forecast_temperature_c: 28.8, available_at: "2025-08-02 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-03, hour_ending: 10, forecast_reference_at: "2025-08-01 21:00:00", popw_forecast_temperature_c: 30.1, available_at: "2025-08-02 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-03, hour_ending: 11, forecast_reference_at: "2025-08-01 21:00:00", popw_forecast_temperature_c: 31.2, available_at: "2025-08-02 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-03, hour_ending: 12, forecast_reference_at: "2025-08-01 21:00:00", popw_forecast_temperature_c: 32.0, available_at: "2025-08-02 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-03, hour_ending: 13, forecast_reference_at: "2025-08-01 21:00:00", popw_forecast_temperature_c: 32.7, available_at: "2025-08-02 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-03, hour_ending: 14, forecast_reference_at: "2025-08-01 21:00:00", popw_forecast_temperature_c: 33.1, available_at: "2025-08-02 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-03, hour_ending: 15, forecast_reference_at: "2025-08-01 21:00:00", popw_forecast_temperature_c: 33.1, available_at: "2025-08-02 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-03, hour_ending: 16, forecast_reference_at: "2025-08-01 21:00:00", popw_forecast_temperature_c: 32.6, available_at: "2025-08-02 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-03, hour_ending: 17, forecast_reference_at: "2025-08-01 21:00:00", popw_forecast_temperature_c: 31.8, available_at: "2025-08-02 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-03, hour_ending: 18, forecast_reference_at: "2025-08-01 21:00:00", popw_forecast_temperature_c: 30.7, available_at: "2025-08-02 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-03, hour_ending: 19, forecast_reference_at: "2025-08-01 21:00:00", popw_forecast_temperature_c: 29.5, available_at: "2025-08-02 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-03, hour_ending: 20, forecast_reference_at: "2025-08-01 21:00:00", popw_forecast_temperature_c: 28.6, available_at: "2025-08-02 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-03, hour_ending: 21, forecast_reference_at: "2025-08-01 21:00:00", popw_forecast_temperature_c: 27.9, available_at: "2025-08-02 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-03, hour_ending: 22, forecast_reference_at: "2025-08-01 21:00:00", popw_forecast_temperature_c: 27.3, available_at: "2025-08-02 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-03, hour_ending: 23, forecast_reference_at: "2025-08-01 21:00:00", popw_forecast_temperature_c: 26.8, available_at: "2025-08-02 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-03, hour_ending: 24, forecast_reference_at: "2025-08-01 09:00:00", popw_forecast_temperature_c: 26.4, available_at: "2025-08-01 13:00:00"}
+    expect:
+      rows:
+        - {area_code: tokyo, trade_date: 2025-08-01, forecast_reference_at: "2025-07-30 21:00:00", max_popw_forecast_temperature_c: 33.1, min_popw_forecast_temperature_c: 24.3, mean_popw_forecast_temperature_c: 28.549999999999997, max_popw_forecast_temperature_hour_ending: 14, available_at: "2025-07-31 02:00:00"}
+        - {area_code: tokyo, trade_date: 2025-08-02, forecast_reference_at: "2025-07-31 21:00:00", max_popw_forecast_temperature_c: null, min_popw_forecast_temperature_c: null, mean_popw_forecast_temperature_c: null, max_popw_forecast_temperature_hour_ending: null, available_at: "2025-08-01 01:00:00"}
+        - {area_code: tokyo, trade_date: 2025-08-03, forecast_reference_at: "2025-08-01 21:00:00", max_popw_forecast_temperature_c: null, min_popw_forecast_temperature_c: null, mean_popw_forecast_temperature_c: null, max_popw_forecast_temperature_hour_ending: null, available_at: "2025-08-02 01:00:00"}
+        - {area_code: tokyo, trade_date: 2025-08-03, forecast_reference_at: "2025-08-01 09:00:00", max_popw_forecast_temperature_c: null, min_popw_forecast_temperature_c: null, mean_popw_forecast_temperature_c: null, max_popw_forecast_temperature_hour_ending: null, available_at: "2025-08-01 13:00:00"}
