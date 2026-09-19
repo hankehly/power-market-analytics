@@ -151,6 +151,8 @@ def test_the_actuals_views_carry_the_recent_load_columns():
         "mean_weekly_lags_ramp_demand_kwh",
         "mean_daytype_4d_demand_kwh",
         "ewm_daytype_4d_demand_kwh",
+        "newest_daytype_4d_lag_days",
+        "oldest_daytype_4d_lag_days",
         "ewm_5d_demand_kwh",
         "std_5d_demand_kwh",
         "ewstd_5d_demand_kwh",
@@ -177,6 +179,10 @@ def test_the_actuals_views_carry_the_recent_load_columns():
     )
     assert period["lag_2d_demand_kwh"].dtype == Int64
     assert period["ewm_daytype_4d_demand_kwh"].dtype == Float64
+    # The window's ages are whole days, and their expressions are their names.
+    for age in ("newest_daytype_4d_lag_days", "oldest_daytype_4d_lag_days"):
+        assert period[age].dtype == Int64
+        assert period[age].tags["expression"] == age
     assert period["ewm_5d_demand_kwh"].dtype == Float64
     assert period["trend_weekly_lags_demand_kwh"].dtype == Float64
     assert (

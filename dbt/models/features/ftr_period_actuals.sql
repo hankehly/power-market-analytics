@@ -10,7 +10,8 @@
 -- weekly change, plain and as a fraction of D-9; D-7 minus the weekly median;
 -- D-2's and D-7's load over their day's mean; D-2's position between the
 -- lowest and highest of D-2 to D-29; and two means over the last four
--- complete days of D's day type. The shifted actuals, grouped per
+-- complete days of D's day type, with how many days back the newest and the
+-- oldest of those days lie. The shifted actuals, grouped per
 -- period, are the row spine: a row exists wherever any lag exists and a
 -- column is null where its input is absent. available_at is the greatest
 -- over the rows shifted onto the row, the neighbouring periods included.
@@ -282,6 +283,23 @@ with
       partition by actuals.area_code, day_types.day_type, actuals.time_code
       order by actuals.date_key
     ) as value_3,
+    -- The oldest day of the four, or the oldest present when there are fewer: a
+    -- predecessor's date is null exactly where its load is.
+    coalesce(
+      lag(actuals.date_key, 3) over (
+        partition by actuals.area_code, day_types.day_type, actuals.time_code
+        order by actuals.date_key
+      ),
+      lag(actuals.date_key, 2) over (
+        partition by actuals.area_code, day_types.day_type, actuals.time_code
+        order by actuals.date_key
+      ),
+      lag(actuals.date_key, 1) over (
+        partition by actuals.area_code, day_types.day_type, actuals.time_code
+        order by actuals.date_key
+      ),
+      actuals.date_key
+    ) as oldest_date_key,
     max(complete_days.available_at) over (
       partition by actuals.area_code, day_types.day_type, actuals.time_code
       order by actuals.date_key
@@ -375,6 +393,11 @@ with
       + 4 * cast(candidate_periods.value_1 is not null as int)
       + 2 * cast(candidate_periods.value_2 is not null as int)
       + cast(candidate_periods.value_3 is not null as int)) as ewm_daytype_4d_demand_kwh,
+    -- How far back the window reaches (feature candidate #203): the days from D to
+    -- its newest day, the candidate, and to its oldest. Every candidate is a
+    -- complete day, so the 48 periods of a day read the same days and agree.
+    datediff(lookup.trade_date, candidate_periods.date_key) as newest_daytype_4d_lag_days,
+    datediff(lookup.trade_date, candidate_periods.oldest_date_key) as oldest_daytype_4d_lag_days,
     candidate_periods.available_at
   from
     lookup
@@ -474,6 +497,8 @@ with
       + cast(by_period.ramp_28d_demand_kwh is not null as int), 0) as mean_weekly_lags_ramp_demand_kwh,
     day_type_windows.mean_daytype_4d_demand_kwh,
     day_type_windows.ewm_daytype_4d_demand_kwh,
+    day_type_windows.newest_daytype_4d_lag_days,
+    day_type_windows.oldest_daytype_4d_lag_days,
     -- Weights 16, 8, 4, 2, 1 for D-2 to D-6, over the lags present.
     (coalesce(16 * by_period.lag_2d_demand_kwh, 0)
       + coalesce(8 * by_period.lag_3d_demand_kwh, 0)
