@@ -135,6 +135,9 @@ class TestFeatureValueFact:
         assert {r["feature_ref"] for r in categorical} == {
             "ftr_day_calendar:day_type",
             "ftr_day_calendar:special_period",
+            "ftr_day_calendar:lag_2d_day_type",
+            "ftr_day_calendar:lag_3d_day_type",
+            "ftr_day_calendar:lag_7d_day_type",
         }
         assert fact.columns == COLUMNS
         views = (
