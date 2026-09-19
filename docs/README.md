@@ -14,8 +14,9 @@ Power market analytics.
   strategies and feature experiments, and the Superset dashboards.
 - [**Development and code review**](Development.md) — the Compose stack, setup,
   the `just` recipes, and how a pull request is reviewed.
-- [**Forecasting research**](research/README.md) — the observation log and the
-  investigations of each task, and the [papers](research/papers.md) they cite.
+- [**Forecasting research**](research/README.md) — how the research ledger on
+  GitHub issues works, each task's scope defaults, and the
+  [papers](research/papers.md) the research cites.
 - [**Design history**](superpowers/README.md) — every design spec and
   implementation plan, newest first.
 

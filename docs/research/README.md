@@ -1,99 +1,108 @@
 # Forecasting Research
 
-This directory records the reasoning and conclusions behind forecasting
-experiments. MLflow remains the source of truth for individual runs,
-parameters, metrics, code versions, and detailed artifacts.
+The research ledger is the repository's GitHub issues. This page says what
+lives where, what the four kinds of record are, and how to open one. MLflow
+stays the source of truth for runs: parameters, metrics, code versions and
+artifacts.
 
-The working loop is:
+## Where things live
 
-> Observation or idea → investigation → predictive hypothesis → experiment →
-> out-of-sample result → decision
+| What | Where |
+|---|---|
+| Observations, investigations, feature candidates, experiments | [Issues](https://github.com/hankehly/power-market-analytics/issues), one label per kind, ranked in the [Load Forecasting](https://github.com/users/hankehly/projects/3) Project |
+| Each task's scope defaults and the tooling that reports segments | [`demand/README.md`](research/demand/README.md), [`spot_price/README.md`](research/spot_price/README.md) |
+| Papers the research cites | [`papers.md`](research/papers.md), links only |
+| Figures an issue embeds | `docs/research/<task>/assets/`, embedded by their raw URL on `main`; named `<issue number>-<slug>.png`, except the figures migrated on 2026-09-19, which keep their `R-XXX-E-XXX-…` and `O-XXX-…` names |
+| The feature list a run used | its preset: the `feature_preset` and `feature_refs` params of the MLflow run |
+| What a run did | MLflow (`just open mlflow`) |
 
-## Layout
+Until 2026-09-19 the records were files under `docs/research/<task>/`:
+`O-XXX` observations, `R-XXX` investigations with their `E-XXX` experiments.
+They were migrated to issues whose titles keep the ID, task-qualified
+(`demand/R-006 — Recent load features`, `demand/R-006 E-001 — …`), so a
+reference elsewhere still finds its record by searching the title.
 
-Research is organised per forecasting task, mirroring
-`power_market_analytics/tasks/<task>/`, the MLflow experiment names and the
-`--task` flag of `scripts/create_forecast_dashboard.py`:
+## The four kinds of record
 
-```
-docs/research/
-├── README.md                  # this file: shared conventions
-├── investigation-template.md  # shared template, copied for every investigation
-├── papers.md                  # link index of external papers cited by the research docs
-├── spot_price/                # JEPX day-ahead spot price
-│   ├── README.md              # task index, scope defaults, backlog pointer
-│   ├── observations.md        # O-XXX log
-│   ├── R-XXX-*.md             # investigations
-│   └── assets/                # plots cited in this task's conclusions
-└── demand/                    # area demand (load)
-    ├── README.md
-    ├── observations.md
-    └── assets/
-```
+| Kind | Label | The record | Closes when |
+|---|---|---|---|
+| Observation | `observation` | Something noteworthy happened in the data or a run. | It needs no attention: the closing comment says what captured it. Closed does not mean no longer true. |
+| Investigation | `investigation` | A question worth understanding. | Its final disposition is written. |
+| Feature candidate | `feature candidate` | A possible model input worth remembering. | An experiment's decision covers it, or it is set aside. |
+| Experiment | `experiment` | One controlled comparison and its decision. | Its decision is written. |
 
-| Task | Index | Observation log |
-|---|---|---|
-| Spot price | [`spot_price/`](research/spot_price/README.md) | [log](research/spot_price/observations.md) |
-| Demand | [`demand/`](research/demand/README.md) | [log](research/demand/observations.md) |
+They are independent records, not stages. Common links: an observation leads
+to an investigation or straight to an experiment; an investigation produces
+candidates or experiments; candidates feed an experiment; an experiment
+follows another. No link is required. Do not create an intermediate issue
+solely to complete a workflow: "does adding these four features lower MAE" is
+an experiment, not an investigation. An investigation exists when the question
+itself is worth keeping. An experiment that belongs to an investigation is
+made a sub-issue of it.
 
-Adding a task = a new folder with the same three files, plus a row here and a
-group in `docs/_sidebar.md`.
+## Opening one
 
-External papers that the observations and investigations cite are indexed
-in [`papers.md`](research/papers.md) — links only (no PDFs in the repo), one
-row per paper: what it is, the PDF, and which research doc cites it.
+The **New issue** chooser offers the four templates and applies their labels.
+From the command line, `gh issue create --template Observation --label observation`
+(or `Investigation` with `investigation`, `Experiment` with `experiment`) opens the
+Markdown template; `gh` copies a template's body but not its label, so the
+`--label` is required. A feature candidate is an issue form, filled on the web;
+`gh` cannot fill a form, so a candidate opened from the command line is a
+Markdown body under the form's headings with `--label "feature candidate"`.
 
-## Conventions
+Titles are plain: what was seen, asked, proposed or tested. No prefix; the
+issue number is the ID.
 
-- Add notable forecast behavior to the task's observation log before trying
-  to explain it. Record only observations and ideas supplied by the researcher
-  or directly established from the cited evidence; do not generate possible
-  explanations or hypotheses on the researcher's behalf unless explicitly
-  asked.
-- Create one investigation document for each coherent forecasting question by
-  copying [the investigation template](research/investigation-template.md)
-  into the task folder. Its *Scope and constraints* block cites the task
-  README's scope defaults and records only what the investigation changes.
-- The task README's investigation index carries the verdict, the headline
-  number and the decision date. The reasoning stays in the investigation.
-- Candidate investigations are GitHub issues with the `feature idea` label, ranked
-  in a GitHub Project (Load Forecasting for the demand task); the task README's
-  *Backlog* section says how an item is opened, started, finished and set
-  aside. A started item becomes the next `R-XXX`, and the investigation names
-  its issue. An idea the researcher did not supply says who suggested it and
-  when.
-- Writing style: `CLAUDE.md`, *Writing style*.
-- IDs are stable and **numbered per task**: each task folder has its own
-  `O-001…` observations and `R-001…` investigations, and experiments are
-  `E-001…` within an investigation. A bare ID is ambiguous across tasks, so
-  always qualify it with the task outside its own folder — `spot_price/R-001`
-  in prose and commit messages, `docs/research/spot_price/R-001-…md` in code.
-- Keep multiple related experiments in the same investigation document.
-- Create a new investigation when the question changes materially or can reach
-  an independent conclusion.
-- Link to MLflow runs instead of manually duplicating run-level configuration
-  and metrics.
-- Links between pages are written relative to the docs site root
-  (`research/spot_price/observations.md#o-001-…`) so they resolve in the
-  docsify site; image paths are relative to the page (`assets/…`).
+Record only observations and ideas the researcher supplied or that the cited
+evidence establishes directly. Do not add explanations or hypotheses on the
+researcher's behalf unless asked. An idea the researcher did not supply says
+who suggested it and when. Writing style: `CLAUDE.md`, *Writing style*.
+
+## The Project
+
+Every issue of the four kinds is an item of the Load Forecasting Project. Its
+fields:
+
+- **Status**: `Ready`, `Needs a decision`, `In progress`, `Done`. `Done` is set
+  on close by the built-in workflow, so it is the pipeline, not the verdict.
+- **Task**: `demand` or `spot_price`.
+- **Family**: the signal a candidate or a batch belongs to (`recent load`,
+  `load shape`, `forecast thermal`, `weather memory`, `reference days`,
+  `calendar`, `renewables`, `external forecasts`, `MSM elements`); the options
+  are edited in the browser as families change.
+- **Build**, **Impact**, **Feasibility**: candidates only. Impact and
+  Feasibility run 1 to 3, 3 the highest; the ranking reads both, and there is
+  no priority field.
+- **Decision**: `Supported`, `Not supported`, `Inconclusive`, `Superseded`,
+  `Set aside`, the verdict of an investigation, an experiment or a candidate.
+  An experiment's body keeps the words Keep / Reject / Refine / Inconclusive;
+  the field takes `Supported` for Keep, `Not supported` for Reject and
+  `Inconclusive` for the other two. An observation has no Decision.
+
+The Project's auto-add workflow admits an issue by its label filter, which has
+no API and is edited in the browser: it must name all four labels, or a new
+record never enters the Project. Auto-add copies nothing from an issue into the
+fields, so set Task, Family, Build, Impact and Feasibility by hand when an item
+first comes up. Setting a
+candidate aside: close it as not planned with the reason, Decision `Set aside`.
+
+## Family batches
+
+A candidate is a record, not a queue slot. When a family has enough candidates
+worth a run, one experiment names them, a preset adds their columns to the
+baseline preset, one matched run against a fresh baseline run on the same
+window, one compare (`scripts/compare_<task>_runs.py`), one decision. The
+decision closes each candidate with its verdict, and a kept batch's preset
+becomes the baseline. Cheap column transforms go in together; a new source
+gets its own experiment. Pruning is an experiment whose preset drops features.
+The LightGBM settings are the strategy's and are never tuned per experiment.
+Pin `--start-date`, `--end-date` and `--train-start` identically for a
+candidate and its baseline.
 
 ## Assets
 
-Store only plots and other small artifacts used directly in observation or
-investigation conclusions under the task's `assets/` folder. Keep detailed run
-artifacts in MLflow. Use IDs in filenames so their owners remain clear, for
-example:
-
-- `O-001-mae-by-day-part.jpg`
-- `R-001-E-001-mae-by-window.png`
-- `R-001-E-002-summer-hourly-error.png`
-
-## Statuses
-
-- Observations: `Unreviewed`, `Investigating`, `Investigated`, `No action`.
-- Investigations: `Backlog`, `In progress`, `Supported`, `Not supported`,
-  `Inconclusive`, `Superseded`.
-- Experiment decisions: `Keep`, `Reject`, `Refine`, `Inconclusive`.
-- Backlog items (the Project's Status): `Ready`, `Needs a decision`,
-  `In progress`, `Done`; its Decision adds `Set aside` to the investigation
-  statuses.
+Store only the plots an issue's conclusion cites, under the task's `assets/`
+folder, named by the issue: `assets/160-mae-by-month.png`. The thirteen figures
+migrated on 2026-09-19 keep the names their records had
+(`R-006-E-001-mae-by-month.png`, `O-001-mae-by-day-part.jpg`), because the
+issues embed them by those paths. Keep detailed run artifacts in MLflow.

@@ -196,24 +196,24 @@
   day-ahead area demand backtest. Strategies: the eleven presets of `tasks/demand/presets.py`
   — `lightgbm`, `lightgbm_msm`, `lightgbm_msm_popw`, `lightgbm_msm_popw_daytype` (the
   script default and the Kansai baseline), `lightgbm_msm_popw_daytype_simday` (the Tokyo
-  demand baseline, reference run `008868fe…`; Tokyo-only, because its
+  demand baseline until 2026-09-19, reference run `008868fe…`; Tokyo-only, because its
   `ftr_period_similar_day` mart needs the でんき予報 hourly load of
   `fct_area_power_usage_hourly` and a fit of the similar-day weights, below) and its four
   calendar variants `…_simday_calendar`, `…_simday_holidaydegree`,
   `…_simday_holidaydistance` and `…_simday_calendarcounts` (research `demand/R-005`, all
   rejected, kept as reference presets; their feature lists and numbers are in the Demand
   task bullet below) and `…_simday_lags` (research `demand/R-006`: the thirteen recent-load
-  features of `ftr_period_actuals` and `ftr_day_actuals`, the researcher's decision pending;
+  features of `ftr_period_actuals` and `ftr_day_actuals`, kept tentatively on 2026-09-19;
   its 2026-09-12 run skipped seven target days to the 2025-06-14 hole where the baseline
   skipped one, so that run compares with `--common-days`) and `…_simday_lags_weather` (research `demand/R-007`: the MSM
   forecast's population-weighted humidity, rain and solar radiation on top of that preset,
-  the researcher's decision pending). Since 2026-09-14 these seven similar-day presets read
+  kept tentatively on 2026-09-19). Since 2026-09-14 these seven similar-day presets read
   `ftr_period_similar_day:similar_day_rank1_demand_kwh`, rank 1 of the paper-style pool
   (below), instead of the retired `similar_day_demand_kwh`; their reference runs predate
   the switch (Demand task bullet below). Research `demand/R-008` E-001 (2026-09-15) compares the
   two features matched on 2024-08-18 … 2026-08-17 (control `3dc586c4…` MAE 594,900; old run
   `9f02c385…` 585,788, its feature rebuilt into `pma_scratch` tables; new `d019a370…` 572,428;
-  new vs old −2.3 %, CI over days includes zero; the researcher's decision pending).
+  new vs old −2.3 %, CI over days includes zero; kept tentatively on 2026-09-19).
   Areas: `tokyo`, `kansai` = the TSO feeds loaded
   into `fct_area_demand_generation_actual`. An area's feature marts need its representative JMA
   station's hourly weather loaded and current (`dim_area.representative_jma_station_id`:
@@ -776,7 +776,7 @@
   prior-year reference date; research `demand/R-004`), was run on 2026-08-31 and removed with
   the column on 2026-09-05 — Not supported, the reasons in the investigation.
   `lightgbm_msm_popw_daytype_simday` (research `demand/R-004` E-002, kept 2026-09-06: the
-  Tokyo demand baseline, reference run `008868fe59274abfb49f128e29aa28fe`) = the
+  Tokyo demand baseline until 2026-09-19, reference run `008868fe59274abfb49f128e29aa28fe`) = the
   `lightgbm_msm_popw_daytype` preset + `ftr_period_similar_day:similar_day_rank1_demand_kwh`
   since 2026-09-14 (spec `docs/superpowers/specs/2026-09-14-similar-day-top-k-design.md`).
   Until then it read `similar_day_demand_kwh`, the load of one learned similar day from
@@ -865,8 +865,7 @@
   `quarter` never split on). `lightgbm_msm_popw_daytype_simday_lags` (research
   `demand/R-006` E-001, run 2026-09-12 `34707ed6…` against the fresh baseline `a3fde7eb…`
   on the 723 days both scored: MAE −0.6 %, CI over days includes zero, holidays −8.9 %,
-  overnight −8.5 %, daytime +1.3 %, the top-10 % demand days +2.9 %; the researcher's
-  decision pending) = the Tokyo baseline + `RECENT_LOAD_FEATURES`, the thirteen columns of
+  overnight −8.5 %, daytime +1.3 %, the top-10 % demand days +2.9 %; kept tentatively on 2026-09-19) = the Tokyo baseline + `RECENT_LOAD_FEATURES`, the thirteen columns of
   `ftr_period_actuals` and `ftr_day_actuals` above but `lag_9d_demand_kwh`; the 2025-06-14
   hole reaches every lag it reads, so that run skipped seven target days where the baseline
   skipped one (compared with `--common-days`; since 2026-09-13 both forecast them).
@@ -877,7 +876,7 @@
   (577,355 → 560,508), MAPE 3.55 % → 3.44 %, CI over days [−24,697, −8,739] excludes zero,
   20 of 25 months lower, spring −7.4 % but summer −1.2 % and autumn +0.6 %; no single
   element's permutation importance approaches the joint gain, so which of the three carries
-  it is unknown; the researcher's decision pending) = `…_simday_lags` +
+  it is unknown; kept tentatively on 2026-09-19) = `…_simday_lags` +
   `MSM_ELEMENT_FEATURES`, the three `ftr_hour_msm` columns
   `popw_forecast_relative_humidity_pct`, `popw_forecast_precipitation_mm` and
   `popw_forecast_solar_radiation_mjm2`. The forecast temperature is not repeated: every
@@ -1171,37 +1170,54 @@
 
 ## Forecasting Research
 
-- Research is organised per task under `docs/research/<task>/` (`spot_price`, `demand` —
-  same names as `tasks/<task>/` and the MLflow experiments), each with `README.md` (task index
-  + scope defaults), `observations.md` and `assets/`; shared conventions live in
-  [docs/research/README.md](docs/research/README.md). Record notable forecast behavior in the
-  task's `observations.md`; copy [docs/research/investigation-template.md](docs/research/investigation-template.md)
-  into the task folder for coherent forecasting questions and their experiments.
-- IDs (`O-XXX`, `R-XXX`) are numbered per task — qualify them outside their folder
-  (`spot_price/R-001`, `docs/research/spot_price/R-001-…md`).
-- Do not generate hypotheses, explanations, or initial ideas for the research log unless the
-  researcher explicitly asks; record the researcher's thinking faithfully.
-- Update the investigation index in the task's `README.md`.
-- The backlog of candidate investigations lives on GitHub since 2026-09-16: issues with the
-  `feature idea` label (opened with the *Feature idea* issue form,
-  `.github/ISSUE_TEMPLATE/feature-idea.yml`: expression, source, grain, mart, available_at
-  rule, build), ranked in the user-level Project **Load Forecasting**
-  (https://github.com/users/hankehly/projects/3, number 3; fields Status / Task / Impact /
-  Feasibility / Build / Investigation / Decision, listed in
-  `docs/research/demand/README.md`; auto-add sets Status only, so Task, Build, Impact and
-  Feasibility are set by hand when an item first comes up). Starting an item = the next
-  `R-XXX`, the issue set
-  `In progress` with the investigation named; the PR that records the decision closes it
-  (`Closes #N`); a ruled-out idea is closed as not planned with the reason and Decision
-  `Set aside` (Status is the pipeline only: the item-closed workflow sets `Done` on every
-  close). The Project's views and built-in workflows have no API and are edited in the
-  browser; `gh project` needs the `project` token scope (`gh auth refresh -s project`,
-  granted 2026-09-16). The first fifteen issues, #129 to #143, are Claude's 2026-09-15
-  suggestions, with Claude's Impact and Feasibility estimates.
-- Docs links are docsify site-root-relative (`research/spot_price/observations.md#o-001-…`);
-  image paths are page-relative (`assets/…`).
-- Keep reasoning, interpretations, and decisions in the research documents; keep run-level
-  parameters, metrics, code versions, and detailed artifacts in MLflow.
+- The research ledger is GitHub issues, four kinds by label — `observation`, `investigation`,
+  `feature candidate`, `experiment` — ranked in the user-level Project **Load Forecasting**
+  (https://github.com/users/hankehly/projects/3, number 3, id `PVT_kwHOALGbus4BjoLc`; fields
+  Status / Task / Family / Impact / Feasibility / Build / Decision). What each kind is, when it
+  closes, the Project's fields and the family-batch rule:
+  [docs/research/README.md](docs/research/README.md). The repo keeps each task's scope
+  defaults (`docs/research/<task>/README.md`), the papers index (`docs/research/papers.md`)
+  and the figures (`docs/research/<task>/assets/`, embedded in issues by raw URL on `main`).
+  Since 2026-09-19; until then the records were `O-XXX` / `R-XXX` / `E-XXX` files under
+  `docs/research/<task>/`, migrated as issues whose titles keep the ID, task-qualified
+  (`demand/R-006 — Recent load features`), so those IDs elsewhere in this file still resolve
+  by searching issue titles.
+- The kinds are independent records, not stages: no link is required, and no issue is created
+  solely to complete a workflow. An investigation exists only when the question itself is
+  worth keeping; "does this batch lower MAE" is an experiment. An experiment that belongs to
+  an investigation is its sub-issue (the migrated ones are). Closing an observation means it
+  needs no attention, not that it stopped being true.
+- Family batches: a candidate is a record, not a queue slot. One experiment tests the
+  candidates of a family together — one preset adding their columns to the baseline preset,
+  one matched run against a fresh baseline run on the same window, one compare, one decision —
+  and its decision closes each candidate with the verdict; a kept batch's preset becomes the
+  baseline. A new source gets its own experiment; pruning is an experiment whose preset drops.
+- Do not generate hypotheses, explanations, or initial ideas for the research ledger unless the
+  researcher explicitly asks; record the researcher's thinking faithfully. An idea the
+  researcher did not supply says who suggested it and when (the first fifteen candidates,
+  #129 to #143, are Claude's 2026-09-15 suggestions).
+- Opening one: the New issue chooser (three Markdown templates and the Feature candidate form,
+  `.github/ISSUE_TEMPLATE/`), or `gh issue create --template <Name> --label <kind>` (`gh` copies a
+  template's body, not its label); `gh` cannot fill the form, so a candidate opened from the
+  CLI is a Markdown body under the form's headings with `--label "feature candidate"`. Titles are plain, no prefix. The Project's auto-add workflow admits an issue by its
+  label filter, browser-only, which must name all four labels; it sets Status only, so
+  Task, Family, Build, Impact and Feasibility are set by hand when an item first comes up.
+  Setting a candidate aside = close as not planned with the reason and Decision `Set aside`
+  (Status is the pipeline only: the item-closed workflow sets `Done` on every close). The
+  Project's views and built-in workflows have no API and are edited in the browser; `gh
+  project` needs the `project` token scope (granted 2026-09-16).
+- Decisions: the Project's Decision field (`Supported`, `Not supported`, `Inconclusive`,
+  `Superseded`, `Set aside`) is the verdict of investigations, experiments and candidates; an
+  experiment's body keeps Keep / Reject / Refine / Inconclusive (`Supported` for Keep,
+  `Not supported` for Reject, `Inconclusive` for the other two). R-006, R-007 and R-008 were
+  kept tentatively on 2026-09-19 ("Provisionally Keep, researcher to confirm"), which made
+  `lightgbm_msm_popw_daytype_simday_lags_weather` the Tokyo baseline; no run of it is matched
+  to the current marts, so the first experiment's baseline is a fresh run.
+- Keep reasoning, interpretations and decisions in the issues; keep run-level parameters,
+  metrics, code versions and detailed artifacts in MLflow. Asset files are named by the issue,
+  `assets/<issue number>-<slug>.png` (the thirteen figures migrated on 2026-09-19 keep their
+  `R-XXX-E-XXX-…` and `O-XXX-…` names, which the issues embed); links inside `docs/research/` stay docsify
+  site-root-relative (`research/demand/README.md`).
 
 ## dbt
 
