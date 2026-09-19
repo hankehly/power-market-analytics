@@ -1649,6 +1649,13 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
                     "change_2d_9d_demand_kwh": change_2d_9d,
                     "mean_daytype_4d_demand_kwh": mean_of_present(window),
                     "ewm_daytype_4d_demand_kwh": ewm_of_present(window),
+                    # The days from D back to the window's newest and oldest day.
+                    "newest_daytype_4d_lag_days": (
+                        (day - window_days[0]).days if window_days else None
+                    ),
+                    "oldest_daytype_4d_lag_days": (
+                        (day - window_days[-1]).days if window_days else None
+                    ),
                     "ewm_5d_demand_kwh": ewm_5d,
                     "ewm_5d_minus_ewm_weekly_lags_demand_kwh": (
                         None if ewm_5d is None or ewm_weekly is None else ewm_5d - ewm_weekly
@@ -1690,6 +1697,8 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
         "lag_7d_ramp_demand_kwh",
         "lag_2d_wind_solar_generation_kwh",
         "lag_7d_wind_solar_generation_kwh",
+        "newest_daytype_4d_lag_days",
+        "oldest_daytype_4d_lag_days",
     ]:
         period_actuals[col] = nullable_column(period_actuals[col], int)
     for col in (
@@ -1922,7 +1931,8 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
         "trend_weekly_lags_demand_kwh double, std_weekly_lags_demand_kwh double, "
         "median_weekly_lags_demand_kwh double, zscore_7d_vs_14d_28d_demand_kwh double, "
         "change_2d_9d_demand_kwh bigint, mean_daytype_4d_demand_kwh double, "
-        "ewm_daytype_4d_demand_kwh double, ewm_5d_demand_kwh double, "
+        "ewm_daytype_4d_demand_kwh double, newest_daytype_4d_lag_days int, "
+        "oldest_daytype_4d_lag_days int, ewm_5d_demand_kwh double, "
         "ewm_5d_minus_ewm_weekly_lags_demand_kwh double, std_5d_demand_kwh double, "
         "ewstd_5d_demand_kwh double, ewstd_weekly_lags_demand_kwh double, "
         "lag_7d_adjacent_mean_demand_kwh double, lag_7d_ramp_demand_kwh bigint, "

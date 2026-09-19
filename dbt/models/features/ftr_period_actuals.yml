@@ -228,6 +228,24 @@ models:
             feature: true
             categorical: false
             expression: "EWA(demand_kwh, gap=2d, window=4, halflife=1) by day_type"
+      - name: newest_daytype_4d_lag_days
+        data_type: int
+        description: >
+          How many days before D the newest day of the day-type window lies: the newest complete day of D's day type at or before D-2, the first of the days mean_daytype_4d_demand_kwh and ewm_daytype_4d_demand_kwh read (feature candidate #203). 2 when D-2 has D's day type; larger after a run of other days, and the window has no bound. The same on all 48 periods of a day; null where the window is.
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "newest_daytype_4d_lag_days"
+      - name: oldest_daytype_4d_lag_days
+        data_type: int
+        description: >
+          How many days before D the oldest day of the same window lies: the fourth newest complete day of D's day type at or before D-2, or the oldest present when the window holds fewer than four (feature candidate #203). Days on a weekday target, weeks on a weekend one, often months on a holiday. The same on all 48 periods of a day; null where the window is.
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "oldest_daytype_4d_lag_days"
       - name: ewm_5d_demand_kwh
         data_type: double
         description: >
@@ -366,6 +384,10 @@ unit_tests:
       last four complete Saturdays at or before D-2: 03-01's window ends at
       02-22 and leaves 01-25 out; 03-08's skips the incomplete 03-01. Mondays
       and Tuesdays have no complete weekday, so their window is null. The
+      window's ages count the days from D back to its newest and its oldest
+      day: 7 and 7 with one Saturday (02-01), 7 and 28 with four, and 14, 21
+      and 28 for the newest once the Saturdays stop (03-08 to 03-22), while
+      the oldest is the oldest present when there are fewer than four. The
       02-01 file is public only 03-10, so every row that used it, through a
       lag or the window alone (03-08, 03-15, 03-22), carries that instant.
       ewm_5d takes D-2 to D-6, so each Saturday also feeds the Wednesday,
@@ -437,6 +459,8 @@ unit_tests:
           cast(t.change as bigint) as change_2d_9d_demand_kwh,
           cast(t.mean_daytype as double) as mean_daytype_4d_demand_kwh,
           cast(t.ewm_daytype as double) as ewm_daytype_4d_demand_kwh,
+          cast(t.newest_age as int) as newest_daytype_4d_lag_days,
+          cast(t.oldest_age as int) as oldest_daytype_4d_lag_days,
           cast(t.ewm_5d as double) as ewm_5d_demand_kwh,
           cast(t.ewm_5d_minus_weekly as double) as ewm_5d_minus_ewm_weekly_lags_demand_kwh,
           -- One Saturday a week: never two values in D-2 to D-6.
@@ -468,43 +492,43 @@ unit_tests:
           cast(null as bigint) as lag_7d_wind_solar_generation_kwh,
           t.available_at
         from (values
-          (date '2025-01-27',   40, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,   40, null, timestamp '2025-01-26 00:05:00'),
-          (date '2025-01-28', null,   40, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,   40, null, timestamp '2025-01-26 00:05:00'),
-          (date '2025-01-29', null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,   40, null, timestamp '2025-01-26 00:05:00'),
-          (date '2025-01-30', null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,   40, null, timestamp '2025-01-26 00:05:00'),
-          (date '2025-01-31', null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,   40, null, timestamp '2025-01-26 00:05:00'),
-          (date '2025-02-01', null, null,   40, null, null, null, null,   40,   40, null, null, null, 40, null, null,   40,   40, null, null, timestamp '2025-01-26 00:05:00'),
-          (date '2025-02-03',  100, null, null,   40, null, null, null, null, null, null, null, null, null, null,   60, null, null,  100, null, timestamp '2025-03-10 00:05:00'),
-          (date '2025-02-04', null,  100, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  100, null, timestamp '2025-03-10 00:05:00'),
-          (date '2025-02-05', null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  100, null, timestamp '2025-03-10 00:05:00'),
-          (date '2025-02-06', null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  100, null, timestamp '2025-03-10 00:05:00'),
-          (date '2025-02-07', null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  100, null, timestamp '2025-03-10 00:05:00'),
-          (date '2025-02-08', null, null,  100, null,   40, null, null,   70,   80, sqrt(115200 / 64), 60, sqrt(3600 / 2), 70, null, null,   70,   80, null, null, timestamp '2025-03-10 00:05:00'),
-          (date '2025-02-10',  220, null, null,  100, null, null, null, null, null, null, null, null, null, null,  120, null, null,  220, null, timestamp '2025-03-10 00:05:00'),
-          (date '2025-02-11', null,  220, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  220, null, timestamp '2025-02-09 00:05:00'),
-          (date '2025-02-12', null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  220, null, timestamp '2025-02-09 00:05:00'),
-          (date '2025-02-13', null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  220, null, timestamp '2025-02-09 00:05:00'),
-          (date '2025-02-14', null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  220, null, timestamp '2025-02-09 00:05:00'),
-          (date '2025-02-15', null, null,  220, null,  100,   40, null,  120,  160, sqrt(1008000 / 112), 540 / 6, sqrt(50400 / 6), 100, 300 / (2 * sqrt(3600 / 2)), null,  120,  160, null, null, timestamp '2025-03-10 00:05:00'),
-          (date '2025-02-17',  280, null, null,  220, null, null, null, null, null, null, null, null, null, null,   60, null, null,  280, null, timestamp '2025-03-10 00:05:00'),
-          (date '2025-02-18', null,  280, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  280, null, timestamp '2025-02-16 00:05:00'),
-          (date '2025-02-19', null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  280, null, timestamp '2025-02-16 00:05:00'),
-          (date '2025-02-20', null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  280, null, timestamp '2025-02-16 00:05:00'),
-          (date '2025-02-21', null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  280, null, timestamp '2025-02-16 00:05:00'),
-          (date '2025-02-22', null, null,  280, null,  220,  100,   40,  160,  224, sqrt(1346400 / 140), 1680 / 20, sqrt(144000 / 12), 160, 480 / (3 * sqrt(50400 / 6)), null,  160,  224, null, null, timestamp '2025-03-10 00:05:00'),
-          (date '2025-02-24',  340, null, null,  280, null, null, null, null, null, null, null, null, null, null,   60, null, null,  340, null, timestamp '2025-03-10 00:05:00'),
-          (date '2025-02-25', null,  340, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  340, null, timestamp '2025-02-23 00:05:00'),
-          (date '2025-02-26', null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  340, null, timestamp '2025-02-23 00:05:00'),
-          (date '2025-02-27', null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  340, null, timestamp '2025-02-23 00:05:00'),
-          (date '2025-02-28', null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  340, null, timestamp '2025-02-23 00:05:00'),
-          (date '2025-03-01', null, null,  340, null,  280,  220,  100,  235,  292, sqrt(993600 / 140), 1560 / 20, sqrt(126000 / 12), 250, 420 / (3 * sqrt(50400 / 6)), null,  235,  292, null, null, timestamp '2025-03-10 00:05:00'),
-          (date '2025-03-03', null, null, null,  340, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, timestamp '2025-02-23 00:05:00'),
-          (date '2025-03-08', null, null, null, null,  340,  280,  220,  280, 2140 / 7, sqrt(93600 / 28), 360 / 6, sqrt(21600 / 6), 280, null, null, 235, 292, null, null, timestamp '2025-03-10 00:05:00'),
-          (date '2025-03-15', null, null, null, null, null,  340,  280,  310,  320, sqrt(7200 / 4), 60, sqrt(3600 / 2), 310, null, null,  235,  292, null, null, timestamp '2025-03-10 00:05:00'),
-          (date '2025-03-22', null, null, null, null, null, null,  340,  340,  340, null, null, null, 340, null, null,  235,  292, null, null, timestamp '2025-03-10 00:05:00')
+          (date '2025-01-27',   40, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,   40, null, null, null, timestamp '2025-01-26 00:05:00'),
+          (date '2025-01-28', null,   40, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,   40, null, null, null, timestamp '2025-01-26 00:05:00'),
+          (date '2025-01-29', null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,   40, null, null, null, timestamp '2025-01-26 00:05:00'),
+          (date '2025-01-30', null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,   40, null, null, null, timestamp '2025-01-26 00:05:00'),
+          (date '2025-01-31', null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,   40, null, null, null, timestamp '2025-01-26 00:05:00'),
+          (date '2025-02-01', null, null,   40, null, null, null, null,   40,   40, null, null, null, 40, null, null,   40,   40, null, null, 7, 7, timestamp '2025-01-26 00:05:00'),
+          (date '2025-02-03',  100, null, null,   40, null, null, null, null, null, null, null, null, null, null,   60, null, null,  100, null, null, null, timestamp '2025-03-10 00:05:00'),
+          (date '2025-02-04', null,  100, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  100, null, null, null, timestamp '2025-03-10 00:05:00'),
+          (date '2025-02-05', null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  100, null, null, null, timestamp '2025-03-10 00:05:00'),
+          (date '2025-02-06', null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  100, null, null, null, timestamp '2025-03-10 00:05:00'),
+          (date '2025-02-07', null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  100, null, null, null, timestamp '2025-03-10 00:05:00'),
+          (date '2025-02-08', null, null,  100, null,   40, null, null,   70,   80, sqrt(115200 / 64), 60, sqrt(3600 / 2), 70, null, null,   70,   80, null, null, 7, 14, timestamp '2025-03-10 00:05:00'),
+          (date '2025-02-10',  220, null, null,  100, null, null, null, null, null, null, null, null, null, null,  120, null, null,  220, null, null, null, timestamp '2025-03-10 00:05:00'),
+          (date '2025-02-11', null,  220, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  220, null, null, null, timestamp '2025-02-09 00:05:00'),
+          (date '2025-02-12', null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  220, null, null, null, timestamp '2025-02-09 00:05:00'),
+          (date '2025-02-13', null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  220, null, null, null, timestamp '2025-02-09 00:05:00'),
+          (date '2025-02-14', null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  220, null, null, null, timestamp '2025-02-09 00:05:00'),
+          (date '2025-02-15', null, null,  220, null,  100,   40, null,  120,  160, sqrt(1008000 / 112), 540 / 6, sqrt(50400 / 6), 100, 300 / (2 * sqrt(3600 / 2)), null,  120,  160, null, null, 7, 21, timestamp '2025-03-10 00:05:00'),
+          (date '2025-02-17',  280, null, null,  220, null, null, null, null, null, null, null, null, null, null,   60, null, null,  280, null, null, null, timestamp '2025-03-10 00:05:00'),
+          (date '2025-02-18', null,  280, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  280, null, null, null, timestamp '2025-02-16 00:05:00'),
+          (date '2025-02-19', null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  280, null, null, null, timestamp '2025-02-16 00:05:00'),
+          (date '2025-02-20', null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  280, null, null, null, timestamp '2025-02-16 00:05:00'),
+          (date '2025-02-21', null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  280, null, null, null, timestamp '2025-02-16 00:05:00'),
+          (date '2025-02-22', null, null,  280, null,  220,  100,   40,  160,  224, sqrt(1346400 / 140), 1680 / 20, sqrt(144000 / 12), 160, 480 / (3 * sqrt(50400 / 6)), null,  160,  224, null, null, 7, 28, timestamp '2025-03-10 00:05:00'),
+          (date '2025-02-24',  340, null, null,  280, null, null, null, null, null, null, null, null, null, null,   60, null, null,  340, null, null, null, timestamp '2025-03-10 00:05:00'),
+          (date '2025-02-25', null,  340, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  340, null, null, null, timestamp '2025-02-23 00:05:00'),
+          (date '2025-02-26', null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  340, null, null, null, timestamp '2025-02-23 00:05:00'),
+          (date '2025-02-27', null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  340, null, null, null, timestamp '2025-02-23 00:05:00'),
+          (date '2025-02-28', null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  340, null, null, null, timestamp '2025-02-23 00:05:00'),
+          (date '2025-03-01', null, null,  340, null,  280,  220,  100,  235,  292, sqrt(993600 / 140), 1560 / 20, sqrt(126000 / 12), 250, 420 / (3 * sqrt(50400 / 6)), null,  235,  292, null, null, 7, 28, timestamp '2025-03-10 00:05:00'),
+          (date '2025-03-03', null, null, null,  340, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, timestamp '2025-02-23 00:05:00'),
+          (date '2025-03-08', null, null, null, null,  340,  280,  220,  280, 2140 / 7, sqrt(93600 / 28), 360 / 6, sqrt(21600 / 6), 280, null, null, 235, 292, null, null, 14, 35, timestamp '2025-03-10 00:05:00'),
+          (date '2025-03-15', null, null, null, null, null,  340,  280,  310,  320, sqrt(7200 / 4), 60, sqrt(3600 / 2), 310, null, null,  235,  292, null, null, 21, 42, timestamp '2025-03-10 00:05:00'),
+          (date '2025-03-22', null, null, null, null, null, null,  340,  340,  340, null, null, null, 340, null, null,  235,  292, null, null, 28, 49, timestamp '2025-03-10 00:05:00')
         ) as t(trade_date, lag_2d, lag_3d, lag_7d, lag_9d, lag_14d, lag_21d, lag_28d,
                mean_weekly, ewm_weekly, ewstd_weekly, trend_weekly, std_weekly, median_weekly, zscore_7d, change, mean_daytype, ewm_daytype, ewm_5d,
-               ewm_5d_minus_weekly, available_at)
+               ewm_5d_minus_weekly, newest_age, oldest_age, available_at)
         cross join (select explode(sequence(1, 48)) as time_code) as p
         left join (values
           (date '2025-01-25', 40), (date '2025-02-01', 100), (date '2025-02-08', 220),

@@ -175,7 +175,7 @@ with
     m.available_at,
     cast(null as timestamp) as published_at,
     stack(
-      32,
+      34,
       'lag_2d_demand_kwh', cast(m.lag_2d_demand_kwh as double), false,
       'lag_3d_demand_kwh', cast(m.lag_3d_demand_kwh as double), false,
       'lag_7d_demand_kwh', cast(m.lag_7d_demand_kwh as double), false,
@@ -196,6 +196,8 @@ with
       'mean_weekly_lags_ramp_demand_kwh', cast(m.mean_weekly_lags_ramp_demand_kwh as double), false,
       'mean_daytype_4d_demand_kwh', cast(m.mean_daytype_4d_demand_kwh as double), false,
       'ewm_daytype_4d_demand_kwh', cast(m.ewm_daytype_4d_demand_kwh as double), false,
+      'newest_daytype_4d_lag_days', cast(m.newest_daytype_4d_lag_days as double), false,
+      'oldest_daytype_4d_lag_days', cast(m.oldest_daytype_4d_lag_days as double), false,
       'ewm_5d_demand_kwh', cast(m.ewm_5d_demand_kwh as double), false,
       'std_5d_demand_kwh', cast(m.std_5d_demand_kwh as double), false,
       'ewstd_5d_demand_kwh', cast(m.ewstd_5d_demand_kwh as double), false,
