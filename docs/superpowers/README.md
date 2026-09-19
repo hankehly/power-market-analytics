@@ -13,6 +13,7 @@ applied without one.
 
 | Date | Work | Spec | Plan |
 |---|---|---|---|
+| 2026-09-19 | Feature candidate #151 — the forecast morning temperature trend in `ftr_day_msm`, over differences; the cumulative solar radiation left out by the researcher | [spec](superpowers/specs/2026-09-19-candidate-151-forecast-weather-trajectory-design.md) | — |
 | 2026-09-19 | Feature candidate #138 — the rank-1 similar day's distance and its lag in days, from columns the mart already had, with no new scoring run | [spec](superpowers/specs/2026-09-19-candidate-138-similar-day-distance-and-lag-design.md) | — |
 | 2026-09-19 | Feature candidate #135 — wind and solar generation on D-2 and D-7 in `ftr_period_actuals`; the observed radiation left out by the researcher, because it cannot be weighted | [spec](superpowers/specs/2026-09-19-candidate-135-renewable-generation-lags-design.md) | — |
 | 2026-09-19 | Feature candidates #137, #146, #147, #149 and #154 — six ratio and position columns over the recent load `ftr_period_actuals` already reads; fractions, not percentages | [spec](superpowers/specs/2026-09-19-candidate-137-146-147-149-154-recent-load-ratios-design.md) | — |

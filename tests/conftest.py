@@ -829,8 +829,8 @@ def discomfort_index(temperature_c: float, relative_humidity_pct: float) -> floa
 def day_msm_summary(hours: list[dict]) -> dict:
     """``ftr_day_msm``'s row of the fixture for one day's 24 ``ftr_hour_msm`` rows, in hour order.
 
-    The mart's rules: the mean is added in hour order, and the hour of the
-    maximum is the earliest on a tie.
+    The mart's rules: the mean is added in hour order, the hour of the maximum is
+    the earliest on a tie, and the morning trend is taken over differences.
     """
     temperatures = [row["popw_forecast_temperature_c"] for row in hours]
     total = 0.0
@@ -843,6 +843,11 @@ def day_msm_summary(hours: list[dict]) -> dict:
         "min_popw_forecast_temperature_c": min(temperatures),
         "mean_popw_forecast_temperature_c": total / len(temperatures),
         "max_popw_forecast_temperature_hour_ending": temperatures.index(max(temperatures)) + 1,
+        # The slope over the hours ending 07:00 to 10:00, over differences as the mart takes it.
+        "morning_trend_popw_forecast_temperature_c": (
+            3 * (temperatures[9] - temperatures[6]) + (temperatures[8] - temperatures[7])
+        )
+        / 10,
         "available_at": max(row["available_at"] for row in hours),
     }
 
@@ -1797,7 +1802,8 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
         pd.DataFrame(day_msm_rows),
         "area_code string, trade_date date, max_popw_forecast_temperature_c double, "
         "min_popw_forecast_temperature_c double, mean_popw_forecast_temperature_c double, "
-        "max_popw_forecast_temperature_hour_ending int, available_at timestamp",
+        "max_popw_forecast_temperature_hour_ending int, "
+        "morning_trend_popw_forecast_temperature_c double, available_at timestamp",
         "pma_features.ftr_day_msm",
     )
     write_table(
