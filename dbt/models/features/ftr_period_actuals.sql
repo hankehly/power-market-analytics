@@ -1,5 +1,6 @@
 -- The area's own recent demand for every delivery period: the lags of 2, 3,
--- 7, 9, 14, 21 and 28 days; two means, a weighted standard deviation, a
+-- 7, 9, 14, 21 and 28 days, and of 2 and 7 days for the wind and solar
+-- generation; two means, a weighted standard deviation, a
 -- least-squares trend, a standard deviation, a median and the mean ramp over
 -- the weekly lags; D-7's z-score against the three weeks before it; D-7's
 -- mean with its neighbouring periods and its ramp from the period before; an
@@ -23,6 +24,9 @@ with
     -- crosses midnight.
     unix_date(actuals.date_key) * 48 + actuals.time_code - 1 as period_index,
     actuals.demand_kwh,
+    -- The wind and solar share of generation, for its two lags. Demand alone
+    -- makes the rows: a period without demand has no generation either.
+    actuals.wind_solar_generation_kwh,
     actuals.available_at
   from
     {{ ref('fct_area_demand_generation_actual') }} as actuals
@@ -76,6 +80,7 @@ with
     kind,
     lag_days,
     demand_kwh,
+    wind_solar_generation_kwh,
     available_at
   from (
     select
@@ -84,6 +89,7 @@ with
       shifts.kind,
       shifts.lag_days,
       actuals.demand_kwh,
+      actuals.wind_solar_generation_kwh,
       actuals.available_at
     from
       actuals
@@ -111,6 +117,8 @@ with
     max(case when kind = 'before' and lag_days = 21 then demand_kwh end) as before_21d_demand_kwh,
     max(case when kind = 'before' and lag_days = 28 then demand_kwh end) as before_28d_demand_kwh,
     max(case when kind = 'after' and lag_days = 7 then demand_kwh end) as after_7d_demand_kwh,
+    max(case when kind = 'at' and lag_days = 2 then wind_solar_generation_kwh end) as lag_2d_wind_solar_generation_kwh,
+    max(case when kind = 'at' and lag_days = 7 then wind_solar_generation_kwh end) as lag_7d_wind_solar_generation_kwh,
     max(available_at) as available_at
   from
     shifted
@@ -388,6 +396,8 @@ with
     by_period.lag_14d_demand_kwh,
     by_period.lag_21d_demand_kwh,
     by_period.lag_28d_demand_kwh,
+    by_period.lag_2d_wind_solar_generation_kwh,
+    by_period.lag_7d_wind_solar_generation_kwh,
     -- The weekly lags present, added in a fixed order; null when none is.
     (coalesce(by_period.lag_7d_demand_kwh, 0)
       + coalesce(by_period.lag_14d_demand_kwh, 0)

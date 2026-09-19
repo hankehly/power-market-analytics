@@ -626,7 +626,12 @@
   `rel_change_2d_9d_demand`, the two existing differences over the weekly mean and over D-9,
   fractions and not percentages by the researcher's ruling, hence `rel_`;
   `lag_2d_position_28d_demand`, D-2 between the lowest and highest of D-2 … D-29, 0 to 1;
-  and `lag_7d_minus_median_weekly_lags_demand_kwh`; a zero denominator gives null; the
+  and `lag_7d_minus_median_weekly_lags_demand_kwh`; a zero denominator gives null; also
+  since 2026-09-19 (feature candidate #135) `lag_2d_wind_solar_generation_kwh` and
+  `lag_7d_wind_solar_generation_kwh`, the fact's wind and solar generation riding the
+  demand lags' shifts — demand alone makes the rows, 0 is a value, and the issue's
+  observed solar radiation was left out by the researcher because only some stations
+  observe it, so it cannot be population-weighted; the
   28-day range is a window function read at D-2, not more shifts, because the shifts are
   the row spine and `available_at`'s inputs — it and the two days still feed
   `available_at`, which moved on no real row — each over the values present — one union of the actuals shifted

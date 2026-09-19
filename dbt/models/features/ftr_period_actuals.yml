@@ -323,6 +323,24 @@ models:
             feature: true
             categorical: false
             expression: "LAG(demand_kwh, 7d) - ROLLING_MEDIAN(demand_kwh, gap=7d, window=4, step=7d)"
+      - name: lag_2d_wind_solar_generation_kwh
+        data_type: bigint
+        description: >
+          The area's wind and solar generation at the same period on D-2, kWh per 30 minutes (fct_area_demand_generation_actual.wind_solar_generation_kwh; feature candidate #135). 0 is a value: no sun and no wind. Null where D-2 has no demand or no generation value.
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "LAG(wind_solar_generation_kwh, 2d)"
+      - name: lag_7d_wind_solar_generation_kwh
+        data_type: bigint
+        description: >
+          The same on D-7 (feature candidate #135).
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "LAG(wind_solar_generation_kwh, 7d)"
       - name: available_at
         data_type: timestamp
         description: >
@@ -385,6 +403,7 @@ unit_tests:
               when date '2025-02-15' then 280
               when date '2025-02-22' then 340
             end as demand_kwh,
+            cast(null as bigint) as wind_solar_generation_kwh,
             case
               when d = date '2025-02-01' then timestamp '2025-03-10 00:05:00'
               else timestampadd(minute, 5, timestampadd(day, 1, cast(d as timestamp)))
@@ -444,6 +463,9 @@ unit_tests:
           cast(null as double) as rel_ewm_5d_minus_ewm_weekly_lags_demand,
           cast(t.change / t.lag_9d as double) as rel_change_2d_9d_demand,
           cast(t.lag_7d - t.median_weekly as double) as lag_7d_minus_median_weekly_lags_demand_kwh,
+          -- This test's fact has no generation; its lags have their own test.
+          cast(null as bigint) as lag_2d_wind_solar_generation_kwh,
+          cast(null as bigint) as lag_7d_wind_solar_generation_kwh,
           t.available_at
         from (values
           (date '2025-01-27',   40, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,   40, null, timestamp '2025-01-26 00:05:00'),
@@ -519,6 +541,7 @@ unit_tests:
             1 as time_code,
             1 as area_key,
             cast(v as bigint) as demand_kwh,
+            cast(null as bigint) as wind_solar_generation_kwh,
             timestamp '2025-03-09 00:05:00' as available_at
           from (values
             (date '2025-03-03', 700),
@@ -590,6 +613,7 @@ unit_tests:
             1 as time_code,
             1 as area_key,
             cast(v as bigint) as demand_kwh,
+            cast(null as bigint) as wind_solar_generation_kwh,
             timestamp '2025-03-04 00:05:00' as available_at
           from (values
             (date '2025-02-03', 100),
@@ -660,6 +684,7 @@ unit_tests:
             tc as time_code,
             1 as area_key,
             cast(v as bigint) as demand_kwh,
+            cast(null as bigint) as wind_solar_generation_kwh,
             timestamp '2025-03-05 00:30:00' as available_at
           from (values
             (date '2025-02-09', 48, 800),
@@ -793,6 +818,7 @@ unit_tests:
             1 as time_code,
             1 as area_key,
             cast(v as bigint) as demand_kwh,
+            cast(null as bigint) as wind_solar_generation_kwh,
             a as available_at
           from (values
             (date '2025-03-01', 0, timestamp '2025-03-02 00:30:00'),
@@ -841,3 +867,58 @@ unit_tests:
         - {area_code: tokyo, trade_date: 2025-04-20, time_code: 1, lag_2d_over_daily_mean_demand: null, lag_7d_over_daily_mean_demand: null, lag_2d_position_28d_demand: null, rel_ewm_5d_minus_ewm_weekly_lags_demand: null, rel_change_2d_9d_demand: null, lag_7d_minus_median_weekly_lags_demand_kwh: null, available_at: "2025-03-31 00:30:00"}
         - {area_code: tokyo, trade_date: 2025-04-26, time_code: 1, lag_2d_over_daily_mean_demand: null, lag_7d_over_daily_mean_demand: null, lag_2d_position_28d_demand: null, rel_ewm_5d_minus_ewm_weekly_lags_demand: null, rel_change_2d_9d_demand: null, lag_7d_minus_median_weekly_lags_demand_kwh: null, available_at: "2025-03-30 00:30:00"}
         - {area_code: tokyo, trade_date: 2025-04-27, time_code: 1, lag_2d_over_daily_mean_demand: null, lag_7d_over_daily_mean_demand: null, lag_2d_position_28d_demand: null, rel_ewm_5d_minus_ewm_weekly_lags_demand: null, rel_change_2d_9d_demand: null, lag_7d_minus_median_weekly_lags_demand_kwh: null, available_at: "2025-03-31 00:30:00"}
+
+  - name: ftr_period_actuals_wind_solar_generation_lags
+    description: >
+      One period on three days: 03-01 has demand 100 and wind and solar
+      generation 10, 03-02 demand 200 and no generation value, 03-06 demand 300
+      and generation 0. A generation lag lands where the demand lag of the same
+      day does: 03-03 and 03-08 read 03-01 at D-2 and D-7. 03-02's missing
+      generation gives a null lag on 03-04 and 03-09 while the demand lag is
+      there, and makes no row of its own. 03-06's 0 is a value, not a hole:
+      03-08 and 03-13 read 0.
+    model: ftr_period_actuals
+    given:
+      - input: ref('dim_area')
+        rows:
+          - {area_key: 1, area_code: tokyo}
+      - input: ref('ftr_day_calendar')
+        rows:
+          - {area_code: tokyo, trade_date: 2025-03-10, day_type: 0}
+      - input: ref('fct_area_demand_generation_actual')
+        format: sql
+        rows: |
+          select
+            d as date_key,
+            1 as time_code,
+            1 as area_key,
+            cast(v as bigint) as demand_kwh,
+            cast(g as bigint) as wind_solar_generation_kwh,
+            timestampadd(minute, 30, timestampadd(day, 1, cast(d as timestamp))) as available_at
+          from (values
+            (date '2025-03-01', 100, 10),
+            (date '2025-03-02', 200, null),
+            (date '2025-03-06', 300, 0)
+          ) as t(d, v, g)
+    expect:
+      rows:
+        - {area_code: tokyo, trade_date: 2025-03-03, time_code: 1, lag_2d_demand_kwh: 100, lag_7d_demand_kwh: null, lag_2d_wind_solar_generation_kwh: 10, lag_7d_wind_solar_generation_kwh: null}
+        - {area_code: tokyo, trade_date: 2025-03-04, time_code: 1, lag_2d_demand_kwh: 200, lag_7d_demand_kwh: null, lag_2d_wind_solar_generation_kwh: null, lag_7d_wind_solar_generation_kwh: null}
+        - {area_code: tokyo, trade_date: 2025-03-05, time_code: 1, lag_2d_demand_kwh: null, lag_7d_demand_kwh: null, lag_2d_wind_solar_generation_kwh: null, lag_7d_wind_solar_generation_kwh: null}
+        - {area_code: tokyo, trade_date: 2025-03-06, time_code: 1, lag_2d_demand_kwh: null, lag_7d_demand_kwh: null, lag_2d_wind_solar_generation_kwh: null, lag_7d_wind_solar_generation_kwh: null}
+        - {area_code: tokyo, trade_date: 2025-03-07, time_code: 1, lag_2d_demand_kwh: null, lag_7d_demand_kwh: null, lag_2d_wind_solar_generation_kwh: null, lag_7d_wind_solar_generation_kwh: null}
+        - {area_code: tokyo, trade_date: 2025-03-08, time_code: 1, lag_2d_demand_kwh: 300, lag_7d_demand_kwh: 100, lag_2d_wind_solar_generation_kwh: 0, lag_7d_wind_solar_generation_kwh: 10}
+        - {area_code: tokyo, trade_date: 2025-03-09, time_code: 1, lag_2d_demand_kwh: null, lag_7d_demand_kwh: 200, lag_2d_wind_solar_generation_kwh: null, lag_7d_wind_solar_generation_kwh: null}
+        - {area_code: tokyo, trade_date: 2025-03-10, time_code: 1, lag_2d_demand_kwh: null, lag_7d_demand_kwh: null, lag_2d_wind_solar_generation_kwh: null, lag_7d_wind_solar_generation_kwh: null}
+        - {area_code: tokyo, trade_date: 2025-03-11, time_code: 1, lag_2d_demand_kwh: null, lag_7d_demand_kwh: null, lag_2d_wind_solar_generation_kwh: null, lag_7d_wind_solar_generation_kwh: null}
+        - {area_code: tokyo, trade_date: 2025-03-12, time_code: 1, lag_2d_demand_kwh: null, lag_7d_demand_kwh: null, lag_2d_wind_solar_generation_kwh: null, lag_7d_wind_solar_generation_kwh: null}
+        - {area_code: tokyo, trade_date: 2025-03-13, time_code: 1, lag_2d_demand_kwh: null, lag_7d_demand_kwh: 300, lag_2d_wind_solar_generation_kwh: null, lag_7d_wind_solar_generation_kwh: 0}
+        - {area_code: tokyo, trade_date: 2025-03-15, time_code: 1, lag_2d_demand_kwh: null, lag_7d_demand_kwh: null, lag_2d_wind_solar_generation_kwh: null, lag_7d_wind_solar_generation_kwh: null}
+        - {area_code: tokyo, trade_date: 2025-03-16, time_code: 1, lag_2d_demand_kwh: null, lag_7d_demand_kwh: null, lag_2d_wind_solar_generation_kwh: null, lag_7d_wind_solar_generation_kwh: null}
+        - {area_code: tokyo, trade_date: 2025-03-20, time_code: 1, lag_2d_demand_kwh: null, lag_7d_demand_kwh: null, lag_2d_wind_solar_generation_kwh: null, lag_7d_wind_solar_generation_kwh: null}
+        - {area_code: tokyo, trade_date: 2025-03-22, time_code: 1, lag_2d_demand_kwh: null, lag_7d_demand_kwh: null, lag_2d_wind_solar_generation_kwh: null, lag_7d_wind_solar_generation_kwh: null}
+        - {area_code: tokyo, trade_date: 2025-03-23, time_code: 1, lag_2d_demand_kwh: null, lag_7d_demand_kwh: null, lag_2d_wind_solar_generation_kwh: null, lag_7d_wind_solar_generation_kwh: null}
+        - {area_code: tokyo, trade_date: 2025-03-27, time_code: 1, lag_2d_demand_kwh: null, lag_7d_demand_kwh: null, lag_2d_wind_solar_generation_kwh: null, lag_7d_wind_solar_generation_kwh: null}
+        - {area_code: tokyo, trade_date: 2025-03-29, time_code: 1, lag_2d_demand_kwh: null, lag_7d_demand_kwh: null, lag_2d_wind_solar_generation_kwh: null, lag_7d_wind_solar_generation_kwh: null}
+        - {area_code: tokyo, trade_date: 2025-03-30, time_code: 1, lag_2d_demand_kwh: null, lag_7d_demand_kwh: null, lag_2d_wind_solar_generation_kwh: null, lag_7d_wind_solar_generation_kwh: null}
+        - {area_code: tokyo, trade_date: 2025-04-03, time_code: 1, lag_2d_demand_kwh: null, lag_7d_demand_kwh: null, lag_2d_wind_solar_generation_kwh: null, lag_7d_wind_solar_generation_kwh: null}
