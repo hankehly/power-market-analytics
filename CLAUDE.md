@@ -587,8 +587,14 @@
   generator and in the presets' dtype check; the singular test
   `assert_ftr_day_calendar_special_period_agrees_with_holiday_degree` ties the mart's date
   ranges to `dim_date`'s, so neither can change alone; levels 1–4 are all `day_type`
-  Holiday and level 5 all Weekday; in no preset yet), `ftr_day_msm` (since 2026-09-19, feature
-  candidate #132: the delivery day's max, min and mean of `ftr_hour_msm`'s
+  Holiday and level 5 all Weekday; in no preset yet; since 2026-09-20, feature candidate #201,
+  also `lag_2d_day_type`, `lag_3d_day_type` and `lag_7d_day_type`, the mart's own `day_type`
+  of D-2, D-3 and D-7, the days the load lags read, so the model can tell when a lag is a
+  holiday's load — `day_type` is a step of its own and the three join it on the date, not
+  `lag()` over rows, so a gap in the spine could not shift a value; null where the earlier
+  day is before the spine's first day, 2016-01-01; categorical like `day_type`; the
+  researcher added D-3 to the issue's D-2 and D-7; in no preset yet), `ftr_day_msm` (since
+  2026-09-19, feature candidate #132: the delivery day's max, min and mean of `ftr_hour_msm`'s
   `popw_forecast_temperature_c` over its 24 hours and the hour ending of the max, the
   earliest on a tie — `max_` / `min_` / `mean_popw_forecast_temperature_c` and
   `max_popw_forecast_temperature_hour_ending`; one row per forecast vintage, complete days
