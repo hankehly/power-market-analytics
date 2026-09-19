@@ -9,7 +9,6 @@ assignees: []
 - **Task:** demand / spot_price
 - **Investigation:** #NNN, or none
 - **Feature candidates:** #NNN, #NNN, or none
-- **Family:**
 
 ## Why this experiment
 
