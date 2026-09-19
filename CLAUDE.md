@@ -56,7 +56,7 @@
   `[tool.coverage.*]`; gated at 100% via `fail_under`, so a partial suite fails locally and in
   CI — `.github/workflows/ci.yml` runs the same command on every push). Shared fixtures in
   `tests/conftest.py`: `spark` (local session, temp warehouse, no metastore),
-  `curated_warehouse` (synthetic `pma_curated` star for both tasks), `feature_marts` (the eight
+  `curated_warehouse` (synthetic `pma_curated` star for both tasks), `feature_marts` (the nine
   `pma_features` marts from it under a UTC session — the similar-day mart holds ranks 1–3
   at lags 364, 7 and 371, their mean and one same-holiday day, 2024-04-29 —
   with the Feast store in a temp registry; every test that builds a preset strategy takes
@@ -569,14 +569,22 @@
   feature column tagged `config.meta.feature` / `categorical` / `expression`, plus `available_at` carried
   from the facts through the `available_at()` macro; the singular test
   `assert_feature_marts_declare_available_at` lists any feature model without the column.
-  Today's eight: `ftr_day_actuals` (since 2026-09-12, research `demand/R-006`: D-2's mean,
+  Today's nine: `ftr_day_actuals` (since 2026-09-12, research `demand/R-006`: D-2's mean,
   max, min (since 2026-09-13) and max − min over its 48 periods, complete days only; since
   2026-09-13 also D-2's load factor, its means over 06:00–10:00, 13:00–17:00 and
   18:00–22:00 (windows set from the weekday load shape of both areas), its peak time code
   and its least-squares morning and evening ramps per hour, and the 16:8:4:2:1 and
   8:4:2:1 weighted means of the daily max, mean and min over D-2 … D-6 and D-7 … D-28 with
   their differences — so a row exists wherever any of those nine days is complete and the
-  D-2 columns can be null), `ftr_day_calendar`,
+  D-2 columns can be null), `ftr_day_calendar`, `ftr_day_msm` (since 2026-09-19, feature
+  candidate #132: the delivery day's max, min and mean of `ftr_hour_msm`'s
+  `popw_forecast_temperature_c` over its 24 hours and the hour ending of the max, the
+  earliest on a tie — `max_` / `min_` / `mean_popw_forecast_temperature_c` and
+  `max_popw_forecast_temperature_hour_ending`; one row per forecast vintage, complete days
+  only, so the four are null unless all 24 hours have a temperature; the mean is added in
+  hour order through `ordered_weighted_mean` with every weight 1, because a plain `avg()` of
+  doubles moves with the read order like a plain `sum()` — the unit test's 24 values give
+  28.549999999999997 in hour order and 28.55 in reverse; in no preset yet),
   `ftr_day_occto`, `ftr_hour_jma_obs`, `ftr_hour_msm` (the representative station's
   forecast temperature and the population-weighted `popw_forecast_<element>` of thirteen
   MSM elements, generated from one Jinja list in the model: temperature, humidity, rain,
@@ -1253,7 +1261,9 @@
   `ordered_weighted_mean` macro (`dbt/macros/`: an `array_sort`ed `collect_list` of
   `named_struct(key, weight, value)` folded with `aggregate()`), never with a plain `sum()`,
   so a rebuild gives the same value to the bit (since 2026-09-11; `ftr_hour_jma_obs` in lag
-  order, `ftr_hour_msm` in station order).
+  order, `ftr_hour_msm` in station order). A plain mean of doubles is the same case with
+  every weight 1, never `avg()` (since 2026-09-19; `ftr_day_msm` in hour order). A mean of
+  integers is exact and needs no order.
 - A feature a Python job fits and scores (spec §5 Form B; the similar day) is written
   back to `pma_ml.<feature>` (partitioned by `run_id`, with `available_at` = the latest of
   every input of the row and the cutoff of the fit that scored it, if a fit did, and

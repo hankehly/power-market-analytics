@@ -87,6 +87,7 @@ class TestFeatureValueFact:
             == {
                 "ftr_day_actuals",
                 "ftr_day_calendar",
+                "ftr_day_msm",
                 "ftr_day_occto",
                 "ftr_hour_jma_obs",
                 "ftr_hour_msm",

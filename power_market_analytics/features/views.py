@@ -242,6 +242,47 @@ FTR_DAY_CALENDAR = FeatureView(
     tags={"grain": "day"},
 )
 
+FTR_DAY_MSM_SOURCE = SparkSource(
+    name="ftr_day_msm",
+    query="select area_code, cast(date_format(trade_date, 'yyyyMMdd') as int) as trade_date_key, max_popw_forecast_temperature_c, min_popw_forecast_temperature_c, mean_popw_forecast_temperature_c, max_popw_forecast_temperature_hour_ending, available_at from pma_features.ftr_day_msm",
+    timestamp_field="available_at",
+    description="Day-level summaries of the MSM forecast for each delivery day per bidding zone, one row per forecast vintage: the maximum, minimum and mean over the day's 24 hours of ftr_hour_msm's population-weighted forecast temperature, and the hour of the maximum (feature candidate #132). Complete days only: the four columns are null unless all 24 hours of the vintage have a temperature. Grain: area_code x trade_date x forecast_reference_at. available_at is the latest of the day's hours: the vintage's, reference + 4 h.",
+)
+FTR_DAY_MSM = FeatureView(
+    name="ftr_day_msm",
+    entities=list(GRAIN_ENTITIES["day"]),
+    schema=[
+        Field(
+            name="max_popw_forecast_temperature_c",
+            dtype=Float64,
+            description="The highest of the day's 24 hourly population-weighted forecast temperatures, C. Null unless all 24 hours have one.",
+            tags={"categorical": "false", "expression": "DAILY_MAX(MEAN(forecast_temperature_c, weight=population))"},
+        ),
+        Field(
+            name="min_popw_forecast_temperature_c",
+            dtype=Float64,
+            description="The lowest of the day's 24 hourly population-weighted forecast temperatures, C. Null unless all 24 hours have one.",
+            tags={"categorical": "false", "expression": "DAILY_MIN(MEAN(forecast_temperature_c, weight=population))"},
+        ),
+        Field(
+            name="mean_popw_forecast_temperature_c",
+            dtype=Float64,
+            description="The mean of the day's 24 hourly population-weighted forecast temperatures, C, added in hour order so the value is the same on every build (the ordered_weighted_mean macro, every weight 1). Null unless all 24 hours have one.",
+            tags={"categorical": "false", "expression": "DAILY_MEAN(MEAN(forecast_temperature_c, weight=population))"},
+        ),
+        Field(
+            name="max_popw_forecast_temperature_hour_ending",
+            dtype=Int64,
+            description="The hour ending, 1-24, of the day's highest hourly population-weighted forecast temperature; the earliest on a tie. Null unless all 24 hours have a temperature.",
+            tags={"categorical": "false", "expression": "DAILY_ARGMAX(MEAN(forecast_temperature_c, weight=population))"},
+        ),
+    ],
+    source=FTR_DAY_MSM_SOURCE,
+    online=False,
+    description="Day-level summaries of the MSM forecast for each delivery day per bidding zone, one row per forecast vintage: the maximum, minimum and mean over the day's 24 hours of ftr_hour_msm's population-weighted forecast temperature, and the hour of the maximum (feature candidate #132). Complete days only: the four columns are null unless all 24 hours of the vintage have a temperature. Grain: area_code x trade_date x forecast_reference_at. available_at is the latest of the day's hours: the vintage's, reference + 4 h.",
+    tags={"grain": "day"},
+)
+
 FTR_DAY_OCCTO_SOURCE = SparkSource(
     name="ftr_day_occto",
     query="select area_code, cast(date_format(trade_date, 'yyyyMMdd') as int) as trade_date_key, max_demand_hour_ending, max_demand_mw, max_supply_capacity_mw, available_at from pma_features.ftr_day_occto",
@@ -637,6 +678,7 @@ FTR_PERIOD_SIMILAR_DAY = FeatureView(
 VIEWS = (
     FTR_DAY_ACTUALS,
     FTR_DAY_CALENDAR,
+    FTR_DAY_MSM,
     FTR_DAY_OCCTO,
     FTR_HOUR_JMA_OBS,
     FTR_HOUR_MSM,
