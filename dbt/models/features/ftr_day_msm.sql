@@ -24,6 +24,11 @@ with
         )
       end
     )) as temperature_terms,
+    -- The four morning hours, ending 07:00 to 10:00, for the trend.
+    max(case when hour_ending = 7 then popw_forecast_temperature_c end) as temperature_07_c,
+    max(case when hour_ending = 8 then popw_forecast_temperature_c end) as temperature_08_c,
+    max(case when hour_ending = 9 then popw_forecast_temperature_c end) as temperature_09_c,
+    max(case when hour_ending = 10 then popw_forecast_temperature_c end) as temperature_10_c,
     max(available_at) as available_at
   from {{ ref('ftr_hour_msm') }}
   group by area_code, trade_date, forecast_reference_at
@@ -41,6 +46,14 @@ with
       as mean_popw_forecast_temperature_c,
     case when n_hours = 24 then max_temperature_hour_ending end
       as max_popw_forecast_temperature_hour_ending,
+    -- The least-squares slope of the temperature against the hour over the four
+    -- morning hours, C per hour. With the hours fixed at 7 to 10 the weights are
+    -- (t - 8.5) / 5 = -0.3, -0.1, 0.1, 0.3, written over differences. The textbook
+    -- (n Stx - St Sx) / (n Stt - St^2) is the same number and subtracts two large,
+    -- nearly equal sums: it is off by 3e-14 where this is within one ulp. Null
+    -- unless all four hours have a temperature; the rest of the day is not needed.
+    (3 * (temperature_10_c - temperature_07_c) + (temperature_09_c - temperature_08_c)) / 10
+      as morning_trend_popw_forecast_temperature_c,
     {{ available_at(['available_at']) }} as available_at
   from days
   )
