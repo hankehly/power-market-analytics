@@ -48,8 +48,8 @@ From the command line, `gh issue create --template Observation --label observati
 Markdown template; `gh` copies a template's body but not its label, so the
 `--label` is required. A feature candidate is the same:
 `gh issue create --template "Feature candidate" --label "feature candidate"`;
-its template lists the choices for source data, grain, mart and build, and
-keeps the three checks as a task list.
+its template lists the choices for source data, grain and mart, and keeps the
+three checks as a task list.
 
 Titles are plain: what was seen, asked, proposed or tested. No prefix; the
 issue number is the ID.
