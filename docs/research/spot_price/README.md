@@ -16,9 +16,11 @@ delivery periods of day D in one area (`dim_area.area_code`; `--area`).
 (`TaskSpec.issue_offset`). Usable price history is delivery days ≤ D-1
 (`history_lead_days = 1`).
 
-**Baseline.** A strategy run in the `spot_price` MLflow experiment:
-`previous_day`, `lightgbm` or `lightgbm_occto`
-(`scripts/spot_price_backtest.py`). Pin `--start-date`, `--end-date` and
+**Baseline.** A strategy run in the `spot_price` MLflow experiment
+(`scripts/spot_price_backtest.py`). The baseline preset is `lightgbm`: calendar
+and the previous day's area price. `previous_day` is the naive reference, and
+`lightgbm_occto` is spot_price/R-001 E-001's candidate, provisionally
+inconclusive, so it is not the baseline. Pin `--start-date`, `--end-date` and
 `--train-start` identically for a candidate and its baseline.
 
 **Primary metric.** MAE (JPY/kWh).
