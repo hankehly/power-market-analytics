@@ -113,6 +113,11 @@ with
     {%- for element in weighted_elements %}
     weighted.popw_forecast_{{ element }},
     {%- endfor %}
+    -- The index of the two weighted means, not the weighted mean of the stations'
+    -- indexes: the formula has a temperature x humidity term, so the two differ
+    -- (by 0.03 on average, 0.42 at most, over Tokyo and Kansai in 2025).
+    {{ discomfort_index('weighted.popw_forecast_temperature_c', 'weighted.popw_forecast_relative_humidity_pct') }}
+      as popw_forecast_discomfort_index,
     {{ available_at(['representative.available_at', 'weighted.available_at']) }} as available_at
   from
     representative
