@@ -28,7 +28,7 @@ reference elsewhere still finds its record by searching the title.
 |---|---|---|---|
 | Observation | `observation` | Something noteworthy happened in the data or a run. | It needs no attention: the closing comment says what captured it. Closed does not mean no longer true. |
 | Investigation | `investigation` | A question worth understanding. | Its final disposition is written. |
-| Feature candidate | `feature candidate` | A possible model input worth remembering. | An experiment's decision covers it, or it is set aside. |
+| Feature candidate | `feature candidate` | A possible model input worth remembering. | Its feature is merged to `main`, or it is set aside. The verdict comes later, from the experiment that tests it. |
 | Experiment | `experiment` | One controlled comparison and its decision. | Its decision is written. |
 
 They are independent records, not stages. Common links: an observation leads
@@ -88,8 +88,10 @@ A candidate is a record, not a queue slot. When enough related candidates are
 worth a run, one experiment names them, a preset named after it (`e<issue number>`,
 optionally with a batch slug) adds their columns to the baseline preset, one matched run against a fresh baseline run on the same
 window, one compare (`scripts/compare_<task>_runs.py`), one decision. The
-decision closes each candidate with its verdict, and a kept batch's preset
-becomes the baseline. Cheap column transforms go in together; a new source
+decision gives each candidate its verdict, the Project's Decision field, and a
+kept batch's preset becomes the baseline. A candidate's issue is already closed
+by then: it closes when its feature is merged to `main` (since 2026-09-19), with
+the Decision left empty until an experiment tests it. Cheap column transforms go in together; a new source
 gets its own experiment. Pruning is an experiment whose preset drops features.
 The LightGBM settings are the strategy's and are never tuned per experiment.
 Pin `--start-date`, `--end-date` and `--train-start` identically for a
