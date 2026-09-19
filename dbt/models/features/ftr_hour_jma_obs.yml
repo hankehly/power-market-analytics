@@ -4,7 +4,7 @@ models:
       contract:
         enforced: true
     description: >
-      The recency-weighted same-hour temperature at each bidding zone's representative JMA station (dim_area.representative_jma_station_id) over D-8..D-2, the demand presets' wavg_temperature_c. Grain: area_code x trade_date x hour_ending (1-24, hour ending). A row exists for every delivery day that at least one lag observation reaches; the value is null only when every lag is missing.
+      The recency-weighted same-hour temperature at each bidding zone's representative JMA station (dim_area.representative_jma_station_id) over D-8..D-2, the demand presets' wavg_temperature_c; and, since feature candidate #150, the area's population-weighted observed temperature accumulated along the clock over the 24 and 72 hours ending at the hour on D-2, with its 24-hour half-life weighted average. Grain: area_code x trade_date x hour_ending (1-24, hour ending). A row exists for every delivery day that at least one lag observation reaches; the value is null only when every lag is missing.
     data_tests:
       - dbt_utils.unique_combination_of_columns:
           arguments:
@@ -44,6 +44,33 @@ models:
             feature: true
             categorical: false
             expression: "EWA(temperature_c, gap=2d, window=7, step=1d, halflife=1)"
+      - name: mean_24h_popw_temperature_c
+        data_type: double
+        description: >
+          The area's population-weighted observed temperature averaged over the 24 hours that end at this hour on D-2, C (feature candidate #150). Each hour is weighted over the area's stations that report it, with the latest census vintage's weights, renormalised and added in station order (the ordered_weighted_mean macro), as ftr_hour_msm weighs the forecast; the 24 hours are added oldest first. Complete windows only: null unless all 24 hours have a value. A missing station does not break a window; an hour no station reports does.
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "ROLLING_MEAN(MEAN(temperature_c, weight=population), gap=2d, window=24, step=1h)"
+      - name: mean_72h_popw_temperature_c
+        data_type: double
+        description: >
+          The same over the 72 hours that end at this hour on D-2, C (feature candidate #150). Null unless all 72 hours have a value.
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "ROLLING_MEAN(MEAN(temperature_c, weight=population), gap=2d, window=72, step=1h)"
+      - name: ewm_72h_popw_temperature_c
+        data_type: double
+        description: >
+          The same 72 hours weighted 0.5^(k / 24), k hours back from the newest: a half-life of 24 hours, divided by the sum of the weights, C (feature candidate #150). The 72 weights are literals the model computes when it compiles, so the SQL only adds and multiplies and the value is the same on every build. Null unless all 72 hours have a value.
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "EWA(MEAN(temperature_c, weight=population), gap=2d, window=72, step=1h, halflife=24)"
       - name: available_at
         data_type: timestamp
         description: >
@@ -63,7 +90,9 @@ unit_tests:
     given:
       - input: ref('dim_area')
         rows:
-          - {area_code: tokyo, representative_jma_station_id: s1}
+          - {area_key: 1, area_code: tokyo, representative_jma_station_id: s1}
+      - input: ref('fct_census_population_jma_station')
+        rows: []
       - input: ref('fct_jma_weather_hourly')
         rows:
           - {station_id: s1, date_key: 2025-03-06, observed_hour_start_at: "2025-03-06 00:00:00", temperature_c: null}
@@ -80,3 +109,60 @@ unit_tests:
         - {area_code: tokyo, trade_date: 2025-03-14, hour_ending: 1, wavg_temperature_c: 7.0, available_at: "2025-03-12 02:00:00"}
         - {area_code: tokyo, trade_date: 2025-03-15, hour_ending: 1, wavg_temperature_c: 7.0, available_at: "2025-03-13 02:00:00"}
         - {area_code: tokyo, trade_date: 2025-03-16, hour_ending: 1, wavg_temperature_c: 5.0, available_at: "2025-03-14 02:00:00"}
+
+  - name: ftr_hour_jma_obs_population_weighted_24h_and_72h_windows
+    description: >
+      Stations s2 and s3 carry Tokyo's weights, 0.75 and 0.25 (a 2015 vintage
+      is ignored), and report every hour from 03-01 00:00 to 03-05 23:00: s2 at
+      10 + 0.5 x the hour + the day of the month, s3 four degrees warmer, so
+      the area's hourly value is s2 + 1. Two things are missing. No station
+      reports 03-01 10:00. s3 has no value at 03-03 07:00, so that hour is s2
+      alone, renormalised. s1, the representative station, carries no weight
+      and has two readings, 03-03 and 03-04 at 23:00, which make the mart's
+      rows: hour ending 24 on 03-05 to 03-12. Each row reads the windows that
+      end at that hour on D-2. 03-05 has its 24-hour mean, 03-03's hours, one
+      of them the renormalised one (19.75 - 1 / 24), but no 72-hour value: its
+      window holds the hour no station reports. 03-06 and 03-07 have all
+      three. From 03-08 the windows end after the last observation, so all are
+      null. The weighted average's 72 weights halve every 24 hours and are
+      literals in the model, so the expected doubles are the same additions
+      and multiplications in the same order in Python.
+    model: ftr_hour_jma_obs
+    given:
+      - input: ref('dim_area')
+        rows:
+          - {area_key: 1, area_code: tokyo, representative_jma_station_id: s1}
+      - input: ref('fct_census_population_jma_station')
+        rows:
+          - {census_year: 2015, area_key: 1, station_id: s2, area_population_weight: 1.0}
+          - {census_year: 2020, area_key: 1, station_id: s2, area_population_weight: 0.75}
+          - {census_year: 2020, area_key: 1, station_id: s3, area_population_weight: 0.25}
+      - input: ref('fct_jma_weather_hourly')
+        format: sql
+        rows: |
+          with hours as (
+            select explode(sequence(
+              timestamp '2025-03-01 00:00:00', timestamp '2025-03-05 23:00:00', interval 1 hour)) as ts
+          )
+          select 's2' as station_id, cast(ts as date) as date_key, ts as observed_hour_start_at,
+            cast(10 + hour(ts) * 0.5 + day(ts) as double) as temperature_c
+          from hours where ts <> timestamp '2025-03-01 10:00:00'
+          union all
+          select 's3', cast(ts as date), ts,
+            case when ts <> timestamp '2025-03-03 07:00:00'
+              then cast(14 + hour(ts) * 0.5 + day(ts) as double) end
+          from hours where ts <> timestamp '2025-03-01 10:00:00'
+          union all
+          select 's1', date '2025-03-03', timestamp '2025-03-03 23:00:00', cast(8 as double)
+          union all
+          select 's1', date '2025-03-04', timestamp '2025-03-04 23:00:00', cast(9 as double)
+    expect:
+      rows:
+        - {area_code: tokyo, trade_date: 2025-03-05, hour_ending: 24, mean_24h_popw_temperature_c: 19.708333333333332, mean_72h_popw_temperature_c: null, ewm_72h_popw_temperature_c: null}
+        - {area_code: tokyo, trade_date: 2025-03-06, hour_ending: 24, mean_24h_popw_temperature_c: 20.75, mean_72h_popw_temperature_c: 19.73611111111111, ewm_72h_popw_temperature_c: 20.854779715085353}
+        - {area_code: tokyo, trade_date: 2025-03-07, hour_ending: 24, mean_24h_popw_temperature_c: 21.75, mean_72h_popw_temperature_c: 20.73611111111111, ewm_72h_popw_temperature_c: 21.85990364459824}
+        - {area_code: tokyo, trade_date: 2025-03-08, hour_ending: 24, mean_24h_popw_temperature_c: null, mean_72h_popw_temperature_c: null, ewm_72h_popw_temperature_c: null}
+        - {area_code: tokyo, trade_date: 2025-03-09, hour_ending: 24, mean_24h_popw_temperature_c: null, mean_72h_popw_temperature_c: null, ewm_72h_popw_temperature_c: null}
+        - {area_code: tokyo, trade_date: 2025-03-10, hour_ending: 24, mean_24h_popw_temperature_c: null, mean_72h_popw_temperature_c: null, ewm_72h_popw_temperature_c: null}
+        - {area_code: tokyo, trade_date: 2025-03-11, hour_ending: 24, mean_24h_popw_temperature_c: null, mean_72h_popw_temperature_c: null, ewm_72h_popw_temperature_c: null}
+        - {area_code: tokyo, trade_date: 2025-03-12, hour_ending: 24, mean_24h_popw_temperature_c: null, mean_72h_popw_temperature_c: null, ewm_72h_popw_temperature_c: null}

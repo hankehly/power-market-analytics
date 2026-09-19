@@ -122,8 +122,11 @@ with
     m.available_at,
     cast(null as timestamp) as published_at,
     stack(
-      1,
-      'wavg_temperature_c', cast(m.wavg_temperature_c as double), false
+      4,
+      'wavg_temperature_c', cast(m.wavg_temperature_c as double), false,
+      'mean_24h_popw_temperature_c', cast(m.mean_24h_popw_temperature_c as double), false,
+      'mean_72h_popw_temperature_c', cast(m.mean_72h_popw_temperature_c as double), false,
+      'ewm_72h_popw_temperature_c', cast(m.ewm_72h_popw_temperature_c as double), false
     ) as (feature_name, feature_value, is_categorical)
   from
     {{ ref('ftr_hour_jma_obs') }} m
