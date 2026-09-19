@@ -619,7 +619,17 @@
   D-7's z-score against D-14, D-21 and D-28, the sample and weighted standard deviations
   (EWSTD, the pandas `ewm().std()` correction) of D-2 … D-6 and of the weekly lags, D-7's
   mean with its neighbouring periods, its ramp from the period before and the mean ramp
-  of the weekly lags, each over the values present — one union of the actuals shifted
+  of the weekly lags, and since 2026-09-19 (feature candidates #137, #146, #147, #149 and
+  #154) six ratios and positions: `lag_2d_over_daily_mean_demand` and
+  `lag_7d_over_daily_mean_demand`, the load over its complete day's mean as one division,
+  48 × lag ÷ the day's sum; `rel_ewm_5d_minus_ewm_weekly_lags_demand` and
+  `rel_change_2d_9d_demand`, the two existing differences over the weekly mean and over D-9,
+  fractions and not percentages by the researcher's ruling, hence `rel_`;
+  `lag_2d_position_28d_demand`, D-2 between the lowest and highest of D-2 … D-29, 0 to 1;
+  and `lag_7d_minus_median_weekly_lags_demand_kwh`; a zero denominator gives null; the
+  28-day range is a window function read at D-2, not more shifts, because the shifts are
+  the row spine and `available_at`'s inputs — it and the two days still feed
+  `available_at`, which moved on no real row — each over the values present — one union of the actuals shifted
   along a period index (so a neighbouring period crosses midnight) grouped per period,
   so a row exists wherever any lag exists and a
   column is null where its input is absent; `available_at` is the greatest over the rows
