@@ -1,0 +1,9 @@
+description: >-
+  Plus the three other MSM forecast elements, population-weighted like the
+  forecast temperature the base already carries (demand/R-007 E-001). The Tokyo
+  baseline since 2026-09-19.
+base: lightgbm_msm_popw_daytype_simday_lags
+add:
+  - ftr_hour_msm:popw_forecast_relative_humidity_pct
+  - ftr_hour_msm:popw_forecast_precipitation_mm
+  - ftr_hour_msm:popw_forecast_solar_radiation_mjm2

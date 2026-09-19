@@ -1,0 +1,5 @@
+description: >-
+  Plus the MSM forecast temperature at the representative station (demand/R-001).
+base: lightgbm
+add:
+  - ftr_hour_msm:forecast_temperature_c

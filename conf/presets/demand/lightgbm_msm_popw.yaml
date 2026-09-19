@@ -1,0 +1,6 @@
+description: >-
+  Plus the same forecast population-weighted over the area's stations instead
+  (demand/R-002).
+base: lightgbm
+add:
+  - ftr_hour_msm:popw_forecast_temperature_c

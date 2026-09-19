@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import re
+import textwrap
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -13,15 +16,17 @@ from power_market_analytics.features import views
 from power_market_analytics.features.catalogue import feature_services
 from power_market_analytics.features.entities import ENTITIES
 from power_market_analytics.features.presets import (
+    PRESETS_DIR,
     Preset,
     categorical_columns,
     feature_column,
     feature_dtypes,
     feature_expressions,
     feature_service,
+    load_presets,
+    preset_tasks,
 )
 from power_market_analytics.features.store import open_store
-from power_market_analytics.tasks.spot_price.presets import LIGHTGBM
 from tests.support import write_feature_store_yaml
 
 CALENDAR = "ftr_day_calendar:month"
@@ -43,11 +48,122 @@ REGISTERED_SERVICES = [
     "spot_price__lightgbm",
     "spot_price__lightgbm_occto",
 ]
+LIGHTGBM = load_presets("spot_price")["lightgbm"]
 
 
 def preset(**overrides) -> Preset:
     fields = {"task": "spot_price", "name": "p", "features": (CALENDAR, LAG)}
     return Preset(**{**fields, **overrides})
+
+
+def write_preset(directory: Path, name: str, text: str) -> Path:
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"{name}.yaml"
+    path.write_text(textwrap.dedent(text))
+    return path
+
+
+ONE = "description: The first.\nfeatures: [ftr_day_calendar:month, ftr_period_jepx:lag_1d_price]\n"
+
+
+class TestLoadPresets:
+    def test_a_full_list_and_a_base_chain_resolve_in_order(self, tmp_path):
+        task = tmp_path / "demand"
+        write_preset(task, "one", ONE)
+        write_preset(
+            task,
+            "two",
+            "description: Plus the day type.\nbase: one\nadd: [ftr_day_calendar:day_type]\n",
+        )
+        write_preset(
+            task,
+            "three",
+            "description: Minus the lag.\nbase: two\ndrop: [ftr_period_jepx:lag_1d_price]\n",
+        )
+        presets = load_presets("demand", tmp_path)
+        assert list(presets) == ["one", "three", "two"]
+        assert presets["one"] == Preset("demand", "one", (CALENDAR, LAG), description="The first.")
+        assert presets["two"].features == (CALENDAR, LAG, DAY_TYPE)
+        assert presets["two"].base == "one"
+        assert presets["three"] == Preset(
+            "demand", "three", (CALENDAR, DAY_TYPE), base="two", description="Minus the lag."
+        )
+
+    def test_a_base_may_add_and_drop_in_one_file(self, tmp_path):
+        task = tmp_path / "demand"
+        write_preset(task, "one", ONE)
+        write_preset(
+            task,
+            "two",
+            "description: Swap.\nbase: one\nadd: [ftr_day_calendar:day_type]\ndrop: [ftr_day_calendar:month]\n",
+        )
+        assert load_presets("demand", tmp_path)["two"].features == (LAG, DAY_TYPE)
+
+    @pytest.mark.parametrize(
+        ("text", "message"),
+        [
+            ("- a\n", "is not a mapping"),
+            ("description: x\nfeatures: [ftr_a:b]\nextra: 1\n", "unknown keys ['extra']"),
+            ("features: [ftr_a:b]\n", "description is required"),
+            ("description: ' '\nfeatures: [ftr_a:b]\n", "description is required"),
+            ("description: x\n", "exactly one of features and base"),
+            (
+                "description: x\nfeatures: [ftr_a:b]\nbase: one\n",
+                "exactly one of features and base",
+            ),
+            ("description: x\nfeatures: [ftr_a:b]\nadd: [ftr_a:c]\n", "add and drop need a base"),
+            ("description: x\nbase: one\n", "a base needs add or drop"),
+            ("description: x\nbase: one\nadd: []\ndrop: []\n", "a base needs add or drop"),
+            ("description: x\nbase: 3\nadd: [ftr_a:c]\n", "base must be a preset name"),
+            (
+                "description: x\nbase: nope\nadd: [ftr_a:c]\n",
+                "base 'nope' is not a preset of demand",
+            ),
+            (
+                "description: x\nfeatures: ftr_a:b\n",
+                "features must be a list of 'view:column' strings",
+            ),
+            ("description: x\nfeatures: [lag]\n", "is not '<view>:<column>'"),
+            ("description: x\nfeatures: [ftr_a:b, ftr_c:b]\n", "duplicate feature columns ['b']"),
+            ("description: x\nfeatures: [ftr_a:time_code]\n", "every preset's first feature"),
+            ("description: x\nbase: one\ndrop: [ftr_x:y]\n", "cannot drop ['ftr_x:y']"),
+            ("description: x\nbase: one\nadd: [ftr_day_calendar:month]\n", "cannot add"),
+        ],
+    )
+    def test_rejects_a_bad_file_naming_it(self, tmp_path, text, message):
+        task = tmp_path / "demand"
+        write_preset(task, "one", ONE)
+        bad = write_preset(task, "bad", text)
+        with pytest.raises(ValueError, match=re.escape(str(bad))) as excinfo:
+            load_presets("demand", tmp_path)
+        assert message in str(excinfo.value)
+
+    def test_rejects_a_looping_chain(self, tmp_path):
+        task = tmp_path / "demand"
+        write_preset(task, "a", "description: x\nbase: b\nadd: [ftr_a:b]\n")
+        write_preset(task, "b", "description: x\nbase: a\nadd: [ftr_a:c]\n")
+        with pytest.raises(ValueError, match=r"a\.yaml: base chain loops: a -> b -> a"):
+            load_presets("demand", tmp_path)
+
+    def test_rejects_a_name_outside_lowercase_snake_case(self, tmp_path):
+        write_preset(tmp_path / "demand", "Bad-Name", ONE)
+        with pytest.raises(ValueError, match=r"Bad-Name\.yaml: a preset name is lowercase a-z0-9_"):
+            load_presets("demand", tmp_path)
+
+    def test_rejects_a_task_without_files(self, tmp_path):
+        (tmp_path / "demand").mkdir()
+        with pytest.raises(ValueError, match="no preset files"):
+            load_presets("demand", tmp_path)
+
+    def test_the_task_directories_are_listed_sorted(self, tmp_path):
+        write_preset(tmp_path / "spot_price", "one", ONE)
+        write_preset(tmp_path / "demand", "one", ONE)
+        (tmp_path / "notes.txt").write_text("")
+        assert preset_tasks(tmp_path) == ("demand", "spot_price")
+
+    def test_the_repository_directories_are_the_tasks(self):
+        assert PRESETS_DIR.name == "presets" and PRESETS_DIR.parent.name == "conf"
+        assert preset_tasks() == ("demand", "spot_price")
 
 
 class TestFeatureColumn:
@@ -92,6 +208,12 @@ class TestPreset:
             preset().with_changes(drop=("ftr_x:y",), name="q")
         with pytest.raises(ValueError, match=r"cannot add \['ftr_period_jepx:lag_1d_price'\]"):
             preset().with_changes(add=(LAG,), name="q")
+
+    def test_description_is_empty_unless_given_and_a_change_clears_it(self):
+        assert preset().description == ""
+        described = preset(description="Calendar and the lag.")
+        assert described.description == "Calendar and the lag."
+        assert described.with_changes(add=(DAY_TYPE,), name="q").description == ""
 
 
 class TestFeatureDtypes:
@@ -193,6 +315,12 @@ class TestFeatureService:
             "ftr_period_jepx": ["lag_1d_price"],
         }
         assert service.tags == {"task": "spot_price", "preset": "p", "categorical": "day_type"}
+
+    def test_the_description_is_the_presets_or_a_summary(self):
+        assert feature_service(preset(description="The lag.")).description == "The lag."
+        assert feature_service(preset()).description == (
+            "Preset 'p' of the spot_price task: ftr_day_calendar:month, ftr_period_jepx:lag_1d_price."
+        )
 
     def test_the_catalogue_lists_every_tasks_presets(self):
         assert sorted(s.name for s in feature_services()) == REGISTERED_SERVICES

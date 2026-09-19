@@ -1,0 +1,7 @@
+description: >-
+  Plus rank 1 of the paper-style similar-day pool (demand/R-004 E-002, R-008): the
+  Tokyo baseline until 2026-09-19. Tokyo-only until another TSO's でんき予報 hourly
+  load is loaded and its weights fitted.
+base: lightgbm_msm_popw_daytype
+add:
+  - ftr_period_similar_day:similar_day_rank1_demand_kwh

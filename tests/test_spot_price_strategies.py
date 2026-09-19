@@ -7,8 +7,7 @@ import pandas as pd
 import pytest
 
 from power_market_analytics.forecasting.preset_lgbm import PresetLightGbmStrategy
-from power_market_analytics.tasks.spot_price.presets import PRESETS
-from power_market_analytics.tasks.spot_price.strategies import STRATEGIES, build_strategy
+from power_market_analytics.tasks.spot_price.strategies import PRESETS, STRATEGIES, build_strategy
 from power_market_analytics.tasks.spot_price.strategies.naive import PreviousDayStrategy
 from tests.conftest import OCCTO_DAYS, PRICE_DAYS, synthetic_price
 

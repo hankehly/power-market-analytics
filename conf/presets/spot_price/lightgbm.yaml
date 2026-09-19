@@ -1,0 +1,6 @@
+description: >-
+  Calendar and the previous day's area price.
+features:
+  - ftr_day_calendar:month
+  - ftr_day_calendar:day_of_week
+  - ftr_period_jepx:lag_1d_price
