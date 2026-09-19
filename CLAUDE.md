@@ -602,7 +602,15 @@
   which subtract two large numbers and come out 3e-14 off; it needs its four hours only, so
   a day incomplete elsewhere has a trend and no summaries; the issue's cumulative forecast
   solar radiation was left out by the researcher; in no preset yet),
-  `ftr_day_occto`, `ftr_hour_jma_obs`, `ftr_hour_msm` (the representative station's
+  `ftr_day_occto`, `ftr_hour_jma_obs` (the representative station's `wavg_temperature_c`;
+  since 2026-09-19, feature candidate #150, also the first population-weighted *observed*
+  temperature in a mart, accumulated along the clock over the hours ending at the target hour
+  on D-2: `mean_24h_popw_temperature_c`, `mean_72h_popw_temperature_c` and
+  `ewm_72h_popw_temperature_c`, a 24-hour half-life; each hour weighted over the stations that
+  report it by `ftr_hour_msm`'s rule, complete windows only, every sum oldest hour first; the
+  72 weights are literals the model's Jinja computes at compile time, because Spark's `pow()`
+  and Python's can differ in the last bit and a literal cannot — the unit test's Python
+  reference matches to the bit; `available_at` unchanged; in no preset yet), `ftr_hour_msm` (the representative station's
   forecast temperature and the population-weighted `popw_forecast_<element>` of thirteen
   MSM elements, generated from one Jinja list in the model: temperature, humidity, rain,
   solar radiation — `popw_forecast_solar_radiation_mjm2` in MJ/m2, since 2026-09-12,
