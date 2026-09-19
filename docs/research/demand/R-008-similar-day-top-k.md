@@ -1,7 +1,7 @@
 # R-008 — Similar days from the paper's blended pool
 
-- **Status:** In progress
-- **Last updated:** 2026-09-15 (E-001 run; the researcher's decision pending)
+- **Status:** Supported
+- **Last updated:** 2026-09-19 (the researcher kept E-001, tentatively)
 - **Created:** 2026-09-15
 - **Triggering observation:** None — modeling idea
 - **Related investigations:**
@@ -272,7 +272,8 @@ What the tables show, no more.
 
 ### Decision
 
-**Decision:** Pending — the researcher's.
+**Decision:** Keep — provisionally, the researcher's on 2026-09-19, to confirm. Rank 1 of the
+paper's pool stays in the similar-day presets; kept together with R-006 and R-007.
 
 ### Follow-up ideas
 
@@ -294,14 +295,16 @@ One experiment, on 730 matched days:
   the old feature's does not.
 - **New against old:** −2.3 %, with an interval over days that includes zero.
 
-The decision is the researcher's.
+The researcher kept the new feature on 2026-09-19, tentatively, together with
+R-006 and R-007; the scratch objects stay until the keep is confirmed.
 
 ## Open questions
 
-- The researcher's verdict.
+- Whether the tentative keep holds once the new baseline has a fresh matched run.
 
 ## Final disposition
 
-**Investigation status:** In progress  
-**Recommended action:** —  
+**Investigation status:** Supported — provisionally, 2026-09-19; researcher to confirm  
+**Recommended action:** Run `lightgbm_msm_popw_daytype_simday_lags_weather` fresh on the current marts as the
+baseline of the next experiment.  
 **Superseded by:** —
