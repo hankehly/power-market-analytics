@@ -595,7 +595,13 @@
   only, so the four are null unless all 24 hours have a temperature; the mean is added in
   hour order through `ordered_weighted_mean` with every weight 1, because a plain `avg()` of
   doubles moves with the read order like a plain `sum()` — the unit test's 24 values give
-  28.549999999999997 in hour order and 28.55 in reverse; in no preset yet),
+  28.549999999999997 in hour order and 28.55 in reverse; since 2026-09-19 also, feature
+  candidate #151, `morning_trend_popw_forecast_temperature_c`, the least-squares slope of
+  that temperature over the four hours ending 07:00–10:00, °C per hour, written over
+  differences, `(3 (x10 − x7) + (x9 − x8)) / 10` — the same slope as the textbook sums,
+  which subtract two large numbers and come out 3e-14 off; it needs its four hours only, so
+  a day incomplete elsewhere has a trend and no summaries; the issue's cumulative forecast
+  solar radiation was left out by the researcher; in no preset yet),
   `ftr_day_occto`, `ftr_hour_jma_obs`, `ftr_hour_msm` (the representative station's
   forecast temperature and the population-weighted `popw_forecast_<element>` of thirteen
   MSM elements, generated from one Jinja list in the model: temperature, humidity, rain,
