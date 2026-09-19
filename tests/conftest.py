@@ -369,6 +369,30 @@ def synthetic_day_type(day: pd.Timestamp) -> int:
     return 1 if day.dayofweek >= 5 else 0
 
 
+#: The lags whose day type ``ftr_day_calendar`` carries, in days before the delivery day.
+CALENDAR_LAG_DAYS = (2, 3, 7)
+
+
+def synthetic_lag_day_type(day: pd.Timestamp, lag_days: int) -> int | None:
+    """``ftr_day_calendar.lag_<k>d_day_type`` of the fixture: the earlier day's day type.
+
+    Parameters
+    ----------
+    day : pandas.Timestamp
+        The delivery day.
+    lag_days : int
+        How many days earlier the day lies.
+
+    Returns
+    -------
+    int or None
+        ``synthetic_day_type`` of that day; ``None`` when it is before the fixture's
+        calendar, as the mart gives null before the spine's first day.
+    """
+    earlier = day - pd.Timedelta(days=lag_days)
+    return synthetic_day_type(earlier) if earlier in CALENDAR_DAYS else None
+
+
 def synthetic_special_period(day: pd.Timestamp) -> int:
     """``ftr_day_calendar.special_period`` of the fixture, by the mart's rule.
 
@@ -1380,6 +1404,10 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
                     "day_of_week": day.dayofweek,
                     "day_type": synthetic_day_type(day),
                     "special_period": synthetic_special_period(day),
+                    **{
+                        f"lag_{k}d_day_type": synthetic_lag_day_type(day, k)
+                        for k in CALENDAR_LAG_DAYS
+                    },
                     "holiday_degree": synthetic_holiday_degree(day),
                     **{
                         k: counts[k]
@@ -1822,8 +1850,12 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
         dtype=object,
     )
     calendar = pd.DataFrame(calendar_rows)
-    for col in ("days_since_holiday", "days_until_holiday"):
-        # A missing distance is a SQL null, not the NaN pandas makes of a None.
+    for col in (
+        "days_since_holiday",
+        "days_until_holiday",
+        *(f"lag_{k}d_day_type" for k in CALENDAR_LAG_DAYS),
+    ):
+        # A missing distance or lag day is a SQL null, not the NaN pandas makes of a None.
         calendar[col] = pd.Series(
             [None if pd.isna(v) else int(v) for v in calendar[col]], dtype=object
         )
@@ -1832,7 +1864,7 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
         spark,
         calendar,
         "area_code string, trade_date date, month int, day_of_week int, day_type int, "
-        "special_period int, "
+        "special_period int, lag_2d_day_type int, lag_3d_day_type int, lag_7d_day_type int, "
         "holiday_degree double, half int, quarter int, day_of_month int, day_of_quarter int, "
         "day_of_year int, is_business_day int, fiscal_quarter int, days_since_holiday int, "
         "days_until_holiday int, available_at timestamp",
