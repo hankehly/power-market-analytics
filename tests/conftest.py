@@ -803,6 +803,61 @@ def wavg_temperature(day: pd.Timestamp, hour_ending: int) -> float:
     return total / weight_sum if weight_sum else math.nan
 
 
+#: The 72 weights of ``ewm_72h_popw_temperature_c``, oldest hour first: a 24-hour half-life.
+EWM_72H_WEIGHTS = [0.5 ** ((71 - i) / 24) for i in range(72)]
+
+
+def accumulated_temperature(day: pd.Timestamp, hour_ending: int) -> dict[str, float | None]:
+    """``ftr_hour_jma_obs``'s three accumulated columns of the fixture for a delivery-day hour.
+
+    The hours that end at ``hour_ending`` on D-2, oldest first. Only the
+    representative station observes in the fixture, so after renormalising the
+    population-weighted temperature of an hour is that station's
+    ``synthetic_temperature``. Complete windows only: a window holding an hour
+    outside ``DEMAND_DAYS`` or in ``TEMPERATURE_MISSING_HOURS`` is None.
+
+    Parameters
+    ----------
+    day : pandas.Timestamp
+        The delivery day D.
+    hour_ending : int
+        The target hour, 1 to 24.
+
+    Returns
+    -------
+    dict of str to float or None
+        ``mean_24h_popw_temperature_c``, ``mean_72h_popw_temperature_c`` and
+        ``ewm_72h_popw_temperature_c``.
+    """
+    newest_end = day - pd.Timedelta(days=2) + pd.Timedelta(hours=hour_ending)
+    hours: list[float | None] = []
+    for back in range(71, -1, -1):
+        start = newest_end - pd.Timedelta(hours=back + 1)
+        obs_day, obs_hour = start.normalize(), start.hour + 1
+        observed = obs_day in DEMAND_DAYS and (obs_day, obs_hour) not in TEMPERATURE_MISSING_HOURS
+        hours.append(synthetic_temperature(obs_day, obs_hour) if observed else None)
+
+    def mean(window: list[float | None]) -> float | None:
+        total = 0.0
+        for temperature in window:
+            if temperature is None:
+                return None
+            total += temperature
+        return total / len(window)
+
+    weighted = weight_sum = 0.0
+    for temperature, weight in zip(hours, EWM_72H_WEIGHTS):
+        weighted += (temperature or 0.0) * weight
+        weight_sum += weight
+    return {
+        "mean_24h_popw_temperature_c": mean(hours[48:]),
+        "mean_72h_popw_temperature_c": mean(hours),
+        "ewm_72h_popw_temperature_c": (
+            None if any(t is None for t in hours) else weighted / weight_sum
+        ),
+    }
+
+
 def popw_forecast(day: pd.Timestamp, hour_ending: int, value: float, offset: float) -> float:
     """A ``ftr_hour_msm`` population-weighted column of the fixture for a delivery-day hour.
 
@@ -1381,9 +1436,17 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
                     "trade_date": day.date(),
                     "hour_ending": hour,
                     "wavg_temperature_c": value,
+                    **accumulated_temperature(day, hour),
                     "available_at": day - pd.Timedelta(days=1) + pd.Timedelta(hours=1),
                 }
             )
+    jma_obs = pd.DataFrame(jma_rows)
+    for col in (
+        "mean_24h_popw_temperature_c",
+        "mean_72h_popw_temperature_c",
+        "ewm_72h_popw_temperature_c",
+    ):
+        jma_obs[col] = nullable_column(jma_obs[col], float)
     msm_rows = [
         {
             "area_code": "tokyo",
@@ -1782,9 +1845,10 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
     )
     write_table(
         spark,
-        pd.DataFrame(jma_rows),
+        jma_obs,
         "area_code string, trade_date date, hour_ending int, wavg_temperature_c double, "
-        "available_at timestamp",
+        "mean_24h_popw_temperature_c double, mean_72h_popw_temperature_c double, "
+        "ewm_72h_popw_temperature_c double, available_at timestamp",
         "pma_features.ftr_hour_jma_obs",
     )
     write_table(
