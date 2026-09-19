@@ -13,6 +13,7 @@ and ``mlflow_store`` points MLflow at a temp file store so nothing lands in
 from __future__ import annotations
 
 import dataclasses
+import itertools
 import math
 import os
 import time
@@ -776,6 +777,27 @@ def discomfort_index(temperature_c: float, relative_humidity_pct: float) -> floa
     )
 
 
+def day_msm_summary(hours: list[dict]) -> dict:
+    """``ftr_day_msm``'s row of the fixture for one day's 24 ``ftr_hour_msm`` rows, in hour order.
+
+    The mart's rules: the mean is added in hour order, and the hour of the
+    maximum is the earliest on a tie.
+    """
+    temperatures = [row["popw_forecast_temperature_c"] for row in hours]
+    total = 0.0
+    for value in temperatures:
+        total += value
+    return {
+        "area_code": hours[0]["area_code"],
+        "trade_date": hours[0]["trade_date"],
+        "max_popw_forecast_temperature_c": max(temperatures),
+        "min_popw_forecast_temperature_c": min(temperatures),
+        "mean_popw_forecast_temperature_c": total / len(temperatures),
+        "max_popw_forecast_temperature_hour_ending": temperatures.index(max(temperatures)) + 1,
+        "available_at": max(row["available_at"] for row in hours),
+    }
+
+
 @dataclasses.dataclass(frozen=True)
 class CuratedWarehouse:
     """What ``curated_warehouse`` created, as the pandas frames it wrote.
@@ -1198,7 +1220,7 @@ def curated_warehouse(spark: SparkSession) -> CuratedWarehouse:
 
 
 def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> None:
-    """The eight feature marts of ``pma_features``, from the fixture's data (tokyo facts).
+    """The nine feature marts of ``pma_features``, from the fixture's data (tokyo facts).
 
     ``available_at`` is any instant before the 09:30 D-1 issue time, except the
     calendar's, which is the mart's constant. The similar-day mart holds one
@@ -1338,6 +1360,10 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
         for day in DEMAND_DAYS
         if day != FORECAST_MISSING_DAY
         for hour in range(1, 25)
+    ]
+    day_msm_rows = [
+        day_msm_summary(list(hours))
+        for _, hours in itertools.groupby(msm_rows, key=lambda row: row["trade_date"])
     ]
     actuals = warehouse.demand.dropna(subset=["demand_kwh"])
     demand_at = {
@@ -1616,6 +1642,12 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
         + "".join(f"popw_forecast_{element} double, " for element in MSM_EXTRA_ELEMENTS)
         + "popw_forecast_discomfort_index double, available_at timestamp",
     ).write.mode("overwrite").saveAsTable("pma_features.ftr_hour_msm")
+    spark.createDataFrame(
+        pd.DataFrame(day_msm_rows),
+        "area_code string, trade_date date, max_popw_forecast_temperature_c double, "
+        "min_popw_forecast_temperature_c double, mean_popw_forecast_temperature_c double, "
+        "max_popw_forecast_temperature_hour_ending int, available_at timestamp",
+    ).write.mode("overwrite").saveAsTable("pma_features.ftr_day_msm")
     spark.createDataFrame(
         period_actuals,
         "area_code string, trade_date date, time_code int, lag_2d_demand_kwh bigint, "

@@ -48,7 +48,7 @@ assignees: []
 
 ## Mart
 
-<!-- One of ftr_day_actuals, ftr_day_calendar, ftr_day_occto, ftr_hour_jma_obs, ftr_hour_msm, ftr_period_actuals, ftr_period_jepx, ftr_period_similar_day, or a new mart. -->
+<!-- One of ftr_day_actuals, ftr_day_calendar, ftr_day_msm, ftr_day_occto, ftr_hour_jma_obs, ftr_hour_msm, ftr_period_actuals, ftr_period_jepx, ftr_period_similar_day, or a new mart. -->
 
 ## Categorical
 
