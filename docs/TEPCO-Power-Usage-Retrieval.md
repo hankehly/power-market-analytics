@@ -22,7 +22,7 @@ the A-1 series already in the warehouse, and how
 - **Why we load it**: it is the only public Tokyo-area demand history before
   2022-04-01 (A-1 starts with the imbalance regime). It was loaded as the source
   of a year-ago load feature for the first year of the A-1 history
-  ([demand/R-004](research/demand/R-004-prior-year-load-lag.md), Not supported —
+  ([demand/R-004](https://github.com/hankehly/power-market-analytics/issues/163) E-001, Not supported —
   the feature was removed on 2026-09-05; the fact stays). Only the hourly table
   is loaded; see [§7](#7-not-ingested-the-5-minute-table).
 - **Coverage**: hourly 2016-04-01 → yesterday (the previous day is posted ~06:00

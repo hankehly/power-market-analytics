@@ -216,7 +216,7 @@ Run:
 gh label create observation --color 006B75 --description "Research: something noteworthy seen in the data or a run, recorded before it is explained"
 gh label create investigation --color D93F0B --description "Research: a question worth understanding, with the experiments that answer it"
 gh label create experiment --color 7057FF --description "Research: one controlled comparison and its decision"
-gh label edit "feature idea" --name "feature candidate" --description "Research: a possible model input, ranked in the Load Forecasting Project and tested in a family batch"
+gh label edit "feature idea" --name "feature candidate" --description "Research: a possible model input, ranked in the Load Forecasting Project"
 gh label list --limit 50 | grep -E "^(observation|investigation|experiment|feature candidate)\b"
 gh issue list --label "feature candidate" --state all --limit 50 --json number --jq 'length'
 ```
