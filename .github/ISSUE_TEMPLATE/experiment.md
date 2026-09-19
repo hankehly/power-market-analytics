@@ -6,6 +6,7 @@ labels: [experiment]
 assignees: []
 ---
 
+- **Task:** demand / spot_price
 - **Investigation:** #NNN, or none
 - **Feature candidates:** #NNN, #NNN, or none
 - **Family:**
@@ -41,7 +42,7 @@ assignees: []
 
 ## Execution
 
-- **MLflow experiment:** demand
+- **MLflow experiment:** the task's name, demand or spot_price
 - **Baseline run:**
 - **Candidate run:**
 - **Shared settings:** `--start-date`, `--end-date` and `--train-start` pinned identically; the LightGBM settings are the strategy's and are not tuned per experiment
