@@ -46,9 +46,10 @@ The **New issue** chooser offers the four templates and applies their labels.
 From the command line, `gh issue create --template Observation --label observation`
 (or `Investigation` with `investigation`, `Experiment` with `experiment`) opens the
 Markdown template; `gh` copies a template's body but not its label, so the
-`--label` is required. A feature candidate is an issue form, filled on the web;
-`gh` cannot fill a form, so a candidate opened from the command line is a
-Markdown body under the form's headings with `--label "feature candidate"`.
+`--label` is required. A feature candidate is the same:
+`gh issue create --template "Feature candidate" --label "feature candidate"`;
+its template lists the choices for source data, grain, mart and build, and
+keeps the three checks as a task list.
 
 Titles are plain: what was seen, asked, proposed or tested. No prefix; the
 issue number is the ID.

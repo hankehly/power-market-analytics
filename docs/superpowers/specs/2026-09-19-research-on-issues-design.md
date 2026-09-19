@@ -139,6 +139,8 @@ The `E-XXX` section of the investigation template, made a record of its own:
 
 The form as it is, with `name: Feature candidate` and `labels: [feature
 candidate]`. Its `Follows from` field takes an issue number or a paper row.
+*On 2026-09-19 (PR #186) the form became the Markdown template `feature-candidate.md`,
+so `gh` opens it like the other three.*
 
 ## 4. Labels, Project and links
 
