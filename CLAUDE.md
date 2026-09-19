@@ -662,7 +662,16 @@
   no bound, so on a holiday its oldest day is often months back; ints, the same on all 48
   periods because the window takes complete days only, the oldest being the oldest present
   with fewer than four days, their expressions their names as #138's lag is, one value per
-  day kept in the period mart next to the two means they describe; in no preset yet; the
+  day kept in the period mart next to the two means they describe; in no preset yet; and
+  (feature candidate #202) `mean_daytype_weekly_lags_demand_kwh` and
+  `ewm_daytype_weekly_lags_demand_kwh`, the plain and 8:4:2:1 weighted means over the first
+  four of D-7 … D-56 that have D's day type and a value at the period — the weekly means
+  with the other day types taken out, keeping the weekday that `ewm_daytype_4d_demand_kwh`
+  loses; the values present, not complete days, so where D-7 to D-28 are all present with
+  D's day type they equal the plain weekly means to the bit; the weights go by order of use;
+  null on most holiday targets; read with `lag()` over a day × period spine with no gap, not
+  more shifts, so the eight weeks make no row, and the days used feed `available_at`, which
+  moved on no real row; in no preset yet; the
   28-day range is a window function read at D-2, not more shifts, because the shifts are
   the row spine and `available_at`'s inputs — it and the two days still feed
   `available_at`, which moved on no real row — each over the values present — one union of the actuals shifted
