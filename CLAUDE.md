@@ -177,7 +177,10 @@
   feature. `--add VIEW:COLUMN …` / `--drop VIEW:COLUMN …` change the list for one run and
   need `--name`, which becomes the run's strategy label (`strategy` column, MLflow tag;
   params `feature_preset`, `feature_preset_base`, `feature_refs`, `lgbm_feature_cols`). A
-  new preset = a new file under `conf/presets/<task>/` (a published preset's file is never edited); new features come from the marts (`just feature-views`
+  new preset = a new file under `conf/presets/<task>/`, named after the experiment issue that
+  tests it, `e<issue>` with an optional batch slug (`e185_recent_load`) — never the algorithm,
+  the ancestry (the file's `base`) or the feature list; the thirteen presets of 2026-09-19 keep
+  their chain names (a published preset's file is never edited); new features come from the marts (`just feature-views`
   after a mart changes). The spot `LightGbmStrategy` / `LightGbmOcctoStrategy` classes and
   the OCCTO loader/frame were deleted with PR 5 of the feature catalogue (reproduced at
   0 difference first). Logs to MLflow (`just open mlflow`) and publishes forecasts to the
