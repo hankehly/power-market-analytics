@@ -6,6 +6,7 @@ labels: [investigation]
 assignees: []
 ---
 
+- **Task:** demand / spot_price
 - **Created:** YYYY-MM-DD
 - **Triggering observations:** #NNN, or none — a modeling idea
 - **Related:** —

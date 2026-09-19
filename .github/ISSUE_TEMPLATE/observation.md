@@ -6,10 +6,11 @@ labels: [observation]
 assignees: []
 ---
 
+- **Task:** demand / spot_price
 - **Recorded:** YYYY-MM-DD
 - **Data period:** YYYY-MM-DD through YYYY-MM-DD
-- **Preset:** `lightgbm_msm_popw_daytype_simday_lags_weather`
-- **Area:** tokyo
+- **Preset:** `<the run's preset name>`
+- **Area:** `<area_code>`
 - **MLflow run:** [`<run_id>`](http://localhost:5005/#/experiments/<id>/runs/<run_id>)
 
 ## Observation
