@@ -9,12 +9,13 @@ and the code disagree, the code is right.
 
 The table is one row per piece of work, newest first. A row with no spec was
 small enough to plan directly; a row with no plan was a design the researcher
-applied without one.
+applied without one. A Plan cell that reads *Not built* is a design that was set
+aside or put off: nothing was applied, and the spec is kept for what it measured.
 
 | Date | Work | Spec | Plan |
 |---|---|---|---|
-| 2026-09-19 | Feature candidates #152 and #153, put off — heating and cooling exposure at each hour and as the day's degree-hours; not approved, needs more looking into; kept for the measured weekday demand against forecast temperature curve (floor at 17–18 °C, leaving it at about 14 and 21 °C) | [spec](superpowers/specs/2026-09-19-candidate-152-153-heating-cooling-exposure-design.md) | — |
-| 2026-09-19 | Feature candidate #140, set aside — OCCTO's half-hourly forecast for D; the availability, from 2025-04-01, is too short to build a bias-correction model; kept for OCCTO's measured error against the actuals | [spec](superpowers/specs/2026-09-19-candidate-140-occto-half-hourly-forecast-design.md) | — |
+| 2026-09-19 | Feature candidates #152 and #153, put off — heating and cooling exposure at each hour and as the day's degree-hours; not approved, needs more looking into; kept for the measured weekday demand against forecast temperature curve (floor at 17–18 °C, leaving it at about 14 and 21 °C) | [spec](superpowers/specs/2026-09-19-candidate-152-153-heating-cooling-exposure-design.md) | Not built |
+| 2026-09-19 | Feature candidate #140, set aside — OCCTO's half-hourly forecast for D; the availability, from 2025-04-01, is too short to build a bias-correction model; kept for OCCTO's measured error against the actuals | [spec](superpowers/specs/2026-09-19-candidate-140-occto-half-hourly-forecast-design.md) | Not built |
 | 2026-09-19 | Feature candidate #150 — the population-weighted observed temperature over the 24 and 72 hours ending at the target hour on D-2, and its 24-hour half-life weighted average, in `ftr_hour_jma_obs` | [spec](superpowers/specs/2026-09-19-candidate-150-accumulated-observed-temperature-design.md) | — |
 | 2026-09-19 | Feature candidate #151 — the forecast morning temperature trend in `ftr_day_msm`, over differences; the cumulative solar radiation left out by the researcher | [spec](superpowers/specs/2026-09-19-candidate-151-forecast-weather-trajectory-design.md) | — |
 | 2026-09-19 | Feature candidate #138 — the rank-1 similar day's distance and its lag in days, from columns the mart already had, with no new scoring run | [spec](superpowers/specs/2026-09-19-candidate-138-similar-day-distance-and-lag-design.md) | — |
