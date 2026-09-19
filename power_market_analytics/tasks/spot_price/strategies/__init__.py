@@ -1,7 +1,7 @@
 """Forecast strategy registry for the spot price task.
 
 A strategy name is either the naive ``previous_day`` rule or a preset of
-``tasks.spot_price.presets``; a preset is built as a
+``conf/presets/spot_price/``; a preset is built as a
 :class:`~power_market_analytics.forecasting.preset_lgbm.PresetLightGbmStrategy`
 over the features Feast retrieves for the run's days, each row as of its own
 issue time.
@@ -15,22 +15,25 @@ import pandas as pd
 
 from power_market_analytics.features.frame import feature_frame
 from power_market_analytics.features.presets import (
+    Preset,
     categorical_columns,
     feature_dtypes,
     feature_expressions,
+    load_presets,
 )
 from power_market_analytics.features.retrieval import entity_frame, historical_features
 from power_market_analytics.features.store import open_store
 from power_market_analytics.forecasting.preset_lgbm import PresetLightGbmStrategy
 from power_market_analytics.forecasting.strategy import ForecastStrategy
 from power_market_analytics.tasks.spot_price import TASK
-from power_market_analytics.tasks.spot_price.presets import PRESETS
 from power_market_analytics.tasks.spot_price.strategies.naive import PreviousDayStrategy
 
 NAIVE_STRATEGIES: dict[str, type[ForecastStrategy]] = {
     PreviousDayStrategy.name: PreviousDayStrategy,
 }
 
+#: Every preset of the task, read from its files at import.
+PRESETS: dict[str, Preset] = load_presets(TASK.name)
 #: Every strategy name the backtest script accepts: the naive rule and the presets.
 STRATEGIES: tuple[str, ...] = (*NAIVE_STRATEGIES, *PRESETS)
 

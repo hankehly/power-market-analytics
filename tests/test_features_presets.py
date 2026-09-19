@@ -27,7 +27,6 @@ from power_market_analytics.features.presets import (
     preset_tasks,
 )
 from power_market_analytics.features.store import open_store
-from power_market_analytics.tasks.spot_price.presets import LIGHTGBM
 from tests.support import write_feature_store_yaml
 
 CALENDAR = "ftr_day_calendar:month"
@@ -49,6 +48,7 @@ REGISTERED_SERVICES = [
     "spot_price__lightgbm",
     "spot_price__lightgbm_occto",
 ]
+LIGHTGBM = load_presets("spot_price")["lightgbm"]
 
 
 def preset(**overrides) -> Preset:
@@ -70,8 +70,16 @@ class TestLoadPresets:
     def test_a_full_list_and_a_base_chain_resolve_in_order(self, tmp_path):
         task = tmp_path / "demand"
         write_preset(task, "one", ONE)
-        write_preset(task, "two", "description: Plus the day type.\nbase: one\nadd: [ftr_day_calendar:day_type]\n")
-        write_preset(task, "three", "description: Minus the lag.\nbase: two\ndrop: [ftr_period_jepx:lag_1d_price]\n")
+        write_preset(
+            task,
+            "two",
+            "description: Plus the day type.\nbase: one\nadd: [ftr_day_calendar:day_type]\n",
+        )
+        write_preset(
+            task,
+            "three",
+            "description: Minus the lag.\nbase: two\ndrop: [ftr_period_jepx:lag_1d_price]\n",
+        )
         presets = load_presets("demand", tmp_path)
         assert list(presets) == ["one", "three", "two"]
         assert presets["one"] == Preset("demand", "one", (CALENDAR, LAG), description="The first.")
@@ -99,13 +107,22 @@ class TestLoadPresets:
             ("features: [ftr_a:b]\n", "description is required"),
             ("description: ' '\nfeatures: [ftr_a:b]\n", "description is required"),
             ("description: x\n", "exactly one of features and base"),
-            ("description: x\nfeatures: [ftr_a:b]\nbase: one\n", "exactly one of features and base"),
+            (
+                "description: x\nfeatures: [ftr_a:b]\nbase: one\n",
+                "exactly one of features and base",
+            ),
             ("description: x\nfeatures: [ftr_a:b]\nadd: [ftr_a:c]\n", "add and drop need a base"),
             ("description: x\nbase: one\n", "a base needs add or drop"),
             ("description: x\nbase: one\nadd: []\ndrop: []\n", "a base needs add or drop"),
             ("description: x\nbase: 3\nadd: [ftr_a:c]\n", "base must be a preset name"),
-            ("description: x\nbase: nope\nadd: [ftr_a:c]\n", "base 'nope' is not a preset of demand"),
-            ("description: x\nfeatures: ftr_a:b\n", "features must be a list of 'view:column' strings"),
+            (
+                "description: x\nbase: nope\nadd: [ftr_a:c]\n",
+                "base 'nope' is not a preset of demand",
+            ),
+            (
+                "description: x\nfeatures: ftr_a:b\n",
+                "features must be a list of 'view:column' strings",
+            ),
             ("description: x\nfeatures: [lag]\n", "is not '<view>:<column>'"),
             ("description: x\nfeatures: [ftr_a:b, ftr_c:b]\n", "duplicate feature columns ['b']"),
             ("description: x\nfeatures: [ftr_a:time_code]\n", "every preset's first feature"),
