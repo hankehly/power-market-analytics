@@ -102,6 +102,26 @@ with
     station_terms
   ),
 
+  -- The day's weighted radiation added up from hour 1 through each hour. The order
+  -- by fixes the order of addition. It stops at the first hour without a value, a
+  -- missing row included: the hours are 1, 2, 3 ..., so the count of values so far
+  -- equals the hour only while none is missing. A total that skipped an hour would be
+  -- too small.
+  accumulated as (
+  select
+    weighted.*,
+    case when count(popw_forecast_solar_radiation_mjm2) over day_so_far = hour_ending then
+      sum(popw_forecast_solar_radiation_mjm2) over day_so_far
+    end as cum_popw_forecast_solar_radiation_mjm2
+  from
+    weighted
+  window day_so_far as (
+    partition by area_code, trade_date, forecast_reference_at
+    order by hour_ending
+    rows between unbounded preceding and current row
+  )
+  ),
+
   final as (
   select
     coalesce(representative.area_code, weighted.area_code) as area_code,
@@ -118,10 +138,11 @@ with
     -- (by 0.03 on average, 0.42 at most, over Tokyo and Kansai in 2025).
     {{ discomfort_index('weighted.popw_forecast_temperature_c', 'weighted.popw_forecast_relative_humidity_pct') }}
       as popw_forecast_discomfort_index,
+    weighted.cum_popw_forecast_solar_radiation_mjm2,
     {{ available_at(['representative.available_at', 'weighted.available_at']) }} as available_at
   from
     representative
-    full outer join weighted
+    full outer join accumulated as weighted
       on weighted.area_code = representative.area_code
       and weighted.trade_date = representative.trade_date
       and weighted.hour_ending = representative.hour_ending

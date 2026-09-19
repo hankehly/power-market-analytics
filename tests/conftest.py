@@ -19,6 +19,7 @@ import os
 import time
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 # The Spark fixture pins spark.sql.session.timeZone to Asia/Tokyo, but PySpark's
 # collect() renders TimestampType as a naive datetime in the *process's* local
@@ -1447,7 +1448,7 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
         "ewm_72h_popw_temperature_c",
     ):
         jma_obs[col] = nullable_column(jma_obs[col], float)
-    msm_rows = [
+    msm_rows: list[dict[str, Any]] = [
         {
             "area_code": "tokyo",
             "trade_date": day.date(),
@@ -1504,6 +1505,14 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
         if day != FORECAST_MISSING_DAY
         for hour in range(1, 25)
     ]
+    # The day's weighted radiation added up from hour 1 through each hour, in hour
+    # order, as the mart takes it. msm_rows is ordered by day, then hour, and every
+    # fixture day has all 24 hours, so no total stops early.
+    for _, hours in itertools.groupby(msm_rows, key=lambda row: row["trade_date"]):
+        total = 0.0
+        for msm_row in hours:
+            total += msm_row["popw_forecast_solar_radiation_mjm2"]
+            msm_row["cum_popw_forecast_solar_radiation_mjm2"] = total
     day_msm_rows = [
         day_msm_summary(list(hours))
         for _, hours in itertools.groupby(msm_rows, key=lambda row: row["trade_date"])
@@ -1858,7 +1867,8 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
         "popw_forecast_temperature_c double, popw_forecast_relative_humidity_pct double, "
         "popw_forecast_precipitation_mm double, popw_forecast_solar_radiation_mjm2 double, "
         + "".join(f"popw_forecast_{element} double, " for element in MSM_EXTRA_ELEMENTS)
-        + "popw_forecast_discomfort_index double, available_at timestamp",
+        + "popw_forecast_discomfort_index double, "
+        "cum_popw_forecast_solar_radiation_mjm2 double, available_at timestamp",
         "pma_features.ftr_hour_msm",
     )
     write_table(

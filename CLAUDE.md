@@ -623,7 +623,12 @@
   Bureau's °F relative-humidity form written for °C and not a JMA statistic
   (`docs/research/papers.md`); the index of the two means, not the mean of the stations'
   indexes (they differ by 0.03 on average and 0.42 at most over Tokyo and Kansai in 2025);
-  in no preset yet), `ftr_period_actuals` (since
+  in no preset yet; and `cum_popw_forecast_solar_radiation_mjm2`, feature candidate #151's
+  second half, the weighted forecast radiation added up from hour 1 through each hour of the
+  vintage, in hour order, null from the first missing hour on — left out at first, then built
+  the same day when the researcher corrected the reason: the *forecast* radiation is
+  population-weighted with no null, it is the *observed* one only 7 of Tokyo's 21 weighted
+  stations record, so #135's observed radiation stays out; in no preset yet), `ftr_period_actuals` (since
   2026-09-12 the lags of 2, 3, 7, 9, 14, 21 and 28 days, the plain and 8:4:2:1 weighted
   means of the four weekly lags, the D-2 − D-9 change and the same two means over the last
   four complete days of D's `ftr_day_calendar` day type at or before D-2; since 2026-09-13
