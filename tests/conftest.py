@@ -1721,6 +1721,8 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
                 "similar_day_n_candidates": None if same_holiday else 87,
                 "similar_day_fit_cutoff": None if same_holiday else day - pd.Timedelta(days=1),
                 "similar_day_method": "same_holiday" if same_holiday else "similarity",
+                # The mart's one computed value: the days from the rank-1 day to D.
+                "similar_day_rank1_lag_days": (day - rank1_reference).days,
                 "available_at": available_at,
                 "published_at": pd.Timestamp("2026-09-11 09:00:00"),
             }
@@ -1847,7 +1849,8 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
         "similar_day_rank3_reference_date date, similar_day_rank1_distance double, "
         "similar_day_rank2_distance double, similar_day_rank3_distance double, "
         "similar_day_n_candidates int, similar_day_fit_cutoff timestamp, "
-        "similar_day_method string, available_at timestamp, published_at timestamp",
+        "similar_day_method string, similar_day_rank1_lag_days int, available_at timestamp, "
+        "published_at timestamp",
         "pma_features.ftr_period_similar_day",
     )
 
