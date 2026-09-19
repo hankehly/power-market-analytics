@@ -57,8 +57,8 @@ A column passed through unchanged keeps its name as its expression
 |---|---|---|
 | `LAG(x, n)` | `x` n before the delivery day. | `LAG(demand_kwh, 7d)` |
 | `DIFF(x, n)` | `x` minus `x` n earlier. | `LAG(DIFF(demand_kwh, 7d), 2d)`, `LAG(DIFF(demand_kwh, 30m), 7d)` |
-| `DAILY_MEAN` / `DAILY_MAX` / `DAILY_MIN` / `DAILY_RANGE` | Over one day's periods, or the periods inside `time`. | `LAG(DAILY_MAX(demand_kwh), 2d)`, `LAG(DAILY_MEAN(demand_kwh, time=06:00-10:00), 2d)` |
-| `DAILY_ARGMAX(x)` | The time code of the day's highest `x`; the earliest on a tie. | `LAG(DAILY_ARGMAX(demand_kwh), 2d)` |
+| `DAILY_MEAN` / `DAILY_MAX` / `DAILY_MIN` / `DAILY_RANGE` | Over one day's periods, or its 24 hours when `x` is hourly, or the periods inside `time`. Without a `LAG` the day is the delivery day, which only a forecast can fill. | `LAG(DAILY_MAX(demand_kwh), 2d)`, `LAG(DAILY_MEAN(demand_kwh, time=06:00-10:00), 2d)`, `DAILY_MAX(MEAN(forecast_temperature_c, weight=population))` |
+| `DAILY_ARGMAX(x)` | The time code of the day's highest `x`, or its hour ending, 1-24, when `x` is hourly; the earliest on a tie. | `LAG(DAILY_ARGMAX(demand_kwh), 2d)`, `DAILY_ARGMAX(MEAN(forecast_temperature_c, weight=population))` |
 | `DAILY_TREND(x, time)` | The least-squares slope of `x` against time over the periods inside `time`, per hour: `2 (n Σtx - Σt Σx) / (n Σt² - (Σt)²)`, `t` the time code. | `LAG(DAILY_TREND(demand_kwh, time=06:00-10:00), 2d)` |
 | `ROLLING_MEAN(x, gap, window, step)` | Mean of `window` terms, `step` apart, the newest `gap` back; with `center=true`, the terms around the current one. | `ROLLING_MEAN(demand_kwh, gap=7d, window=4, step=7d)`, `LAG(ROLLING_MEAN(demand_kwh, window=3, step=30m, center=true), 7d)` |
 | `ROLLING_MEDIAN` / `ROLLING_STD` | The same window's median and sample standard deviation (`n - 1` in the denominator). | `ROLLING_STD(demand_kwh, gap=7d, window=4, step=7d)` |
