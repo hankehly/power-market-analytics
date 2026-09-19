@@ -649,7 +649,11 @@
   `wavg_similar_day_top3_demand_kwh`, with the untagged
   `similar_day_rank<r>_reference_date` and `similar_day_rank<r>_distance` for r = 1 … 3,
   `similar_day_n_candidates`, `similar_day_fit_cutoff` and `similar_day_method`
-  (`similarity` / `same_holiday`). On 2026-09-14 `similar_day_demand_kwh` was retired (a
+  (`similarity` / `same_holiday`); since 2026-09-19 (feature candidate #138) two more tagged
+  columns, `similar_day_rank1_distance`, the untagged column given its tag, null on a
+  same-holiday day, and `similar_day_rank1_lag_days`, the mart's one computed value,
+  `trade_date` minus the rank-1 reference date — so no change to the fit-and-score job, no
+  new scoring run and no `pma_ml.similar_day` drop. On 2026-09-14 `similar_day_demand_kwh` was retired (a
   `retired_features` row) and its reference date, lag and distance columns were dropped);
   every strategy reads them through Feast. `fct_feature_value` (curated,
   since 2026-09-12, PR 3) unpivots every tagged column of every mart to the period grain as
