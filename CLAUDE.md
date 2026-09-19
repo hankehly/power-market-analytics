@@ -576,7 +576,18 @@
   and its least-squares morning and evening ramps per hour, and the 16:8:4:2:1 and
   8:4:2:1 weighted means of the daily max, mean and min over D-2 … D-6 and D-7 … D-28 with
   their differences — so a row exists wherever any of those nine days is complete and the
-  D-2 columns can be null), `ftr_day_calendar`, `ftr_day_msm` (since 2026-09-19, feature
+  D-2 columns can be null), `ftr_day_calendar` (since 2026-09-19, feature candidate #131,
+  also `special_period`, its second categorical next to `day_type`: the first match of
+  1 年末年始 12/30–1/3, 2 ゴールデンウィーク 4/29–5/5, 3 お盆 8/13–16 — `dim_date.holiday_degree`'s
+  three periods, written as date ranges because `holiday_name_ja` names only 4/30–5/2 as
+  ゴールデンウィーク, so a weekend or a 祝日 inside a period takes the period — 4 any other
+  `is_holiday` day, a 振替休日 on 5/6 included (the researcher's ruling), 5 a sandwiched
+  working day, `is_business_day` with `holiday_degree` 0.5 or 0.3, else 0, ordinary weekends
+  included; an int code because a string feature raises in the `fct_feature_value`
+  generator and in the presets' dtype check; the singular test
+  `assert_ftr_day_calendar_special_period_agrees_with_holiday_degree` ties the mart's date
+  ranges to `dim_date`'s, so neither can change alone; levels 1–4 are all `day_type`
+  Holiday and level 5 all Weekday; in no preset yet), `ftr_day_msm` (since 2026-09-19, feature
   candidate #132: the delivery day's max, min and mean of `ftr_hour_msm`'s
   `popw_forecast_temperature_c` over its 24 hours and the hour ending of the max, the
   earliest on a tie — `max_` / `min_` / `mean_popw_forecast_temperature_c` and
@@ -1208,7 +1219,10 @@
 - Batches: a candidate is a record, not a queue slot. One experiment tests several related
   candidates together — one preset adding their columns to the baseline preset, one matched
   run against a fresh baseline run on the same window, one compare, one decision — and its
-  decision closes each candidate with the verdict; a kept batch's preset becomes the baseline.
+  decision gives each candidate its verdict (the Project's Decision field); a kept batch's
+  preset becomes the baseline. A candidate's issue closes earlier, when its feature is merged
+  to `main` — close it as completed, naming the PR, and leave the Decision empty until an
+  experiment tests it (the researcher's rule since 2026-09-19; #136 and #132 were the first).
   A new source gets its own experiment; pruning is an experiment whose preset drops. There is
   no "feature family" concept: a Project field, then a planned `meta.family` mart tag, were
   tried and removed on 2026-09-19 for adding no immediate value; do not reintroduce one.

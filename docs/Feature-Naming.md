@@ -49,7 +49,8 @@ tag and into `dim_feature`, the feature dimension every label reads.
    complete-day rules.
 
 A column passed through unchanged keeps its name as its expression
-(`day_of_month`).
+(`day_of_month`). So does a class the mart computes that no primitive describes
+(`day_type`, `special_period`): its levels are in the description.
 
 ## Primitives in use
 

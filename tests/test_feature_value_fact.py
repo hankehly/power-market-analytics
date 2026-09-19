@@ -130,7 +130,10 @@ class TestFeatureValueFact:
     def test_the_key_is_unique_and_the_flags_come_from_the_tags(self, fact):
         assert fact.groupBy(*KEY).count().where("count > 1").count() == 0
         categorical = fact.where("is_categorical").select("feature_ref").distinct().collect()
-        assert {r["feature_ref"] for r in categorical} == {"ftr_day_calendar:day_type"}
+        assert {r["feature_ref"] for r in categorical} == {
+            "ftr_day_calendar:day_type",
+            "ftr_day_calendar:special_period",
+        }
         assert fact.columns == COLUMNS
         views = (
             fact.select("feature_view", F.col("published_at").isNotNull().alias("published"))

@@ -55,10 +55,11 @@ with
     m.available_at,
     cast(null as timestamp) as published_at,
     stack(
-      13,
+      14,
       'month', cast(m.month as double), false,
       'day_of_week', cast(m.day_of_week as double), false,
       'day_type', cast(m.day_type as double), true,
+      'special_period', cast(m.special_period as double), true,
       'holiday_degree', cast(m.holiday_degree as double), false,
       'half', cast(m.half as double), false,
       'quarter', cast(m.quarter as double), false,
