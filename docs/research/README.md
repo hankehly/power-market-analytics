@@ -77,8 +77,11 @@ fields:
   the field takes `Supported` for Keep, `Not supported` for Reject and
   `Inconclusive` for the other two. An observation has no Decision.
 
-Auto-add copies nothing from an issue into the fields, so set Task, Family,
-Build, Impact and Feasibility by hand when an item first comes up. Setting a
+The Project's auto-add workflow admits an issue by its label filter, which has
+no API and is edited in the browser: it must name all four labels, or a new
+record never enters the Project. Auto-add copies nothing from an issue into the
+fields, so set Task, Family, Build, Impact and Feasibility by hand when an item
+first comes up. Setting a
 candidate aside: close it as not planned with the reason, Decision `Set aside`.
 
 ## Family batches
