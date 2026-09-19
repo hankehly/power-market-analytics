@@ -4,7 +4,7 @@ models:
       contract:
         enforced: true
     description: >
-      The MSM forecast for each delivery-day hour per bidding zone, one row per forecast vintage: the representative station's temperature (the demand lightgbm_msm feature) and the population-weighted temperature, humidity, rain, solar radiation, cloud cover (total, high, middle, low), wind (speed, u, v) and pressure (surface, sea-level) over the area's staffed stations with the latest census vintage's weights (lightgbm_msm_popw and the similar-day selector; tasks/demand/datasets.py). Grain: area_code x trade_date x hour_ending x forecast_reference_at. available_at is the vintage's: reference + 4 h.
+      The MSM forecast for each delivery-day hour per bidding zone, one row per forecast vintage: the representative station's temperature (the demand lightgbm_msm feature) and the population-weighted temperature, humidity, rain, solar radiation, cloud cover (total, high, middle, low), wind (speed, u, v) and pressure (surface, sea-level) over the area's staffed stations with the latest census vintage's weights (lightgbm_msm_popw and the similar-day selector; tasks/demand/datasets.py), and the 不快指数 of the weighted temperature and humidity. Grain: area_code x trade_date x hour_ending x forecast_reference_at. available_at is the vintage's: reference + 4 h.
     data_tests:
       - dbt_utils.unique_combination_of_columns:
           arguments:
@@ -172,6 +172,15 @@ models:
             feature: true
             categorical: false
             expression: "MEAN(forecast_sea_level_pressure_hpa, weight=population)"
+      - name: popw_forecast_discomfort_index
+        data_type: double
+        description: >
+          The 不快指数 (discomfort index) of the population-weighted forecast temperature T, C, and relative humidity H, %: 0.81 T + 0.01 H (0.99 T - 14.3) + 46.3 (the discomfort_index macro; 木内 2001, 天気 48(9), eq. A1, the U.S. Weather Bureau's temperature-humidity index in C). The index of the two means, not the mean of the stations' indexes. Null when either mean is null. No unit; from 15 in Hokkaido's coldest hour to 87 in Tokyo's hottest humid one, 2019-04 to 2026-09. Below 14.4 C a higher humidity lowers it.
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "DISCOMFORT_INDEX(MEAN(forecast_temperature_c, weight=population), MEAN(forecast_relative_humidity_pct, weight=population))"
       - name: available_at
         data_type: timestamp
         description: >
@@ -204,3 +213,35 @@ unit_tests:
     expect:
       rows:
         - {area_code: tokyo, trade_date: 2025-03-10, hour_ending: 1, forecast_reference_at: "2025-03-08 21:00:00", census_year: 2020, forecast_temperature_c: 10.0, popw_forecast_temperature_c: 12.5, popw_forecast_relative_humidity_pct: 50.0, popw_forecast_precipitation_mm: 0.0, popw_forecast_solar_radiation_mjm2: 1.25, popw_forecast_total_cloud_cover_pct: 50.0, popw_forecast_high_cloud_cover_pct: 30.0, popw_forecast_middle_cloud_cover_pct: 20.0, popw_forecast_low_cloud_cover_pct: 40.0, popw_forecast_wind_speed_ms: 3.0, popw_forecast_u_wind_ms: 1.5, popw_forecast_v_wind_ms: -0.5, popw_forecast_surface_pressure_hpa: 1001.0, popw_forecast_sea_level_pressure_hpa: 1011.0, available_at: "2025-03-09 01:00:00"}
+
+  - name: ftr_hour_msm_discomfort_index_of_the_weighted_means
+    description: >
+      Two Tokyo stations with weights 0.75 / 0.25 over three forecast hours.
+      The weighted temperature and humidity of hours 1 and 2 are the two worked
+      examples of the 不快指数 (27 C and 55 % gives 75, 29 C and 70 % gives 80),
+      and the index is taken of those means: the weighted mean of the stations'
+      own indexes would be 75.155 and 79.9364. Hour 3 has no humidity, so its
+      index is null. The expected doubles are 0.81 T + 0.01 H (0.99 T - 14.3)
+      + 46.3 in Python, the same operations in the same order.
+    model: ftr_hour_msm
+    given:
+      - input: ref('dim_area')
+        rows:
+          - {area_key: 1, area_code: tokyo, representative_jma_station_id: s1}
+      - input: ref('fct_census_population_jma_station')
+        rows:
+          - {census_year: 2020, area_key: 1, station_id: s1, area_population_weight: 0.75}
+          - {census_year: 2020, area_key: 1, station_id: s2, area_population_weight: 0.25}
+      - input: ref('fct_jma_msm_weather_forecast_hourly')
+        rows:
+          - {station_id: s1, date_key: 2025-08-01, forecast_hour_start_at: "2025-08-01 00:00:00", forecast_reference_at: "2025-07-30 21:00:00", temperature_c: 26.0, relative_humidity_pct: 50.0, available_at: "2025-07-31 01:00:00"}
+          - {station_id: s2, date_key: 2025-08-01, forecast_hour_start_at: "2025-08-01 00:00:00", forecast_reference_at: "2025-07-30 21:00:00", temperature_c: 30.0, relative_humidity_pct: 70.0, available_at: "2025-07-31 01:00:00"}
+          - {station_id: s1, date_key: 2025-08-01, forecast_hour_start_at: "2025-08-01 01:00:00", forecast_reference_at: "2025-07-30 21:00:00", temperature_c: 28.0, relative_humidity_pct: 68.0, available_at: "2025-07-31 01:00:00"}
+          - {station_id: s2, date_key: 2025-08-01, forecast_hour_start_at: "2025-08-01 01:00:00", forecast_reference_at: "2025-07-30 21:00:00", temperature_c: 32.0, relative_humidity_pct: 76.0, available_at: "2025-07-31 01:00:00"}
+          - {station_id: s1, date_key: 2025-08-01, forecast_hour_start_at: "2025-08-01 02:00:00", forecast_reference_at: "2025-07-30 21:00:00", temperature_c: 27.0, relative_humidity_pct: null, available_at: "2025-07-31 01:00:00"}
+          - {station_id: s2, date_key: 2025-08-01, forecast_hour_start_at: "2025-08-01 02:00:00", forecast_reference_at: "2025-07-30 21:00:00", temperature_c: 27.0, relative_humidity_pct: null, available_at: "2025-07-31 01:00:00"}
+    expect:
+      rows:
+        - {area_code: tokyo, trade_date: 2025-08-01, hour_ending: 1, popw_forecast_temperature_c: 27.0, popw_forecast_relative_humidity_pct: 55.0, popw_forecast_discomfort_index: 75.0065}
+        - {area_code: tokyo, trade_date: 2025-08-01, hour_ending: 2, popw_forecast_temperature_c: 29.0, popw_forecast_relative_humidity_pct: 70.0, popw_forecast_discomfort_index: 79.87700000000001}
+        - {area_code: tokyo, trade_date: 2025-08-01, hour_ending: 3, popw_forecast_temperature_c: 27.0, popw_forecast_relative_humidity_pct: null, popw_forecast_discomfort_index: null}
