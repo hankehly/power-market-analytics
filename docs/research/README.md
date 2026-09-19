@@ -80,9 +80,9 @@ no API and is edited in the browser: it must name all four labels, or a new
 record never enters the Project. Auto-add copies nothing from an issue into the
 fields, so set Task, Build, Impact and Feasibility by hand when an item first
 comes up. GitHub carries no family. A built feature's family belongs in the
-repository, on its mart column, once the feature-families design
-(`docs/superpowers/specs/2026-09-19-feature-families-design.md`) is implemented;
-until then nothing records it. A candidate has no family until its column
+repository, on its mart column, once the design for families as column tags (a
+`meta.family` key on every tagged mart column, checked against a
+`feature_families` seed) is approved and built; until then nothing records it. A candidate has no family until its column
 exists: an experiment simply names the candidates it tests. The Project had a
 Family field for one day, 2026-09-19. Setting a
 candidate aside: close it as not planned with the reason, Decision `Set aside`.
