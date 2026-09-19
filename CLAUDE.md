@@ -1219,7 +1219,10 @@
 - Batches: a candidate is a record, not a queue slot. One experiment tests several related
   candidates together — one preset adding their columns to the baseline preset, one matched
   run against a fresh baseline run on the same window, one compare, one decision — and its
-  decision closes each candidate with the verdict; a kept batch's preset becomes the baseline.
+  decision gives each candidate its verdict (the Project's Decision field); a kept batch's
+  preset becomes the baseline. A candidate's issue closes earlier, when its feature is merged
+  to `main` — close it as completed, naming the PR, and leave the Decision empty until an
+  experiment tests it (the researcher's rule since 2026-09-19; #136 and #132 were the first).
   A new source gets its own experiment; pruning is an experiment whose preset drops. There is
   no "feature family" concept: a Project field, then a planned `meta.family` mart tag, were
   tried and removed on 2026-09-19 for adding no immediate value; do not reintroduce one.
