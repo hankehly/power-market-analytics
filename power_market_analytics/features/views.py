@@ -332,9 +332,9 @@ FTR_DAY_OCCTO = FeatureView(
 
 FTR_HOUR_JMA_OBS_SOURCE = SparkSource(
     name="ftr_hour_jma_obs",
-    query="select area_code, cast(date_format(trade_date, 'yyyyMMdd') as int) as trade_date_key, hour_ending, wavg_temperature_c, available_at from pma_features.ftr_hour_jma_obs",
+    query="select area_code, cast(date_format(trade_date, 'yyyyMMdd') as int) as trade_date_key, hour_ending, wavg_temperature_c, mean_24h_popw_temperature_c, mean_72h_popw_temperature_c, ewm_72h_popw_temperature_c, available_at from pma_features.ftr_hour_jma_obs",
     timestamp_field="available_at",
-    description="The recency-weighted same-hour temperature at each bidding zone's representative JMA station (dim_area.representative_jma_station_id) over D-8..D-2, the demand presets' wavg_temperature_c. Grain: area_code x trade_date x hour_ending (1-24, hour ending). A row exists for every delivery day that at least one lag observation reaches; the value is null only when every lag is missing.",
+    description="The recency-weighted same-hour temperature at each bidding zone's representative JMA station (dim_area.representative_jma_station_id) over D-8..D-2, the demand presets' wavg_temperature_c; and, since feature candidate #150, the area's population-weighted observed temperature accumulated along the clock over the 24 and 72 hours ending at the hour on D-2, with its 24-hour half-life weighted average. Grain: area_code x trade_date x hour_ending (1-24, hour ending). A row exists for every delivery day that at least one lag observation reaches; the value is null only when every lag is missing.",
 )
 FTR_HOUR_JMA_OBS = FeatureView(
     name="ftr_hour_jma_obs",
@@ -346,10 +346,28 @@ FTR_HOUR_JMA_OBS = FeatureView(
             description="Weighted mean of the station's temperature at this hour on D-2..D-8, weight 0.5 ** (k - 2) for lag k, renormalised over the lags present; null when all are missing. The terms are added in lag order (D-2 first), so the value is the same on every build (the ordered_weighted_mean macro).",
             tags={"categorical": "false", "expression": "EWA(temperature_c, gap=2d, window=7, step=1d, halflife=1)"},
         ),
+        Field(
+            name="mean_24h_popw_temperature_c",
+            dtype=Float64,
+            description="The area's population-weighted observed temperature averaged over the 24 hours that end at this hour on D-2, C (feature candidate #150). Each hour is weighted over the area's stations that report it, with the latest census vintage's weights, renormalised and added in station order (the ordered_weighted_mean macro), as ftr_hour_msm weighs the forecast; the 24 hours are added oldest first. Complete windows only: null unless all 24 hours have a value. A missing station does not break a window; an hour no station reports does.",
+            tags={"categorical": "false", "expression": "ROLLING_MEAN(MEAN(temperature_c, weight=population), gap=2d, window=24, step=1h)"},
+        ),
+        Field(
+            name="mean_72h_popw_temperature_c",
+            dtype=Float64,
+            description="The same over the 72 hours that end at this hour on D-2, C (feature candidate #150). Null unless all 72 hours have a value.",
+            tags={"categorical": "false", "expression": "ROLLING_MEAN(MEAN(temperature_c, weight=population), gap=2d, window=72, step=1h)"},
+        ),
+        Field(
+            name="ewm_72h_popw_temperature_c",
+            dtype=Float64,
+            description="The same 72 hours weighted 0.5^(k / 24), k hours back from the newest: a half-life of 24 hours, divided by the sum of the weights, C (feature candidate #150). The 72 weights are literals the model computes when it compiles, so the SQL only adds and multiplies and the value is the same on every build. Null unless all 72 hours have a value.",
+            tags={"categorical": "false", "expression": "EWA(MEAN(temperature_c, weight=population), gap=2d, window=72, step=1h, halflife=24)"},
+        ),
     ],
     source=FTR_HOUR_JMA_OBS_SOURCE,
     online=False,
-    description="The recency-weighted same-hour temperature at each bidding zone's representative JMA station (dim_area.representative_jma_station_id) over D-8..D-2, the demand presets' wavg_temperature_c. Grain: area_code x trade_date x hour_ending (1-24, hour ending). A row exists for every delivery day that at least one lag observation reaches; the value is null only when every lag is missing.",
+    description="The recency-weighted same-hour temperature at each bidding zone's representative JMA station (dim_area.representative_jma_station_id) over D-8..D-2, the demand presets' wavg_temperature_c; and, since feature candidate #150, the area's population-weighted observed temperature accumulated along the clock over the 24 and 72 hours ending at the hour on D-2, with its 24-hour half-life weighted average. Grain: area_code x trade_date x hour_ending (1-24, hour ending). A row exists for every delivery day that at least one lag observation reaches; the value is null only when every lag is missing.",
     tags={"grain": "hour"},
 )
 
