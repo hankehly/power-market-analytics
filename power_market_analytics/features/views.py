@@ -250,9 +250,9 @@ FTR_DAY_CALENDAR = FeatureView(
 
 FTR_DAY_MSM_SOURCE = SparkSource(
     name="ftr_day_msm",
-    query="select area_code, cast(date_format(trade_date, 'yyyyMMdd') as int) as trade_date_key, max_popw_forecast_temperature_c, min_popw_forecast_temperature_c, mean_popw_forecast_temperature_c, max_popw_forecast_temperature_hour_ending, available_at from pma_features.ftr_day_msm",
+    query="select area_code, cast(date_format(trade_date, 'yyyyMMdd') as int) as trade_date_key, max_popw_forecast_temperature_c, min_popw_forecast_temperature_c, mean_popw_forecast_temperature_c, max_popw_forecast_temperature_hour_ending, morning_trend_popw_forecast_temperature_c, available_at from pma_features.ftr_day_msm",
     timestamp_field="available_at",
-    description="Day-level summaries of the MSM forecast for each delivery day per bidding zone, one row per forecast vintage: the maximum, minimum and mean over the day's 24 hours of ftr_hour_msm's population-weighted forecast temperature, and the hour of the maximum (feature candidate #132). Complete days only: the four columns are null unless all 24 hours of the vintage have a temperature. Grain: area_code x trade_date x forecast_reference_at. available_at is the latest of the day's hours: the vintage's, reference + 4 h.",
+    description="Day-level summaries of the MSM forecast for each delivery day per bidding zone, one row per forecast vintage: the maximum, minimum and mean over the day's 24 hours of ftr_hour_msm's population-weighted forecast temperature, and the hour of the maximum (feature candidate #132). Complete days only: those four columns are null unless all 24 hours of the vintage have a temperature. Also the morning trend of the same temperature over 06:00 to 10:00, which needs its four hours only (feature candidate #151). Grain: area_code x trade_date x forecast_reference_at. available_at is the latest of the day's hours: the vintage's, reference + 4 h.",
 )
 FTR_DAY_MSM = FeatureView(
     name="ftr_day_msm",
@@ -282,10 +282,16 @@ FTR_DAY_MSM = FeatureView(
             description="The hour ending, 1-24, of the day's highest hourly population-weighted forecast temperature; the earliest on a tie. Null unless all 24 hours have a temperature.",
             tags={"categorical": "false", "expression": "DAILY_ARGMAX(MEAN(forecast_temperature_c, weight=population))"},
         ),
+        Field(
+            name="morning_trend_popw_forecast_temperature_c",
+            dtype=Float64,
+            description="How fast the delivery day's morning warms: the least-squares slope of the population-weighted forecast temperature against the hour over the four hours ending 07:00 to 10:00, C per hour (feature candidate #151). Computed over differences, (3 (x10 - x7) + (x9 - x8)) / 10, the same slope as the textbook sums and better conditioned. Negative when the morning cools. Null unless all four hours have a temperature; unlike the day's four summaries it does not need the other twenty.",
+            tags={"categorical": "false", "expression": "DAILY_TREND(MEAN(forecast_temperature_c, weight=population), time=06:00-10:00)"},
+        ),
     ],
     source=FTR_DAY_MSM_SOURCE,
     online=False,
-    description="Day-level summaries of the MSM forecast for each delivery day per bidding zone, one row per forecast vintage: the maximum, minimum and mean over the day's 24 hours of ftr_hour_msm's population-weighted forecast temperature, and the hour of the maximum (feature candidate #132). Complete days only: the four columns are null unless all 24 hours of the vintage have a temperature. Grain: area_code x trade_date x forecast_reference_at. available_at is the latest of the day's hours: the vintage's, reference + 4 h.",
+    description="Day-level summaries of the MSM forecast for each delivery day per bidding zone, one row per forecast vintage: the maximum, minimum and mean over the day's 24 hours of ftr_hour_msm's population-weighted forecast temperature, and the hour of the maximum (feature candidate #132). Complete days only: those four columns are null unless all 24 hours of the vintage have a temperature. Also the morning trend of the same temperature over 06:00 to 10:00, which needs its four hours only (feature candidate #151). Grain: area_code x trade_date x forecast_reference_at. available_at is the latest of the day's hours: the vintage's, reference + 4 h.",
     tags={"grain": "day"},
 )
 

@@ -4,7 +4,7 @@ models:
       contract:
         enforced: true
     description: >
-      Day-level summaries of the MSM forecast for each delivery day per bidding zone, one row per forecast vintage: the maximum, minimum and mean over the day's 24 hours of ftr_hour_msm's population-weighted forecast temperature, and the hour of the maximum (feature candidate #132). Complete days only: the four columns are null unless all 24 hours of the vintage have a temperature. Grain: area_code x trade_date x forecast_reference_at. available_at is the latest of the day's hours: the vintage's, reference + 4 h.
+      Day-level summaries of the MSM forecast for each delivery day per bidding zone, one row per forecast vintage: the maximum, minimum and mean over the day's 24 hours of ftr_hour_msm's population-weighted forecast temperature, and the hour of the maximum (feature candidate #132). Complete days only: those four columns are null unless all 24 hours of the vintage have a temperature. Also the morning trend of the same temperature over 06:00 to 10:00, which needs its four hours only (feature candidate #151). Grain: area_code x trade_date x forecast_reference_at. available_at is the latest of the day's hours: the vintage's, reference + 4 h.
     data_tests:
       - dbt_utils.unique_combination_of_columns:
           arguments:
@@ -72,6 +72,15 @@ models:
               arguments:
                 min_value: 1
                 max_value: 24
+      - name: morning_trend_popw_forecast_temperature_c
+        data_type: double
+        description: >
+          How fast the delivery day's morning warms: the least-squares slope of the population-weighted forecast temperature against the hour over the four hours ending 07:00 to 10:00, C per hour (feature candidate #151). Computed over differences, (3 (x10 - x7) + (x9 - x8)) / 10, the same slope as the textbook sums and better conditioned. Negative when the morning cools. Null unless all four hours have a temperature; unlike the day's four summaries it does not need the other twenty.
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "DAILY_TREND(MEAN(forecast_temperature_c, weight=population), time=06:00-10:00)"
       - name: available_at
         data_type: timestamp
         description: >
@@ -89,7 +98,11 @@ unit_tests:
       available_at is hour 24's, the latest. 2025-08-02 has no temperature at
       hour 5, so its four columns are null. 2025-08-03 has hours 1-23 in one
       vintage and hour 24 only in another: neither vintage is complete, so both
-      rows are null. Pooling the two vintages would make a complete day.
+      rows are null. Pooling the two vintages would make a complete day. The
+      morning trend needs its four hours only, 07:00 to 10:00: it is there on
+      the day without hour 5 and in the vintage without hour 24, where the
+      day's four summaries are null, and null in the vintage that has hour 24
+      alone. (3 (30.1 - 25.7) + (28.8 - 27.2)) / 10 = 1.4800000000000009.
     model: ftr_day_msm
     given:
       - input: ref('ftr_hour_msm')
@@ -168,7 +181,44 @@ unit_tests:
           - {area_code: tokyo, trade_date: 2025-08-03, hour_ending: 24, forecast_reference_at: "2025-08-01 09:00:00", popw_forecast_temperature_c: 26.4, available_at: "2025-08-01 13:00:00"}
     expect:
       rows:
-        - {area_code: tokyo, trade_date: 2025-08-01, forecast_reference_at: "2025-07-30 21:00:00", max_popw_forecast_temperature_c: 33.1, min_popw_forecast_temperature_c: 24.3, mean_popw_forecast_temperature_c: 28.549999999999997, max_popw_forecast_temperature_hour_ending: 14, available_at: "2025-07-31 02:00:00"}
-        - {area_code: tokyo, trade_date: 2025-08-02, forecast_reference_at: "2025-07-31 21:00:00", max_popw_forecast_temperature_c: null, min_popw_forecast_temperature_c: null, mean_popw_forecast_temperature_c: null, max_popw_forecast_temperature_hour_ending: null, available_at: "2025-08-01 01:00:00"}
-        - {area_code: tokyo, trade_date: 2025-08-03, forecast_reference_at: "2025-08-01 21:00:00", max_popw_forecast_temperature_c: null, min_popw_forecast_temperature_c: null, mean_popw_forecast_temperature_c: null, max_popw_forecast_temperature_hour_ending: null, available_at: "2025-08-02 01:00:00"}
-        - {area_code: tokyo, trade_date: 2025-08-03, forecast_reference_at: "2025-08-01 09:00:00", max_popw_forecast_temperature_c: null, min_popw_forecast_temperature_c: null, mean_popw_forecast_temperature_c: null, max_popw_forecast_temperature_hour_ending: null, available_at: "2025-08-01 13:00:00"}
+        - {area_code: tokyo, trade_date: 2025-08-01, forecast_reference_at: "2025-07-30 21:00:00", max_popw_forecast_temperature_c: 33.1, min_popw_forecast_temperature_c: 24.3, mean_popw_forecast_temperature_c: 28.549999999999997, max_popw_forecast_temperature_hour_ending: 14, morning_trend_popw_forecast_temperature_c: 1.4800000000000009, available_at: "2025-07-31 02:00:00"}
+        - {area_code: tokyo, trade_date: 2025-08-02, forecast_reference_at: "2025-07-31 21:00:00", max_popw_forecast_temperature_c: null, min_popw_forecast_temperature_c: null, mean_popw_forecast_temperature_c: null, max_popw_forecast_temperature_hour_ending: null, morning_trend_popw_forecast_temperature_c: 1.4800000000000009, available_at: "2025-08-01 01:00:00"}
+        - {area_code: tokyo, trade_date: 2025-08-03, forecast_reference_at: "2025-08-01 21:00:00", max_popw_forecast_temperature_c: null, min_popw_forecast_temperature_c: null, mean_popw_forecast_temperature_c: null, max_popw_forecast_temperature_hour_ending: null, morning_trend_popw_forecast_temperature_c: 1.4800000000000009, available_at: "2025-08-02 01:00:00"}
+        - {area_code: tokyo, trade_date: 2025-08-03, forecast_reference_at: "2025-08-01 09:00:00", max_popw_forecast_temperature_c: null, min_popw_forecast_temperature_c: null, mean_popw_forecast_temperature_c: null, max_popw_forecast_temperature_hour_ending: null, morning_trend_popw_forecast_temperature_c: null, available_at: "2025-08-01 13:00:00"}
+
+  - name: ftr_day_msm_morning_trend_rising_flat_falling_and_a_missing_hour
+    description: >
+      Four days with the hours ending 07:00 to 10:00 only. The trend is the
+      least-squares slope of the temperature against the hour, C per hour,
+      written over differences: (3 (x10 - x7) + (x9 - x8)) / 10. 20, 22, 23, 27
+      rises by 2.2; four times 25.5 gives 0; 24.3, 23.9, 23.1, 22.6 falls by
+      -0.5899999999999995, the differences' own rounding, where the textbook
+      (n Stx - St Sx) / (n Stt - St^2) gives -0.5900000000000318 by subtracting
+      two large sums; a morning without hour 9 has no trend. No day has 24
+      hours, so the four summaries are null.
+    model: ftr_day_msm
+    given:
+      - input: ref('ftr_hour_msm')
+        rows:
+          - {area_code: tokyo, trade_date: 2025-08-01, hour_ending: 7, forecast_reference_at: "2025-07-30 21:00:00", popw_forecast_temperature_c: 20.0, available_at: "2025-07-31 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-01, hour_ending: 8, forecast_reference_at: "2025-07-30 21:00:00", popw_forecast_temperature_c: 22.0, available_at: "2025-07-31 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-01, hour_ending: 9, forecast_reference_at: "2025-07-30 21:00:00", popw_forecast_temperature_c: 23.0, available_at: "2025-07-31 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-01, hour_ending: 10, forecast_reference_at: "2025-07-30 21:00:00", popw_forecast_temperature_c: 27.0, available_at: "2025-07-31 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-02, hour_ending: 7, forecast_reference_at: "2025-07-30 21:00:00", popw_forecast_temperature_c: 25.5, available_at: "2025-07-31 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-02, hour_ending: 8, forecast_reference_at: "2025-07-30 21:00:00", popw_forecast_temperature_c: 25.5, available_at: "2025-07-31 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-02, hour_ending: 9, forecast_reference_at: "2025-07-30 21:00:00", popw_forecast_temperature_c: 25.5, available_at: "2025-07-31 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-02, hour_ending: 10, forecast_reference_at: "2025-07-30 21:00:00", popw_forecast_temperature_c: 25.5, available_at: "2025-07-31 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-03, hour_ending: 7, forecast_reference_at: "2025-07-30 21:00:00", popw_forecast_temperature_c: 24.3, available_at: "2025-07-31 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-03, hour_ending: 8, forecast_reference_at: "2025-07-30 21:00:00", popw_forecast_temperature_c: 23.9, available_at: "2025-07-31 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-03, hour_ending: 9, forecast_reference_at: "2025-07-30 21:00:00", popw_forecast_temperature_c: 23.1, available_at: "2025-07-31 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-03, hour_ending: 10, forecast_reference_at: "2025-07-30 21:00:00", popw_forecast_temperature_c: 22.6, available_at: "2025-07-31 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-04, hour_ending: 7, forecast_reference_at: "2025-07-30 21:00:00", popw_forecast_temperature_c: 21.0, available_at: "2025-07-31 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-04, hour_ending: 8, forecast_reference_at: "2025-07-30 21:00:00", popw_forecast_temperature_c: 22.0, available_at: "2025-07-31 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-04, hour_ending: 9, forecast_reference_at: "2025-07-30 21:00:00", popw_forecast_temperature_c: null, available_at: "2025-07-31 01:00:00"}
+          - {area_code: tokyo, trade_date: 2025-08-04, hour_ending: 10, forecast_reference_at: "2025-07-30 21:00:00", popw_forecast_temperature_c: 24.0, available_at: "2025-07-31 01:00:00"}
+    expect:
+      rows:
+        - {area_code: tokyo, trade_date: 2025-08-01, max_popw_forecast_temperature_c: null, morning_trend_popw_forecast_temperature_c: 2.2}
+        - {area_code: tokyo, trade_date: 2025-08-02, max_popw_forecast_temperature_c: null, morning_trend_popw_forecast_temperature_c: 0.0}
+        - {area_code: tokyo, trade_date: 2025-08-03, max_popw_forecast_temperature_c: null, morning_trend_popw_forecast_temperature_c: -0.5899999999999995}
+        - {area_code: tokyo, trade_date: 2025-08-04, max_popw_forecast_temperature_c: null, morning_trend_popw_forecast_temperature_c: null}

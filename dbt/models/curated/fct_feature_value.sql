@@ -84,11 +84,12 @@ with
     m.available_at,
     cast(null as timestamp) as published_at,
     stack(
-      4,
+      5,
       'max_popw_forecast_temperature_c', cast(m.max_popw_forecast_temperature_c as double), false,
       'min_popw_forecast_temperature_c', cast(m.min_popw_forecast_temperature_c as double), false,
       'mean_popw_forecast_temperature_c', cast(m.mean_popw_forecast_temperature_c as double), false,
-      'max_popw_forecast_temperature_hour_ending', cast(m.max_popw_forecast_temperature_hour_ending as double), false
+      'max_popw_forecast_temperature_hour_ending', cast(m.max_popw_forecast_temperature_hour_ending as double), false,
+      'morning_trend_popw_forecast_temperature_c', cast(m.morning_trend_popw_forecast_temperature_c as double), false
     ) as (feature_name, feature_value, is_categorical)
   from
     {{ ref('ftr_day_msm') }} m
