@@ -181,6 +181,15 @@ models:
             feature: true
             categorical: false
             expression: "DISCOMFORT_INDEX(MEAN(forecast_temperature_c, weight=population), MEAN(forecast_relative_humidity_pct, weight=population))"
+      - name: cum_popw_forecast_solar_radiation_mjm2
+        data_type: double
+        description: >
+          The delivery day's population-weighted forecast solar radiation added up from midnight through this hour, MJ/m2: how much sun has fallen so far (feature candidate #151). popw_forecast_solar_radiation_mjm2 summed over the hours 1 to this one of the same vintage, in hour order. It stops at the first hour without a value: from there on it is null for the rest of the day, a total that skipped an hour being too small. At hour 24 it is the day's total.
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "CUM_SUM(MEAN(forecast_solar_radiation_mjm2, weight=population)) by trade_date"
       - name: available_at
         data_type: timestamp
         description: >
@@ -245,3 +254,48 @@ unit_tests:
         - {area_code: tokyo, trade_date: 2025-08-01, hour_ending: 1, popw_forecast_temperature_c: 27.0, popw_forecast_relative_humidity_pct: 55.0, popw_forecast_discomfort_index: 75.0065}
         - {area_code: tokyo, trade_date: 2025-08-01, hour_ending: 2, popw_forecast_temperature_c: 29.0, popw_forecast_relative_humidity_pct: 70.0, popw_forecast_discomfort_index: 79.87700000000001}
         - {area_code: tokyo, trade_date: 2025-08-01, hour_ending: 3, popw_forecast_temperature_c: 27.0, popw_forecast_relative_humidity_pct: null, popw_forecast_discomfort_index: null}
+
+  - name: ftr_hour_msm_cumulative_solar_radiation_from_midnight
+    description: >
+      One Tokyo station carrying the whole weight, so the weighted radiation is
+      the station's. The day's radiation is added up from hour 1 through each
+      hour, in hour order: 0.1, 0.2 and 0.3 give 0.6000000000000001 at hour 3,
+      where the same three added in reverse give 0.6. The total stops at the
+      first hour without a value: 2025-08-01 has none at hour 4, so hours 4 and
+      5 are null, a total that skipped an hour being too small. 2025-08-02 has
+      no row at all for hour 3, so hour 4 is null the same way. 2025-08-03 has
+      two vintages, and each adds up its own hours: they are not pooled.
+    model: ftr_hour_msm
+    given:
+      - input: ref('dim_area')
+        rows:
+          - {area_key: 1, area_code: tokyo, representative_jma_station_id: s1}
+      - input: ref('fct_census_population_jma_station')
+        rows:
+          - {census_year: 2020, area_key: 1, station_id: s1, area_population_weight: 1.0}
+      - input: ref('fct_jma_msm_weather_forecast_hourly')
+        rows:
+          - {station_id: s1, date_key: 2025-08-01, forecast_hour_start_at: "2025-08-01 00:00:00", forecast_reference_at: "2025-07-30 21:00:00", solar_radiation_mjm2: 0.1, available_at: "2025-07-31 01:00:00"}
+          - {station_id: s1, date_key: 2025-08-01, forecast_hour_start_at: "2025-08-01 01:00:00", forecast_reference_at: "2025-07-30 21:00:00", solar_radiation_mjm2: 0.2, available_at: "2025-07-31 01:00:00"}
+          - {station_id: s1, date_key: 2025-08-01, forecast_hour_start_at: "2025-08-01 02:00:00", forecast_reference_at: "2025-07-30 21:00:00", solar_radiation_mjm2: 0.3, available_at: "2025-07-31 01:00:00"}
+          - {station_id: s1, date_key: 2025-08-01, forecast_hour_start_at: "2025-08-01 03:00:00", forecast_reference_at: "2025-07-30 21:00:00", solar_radiation_mjm2: null, available_at: "2025-07-31 01:00:00"}
+          - {station_id: s1, date_key: 2025-08-01, forecast_hour_start_at: "2025-08-01 04:00:00", forecast_reference_at: "2025-07-30 21:00:00", solar_radiation_mjm2: 0.4, available_at: "2025-07-31 01:00:00"}
+          - {station_id: s1, date_key: 2025-08-02, forecast_hour_start_at: "2025-08-02 00:00:00", forecast_reference_at: "2025-07-31 21:00:00", solar_radiation_mjm2: 1.0, available_at: "2025-08-01 01:00:00"}
+          - {station_id: s1, date_key: 2025-08-02, forecast_hour_start_at: "2025-08-02 01:00:00", forecast_reference_at: "2025-07-31 21:00:00", solar_radiation_mjm2: 2.0, available_at: "2025-08-01 01:00:00"}
+          - {station_id: s1, date_key: 2025-08-02, forecast_hour_start_at: "2025-08-02 03:00:00", forecast_reference_at: "2025-07-31 21:00:00", solar_radiation_mjm2: 4.0, available_at: "2025-08-01 01:00:00"}
+          - {station_id: s1, date_key: 2025-08-03, forecast_hour_start_at: "2025-08-03 00:00:00", forecast_reference_at: "2025-08-01 21:00:00", solar_radiation_mjm2: 1.5, available_at: "2025-08-02 01:00:00"}
+          - {station_id: s1, date_key: 2025-08-03, forecast_hour_start_at: "2025-08-03 01:00:00", forecast_reference_at: "2025-08-01 21:00:00", solar_radiation_mjm2: 2.5, available_at: "2025-08-02 01:00:00"}
+          - {station_id: s1, date_key: 2025-08-03, forecast_hour_start_at: "2025-08-03 00:00:00", forecast_reference_at: "2025-08-01 09:00:00", solar_radiation_mjm2: 10.0, available_at: "2025-08-01 13:00:00"}
+    expect:
+      rows:
+        - {area_code: tokyo, trade_date: 2025-08-01, hour_ending: 1, forecast_reference_at: "2025-07-30 21:00:00", popw_forecast_solar_radiation_mjm2: 0.1, cum_popw_forecast_solar_radiation_mjm2: 0.1}
+        - {area_code: tokyo, trade_date: 2025-08-01, hour_ending: 2, forecast_reference_at: "2025-07-30 21:00:00", popw_forecast_solar_radiation_mjm2: 0.2, cum_popw_forecast_solar_radiation_mjm2: 0.30000000000000004}
+        - {area_code: tokyo, trade_date: 2025-08-01, hour_ending: 3, forecast_reference_at: "2025-07-30 21:00:00", popw_forecast_solar_radiation_mjm2: 0.3, cum_popw_forecast_solar_radiation_mjm2: 0.6000000000000001}
+        - {area_code: tokyo, trade_date: 2025-08-01, hour_ending: 4, forecast_reference_at: "2025-07-30 21:00:00", popw_forecast_solar_radiation_mjm2: null, cum_popw_forecast_solar_radiation_mjm2: null}
+        - {area_code: tokyo, trade_date: 2025-08-01, hour_ending: 5, forecast_reference_at: "2025-07-30 21:00:00", popw_forecast_solar_radiation_mjm2: 0.4, cum_popw_forecast_solar_radiation_mjm2: null}
+        - {area_code: tokyo, trade_date: 2025-08-02, hour_ending: 1, forecast_reference_at: "2025-07-31 21:00:00", popw_forecast_solar_radiation_mjm2: 1.0, cum_popw_forecast_solar_radiation_mjm2: 1.0}
+        - {area_code: tokyo, trade_date: 2025-08-02, hour_ending: 2, forecast_reference_at: "2025-07-31 21:00:00", popw_forecast_solar_radiation_mjm2: 2.0, cum_popw_forecast_solar_radiation_mjm2: 3.0}
+        - {area_code: tokyo, trade_date: 2025-08-02, hour_ending: 4, forecast_reference_at: "2025-07-31 21:00:00", popw_forecast_solar_radiation_mjm2: 4.0, cum_popw_forecast_solar_radiation_mjm2: null}
+        - {area_code: tokyo, trade_date: 2025-08-03, hour_ending: 1, forecast_reference_at: "2025-08-01 21:00:00", popw_forecast_solar_radiation_mjm2: 1.5, cum_popw_forecast_solar_radiation_mjm2: 1.5}
+        - {area_code: tokyo, trade_date: 2025-08-03, hour_ending: 2, forecast_reference_at: "2025-08-01 21:00:00", popw_forecast_solar_radiation_mjm2: 2.5, cum_popw_forecast_solar_radiation_mjm2: 4.0}
+        - {area_code: tokyo, trade_date: 2025-08-03, hour_ending: 1, forecast_reference_at: "2025-08-01 09:00:00", popw_forecast_solar_radiation_mjm2: 10.0, cum_popw_forecast_solar_radiation_mjm2: 10.0}

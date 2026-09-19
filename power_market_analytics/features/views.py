@@ -373,7 +373,7 @@ FTR_HOUR_JMA_OBS = FeatureView(
 
 FTR_HOUR_MSM_SOURCE = SparkSource(
     name="ftr_hour_msm",
-    query="select area_code, cast(date_format(trade_date, 'yyyyMMdd') as int) as trade_date_key, hour_ending, forecast_temperature_c, popw_forecast_temperature_c, popw_forecast_relative_humidity_pct, popw_forecast_precipitation_mm, popw_forecast_solar_radiation_mjm2, popw_forecast_total_cloud_cover_pct, popw_forecast_high_cloud_cover_pct, popw_forecast_middle_cloud_cover_pct, popw_forecast_low_cloud_cover_pct, popw_forecast_wind_speed_ms, popw_forecast_u_wind_ms, popw_forecast_v_wind_ms, popw_forecast_surface_pressure_hpa, popw_forecast_sea_level_pressure_hpa, popw_forecast_discomfort_index, available_at from pma_features.ftr_hour_msm",
+    query="select area_code, cast(date_format(trade_date, 'yyyyMMdd') as int) as trade_date_key, hour_ending, forecast_temperature_c, popw_forecast_temperature_c, popw_forecast_relative_humidity_pct, popw_forecast_precipitation_mm, popw_forecast_solar_radiation_mjm2, popw_forecast_total_cloud_cover_pct, popw_forecast_high_cloud_cover_pct, popw_forecast_middle_cloud_cover_pct, popw_forecast_low_cloud_cover_pct, popw_forecast_wind_speed_ms, popw_forecast_u_wind_ms, popw_forecast_v_wind_ms, popw_forecast_surface_pressure_hpa, popw_forecast_sea_level_pressure_hpa, popw_forecast_discomfort_index, cum_popw_forecast_solar_radiation_mjm2, available_at from pma_features.ftr_hour_msm",
     timestamp_field="available_at",
     description="The MSM forecast for each delivery-day hour per bidding zone, one row per forecast vintage: the representative station's temperature (the demand lightgbm_msm feature) and the population-weighted temperature, humidity, rain, solar radiation, cloud cover (total, high, middle, low), wind (speed, u, v) and pressure (surface, sea-level) over the area's staffed stations with the latest census vintage's weights (lightgbm_msm_popw and the similar-day selector; tasks/demand/datasets.py), and the 不快指数 of the weighted temperature and humidity. Grain: area_code x trade_date x hour_ending x forecast_reference_at. available_at is the vintage's: reference + 4 h.",
 )
@@ -470,6 +470,12 @@ FTR_HOUR_MSM = FeatureView(
             dtype=Float64,
             description="The 不快指数 (discomfort index) of the population-weighted forecast temperature T, C, and relative humidity H, %: 0.81 T + 0.01 H (0.99 T - 14.3) + 46.3 (the discomfort_index macro; 木内 2001, 天気 48(9), eq. A1, the U.S. Weather Bureau's temperature-humidity index in C). The index of the two means, not the mean of the stations' indexes. Null when either mean is null. No unit; from 15 in Hokkaido's coldest hour to 87 in Tokyo's hottest humid one, 2019-04 to 2026-09. Below 14.4 C a higher humidity lowers it.",
             tags={"categorical": "false", "expression": "DISCOMFORT_INDEX(MEAN(forecast_temperature_c, weight=population), MEAN(forecast_relative_humidity_pct, weight=population))"},
+        ),
+        Field(
+            name="cum_popw_forecast_solar_radiation_mjm2",
+            dtype=Float64,
+            description="The delivery day's population-weighted forecast solar radiation added up from midnight through this hour, MJ/m2: how much sun has fallen so far (feature candidate #151). popw_forecast_solar_radiation_mjm2 summed over the hours 1 to this one of the same vintage, in hour order. It stops at the first hour without a value: from there on it is null for the rest of the day, a total that skipped an hour being too small. At hour 24 it is the day's total.",
+            tags={"categorical": "false", "expression": "CUM_SUM(MEAN(forecast_solar_radiation_mjm2, weight=population)) by trade_date"},
         ),
     ],
     source=FTR_HOUR_MSM_SOURCE,
