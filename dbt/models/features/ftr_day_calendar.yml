@@ -77,6 +77,48 @@ models:
               arguments:
                 values: [0, 1, 2, 3, 4, 5]
                 quote: false
+      - name: lag_2d_day_type
+        data_type: int
+        description: >
+          The day type of D-2, the day lag_2d_demand_kwh reads: 0 Weekday, 1 Weekend, 2 Holiday, the mart's own day_type of that day, so the model can tell when a load lag is a holiday's (feature candidate #201). Null where D-2 is before the spine's first day. A LightGBM categorical.
+        config:
+          meta:
+            feature: true
+            categorical: true
+            expression: "LAG(day_type, 2d)"
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [0, 1, 2]
+                quote: false
+      - name: lag_3d_day_type
+        data_type: int
+        description: >
+          The day type of D-3, the day lag_3d_demand_kwh reads: 0 Weekday, 1 Weekend, 2 Holiday, the mart's own day_type of that day, so the model can tell when a load lag is a holiday's (feature candidate #201). Null where D-3 is before the spine's first day. A LightGBM categorical.
+        config:
+          meta:
+            feature: true
+            categorical: true
+            expression: "LAG(day_type, 3d)"
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [0, 1, 2]
+                quote: false
+      - name: lag_7d_day_type
+        data_type: int
+        description: >
+          The day type of D-7, the day lag_7d_demand_kwh reads: 0 Weekday, 1 Weekend, 2 Holiday, the mart's own day_type of that day, so the model can tell when a load lag is a holiday's (feature candidate #201). Null where D-7 is before the spine's first day. A LightGBM categorical.
+        config:
+          meta:
+            feature: true
+            categorical: true
+            expression: "LAG(day_type, 7d)"
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [0, 1, 2]
+                quote: false
       - name: holiday_degree
         data_type: double
         description: >
@@ -265,3 +307,41 @@ unit_tests:
         - {area_code: tokyo, trade_date: 2025-08-17, special_period: 0}
         - {area_code: tokyo, trade_date: 2025-08-18, special_period: 0}
         - {area_code: tokyo, trade_date: 2026-02-10, special_period: 5}
+
+  - name: ftr_day_calendar_lag_day_types_read_the_earlier_days
+    description: >
+      Ten real dim_date days around 成人の日 (Monday 2025-01-13). Each lag column is
+      the mart's own day_type of the day 2, 3 or 7 days earlier: a Tuesday reads the
+      Sunday (1), the Wednesday after the holiday reads it at D-2 and the Thursday
+      at D-3 (2), and the Monday a week later reads it at D-7 (2) while the Monday
+      after that reads a working day (0). An earlier day that is not in dim_date
+      gives null, as the first days of the spine do.
+    model: ftr_day_calendar
+    given:
+      - input: ref('dim_area')
+        rows:
+          - {area_code: tokyo}
+      - input: ref('dim_date')
+        rows:
+          - {date_key: 2025-01-10, is_weekend: false, is_holiday: false}  # Friday
+          - {date_key: 2025-01-11, is_weekend: true, is_holiday: false}  # Saturday
+          - {date_key: 2025-01-12, is_weekend: true, is_holiday: false}  # Sunday
+          - {date_key: 2025-01-13, is_weekend: false, is_holiday: true}  # 成人の日, a Monday
+          - {date_key: 2025-01-14, is_weekend: false, is_holiday: false}
+          - {date_key: 2025-01-15, is_weekend: false, is_holiday: false}
+          - {date_key: 2025-01-16, is_weekend: false, is_holiday: false}
+          - {date_key: 2025-01-17, is_weekend: false, is_holiday: false}
+          - {date_key: 2025-01-20, is_weekend: false, is_holiday: false}  # the Monday after
+          - {date_key: 2025-01-27, is_weekend: false, is_holiday: false}  # and the next
+    expect:
+      rows:
+        - {area_code: tokyo, trade_date: 2025-01-10, day_type: 0, lag_2d_day_type: null, lag_3d_day_type: null, lag_7d_day_type: null}
+        - {area_code: tokyo, trade_date: 2025-01-11, day_type: 1, lag_2d_day_type: null, lag_3d_day_type: null, lag_7d_day_type: null}
+        - {area_code: tokyo, trade_date: 2025-01-12, day_type: 1, lag_2d_day_type: 0, lag_3d_day_type: null, lag_7d_day_type: null}
+        - {area_code: tokyo, trade_date: 2025-01-13, day_type: 2, lag_2d_day_type: 1, lag_3d_day_type: 0, lag_7d_day_type: null}
+        - {area_code: tokyo, trade_date: 2025-01-14, day_type: 0, lag_2d_day_type: 1, lag_3d_day_type: 1, lag_7d_day_type: null}
+        - {area_code: tokyo, trade_date: 2025-01-15, day_type: 0, lag_2d_day_type: 2, lag_3d_day_type: 1, lag_7d_day_type: null}
+        - {area_code: tokyo, trade_date: 2025-01-16, day_type: 0, lag_2d_day_type: 0, lag_3d_day_type: 2, lag_7d_day_type: null}
+        - {area_code: tokyo, trade_date: 2025-01-17, day_type: 0, lag_2d_day_type: 0, lag_3d_day_type: 0, lag_7d_day_type: 0}
+        - {area_code: tokyo, trade_date: 2025-01-20, day_type: 0, lag_2d_day_type: null, lag_3d_day_type: 0, lag_7d_day_type: 2}
+        - {area_code: tokyo, trade_date: 2025-01-27, day_type: 0, lag_2d_day_type: null, lag_3d_day_type: null, lag_7d_day_type: 0}
