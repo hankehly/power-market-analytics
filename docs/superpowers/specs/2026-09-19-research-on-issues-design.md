@@ -156,7 +156,7 @@ stays a PR label.
 | Status | Unchanged: `Ready`, `Needs a decision`, `In progress`, `Done` (set on close by the built-in workflow). |
 | Task | Unchanged. |
 | Family | New single-select. Initial options, from the 2026-09-16 grouping: `recent load`, `load shape`, `forecast thermal`, `weather memory`, `reference days`, `calendar`, `renewables`, `external forecasts`, `MSM elements`. Edited in the browser as families change. Set on every candidate and on a family-batch experiment. |
-| Build, Impact, Feasibility | Unchanged; candidates only. |
+| Build, Impact, Feasibility | Unchanged; candidates only. *Superseded on 2026-09-19 (PR #187): the Build field and its five-way classification were removed; Impact and Feasibility stay.* |
 | Decision | Unchanged options, now the verdict of investigations and experiments too. |
 | Investigation | Deleted. The parent link and the timeline's cross-references replace it. |
 

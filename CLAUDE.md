@@ -1175,8 +1175,8 @@
 - The research ledger is GitHub issues, four kinds by label — `observation`, `investigation`,
   `feature candidate`, `experiment` — ranked in the user-level Project **Load Forecasting**
   (https://github.com/users/hankehly/projects/3, number 3, id `PVT_kwHOALGbus4BjoLc`; fields
-  Status / Task / Impact / Feasibility / Decision; the Build field went on 2026-09-19, its
-  value belongs in the candidate's Build notes). What each kind is, when it
+  Status / Task / Impact / Feasibility / Decision; the Build field and its five-way
+  classification were removed on 2026-09-19 and are not recorded anywhere). What each kind is, when it
   closes, the Project's fields and the batch rule:
   [docs/research/README.md](docs/research/README.md). The repo keeps each task's scope
   defaults (`docs/research/<task>/README.md`), the papers index (`docs/research/papers.md`)
