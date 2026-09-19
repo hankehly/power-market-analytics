@@ -15,9 +15,10 @@ import threading
 import time
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
-from tests.support import patch_monotonic, record_sleeps
+from tests.support import patch_monotonic, record_sleeps, write_table
 
 # --------------------------------------------------------------------------- sleeps
 
@@ -148,3 +149,46 @@ def test_no_test_module_patches_time_sleep_or_monotonic_directly():
         if hits
     }
     assert offenders == {}
+
+
+# --------------------------------------------------------------------------- tables
+# ``spark.createDataFrame(pandas_frame, "a int, b int")`` matches columns by POSITION, so
+# a frame whose columns are in another order than the schema string lands its values
+# under the wrong names, silently when the types agree. ``write_table`` matches by name.
+
+
+class TestWriteTable:
+    def test_columns_land_under_their_own_names_whatever_the_frames_order(self, spark):
+        frame = pd.DataFrame([{"a": 1, "c": 3, "b": 2}])
+        write_table(spark, frame, "a int, b int, c int", "default.write_table_by_name")
+        row = spark.table("default.write_table_by_name").collect()[0]
+        assert row.asDict() == {"a": 1, "b": 2, "c": 3}
+
+    def test_a_frame_column_the_schema_lacks_is_refused_by_name(self, spark):
+        frame = pd.DataFrame([{"a": 1, "b": 2, "stray": 9}])
+        with pytest.raises(ValueError, match=r"default\.t.*not in the schema: \['stray'\]"):
+            write_table(spark, frame, "a int, b int", "default.t")
+
+    def test_dict_rows_land_by_name_and_a_key_they_omit_is_null(self, spark):
+        # Spark matches a dict to the schema by name itself; a key a row omits is a null.
+        rows = [{"a": 1, "c": 3, "b": 2}, {"c": 6, "a": 4}]
+        write_table(spark, rows, "a int, b int, c int", "default.write_table_dict_rows")
+        got = [
+            r.asDict() for r in spark.table("default.write_table_dict_rows").orderBy("a").collect()
+        ]
+        assert got == [{"a": 1, "b": 2, "c": 3}, {"a": 4, "b": None, "c": 6}]
+
+    def test_tuple_rows_have_no_names_and_are_written_in_their_order(self, spark):
+        write_table(spark, [(1, 2, 3)], "a int, b int, c int", "default.write_table_tuple_rows")
+        row = spark.table("default.write_table_tuple_rows").collect()[0]
+        assert row.asDict() == {"a": 1, "b": 2, "c": 3}
+
+    def test_a_dict_key_the_schema_lacks_is_refused_by_name(self, spark):
+        rows = [{"a": 1, "b": 2}, {"a": 3, "b": 4, "stray": 9}]
+        with pytest.raises(ValueError, match=r"default\.t.*not in the schema: \['stray'\]"):
+            write_table(spark, rows, "a int, b int", "default.t")
+
+    def test_a_schema_column_the_frame_lacks_is_refused_by_name(self, spark):
+        frame = pd.DataFrame([{"a": 1}])
+        with pytest.raises(ValueError, match=r"default\.t.*not in the frame: \['b'\]"):
+            write_table(spark, frame, "a int, b int", "default.t")

@@ -40,6 +40,8 @@ import pandas as pd  # noqa: E402
 import pytest  # noqa: E402
 from pyspark.sql import SparkSession  # noqa: E402
 
+from tests.support import write_table  # noqa: E402
+
 
 @pytest.fixture(scope="session")
 def spark(tmp_path_factory: pytest.TempPathFactory) -> Iterator[SparkSession]:
@@ -1170,65 +1172,90 @@ def curated_warehouse(spark: SparkSession) -> CuratedWarehouse:
     )
 
     spark.sql("CREATE DATABASE IF NOT EXISTS pma_curated")
-    spark.createDataFrame(
-        AREAS, "area_key int, area_code string, representative_jma_station_id string"
-    ).write.mode("overwrite").saveAsTable("pma_curated.dim_area")
-    spark.createDataFrame(
+    write_table(
+        spark,
+        AREAS,
+        "area_key int, area_code string, representative_jma_station_id string",
+        "pma_curated.dim_area",
+    )
+    write_table(
+        spark,
         prices,
         "date_key date, time_code int, area_key int, trade_datetime timestamp, "
         "area_price_jpy_kwh double",
-    ).write.mode("overwrite").saveAsTable("pma_curated.fct_jepx_spot_area_price")
-    spark.createDataFrame(
+        "pma_curated.fct_jepx_spot_area_price",
+    )
+    write_table(
+        spark,
         occto,
         "date_key date, area_key int, max_demand_hour_ending int, max_demand_mw int, "
         "max_supply_capacity_mw int",
-    ).write.mode("overwrite").saveAsTable("pma_curated.fct_occto_demand_supply_forecast_daily")
-    spark.createDataFrame(
+        "pma_curated.fct_occto_demand_supply_forecast_daily",
+    )
+    write_table(
+        spark,
         half_hours,
         "time_code int, hour_of_day int, day_part string",
-    ).write.mode("overwrite").saveAsTable("pma_curated.dim_half_hour")
-    spark.createDataFrame(
+        "pma_curated.dim_half_hour",
+    )
+    write_table(
+        spark,
         accuracy,
         "date_key date, time_code int, area_key int, run_id string, "
         "actual_price_jpy_kwh double, forecast_price_jpy_kwh double",
-    ).write.mode("overwrite").saveAsTable("pma_curated.fct_spot_price_forecast_accuracy")
-    spark.createDataFrame(
+        "pma_curated.fct_spot_price_forecast_accuracy",
+    )
+    write_table(
+        spark,
         demand_rows,
         "date_key date, time_code int, area_key int, delivery_datetime timestamp, "
         "demand_kwh bigint, generation_kwh bigint, wind_solar_generation_kwh bigint",
-    ).write.mode("overwrite").saveAsTable("pma_curated.fct_area_demand_generation_actual")
-    spark.createDataFrame(
+        "pma_curated.fct_area_demand_generation_actual",
+    )
+    write_table(
+        spark,
         weather_rows,
         "station_id string, observed_at timestamp, observed_hour_start_at timestamp, "
         "date_key date, temperature_c double, humidity_pct double, precipitation_mm double",
-    ).write.mode("overwrite").saveAsTable("pma_curated.fct_jma_weather_hourly")
-    spark.createDataFrame(
+        "pma_curated.fct_jma_weather_hourly",
+    )
+    write_table(
+        spark,
         forecast_rows,
         "station_id string, forecast_reference_at timestamp, forecast_valid_at timestamp, "
         "forecast_hour_start_at timestamp, date_key date, temperature_c double, "
         "relative_humidity_pct double, precipitation_mm double, available_at timestamp",
-    ).write.mode("overwrite").saveAsTable("pma_curated.fct_jma_msm_weather_forecast_hourly")
-    spark.createDataFrame(
+        "pma_curated.fct_jma_msm_weather_forecast_hourly",
+    )
+    write_table(
+        spark,
         station_weights,
         "census_year int, station_id string, area_key int, n_meshes int, "
         "population_total bigint, area_population_total bigint, area_population_weight double",
-    ).write.mode("overwrite").saveAsTable("pma_curated.fct_census_population_jma_station")
-    spark.createDataFrame(
+        "pma_curated.fct_census_population_jma_station",
+    )
+    write_table(
+        spark,
         demand_accuracy,
         "date_key date, time_code int, area_key int, run_id string, "
         "actual_demand_kwh double, forecast_demand_kwh double",
-    ).write.mode("overwrite").saveAsTable("pma_curated.fct_demand_forecast_accuracy")
-    spark.createDataFrame(
+        "pma_curated.fct_demand_forecast_accuracy",
+    )
+    write_table(
+        spark,
         dates,
         "date_key date, is_weekend boolean, is_holiday boolean, holiday_name_ja string, "
         "holiday_degree double, is_business_day boolean, half int, quarter int, "
         "day_of_month int, day_of_quarter int, day_of_year int, fiscal_quarter int",
-    ).write.mode("overwrite").saveAsTable("pma_curated.dim_date")
-    spark.createDataFrame(
+        "pma_curated.dim_date",
+    )
+    write_table(
+        spark,
         hourly_load_rows,
         "date_key date, hour_of_day int, area_key int, delivery_datetime timestamp, "
         "demand_kwh bigint, available_at timestamp",
-    ).write.mode("overwrite").saveAsTable("pma_curated.fct_area_power_usage_hourly")
+        "pma_curated.fct_area_power_usage_hourly",
+    )
     return CuratedWarehouse(
         areas=AREAS,
         prices=prices,
@@ -1642,44 +1669,57 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
             [None if pd.isna(v) else int(v) for v in calendar[col]], dtype=object
         )
     spark.sql("create database if not exists pma_features")
-    spark.createDataFrame(
+    write_table(
+        spark,
         calendar,
         "area_code string, trade_date date, month int, day_of_week int, day_type int, "
         "special_period int, "
         "holiday_degree double, half int, quarter int, day_of_month int, day_of_quarter int, "
         "day_of_year int, is_business_day int, fiscal_quarter int, days_since_holiday int, "
         "days_until_holiday int, available_at timestamp",
-    ).write.mode("overwrite").saveAsTable("pma_features.ftr_day_calendar")
-    spark.createDataFrame(
+        "pma_features.ftr_day_calendar",
+    )
+    write_table(
+        spark,
         pd.DataFrame(occto_rows),
         "area_code string, trade_date date, max_demand_hour_ending int, max_demand_mw int, "
         "max_supply_capacity_mw int, available_at timestamp",
-    ).write.mode("overwrite").saveAsTable("pma_features.ftr_day_occto")
-    spark.createDataFrame(
+        "pma_features.ftr_day_occto",
+    )
+    write_table(
+        spark,
         pd.DataFrame(jepx_rows),
         "area_code string, trade_date date, time_code int, lag_1d_price double, "
         "available_at timestamp",
-    ).write.mode("overwrite").saveAsTable("pma_features.ftr_period_jepx")
-    spark.createDataFrame(
+        "pma_features.ftr_period_jepx",
+    )
+    write_table(
+        spark,
         pd.DataFrame(jma_rows),
         "area_code string, trade_date date, hour_ending int, wavg_temperature_c double, "
         "available_at timestamp",
-    ).write.mode("overwrite").saveAsTable("pma_features.ftr_hour_jma_obs")
-    spark.createDataFrame(
+        "pma_features.ftr_hour_jma_obs",
+    )
+    write_table(
+        spark,
         pd.DataFrame(msm_rows),
         "area_code string, trade_date date, hour_ending int, forecast_temperature_c double, "
         "popw_forecast_temperature_c double, popw_forecast_relative_humidity_pct double, "
         "popw_forecast_precipitation_mm double, popw_forecast_solar_radiation_mjm2 double, "
         + "".join(f"popw_forecast_{element} double, " for element in MSM_EXTRA_ELEMENTS)
         + "popw_forecast_discomfort_index double, available_at timestamp",
-    ).write.mode("overwrite").saveAsTable("pma_features.ftr_hour_msm")
-    spark.createDataFrame(
+        "pma_features.ftr_hour_msm",
+    )
+    write_table(
+        spark,
         pd.DataFrame(day_msm_rows),
         "area_code string, trade_date date, max_popw_forecast_temperature_c double, "
         "min_popw_forecast_temperature_c double, mean_popw_forecast_temperature_c double, "
         "max_popw_forecast_temperature_hour_ending int, available_at timestamp",
-    ).write.mode("overwrite").saveAsTable("pma_features.ftr_day_msm")
-    spark.createDataFrame(
+        "pma_features.ftr_day_msm",
+    )
+    write_table(
+        spark,
         period_actuals,
         "area_code string, trade_date date, time_code int, lag_2d_demand_kwh bigint, "
         "lag_3d_demand_kwh bigint, lag_7d_demand_kwh bigint, lag_9d_demand_kwh bigint, "
@@ -1693,8 +1733,10 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
         "ewstd_5d_demand_kwh double, ewstd_weekly_lags_demand_kwh double, "
         "lag_7d_adjacent_mean_demand_kwh double, lag_7d_ramp_demand_kwh bigint, "
         "mean_weekly_lags_ramp_demand_kwh double, available_at timestamp",
-    ).write.mode("overwrite").saveAsTable("pma_features.ftr_period_actuals")
-    spark.createDataFrame(
+        "pma_features.ftr_period_actuals",
+    )
+    write_table(
+        spark,
         day_actuals,
         "area_code string, trade_date date, lag_2d_mean_demand_kwh double, "
         "lag_2d_max_demand_kwh bigint, lag_2d_min_demand_kwh bigint, "
@@ -1708,8 +1750,10 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
             for stat in ("max", "mean", "min")
         )
         + "available_at timestamp",
-    ).write.mode("overwrite").saveAsTable("pma_features.ftr_day_actuals")
-    spark.createDataFrame(
+        "pma_features.ftr_day_actuals",
+    )
+    write_table(
+        spark,
         similar_day,
         "area_code string, trade_date date, time_code int, similar_day_run_id string, "
         "similar_day_rank1_demand_kwh double, similar_day_rank2_demand_kwh double, "
@@ -1719,7 +1763,8 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
         "similar_day_rank2_distance double, similar_day_rank3_distance double, "
         "similar_day_n_candidates int, similar_day_fit_cutoff timestamp, "
         "similar_day_method string, available_at timestamp, published_at timestamp",
-    ).write.mode("overwrite").saveAsTable("pma_features.ftr_period_similar_day")
+        "pma_features.ftr_period_similar_day",
+    )
 
 
 @pytest.fixture

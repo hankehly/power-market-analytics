@@ -9,8 +9,11 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 from types import ModuleType
+from typing import Any
 
+import pandas as pd
 import pytest
+from pyspark.sql import SparkSession
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS_DIR = REPO_ROOT / "scripts"
@@ -125,3 +128,57 @@ def write_feature_store_yaml(directory: Path, registry: str = "registry.db") -> 
     """
     (directory / "feature_store.yaml").write_text(FEATURE_STORE_YAML.format(registry=registry))
     return directory
+
+
+def write_table(
+    spark: SparkSession,
+    rows: pd.DataFrame | list[dict[str, Any]] | list[tuple[Any, ...]],
+    schema: str,
+    table: str,
+) -> None:
+    """Write rows to a table, their columns matched to the schema by name.
+
+    ``spark.createDataFrame(frame, schema)`` matches a pandas frame to a schema
+    string by position: a frame whose columns are in another order lands its
+    values under the wrong names, and silently when the types agree. This
+    reorders a frame to the schema first. Spark matches a dict to the schema by
+    name itself, so dict rows pass through as they are. Either way a name the
+    schema lacks is refused, not dropped.
+
+    Parameters
+    ----------
+    spark : pyspark.sql.SparkSession
+        The session to write with.
+    rows : pandas.DataFrame, list of dict or list of tuple
+        The rows, their columns or keys in any order. A key a dict omits is a
+        null; a frame must have every column. Tuples have no names and are
+        written in their own order.
+    schema : str
+        A DDL schema string, ``"a int, b string"``; its order is the table's.
+    table : str
+        The qualified table name; it is overwritten.
+
+    Raises
+    ------
+    ValueError
+        If the rows have a name the schema lacks, or a frame lacks a schema column.
+    """
+    names = [column.strip().split(" ", 1)[0] for column in schema.split(",")]
+    stray: list[str] = []
+    absent: list[str] = []
+    data: Any = rows
+    if isinstance(rows, pd.DataFrame):
+        given = {str(column) for column in rows.columns}
+        stray = sorted(given - set(names))
+        absent = sorted(set(names) - given)
+        if not stray and not absent:
+            data = rows[names]
+    elif all(isinstance(row, dict) for row in rows):
+        stray = sorted({str(key) for row in rows for key in row} - set(names))
+    # Otherwise tuples: they have no names, and their order is the schema's by construction.
+    if stray or absent:
+        raise ValueError(
+            f"{table}: columns not in the schema: {stray}; "
+            f"schema columns not in the frame: {absent}"
+        )
+    spark.createDataFrame(data, schema).write.mode("overwrite").saveAsTable(table)
