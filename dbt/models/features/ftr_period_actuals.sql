@@ -5,8 +5,11 @@
 -- mean with its neighbouring periods and its ramp from the period before; an
 -- exponentially weighted mean, a standard deviation and a weighted standard
 -- deviation over D-2 to D-6, and the weighted mean's difference from the
--- weekly one; the two-day-old weekly change; and two means over the last
--- four complete days of D's day type. The shifted actuals, grouped per
+-- weekly one, plain and as a fraction of the weekly one; the two-day-old
+-- weekly change, plain and as a fraction of D-9; D-7 minus the weekly median;
+-- D-2's and D-7's load over their day's mean; D-2's position between the
+-- lowest and highest of D-2 to D-29; and two means over the last four
+-- complete days of D's day type. The shifted actuals, grouped per
 -- period, are the row spine: a row exists wherever any lag exists and a
 -- column is null where its input is absent. available_at is the greatest
 -- over the rows shifted onto the row, the neighbouring periods included.
@@ -28,6 +31,27 @@ with
   where
     -- A TSO hole has no value: the lag it feeds is null, not a row.
     actuals.demand_kwh is not null
+  ),
+
+  -- Each actual with the lowest and highest of the same period over the 28
+  -- days ending at it, the values present, and the newest availability among
+  -- them. Read at D-2 it is the window D-2 to D-29. A window, not more shifts:
+  -- the shifts are the row spine, and these 26 extra days must make no row.
+  ranges as (
+  select
+    area_code,
+    date_key,
+    time_code,
+    min(demand_kwh) over last_28_days as min_28d_demand_kwh,
+    max(demand_kwh) over last_28_days as max_28d_demand_kwh,
+    max(available_at) over last_28_days as available_at
+  from
+    actuals
+  window last_28_days as (
+    partition by area_code, time_code
+    order by unix_date(date_key)
+    range between 27 preceding and current row
+  )
   ),
 
   -- Where each actual lands: 'at' the same period lag_days later; 'before'
@@ -207,10 +231,12 @@ with
   ),
 
   -- A complete day has all 48 periods; it is public when its newest row is.
+  -- Its sum is exact: demand is a whole number of kWh.
   complete_days as (
   select
     area_code,
     date_key,
+    sum(demand_kwh) as day_sum_demand_kwh,
     max(available_at) as available_at
   from
     actuals
@@ -460,20 +486,50 @@ with
       (by_period.recent_sum_w * by_period.recent_sum_wyy - by_period.recent_sum_wy * by_period.recent_sum_wy)
       / nullif(by_period.recent_sum_w * by_period.recent_sum_w - by_period.recent_sum_ww, 0))
       as ewstd_5d_demand_kwh,
-    {{ available_at(['by_period.available_at', 'day_type_windows.available_at']) }} as available_at
+    -- The load over its day's mean, as one division so the integers stay
+    -- exact: 48 x lag / the day's sum. Null unless the day is complete.
+    48 * by_period.lag_2d_demand_kwh / nullif(day_2d.day_sum_demand_kwh, 0) as lag_2d_over_daily_mean_demand,
+    48 * by_period.lag_7d_demand_kwh / nullif(day_7d.day_sum_demand_kwh, 0) as lag_7d_over_daily_mean_demand,
+    -- D-2 between the lowest and highest of D-2 to D-29: 0 to 1, D-2 being
+    -- inside the window. Null without D-2 or when the two are equal.
+    (by_period.lag_2d_demand_kwh - ranges.min_28d_demand_kwh)
+    / nullif(ranges.max_28d_demand_kwh - ranges.min_28d_demand_kwh, 0) as lag_2d_position_28d_demand,
+    -- The window and the two days are inputs of the row, so it waits for them.
+    {{ available_at([
+      'by_period.available_at', 'day_type_windows.available_at',
+      'ranges.available_at', 'day_2d.available_at', 'day_7d.available_at',
+    ]) }} as available_at
   from
     by_period
     left join day_type_windows
       on day_type_windows.area_code = by_period.area_code
       and day_type_windows.trade_date = by_period.trade_date
       and day_type_windows.time_code = by_period.time_code
+    left join ranges
+      on ranges.area_code = by_period.area_code
+      and ranges.date_key = date_sub(by_period.trade_date, 2)
+      and ranges.time_code = by_period.time_code
+    left join complete_days as day_2d
+      on day_2d.area_code = by_period.area_code
+      and day_2d.date_key = date_sub(by_period.trade_date, 2)
+    left join complete_days as day_7d
+      on day_7d.area_code = by_period.area_code
+      and day_7d.date_key = date_sub(by_period.trade_date, 7)
   ),
 
   final as (
   select
     features.*,
     -- The recent weighted level minus the weekly one; null when either is.
-    ewm_5d_demand_kwh - ewm_weekly_lags_demand_kwh as ewm_5d_minus_ewm_weekly_lags_demand_kwh
+    ewm_5d_demand_kwh - ewm_weekly_lags_demand_kwh as ewm_5d_minus_ewm_weekly_lags_demand_kwh,
+    -- The same difference as a fraction of the weekly level, and the weekly
+    -- change as a fraction of D-9: fractions, not percentages. A zero
+    -- denominator gives null.
+    (ewm_5d_demand_kwh - ewm_weekly_lags_demand_kwh) / nullif(ewm_weekly_lags_demand_kwh, 0)
+      as rel_ewm_5d_minus_ewm_weekly_lags_demand,
+    change_2d_9d_demand_kwh / nullif(lag_9d_demand_kwh, 0) as rel_change_2d_9d_demand,
+    -- D-7 against the middle of the weekly lags present, itself among them.
+    lag_7d_demand_kwh - median_weekly_lags_demand_kwh as lag_7d_minus_median_weekly_lags_demand_kwh
   from
     features
   )

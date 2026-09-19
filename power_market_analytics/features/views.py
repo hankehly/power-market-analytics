@@ -456,7 +456,7 @@ FTR_HOUR_MSM = FeatureView(
 
 FTR_PERIOD_ACTUALS_SOURCE = SparkSource(
     name="ftr_period_actuals",
-    query="select area_code, cast(date_format(trade_date, 'yyyyMMdd') as int) as trade_date_key, time_code, lag_2d_demand_kwh, lag_3d_demand_kwh, lag_7d_demand_kwh, lag_9d_demand_kwh, lag_14d_demand_kwh, lag_21d_demand_kwh, lag_28d_demand_kwh, mean_weekly_lags_demand_kwh, ewm_weekly_lags_demand_kwh, ewstd_weekly_lags_demand_kwh, trend_weekly_lags_demand_kwh, std_weekly_lags_demand_kwh, median_weekly_lags_demand_kwh, zscore_7d_vs_14d_28d_demand_kwh, change_2d_9d_demand_kwh, lag_7d_adjacent_mean_demand_kwh, lag_7d_ramp_demand_kwh, mean_weekly_lags_ramp_demand_kwh, mean_daytype_4d_demand_kwh, ewm_daytype_4d_demand_kwh, ewm_5d_demand_kwh, std_5d_demand_kwh, ewstd_5d_demand_kwh, ewm_5d_minus_ewm_weekly_lags_demand_kwh, available_at from pma_features.ftr_period_actuals",
+    query="select area_code, cast(date_format(trade_date, 'yyyyMMdd') as int) as trade_date_key, time_code, lag_2d_demand_kwh, lag_3d_demand_kwh, lag_7d_demand_kwh, lag_9d_demand_kwh, lag_14d_demand_kwh, lag_21d_demand_kwh, lag_28d_demand_kwh, mean_weekly_lags_demand_kwh, ewm_weekly_lags_demand_kwh, ewstd_weekly_lags_demand_kwh, trend_weekly_lags_demand_kwh, std_weekly_lags_demand_kwh, median_weekly_lags_demand_kwh, zscore_7d_vs_14d_28d_demand_kwh, change_2d_9d_demand_kwh, lag_7d_adjacent_mean_demand_kwh, lag_7d_ramp_demand_kwh, mean_weekly_lags_ramp_demand_kwh, mean_daytype_4d_demand_kwh, ewm_daytype_4d_demand_kwh, ewm_5d_demand_kwh, std_5d_demand_kwh, ewstd_5d_demand_kwh, ewm_5d_minus_ewm_weekly_lags_demand_kwh, lag_2d_over_daily_mean_demand, lag_7d_over_daily_mean_demand, lag_2d_position_28d_demand, rel_ewm_5d_minus_ewm_weekly_lags_demand, rel_change_2d_9d_demand, lag_7d_minus_median_weekly_lags_demand_kwh, available_at from pma_features.ftr_period_actuals",
     timestamp_field="available_at",
     description="The area's own recent demand for each delivery period, from fct_area_demand_generation_actual: the demand 2, 3, 7, 9, 14, 21 and 28 days before, a plain and an exponentially weighted mean, a weighted standard deviation, a least-squares trend, a sample standard deviation, a median and the mean period-to-period ramp over the four weekly lags, D-7's z-score against D-14, D-21 and D-28, the D-2 minus D-9 change, D-7's mean with its neighbouring periods and its ramp from the period before, an exponentially weighted mean, a sample standard deviation and a weighted standard deviation over D-2 to D-6, the weighted mean's difference from the weekly one, and a plain and an exponentially weighted mean over the same period of the last four complete days of D's day type (the lag_7d_demand_kwh of research demand/R-001 to R-005; ewm_5d_demand_kwh, the weekly lags' trend, standard deviation and median, the D-7 z-score and the EWA difference added 2026-09-13, the standard deviations, the neighbouring-period mean and the ramps later that day; the rest research demand/R-006). Grain: area_code x trade_date x time_code. A row exists wherever at least one lag exists, D-4 to D-6 included; a column is null where its input is absent (a TSO hole, or a day before the history starts). The two four-input exponentially weighted means and the weekly weighted standard deviation use the weights 8, 4, 2, 1 from the newest input back, and the D-2 to D-6 ones the weights 16, 8, 4, 2, 1, tied to the input's position and renormalised over the inputs present. A neighbouring period is the one before or after on the timeline, so period 1's t-1 is period 48 of the day before and period 48's t+1 is period 1 of the day after. A complete day has all 48 periods non-null. available_at is the greatest over the rows shifted onto the row, the neighbouring periods included, so the whole row is usable only once its newest input is public.",
 )
@@ -607,6 +607,42 @@ FTR_PERIOD_ACTUALS = FeatureView(
             dtype=Float64,
             description="ewm_5d_demand_kwh minus ewm_weekly_lags_demand_kwh, kWh: the recent weighted level of this period against its weighted level on the same weekday over the last four weeks. Null when either is.",
             tags={"categorical": "false", "expression": "EWA(demand_kwh, gap=2d, window=5, step=1d, halflife=1) - EWA(demand_kwh, gap=7d, window=4, step=7d, halflife=1)"},
+        ),
+        Field(
+            name="lag_2d_over_daily_mean_demand",
+            dtype=Float64,
+            description="D-2's demand at the period over the mean of D-2's 48 periods: the shape of the day without its level, 1.0 at the day's average (feature candidate #137). One division, 48 x lag / the day's sum, so the integers stay exact. Null unless D-2 is complete, all 48 periods, or when its sum is 0.",
+            tags={"categorical": "false", "expression": "LAG(demand_kwh, 2d) / LAG(DAILY_MEAN(demand_kwh), 2d)"},
+        ),
+        Field(
+            name="lag_7d_over_daily_mean_demand",
+            dtype=Float64,
+            description="D-7's demand at the period over the mean of D-7's 48 periods, as lag_2d_over_daily_mean_demand (feature candidate #137). Null unless D-7 is complete or when its sum is 0.",
+            tags={"categorical": "false", "expression": "LAG(demand_kwh, 7d) / LAG(DAILY_MEAN(demand_kwh), 7d)"},
+        ),
+        Field(
+            name="lag_2d_position_28d_demand",
+            dtype=Float64,
+            description="Where D-2's demand at the period sits between the lowest and the highest of the same period over the 28 days D-2 to D-29, the values present: 0 at the lowest, 1 at the highest (feature candidate #149). D-2 is inside the window, so the value is within 0 to 1. Null when D-2 is absent or the highest equals the lowest.",
+            tags={"categorical": "false", "expression": "(LAG(demand_kwh, 2d) - ROLLING_MIN(demand_kwh, gap=2d, window=28, step=1d)) / (ROLLING_MAX(demand_kwh, gap=2d, window=28, step=1d) - ROLLING_MIN(demand_kwh, gap=2d, window=28, step=1d))"},
+        ),
+        Field(
+            name="rel_ewm_5d_minus_ewm_weekly_lags_demand",
+            dtype=Float64,
+            description="ewm_5d_minus_ewm_weekly_lags_demand_kwh over ewm_weekly_lags_demand_kwh: the recent level against the weekly one as a fraction of the weekly one, -0.05 when the last five days ran 5 % under it (feature candidate #146). A fraction, not a percentage. Null when either mean is null or the weekly one is 0.",
+            tags={"categorical": "false", "expression": "(EWA(demand_kwh, gap=2d, window=5, step=1d, halflife=1) - EWA(demand_kwh, gap=7d, window=4, step=7d, halflife=1)) / EWA(demand_kwh, gap=7d, window=4, step=7d, halflife=1)"},
+        ),
+        Field(
+            name="rel_change_2d_9d_demand",
+            dtype=Float64,
+            description="change_2d_9d_demand_kwh over lag_9d_demand_kwh: the week-on-week change from D-9 to D-2 as a fraction of D-9 (feature candidate #147). A fraction, not a percentage. Null when D-2 or D-9 is absent or D-9 is 0.",
+            tags={"categorical": "false", "expression": "LAG(DIFF(demand_kwh, 7d), 2d) / LAG(demand_kwh, 9d)"},
+        ),
+        Field(
+            name="lag_7d_minus_median_weekly_lags_demand_kwh",
+            dtype=Float64,
+            description="lag_7d_demand_kwh minus median_weekly_lags_demand_kwh, kWh: how far D-7 sits from the middle of the four weekly lags present, itself among them (feature candidate #154). Null when D-7 is absent.",
+            tags={"categorical": "false", "expression": "LAG(demand_kwh, 7d) - ROLLING_MEDIAN(demand_kwh, gap=7d, window=4, step=7d)"},
         ),
     ],
     source=FTR_PERIOD_ACTUALS_SOURCE,

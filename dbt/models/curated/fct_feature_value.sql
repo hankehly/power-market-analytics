@@ -167,7 +167,7 @@ with
     m.available_at,
     cast(null as timestamp) as published_at,
     stack(
-      24,
+      30,
       'lag_2d_demand_kwh', cast(m.lag_2d_demand_kwh as double), false,
       'lag_3d_demand_kwh', cast(m.lag_3d_demand_kwh as double), false,
       'lag_7d_demand_kwh', cast(m.lag_7d_demand_kwh as double), false,
@@ -191,7 +191,13 @@ with
       'ewm_5d_demand_kwh', cast(m.ewm_5d_demand_kwh as double), false,
       'std_5d_demand_kwh', cast(m.std_5d_demand_kwh as double), false,
       'ewstd_5d_demand_kwh', cast(m.ewstd_5d_demand_kwh as double), false,
-      'ewm_5d_minus_ewm_weekly_lags_demand_kwh', cast(m.ewm_5d_minus_ewm_weekly_lags_demand_kwh as double), false
+      'ewm_5d_minus_ewm_weekly_lags_demand_kwh', cast(m.ewm_5d_minus_ewm_weekly_lags_demand_kwh as double), false,
+      'lag_2d_over_daily_mean_demand', cast(m.lag_2d_over_daily_mean_demand as double), false,
+      'lag_7d_over_daily_mean_demand', cast(m.lag_7d_over_daily_mean_demand as double), false,
+      'lag_2d_position_28d_demand', cast(m.lag_2d_position_28d_demand as double), false,
+      'rel_ewm_5d_minus_ewm_weekly_lags_demand', cast(m.rel_ewm_5d_minus_ewm_weekly_lags_demand as double), false,
+      'rel_change_2d_9d_demand', cast(m.rel_change_2d_9d_demand as double), false,
+      'lag_7d_minus_median_weekly_lags_demand_kwh', cast(m.lag_7d_minus_median_weekly_lags_demand_kwh as double), false
     ) as (feature_name, feature_value, is_categorical)
   from
     {{ ref('ftr_period_actuals') }} m
