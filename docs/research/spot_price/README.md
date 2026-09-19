@@ -4,8 +4,7 @@ Research log for the JEPX day-ahead spot price task
 (`power_market_analytics/tasks/spot_price/`). Shared conventions, ID rules and
 statuses: [research README](research/README.md).
 
-- Observations: [observation log](research/spot_price/observations.md)
-- Investigations: `R-XXX-*.md` in this folder, indexed below
+- Records: GitHub issues, see [Research](#research) below
 - Plots cited in conclusions: [`assets/`](research/spot_price/assets/README.md)
 
 ## Scope defaults
@@ -42,17 +41,15 @@ dates and training rows for baseline and candidate. Accuracy rows land in
 `fct_spot_price_forecast_accuracy` after
 `just dbt build --select +fct_spot_price_forecast_accuracy`.
 
-## Backlog
+## Research
 
-A spot-price feature idea uses the same **Feature idea** issue form as the
-demand task, with Task `spot_price`, and lands in the same
-[Load Forecasting](https://github.com/users/hankehly/projects/3) Project under
-Task `spot_price` until the spot task has a Project of its own. The lifecycle
-is the [demand README's](research/demand/README.md#backlog). No spot-price item
-exists yet.
-
-## Investigation index
-
-| ID | Investigation | Status | Current conclusion |
-|---|---|---|---|
-| R-001 | [Supply and demand tightness signals](research/spot_price/R-001-supply-demand-tightness.md) | In progress | E-001 run: OCCTO peak-demand/supply features cut overall MAE 2.2 % and daytime MAE 5.6 % on the matched window, but Overnight/Evening worsen and months are mixed (8/17 better) — provisionally inconclusive. |
+The spot-price records are GitHub issues, ranked in the same
+[Load Forecasting](https://github.com/users/hankehly/projects/3) Project as the
+demand task's under Task `spot_price`, until the spot task has a Project of its
+own: [observations](https://github.com/hankehly/power-market-analytics/issues?q=label%3Aobservation),
+[investigations](https://github.com/hankehly/power-market-analytics/issues?q=label%3Ainvestigation),
+[feature candidates](https://github.com/hankehly/power-market-analytics/issues?q=label%3A%22feature+candidate%22)
+and [experiments](https://github.com/hankehly/power-market-analytics/issues?q=label%3Aexperiment),
+open and closed. How the ledger works: the [research README](research/README.md).
+The records written before 2026-09-19 keep their IDs in their titles
+(`spot_price/R-001 — Supply and demand tightness signals`).
