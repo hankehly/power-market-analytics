@@ -583,7 +583,14 @@
   solar radiation — `popw_forecast_solar_radiation_mjm2` in MJ/m2, since 2026-09-12,
   research `demand/R-007` — and, since 2026-09-13, cloud cover (total, high, middle, low),
   wind (speed, u, v) and pressure (surface, sea-level); `shortwave_radiation_wm2` stays out,
-  the same field as the solar radiation at 1 / 0.0036 the scale), `ftr_period_actuals` (since
+  the same field as the solar radiation at 1 / 0.0036 the scale; since 2026-09-19, feature
+  candidate #136, also `popw_forecast_discomfort_index`, the 不快指数 of the weighted
+  temperature and humidity through the `discomfort_index` macro —
+  `0.81 T + 0.01 H (0.99 T − 14.3) + 46.3`, 木内 2001's formula, which is the U.S. Weather
+  Bureau's °F relative-humidity form written for °C and not a JMA statistic
+  (`docs/research/papers.md`); the index of the two means, not the mean of the stations'
+  indexes (they differ by 0.03 on average and 0.42 at most over Tokyo and Kansai in 2025);
+  in no preset yet), `ftr_period_actuals` (since
   2026-09-12 the lags of 2, 3, 7, 9, 14, 21 and 28 days, the plain and 8:4:2:1 weighted
   means of the four weekly lags, the D-2 − D-9 change and the same two means over the last
   four complete days of D's `ftr_day_calendar` day type at or before D-2; since 2026-09-13
