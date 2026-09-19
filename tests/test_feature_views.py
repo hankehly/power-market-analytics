@@ -47,6 +47,13 @@ def test_fields_carry_the_marts_types_and_categorical_and_expression_tags():
         "categorical": "true",
         "expression": "special_period",
     }
+    for lag_days in (2, 3, 7):
+        lag_day_type = calendar[f"lag_{lag_days}d_day_type"]
+        assert lag_day_type.dtype == Int64
+        assert lag_day_type.tags == {
+            "categorical": "true",
+            "expression": f"LAG(day_type, {lag_days}d)",
+        }
     assert calendar["holiday_degree"].dtype == Float64
     assert calendar["holiday_degree"].tags == {
         "categorical": "false",
