@@ -135,8 +135,20 @@ def test_the_actuals_views_carry_the_recent_load_columns():
         "std_5d_demand_kwh",
         "ewstd_5d_demand_kwh",
         "ewm_5d_minus_ewm_weekly_lags_demand_kwh",
+        "lag_2d_over_daily_mean_demand",
+        "lag_7d_over_daily_mean_demand",
+        "lag_2d_position_28d_demand",
+        "rel_ewm_5d_minus_ewm_weekly_lags_demand",
+        "rel_change_2d_9d_demand",
+        "lag_7d_minus_median_weekly_lags_demand_kwh",
     ]
     assert period["lag_7d_ramp_demand_kwh"].dtype == Int64
+    # A fraction, not a percentage: the expression has no "* 100".
+    assert period["rel_change_2d_9d_demand"].dtype == Float64
+    assert (
+        period["rel_change_2d_9d_demand"].tags["expression"]
+        == "LAG(DIFF(demand_kwh, 7d), 2d) / LAG(demand_kwh, 9d)"
+    )
     assert (
         period["lag_7d_adjacent_mean_demand_kwh"].tags["expression"]
         == "LAG(ROLLING_MEAN(demand_kwh, window=3, step=30m, center=true), 7d)"
