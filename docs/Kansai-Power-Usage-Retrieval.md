@@ -18,8 +18,8 @@ fact. Verified against a full capture on 2026-09-06 (every monthly archive
   インバランス料金 系統需給情報 (A-1 …) behind `fct_area_demand_generation_actual`.
 - **Why we load it**: the similar-day feature of the demand task reads the
   でんき予報 hourly load (`fct_area_power_usage_hourly`); the Kansai series lets
-  the strategy run for the Kansai area ([demand/R-004](research/demand/R-004-prior-year-load-lag.md)
-  E-002, the Tokyo baseline; R-005 plans the Kansai run). It is also the only
+  the strategy run for the Kansai area ([demand/R-004](https://github.com/hankehly/power-market-analytics/issues/163)
+  E-002, the Tokyo baseline until 2026-09-19; R-005 plans the Kansai run). It is also the only
   public Kansai-area demand before 2022-04-01. Only the hourly table is loaded;
   see [§7](#7-not-ingested-the-5-minute-table).
 - **Coverage**: hourly 2016-04-01 → yesterday, except **2024-03-31**, which Kansai
