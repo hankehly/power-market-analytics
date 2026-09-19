@@ -46,9 +46,10 @@ The **New issue** chooser offers the four templates and applies their labels.
 From the command line, `gh issue create --template Observation --label observation`
 (or `Investigation` with `investigation`, `Experiment` with `experiment`) opens the
 Markdown template; `gh` copies a template's body but not its label, so the
-`--label` is required. A feature candidate is an issue form, filled on the web;
-`gh` cannot fill a form, so a candidate opened from the command line is a
-Markdown body under the form's headings with `--label "feature candidate"`.
+`--label` is required. A feature candidate is the same:
+`gh issue create --template "Feature candidate" --label "feature candidate"`;
+its template lists the choices for source data, grain, mart and build, and
+keeps the three checks as a task list.
 
 Titles are plain: what was seen, asked, proposed or tested. No prefix; the
 issue number is the ID.
@@ -79,17 +80,12 @@ The Project's auto-add workflow admits an issue by its label filter, which has
 no API and is edited in the browser: it must name all four labels, or a new
 record never enters the Project. Auto-add copies nothing from an issue into the
 fields, so set Task, Build, Impact and Feasibility by hand when an item first
-comes up. GitHub carries no family. A built feature's family belongs in the
-repository, on its mart column, once the design for families as column tags (a
-`meta.family` key on every tagged mart column, checked against a
-`feature_families` seed) is approved and built; until then nothing records it. A candidate has no family until its column
-exists: an experiment simply names the candidates it tests. The Project had a
-Family field for one day, 2026-09-19. Setting a
+comes up. Setting a
 candidate aside: close it as not planned with the reason, Decision `Set aside`.
 
-## Family batches
+## Batches
 
-A candidate is a record, not a queue slot. When a family has enough candidates
+A candidate is a record, not a queue slot. When enough related candidates are
 worth a run, one experiment names them, a preset named after it (`e<issue number>`,
 optionally with a batch slug) adds their columns to the baseline preset, one matched run against a fresh baseline run on the same
 window, one compare (`scripts/compare_<task>_runs.py`), one decision. The
