@@ -119,7 +119,10 @@ Read these before you search, so the report is about this project and not the in
 
 - `CLAUDE.md` — commands, architecture and conventions.
 - `docs/research/README.md`, then `docs/research/demand/README.md` and
-  `docs/research/spot_price/README.md` — the investigations (`R-XXX`) run so far and their outcomes.
+  `docs/research/spot_price/README.md` — how the research is recorded and each task's scope.
+- The repository's issues labelled `investigation` and `experiment`, open and closed — the
+  investigations run so far and their outcomes; and those labelled `feature candidate` — the
+  ideas already on the backlog. Do not propose one of them again.
 - `docs/research/papers.md` — papers the research already cites. Do not report them again.
 - The pull requests and issues of the last 7 days.
 - The previous `[weekly-research]` discussion, if one exists. Do not repeat its items.
