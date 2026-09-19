@@ -1,0 +1,8 @@
+description: >-
+  Plus the three OCCTO 翌々日 daily forecast columns (spot_price/R-001 E-001), null
+  before 2024-04-01.
+base: lightgbm
+add:
+  - ftr_day_occto:max_demand_hour_ending
+  - ftr_day_occto:max_demand_mw
+  - ftr_day_occto:max_supply_capacity_mw

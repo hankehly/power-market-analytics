@@ -1,0 +1,5 @@
+description: >-
+  Plus the holiday degree alone (demand/R-005 E-002, rejected; a reference).
+base: lightgbm_msm_popw_daytype_simday
+add:
+  - ftr_day_calendar:holiday_degree

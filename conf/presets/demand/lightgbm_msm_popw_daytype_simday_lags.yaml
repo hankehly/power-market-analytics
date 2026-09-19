@@ -1,0 +1,18 @@
+description: >-
+  Plus the thirteen recent-load features (demand/R-006 E-001), kept tentatively on
+  2026-09-19. The D-9 lag stays out: the mart carries it for the change.
+base: lightgbm_msm_popw_daytype_simday
+add:
+  - ftr_period_actuals:lag_2d_demand_kwh
+  - ftr_period_actuals:lag_3d_demand_kwh
+  - ftr_period_actuals:lag_14d_demand_kwh
+  - ftr_period_actuals:lag_21d_demand_kwh
+  - ftr_period_actuals:lag_28d_demand_kwh
+  - ftr_period_actuals:mean_weekly_lags_demand_kwh
+  - ftr_period_actuals:ewm_weekly_lags_demand_kwh
+  - ftr_period_actuals:change_2d_9d_demand_kwh
+  - ftr_period_actuals:mean_daytype_4d_demand_kwh
+  - ftr_period_actuals:ewm_daytype_4d_demand_kwh
+  - ftr_day_actuals:lag_2d_mean_demand_kwh
+  - ftr_day_actuals:lag_2d_max_demand_kwh
+  - ftr_day_actuals:lag_2d_range_demand_kwh
