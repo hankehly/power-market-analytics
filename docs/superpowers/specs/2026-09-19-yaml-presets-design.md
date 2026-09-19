@@ -1,7 +1,7 @@
 # Presets as YAML files — design
 
-Date: 2026-09-19. Status: **draft**, for the researcher's review.
-Branch: `feature/yaml-presets`.
+Date: 2026-09-19. Status: **approved** on 2026-09-19; implemented on branch `feature/yaml-presets`
+(plan `docs/superpowers/plans/2026-09-19-yaml-presets.md`).
 
 ## 1. Goal
 
