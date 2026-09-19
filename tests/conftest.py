@@ -1585,6 +1585,22 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
             recent = [lags[k] for k in EWM_5D_LAG_DAYS]
             ewm_5d = ewm_of_present(recent, EWM_5D_WEIGHTS)
             window = [demand_at[(d, tc)] for d in window_days] + [None] * (4 - len(window_days))
+            # The first four of D-7 ... D-56 that have D's day type and a value at
+            # the period, newest first; none when the calendar has no row for D.
+            weekly_daytype_days = (
+                [
+                    d
+                    for d in (day - pd.Timedelta(days=7 * k) for k in range(1, 9))
+                    if (d, tc) in demand_at
+                    and d in CALENDAR_DAYS
+                    and synthetic_day_type(d) == synthetic_day_type(day)
+                ][:4]
+                if day in CALENDAR_DAYS
+                else []
+            )
+            weekly_daytype = [demand_at[(d, tc)] for d in weekly_daytype_days] + [None] * (
+                4 - len(weekly_daytype_days)
+            )
             used_days = [day - pd.Timedelta(days=k) for k, v in lags.items() if v is not None]
             # The neighbouring periods on the timeline: t-1 of each weekly lag
             # and t+1 of D-7, across midnight.
@@ -1656,6 +1672,8 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
                     "oldest_daytype_4d_lag_days": (
                         (day - window_days[-1]).days if window_days else None
                     ),
+                    "mean_daytype_weekly_lags_demand_kwh": mean_of_present(weekly_daytype),
+                    "ewm_daytype_weekly_lags_demand_kwh": ewm_of_present(weekly_daytype),
                     "ewm_5d_demand_kwh": ewm_5d,
                     "ewm_5d_minus_ewm_weekly_lags_demand_kwh": (
                         None if ewm_5d is None or ewm_weekly is None else ewm_5d - ewm_weekly
@@ -1687,7 +1705,13 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
                     ),
                     "available_at": max(
                         file_available_at[d]
-                        for d in [*used_days, *window_days, *range_days, *mean_days]
+                        for d in [
+                            *used_days,
+                            *window_days,
+                            *weekly_daytype_days,
+                            *range_days,
+                            *mean_days,
+                        ]
                     ),
                 }
             )
@@ -1710,6 +1734,8 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
         "zscore_7d_vs_14d_28d_demand_kwh",
         "mean_daytype_4d_demand_kwh",
         "ewm_daytype_4d_demand_kwh",
+        "mean_daytype_weekly_lags_demand_kwh",
+        "ewm_daytype_weekly_lags_demand_kwh",
         "ewm_5d_demand_kwh",
         "ewm_5d_minus_ewm_weekly_lags_demand_kwh",
         "std_5d_demand_kwh",
@@ -1932,7 +1958,8 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
         "median_weekly_lags_demand_kwh double, zscore_7d_vs_14d_28d_demand_kwh double, "
         "change_2d_9d_demand_kwh bigint, mean_daytype_4d_demand_kwh double, "
         "ewm_daytype_4d_demand_kwh double, newest_daytype_4d_lag_days int, "
-        "oldest_daytype_4d_lag_days int, ewm_5d_demand_kwh double, "
+        "oldest_daytype_4d_lag_days int, mean_daytype_weekly_lags_demand_kwh double, "
+        "ewm_daytype_weekly_lags_demand_kwh double, ewm_5d_demand_kwh double, "
         "ewm_5d_minus_ewm_weekly_lags_demand_kwh double, std_5d_demand_kwh double, "
         "ewstd_5d_demand_kwh double, ewstd_weekly_lags_demand_kwh double, "
         "lag_7d_adjacent_mean_demand_kwh double, lag_7d_ramp_demand_kwh bigint, "

@@ -11,7 +11,8 @@
 -- D-2's and D-7's load over their day's mean; D-2's position between the
 -- lowest and highest of D-2 to D-29; and two means over the last four
 -- complete days of D's day type, with how many days back the newest and the
--- oldest of those days lie. The shifted actuals, grouped per
+-- oldest of those days lie; and two means over the newest four weekly lags,
+-- D-7 to D-56, that have D's day type. The shifted actuals, grouped per
 -- period, are the row spine: a row exists wherever any lag exists and a
 -- column is null where its input is absent. available_at is the greatest
 -- over the rows shifted onto the row, the neighbouring periods included.
@@ -407,6 +408,106 @@ with
       and candidate_periods.day_type = lookup.day_type
   ),
 
+  -- A day x period spine per area with no gap, from its first actual to the
+  -- mart's last row, 28 days past the last actual, with the demand where there is
+  -- one and the day's type. The day-type weekly lags (feature candidate #202)
+  -- read it with lag() over rows, which is exact because no day is missing. A
+  -- window read at D, not more shifts: the shifts are the row spine and the
+  -- inputs of available_at, and these eight weeks must make no row.
+  area_bounds as (
+  select
+    area_code,
+    min(date_key) as first_day,
+    max(date_key) as last_day
+  from
+    actuals
+  group by
+    area_code
+  ),
+
+  area_days as (
+  select
+    area_code,
+    explode(sequence(first_day, date_add(last_day, 28))) as date_key
+  from
+    area_bounds
+  ),
+
+  day_periods as (
+  select
+    area_days.area_code,
+    area_days.date_key,
+    periods.time_code,
+    day_types.day_type,
+    actuals.demand_kwh,
+    actuals.available_at
+  from
+    area_days
+    cross join (select explode(sequence(1, 48)) as time_code) as periods
+    left join day_types
+      on day_types.area_code = area_days.area_code
+      and day_types.trade_date = area_days.date_key
+    left join actuals
+      on actuals.area_code = area_days.area_code
+      and actuals.date_key = area_days.date_key
+      and actuals.time_code = periods.time_code
+  ),
+
+  -- The eight weekly lags D-7 to D-56 of every spine period, newest first, each
+  -- with its day's type and its availability.
+  weekly_candidates as (
+  select
+    area_code,
+    date_key as trade_date,
+    time_code,
+    day_type,
+    array(
+      {%- for weeks in range(1, 9) %}
+      named_struct(
+        'lag_demand_kwh', lag(demand_kwh, {{ 7 * weeks }}) over same_period,
+        'lag_day_type', lag(day_type, {{ 7 * weeks }}) over same_period,
+        'lag_available_at', lag(available_at, {{ 7 * weeks }}) over same_period
+      ){{ "," if not loop.last }}
+      {%- endfor %}
+    ) as weekly_lags
+  from
+    day_periods
+  window same_period as (partition by area_code, time_code order by date_key)
+  ),
+
+  -- The first four of them that have D's day type and a value at the period:
+  -- the values present, not complete days, as the plain weekly means read them,
+  -- so where D-7 to D-28 are all present with D's day type these equal the plain
+  -- ones. Integer sums and one division each; the weights 8, 4, 2, 1 go by order
+  -- of use. Null when none is used, and when D has no calendar row.
+  day_type_weekly_lags as (
+  select
+    area_code,
+    trade_date,
+    time_code,
+    aggregate(used, cast(0 as bigint), (total, lag) -> total + lag.lag_demand_kwh)
+      / nullif(size(used), 0) as mean_daytype_weekly_lags_demand_kwh,
+    aggregate(
+      transform(used, (lag, i) -> element_at(array(8L, 4L, 2L, 1L), i + 1) * lag.lag_demand_kwh),
+      cast(0 as bigint), (total, term) -> total + term)
+    / nullif(
+      aggregate(
+        transform(used, (lag, i) -> element_at(array(8L, 4L, 2L, 1L), i + 1)),
+        cast(0 as bigint), (total, weight) -> total + weight), 0) as ewm_daytype_weekly_lags_demand_kwh,
+    array_max(transform(used, lag -> lag.lag_available_at)) as available_at
+  from (
+    select
+      area_code,
+      trade_date,
+      time_code,
+      slice(
+        filter(weekly_lags, lag -> lag.lag_demand_kwh is not null and lag.lag_day_type = day_type),
+        1, 4) as used
+    from
+      weekly_candidates
+  )
+  ),
+
   features as (
   select
     by_period.area_code,
@@ -499,6 +600,8 @@ with
     day_type_windows.ewm_daytype_4d_demand_kwh,
     day_type_windows.newest_daytype_4d_lag_days,
     day_type_windows.oldest_daytype_4d_lag_days,
+    day_type_weekly_lags.mean_daytype_weekly_lags_demand_kwh,
+    day_type_weekly_lags.ewm_daytype_weekly_lags_demand_kwh,
     -- Weights 16, 8, 4, 2, 1 for D-2 to D-6, over the lags present.
     (coalesce(16 * by_period.lag_2d_demand_kwh, 0)
       + coalesce(8 * by_period.lag_3d_demand_kwh, 0)
@@ -532,6 +635,7 @@ with
     -- The window and the two days are inputs of the row, so it waits for them.
     {{ available_at([
       'by_period.available_at', 'day_type_windows.available_at',
+      'day_type_weekly_lags.available_at',
       'ranges.available_at', 'day_2d.available_at', 'day_7d.available_at',
     ]) }} as available_at
   from
@@ -540,6 +644,10 @@ with
       on day_type_windows.area_code = by_period.area_code
       and day_type_windows.trade_date = by_period.trade_date
       and day_type_windows.time_code = by_period.time_code
+    left join day_type_weekly_lags
+      on day_type_weekly_lags.area_code = by_period.area_code
+      and day_type_weekly_lags.trade_date = by_period.trade_date
+      and day_type_weekly_lags.time_code = by_period.time_code
     left join ranges
       on ranges.area_code = by_period.area_code
       and ranges.date_key = date_sub(by_period.trade_date, 2)

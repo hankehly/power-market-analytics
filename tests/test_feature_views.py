@@ -153,6 +153,8 @@ def test_the_actuals_views_carry_the_recent_load_columns():
         "ewm_daytype_4d_demand_kwh",
         "newest_daytype_4d_lag_days",
         "oldest_daytype_4d_lag_days",
+        "mean_daytype_weekly_lags_demand_kwh",
+        "ewm_daytype_weekly_lags_demand_kwh",
         "ewm_5d_demand_kwh",
         "std_5d_demand_kwh",
         "ewstd_5d_demand_kwh",
@@ -179,6 +181,12 @@ def test_the_actuals_views_carry_the_recent_load_columns():
     )
     assert period["lag_2d_demand_kwh"].dtype == Int64
     assert period["ewm_daytype_4d_demand_kwh"].dtype == Float64
+    # The weekly lags kept to D's day type: the plain weekly expressions, by day type.
+    assert period["mean_daytype_weekly_lags_demand_kwh"].dtype == Float64
+    assert (
+        period["ewm_daytype_weekly_lags_demand_kwh"].tags["expression"]
+        == "EWA(demand_kwh, gap=7d, window=4, step=7d, halflife=1) by day_type"
+    )
     # The window's ages are whole days, and their expressions are their names.
     for age in ("newest_daytype_4d_lag_days", "oldest_daytype_4d_lag_days"):
         assert period[age].dtype == Int64
