@@ -1,0 +1,15 @@
+description: >-
+  Plus the ten dim_date calendar attributes (demand/R-005 E-001, rejected; a
+  reference).
+base: lightgbm_msm_popw_daytype_simday
+add:
+  - ftr_day_calendar:half
+  - ftr_day_calendar:quarter
+  - ftr_day_calendar:day_of_month
+  - ftr_day_calendar:day_of_quarter
+  - ftr_day_calendar:day_of_year
+  - ftr_day_calendar:holiday_degree
+  - ftr_day_calendar:is_business_day
+  - ftr_day_calendar:fiscal_quarter
+  - ftr_day_calendar:days_since_holiday
+  - ftr_day_calendar:days_until_holiday
