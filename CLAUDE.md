@@ -1172,9 +1172,10 @@
 - The research ledger is GitHub issues, four kinds by label — `observation`, `investigation`,
   `feature candidate`, `experiment` — ranked in the user-level Project **Load Forecasting**
   (https://github.com/users/hankehly/projects/3, number 3, id `PVT_kwHOALGbus4BjoLc`; fields
-  Status / Task / Impact / Feasibility / Build / Decision; no Family field — a feature's family is
-  defined in the repository, on the mart column, never on GitHub, the researcher's decision of
-  2026-09-19). What each kind is, when it
+  Status / Task / Impact / Feasibility / Build / Decision; no Family field — a built feature's family
+  belongs in the repository, on its mart column (the feature-families design, not yet
+  implemented), never on GitHub, the researcher's decision of 2026-09-19; a candidate has no
+  family until its column exists, and an experiment names the candidates it tests). What each kind is, when it
   closes, the Project's fields and the family-batch rule:
   [docs/research/README.md](docs/research/README.md). The repo keeps each task's scope
   defaults (`docs/research/<task>/README.md`), the papers index (`docs/research/papers.md`)
