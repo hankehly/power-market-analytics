@@ -12,7 +12,7 @@ artifacts.
 | Observations, investigations, feature candidates, experiments | [Issues](https://github.com/hankehly/power-market-analytics/issues), one label per kind, ranked in the [Load Forecasting](https://github.com/users/hankehly/projects/3) Project |
 | Each task's scope defaults and the tooling that reports segments | [`demand/README.md`](research/demand/README.md), [`spot_price/README.md`](research/spot_price/README.md) |
 | Papers the research cites | [`papers.md`](research/papers.md), links only |
-| Figures an issue embeds | `docs/research/<task>/assets/`, named `<issue number>-<slug>.png`, embedded by their raw URL on `main` |
+| Figures an issue embeds | `docs/research/<task>/assets/`, embedded by their raw URL on `main`; named `<issue number>-<slug>.png`, except the figures migrated on 2026-09-19, which keep their `R-XXX-E-XXX-…` and `O-XXX-…` names |
 | The feature list a run used | its preset: the `feature_preset` and `feature_refs` params of the MLflow run |
 | What a run did | MLflow (`just open mlflow`) |
 
@@ -102,5 +102,7 @@ candidate and its baseline.
 ## Assets
 
 Store only the plots an issue's conclusion cites, under the task's `assets/`
-folder, named by the issue: `assets/160-mae-by-month.png`. Keep detailed run
-artifacts in MLflow.
+folder, named by the issue: `assets/160-mae-by-month.png`. The thirteen figures
+migrated on 2026-09-19 keep the names their records had
+(`R-006-E-001-mae-by-month.png`, `O-001-mae-by-day-part.jpg`), because the
+issues embed them by those paths. Keep detailed run artifacts in MLflow.

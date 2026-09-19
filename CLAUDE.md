@@ -1215,7 +1215,8 @@
   to the current marts, so the first experiment's baseline is a fresh run.
 - Keep reasoning, interpretations and decisions in the issues; keep run-level parameters,
   metrics, code versions and detailed artifacts in MLflow. Asset files are named by the issue,
-  `assets/<issue number>-<slug>.png`; links inside `docs/research/` stay docsify
+  `assets/<issue number>-<slug>.png` (the thirteen figures migrated on 2026-09-19 keep their
+  `R-XXX-E-XXX-…` and `O-XXX-…` names, which the issues embed); links inside `docs/research/` stay docsify
   site-root-relative (`research/demand/README.md`).
 
 ## dbt
