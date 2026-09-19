@@ -18,6 +18,7 @@ def test_one_view_per_mart_on_the_entities_of_its_grain():
     assert sorted(by_name) == [
         "ftr_day_actuals",
         "ftr_day_calendar",
+        "ftr_day_msm",
         "ftr_day_occto",
         "ftr_hour_jma_obs",
         "ftr_hour_msm",
@@ -28,6 +29,8 @@ def test_one_view_per_mart_on_the_entities_of_its_grain():
     day = [AREA_CODE.name, TRADE_DATE_KEY.name]
     assert by_name["ftr_day_actuals"].entities == day
     assert by_name["ftr_day_calendar"].entities == day
+    assert by_name["ftr_day_msm"].entities == day
+    assert by_name["ftr_day_msm"].tags == {"grain": "day"}
     assert by_name["ftr_hour_msm"].entities == [*day, HOUR_ENDING.name]
     assert by_name["ftr_period_jepx"].entities == [*day, TIME_CODE.name]
     assert by_name["ftr_hour_msm"].tags == {"grain": "hour"}
