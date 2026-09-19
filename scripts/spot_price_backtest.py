@@ -10,7 +10,7 @@ strategies) when two runs must be compared on identical delivery days and
 training rows, e.g. a feature experiment against its matched baseline.
 
 A LightGBM strategy is a preset, a named list of feature references
-(``tasks/spot_price/presets.py``); ``--add`` / ``--drop`` change the list for one
+(``conf/presets/spot_price/``); ``--add`` / ``--drop`` change the list for one
 run and ``--name`` labels the result (the ``strategy`` column of the published
 rows). The LightGBM strategies also publish their TreeSHAP contributions to
 ``pma_ml.spot_price_forecast_contribution`` and their permutation feature

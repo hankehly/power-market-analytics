@@ -17,7 +17,7 @@ import pytest
 import shap
 
 from power_market_analytics.features.frame import FeatureFrame, feature_frame
-from power_market_analytics.features.presets import Preset
+from power_market_analytics.features.presets import Preset, load_presets
 from power_market_analytics.forecasting.backtest import BacktestRun, run_backtest
 from power_market_analytics.forecasting.frames import DayAheadForecast
 from power_market_analytics.forecasting.lgbm import LightGbmEvalSetBase
@@ -32,7 +32,9 @@ from power_market_analytics.tasks.spot_price.frames import (
     SpotPriceForecast,
     SpotPrices,
 )
-from power_market_analytics.tasks.spot_price.presets import LIGHTGBM, LIGHTGBM_OCCTO
+
+SPOT_PRESETS = load_presets("spot_price")
+LIGHTGBM, LIGHTGBM_OCCTO = SPOT_PRESETS["lightgbm"], SPOT_PRESETS["lightgbm_occto"]
 
 DTYPES = {
     "month": "int64",
@@ -619,7 +621,6 @@ class TestEvaluate:
         assert params["lgbm_feature_cols"] == "time_code,month,day_of_week,lag_1d_price"
         assert params["feature_refs"].startswith("ftr_day_calendar:month,")
         assert "mean_absolute_error" in evaluation.metrics
-
 
     def test_the_shap_plots_label_the_features_with_their_expressions(
         self, backtested, prices, monkeypatch

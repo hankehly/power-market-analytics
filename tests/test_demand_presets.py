@@ -122,7 +122,9 @@ def test_types_and_categoricals_come_from_the_views():
     assert feature_dtypes(PRESETS["lightgbm_msm"])["forecast_temperature_c"] == "float64"
     calendar = feature_dtypes(PRESETS[f"{SIMDAY_NAME}_calendar"])
     assert calendar["holiday_degree"] == "float64"
-    assert all(calendar[c.split(":")[1]] == "int64" for c in CALENDAR_TEN if "holiday_degree" not in c)
+    assert all(
+        calendar[c.split(":")[1]] == "int64" for c in CALENDAR_TEN if "holiday_degree" not in c
+    )
     assert all(
         categorical_columns(preset) == (("day_type",) if "daytype" in name else ())
         for name, preset in PRESETS.items()

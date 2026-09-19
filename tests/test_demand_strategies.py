@@ -7,8 +7,7 @@ import pandas as pd
 import pytest
 
 from power_market_analytics.forecasting.preset_lgbm import PresetLightGbmStrategy
-from power_market_analytics.tasks.demand.presets import PRESETS
-from power_market_analytics.tasks.demand.strategies import STRATEGIES, build_strategy
+from power_market_analytics.tasks.demand.strategies import PRESETS, STRATEGIES, build_strategy
 from tests.conftest import (
     DEMAND_HOLE_DAY,
     DEMAND_HOLE_TIME_CODES,
