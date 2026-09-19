@@ -1,0 +1,8 @@
+description: >-
+  Calendar, the recency-weighted same-hour temperature over D-8..D-2 at the
+  representative station and the D-7 demand lag.
+features:
+  - ftr_day_calendar:month
+  - ftr_day_calendar:day_of_week
+  - ftr_hour_jma_obs:wavg_temperature_c
+  - ftr_period_actuals:lag_7d_demand_kwh

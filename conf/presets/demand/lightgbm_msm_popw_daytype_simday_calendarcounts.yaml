@@ -1,0 +1,10 @@
+description: >-
+  Plus the six calendar counts alone (demand/R-005 E-004, rejected; a reference).
+base: lightgbm_msm_popw_daytype_simday
+add:
+  - ftr_day_calendar:half
+  - ftr_day_calendar:quarter
+  - ftr_day_calendar:day_of_month
+  - ftr_day_calendar:day_of_quarter
+  - ftr_day_calendar:day_of_year
+  - ftr_day_calendar:fiscal_quarter
