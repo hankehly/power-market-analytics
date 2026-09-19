@@ -1199,7 +1199,8 @@
 - Opening one: the New issue chooser (three Markdown templates and the Feature candidate form,
   `.github/ISSUE_TEMPLATE/`), or `gh issue create --template <Name>`; `gh` cannot fill the
   form, so a candidate opened from the CLI is a Markdown body under the form's headings with
-  `--label "feature candidate"`. Titles are plain, no prefix. Auto-add sets Status only, so
+  `--label "feature candidate"`. Titles are plain, no prefix. The Project's auto-add workflow admits an issue by its
+  label filter, browser-only, which must name all four labels; it sets Status only, so
   Task, Family, Build, Impact and Feasibility are set by hand when an item first comes up.
   Setting a candidate aside = close as not planned with the reason and Decision `Set aside`
   (Status is the pipeline only: the item-closed workflow sets `Done` on every close). The
