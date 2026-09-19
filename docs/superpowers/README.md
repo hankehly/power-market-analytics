@@ -13,6 +13,7 @@ applied without one.
 
 | Date | Work | Spec | Plan |
 |---|---|---|---|
+| 2026-09-19 | Feature candidate #135 — wind and solar generation on D-2 and D-7 in `ftr_period_actuals`; the observed radiation left out by the researcher, because it cannot be weighted | [spec](superpowers/specs/2026-09-19-candidate-135-renewable-generation-lags-design.md) | — |
 | 2026-09-19 | Feature candidates #137, #146, #147, #149 and #154 — six ratio and position columns over the recent load `ftr_period_actuals` already reads; fractions, not percentages | [spec](superpowers/specs/2026-09-19-candidate-137-146-147-149-154-recent-load-ratios-design.md) | — |
 | 2026-09-19 | Presets as YAML files — one file per preset under `conf/presets/<task>/`, a full list or a base plus add/drop, loaded into the same `Preset`; the thirteen presets pinned | [spec](superpowers/specs/2026-09-19-yaml-presets-design.md) | [plan](superpowers/plans/2026-09-19-yaml-presets.md) |
 | 2026-09-19 | Research on GitHub issues — the research ledger moved from `docs/research/` to issues of four kinds (observation, investigation, feature candidate, experiment), the 26 records migrated, family batches as one experiment | [spec](superpowers/specs/2026-09-19-research-on-issues-design.md) | [plan](superpowers/plans/2026-09-19-research-on-issues.md) |
