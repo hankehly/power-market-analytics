@@ -69,6 +69,8 @@ class Preset:
     base : str or None
         The preset this one was changed from (``with_changes``), by name;
         None for one defined from scratch.
+    description : str
+        What the preset is, from its file; empty for one built in code.
     """
 
     task: str
@@ -76,6 +78,8 @@ class Preset:
     features: tuple[str, ...]
     #: The preset this one was changed from, by name; None for one defined from scratch.
     base: str | None = None
+    #: What the preset is, from its file; empty for one built in code or changed on the command line.
+    description: str = ""
 
     def __post_init__(self) -> None:
         columns = [feature_column(ref) for ref in self.features]
@@ -103,7 +107,8 @@ class Preset:
         """A copy with references dropped and added, under a new name.
 
         The copy's ``base`` is this preset's name, whether this one is
-        registered or itself a changed set.
+        registered or itself a changed set. The copy's description is empty:
+        a run changed on the command line is not the base's preset.
 
         Parameters
         ----------
@@ -135,6 +140,7 @@ class Preset:
             name=name,
             base=self.name,
             features=tuple(ref for ref in self.features if ref not in dropped) + added,
+            description="",
         )
 
 
@@ -265,7 +271,8 @@ def feature_service(preset: Preset) -> FeatureService:
     return FeatureService(
         name=f"{preset.task}__{preset.name}",
         features=[by_name[view_name][columns] for view_name, columns in grouped.items()],
-        description=f"Preset {preset.name!r} of the {preset.task} task: {', '.join(preset.features)}.",
+        description=preset.description
+        or f"Preset {preset.name!r} of the {preset.task} task: {', '.join(preset.features)}.",
         tags={
             "task": preset.task,
             "preset": preset.name,
