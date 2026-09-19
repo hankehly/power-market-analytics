@@ -456,7 +456,7 @@ FTR_HOUR_MSM = FeatureView(
 
 FTR_PERIOD_ACTUALS_SOURCE = SparkSource(
     name="ftr_period_actuals",
-    query="select area_code, cast(date_format(trade_date, 'yyyyMMdd') as int) as trade_date_key, time_code, lag_2d_demand_kwh, lag_3d_demand_kwh, lag_7d_demand_kwh, lag_9d_demand_kwh, lag_14d_demand_kwh, lag_21d_demand_kwh, lag_28d_demand_kwh, mean_weekly_lags_demand_kwh, ewm_weekly_lags_demand_kwh, ewstd_weekly_lags_demand_kwh, trend_weekly_lags_demand_kwh, std_weekly_lags_demand_kwh, median_weekly_lags_demand_kwh, zscore_7d_vs_14d_28d_demand_kwh, change_2d_9d_demand_kwh, lag_7d_adjacent_mean_demand_kwh, lag_7d_ramp_demand_kwh, mean_weekly_lags_ramp_demand_kwh, mean_daytype_4d_demand_kwh, ewm_daytype_4d_demand_kwh, ewm_5d_demand_kwh, std_5d_demand_kwh, ewstd_5d_demand_kwh, ewm_5d_minus_ewm_weekly_lags_demand_kwh, lag_2d_over_daily_mean_demand, lag_7d_over_daily_mean_demand, lag_2d_position_28d_demand, rel_ewm_5d_minus_ewm_weekly_lags_demand, rel_change_2d_9d_demand, lag_7d_minus_median_weekly_lags_demand_kwh, available_at from pma_features.ftr_period_actuals",
+    query="select area_code, cast(date_format(trade_date, 'yyyyMMdd') as int) as trade_date_key, time_code, lag_2d_demand_kwh, lag_3d_demand_kwh, lag_7d_demand_kwh, lag_9d_demand_kwh, lag_14d_demand_kwh, lag_21d_demand_kwh, lag_28d_demand_kwh, mean_weekly_lags_demand_kwh, ewm_weekly_lags_demand_kwh, ewstd_weekly_lags_demand_kwh, trend_weekly_lags_demand_kwh, std_weekly_lags_demand_kwh, median_weekly_lags_demand_kwh, zscore_7d_vs_14d_28d_demand_kwh, change_2d_9d_demand_kwh, lag_7d_adjacent_mean_demand_kwh, lag_7d_ramp_demand_kwh, mean_weekly_lags_ramp_demand_kwh, mean_daytype_4d_demand_kwh, ewm_daytype_4d_demand_kwh, ewm_5d_demand_kwh, std_5d_demand_kwh, ewstd_5d_demand_kwh, ewm_5d_minus_ewm_weekly_lags_demand_kwh, lag_2d_over_daily_mean_demand, lag_7d_over_daily_mean_demand, lag_2d_position_28d_demand, rel_ewm_5d_minus_ewm_weekly_lags_demand, rel_change_2d_9d_demand, lag_7d_minus_median_weekly_lags_demand_kwh, lag_2d_wind_solar_generation_kwh, lag_7d_wind_solar_generation_kwh, available_at from pma_features.ftr_period_actuals",
     timestamp_field="available_at",
     description="The area's own recent demand for each delivery period, from fct_area_demand_generation_actual: the demand 2, 3, 7, 9, 14, 21 and 28 days before, a plain and an exponentially weighted mean, a weighted standard deviation, a least-squares trend, a sample standard deviation, a median and the mean period-to-period ramp over the four weekly lags, D-7's z-score against D-14, D-21 and D-28, the D-2 minus D-9 change, D-7's mean with its neighbouring periods and its ramp from the period before, an exponentially weighted mean, a sample standard deviation and a weighted standard deviation over D-2 to D-6, the weighted mean's difference from the weekly one, and a plain and an exponentially weighted mean over the same period of the last four complete days of D's day type (the lag_7d_demand_kwh of research demand/R-001 to R-005; ewm_5d_demand_kwh, the weekly lags' trend, standard deviation and median, the D-7 z-score and the EWA difference added 2026-09-13, the standard deviations, the neighbouring-period mean and the ramps later that day; the rest research demand/R-006). Grain: area_code x trade_date x time_code. A row exists wherever at least one lag exists, D-4 to D-6 included; a column is null where its input is absent (a TSO hole, or a day before the history starts). The two four-input exponentially weighted means and the weekly weighted standard deviation use the weights 8, 4, 2, 1 from the newest input back, and the D-2 to D-6 ones the weights 16, 8, 4, 2, 1, tied to the input's position and renormalised over the inputs present. A neighbouring period is the one before or after on the timeline, so period 1's t-1 is period 48 of the day before and period 48's t+1 is period 1 of the day after. A complete day has all 48 periods non-null. available_at is the greatest over the rows shifted onto the row, the neighbouring periods included, so the whole row is usable only once its newest input is public.",
 )
@@ -643,6 +643,18 @@ FTR_PERIOD_ACTUALS = FeatureView(
             dtype=Float64,
             description="lag_7d_demand_kwh minus median_weekly_lags_demand_kwh, kWh: how far D-7 sits from the middle of the four weekly lags present, itself among them (feature candidate #154). Null when D-7 is absent.",
             tags={"categorical": "false", "expression": "LAG(demand_kwh, 7d) - ROLLING_MEDIAN(demand_kwh, gap=7d, window=4, step=7d)"},
+        ),
+        Field(
+            name="lag_2d_wind_solar_generation_kwh",
+            dtype=Int64,
+            description="The area's wind and solar generation at the same period on D-2, kWh per 30 minutes (fct_area_demand_generation_actual.wind_solar_generation_kwh; feature candidate #135). 0 is a value: no sun and no wind. Null where D-2 has no demand or no generation value.",
+            tags={"categorical": "false", "expression": "LAG(wind_solar_generation_kwh, 2d)"},
+        ),
+        Field(
+            name="lag_7d_wind_solar_generation_kwh",
+            dtype=Int64,
+            description="The same on D-7 (feature candidate #135).",
+            tags={"categorical": "false", "expression": "LAG(wind_solar_generation_kwh, 7d)"},
         ),
     ],
     source=FTR_PERIOD_ACTUALS_SOURCE,

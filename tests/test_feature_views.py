@@ -141,6 +141,8 @@ def test_the_actuals_views_carry_the_recent_load_columns():
         "rel_ewm_5d_minus_ewm_weekly_lags_demand",
         "rel_change_2d_9d_demand",
         "lag_7d_minus_median_weekly_lags_demand_kwh",
+        "lag_2d_wind_solar_generation_kwh",
+        "lag_7d_wind_solar_generation_kwh",
     ]
     assert period["lag_7d_ramp_demand_kwh"].dtype == Int64
     # A fraction, not a percentage: the expression has no "* 100".
