@@ -34,6 +34,7 @@ LAG = "ftr_period_jepx:lag_1d_price"
 DAY_TYPE = "ftr_day_calendar:day_type"
 #: Every registered preset's service, both tasks, sorted.
 REGISTERED_SERVICES = [
+    "demand__e212",
     "demand__lightgbm",
     "demand__lightgbm_msm",
     "demand__lightgbm_msm_popw",
