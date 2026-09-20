@@ -171,6 +171,15 @@ def run_pin_sql(variable: str, column: str) -> str:
 # of both filters' state — and the Explanation tab's layout key as the anchor,
 # which opens that tab. The form was checked by hand in Superset 6.1; ``{run}``
 # and ``{day}`` stand for the two values.
+# The Compare tab is built but not placed, at the researcher's word on
+# 2026-09-20: it takes 29 s where Accuracy takes 4 and Explanation 7, because it
+# keeps its charts on one tab and reads two self-joined datasets, and its delta
+# waterfall still draws a bar per component. Set this True to put it back — the
+# tab's builder, its datasets and its charts are all still here, and a rebuild
+# then places them again. While it is False the Baseline filter goes with it,
+# and so does the day tables' drill into the explanation-vs-baseline section.
+BUILD_COMPARE_TAB = False
+
 EXPLANATION_TAB_KEY = "TAB-1"
 
 #: The day tables' link column, and the heading it wears (the column's own name
@@ -560,7 +569,10 @@ join (
   from pma_curated.dim_half_hour
   group by day_part
 ) h on h.day_part = {p}.day_part"""
-DAY_PART_HOURS_SQL = "concat({p}.day_part, ' (', h.day_part_start, '–', h.day_part_end, ')')"
+# The hours lead the label so the bars run in clock order: the chart sorts by
+# its x axis, and the day part's name would sort Daytime, Evening, Morning,
+# Overnight — a time of day out of time order.
+DAY_PART_HOURS_SQL = "concat(h.day_part_start, '–', h.day_part_end, ' ', {p}.day_part)"
 
 
 def day_type_share_sql(date_alias: str, run_column: str | None = None) -> str:
@@ -3947,7 +3959,14 @@ def _select_filter(
         "controlValues": {
             "multiSelect": False,
             "enableEmptyFilter": required,
-            "defaultToFirstItem": default is None and default_to_first,
+            # Set alongside an explicit default, not instead of it. The default
+            # applies on load, which staging alone does not; the setting is what
+            # re-resolves a cascading filter when its parent changes, and without
+            # it the old value survives into a parent that has no row for it —
+            # the Feature filter kept one run's first feature after a switch to
+            # a run that ranks another first, and both its charts came back
+            # empty. Checked against the running Superset, both ways.
+            "defaultToFirstItem": default_to_first,
             "inverseSelection": False,
             "searchAllOptions": False,
             "sortAscending": sort_ascending,
@@ -3973,6 +3992,7 @@ def build_native_filters(
     default_feature_label: str | None,
     baseline_excluded: list[int],
     default_baseline_label: str | None,
+    with_baseline: bool = True,
 ) -> list[dict]:
     """Native filter configuration: Run (whole dashboard), Day and Period (the
     Explanation tab's per-selection charts; Day also the explanation-vs-baseline
@@ -4018,12 +4038,17 @@ def build_native_filters(
         Explicit on-load baseline; None leaves the filter empty (no first-item
         fallback: the Compare tab shows "No data" until a baseline is picked).
 
+    with_baseline : bool, optional
+        Whether to build the Baseline filter. False while the Compare tab is
+        not placed: its only charts are that tab's, and on the analysis dataset
+        the alias column would otherwise empty every chart it reached.
+
     Returns
     -------
     list of dict
-        ``[run, day, period, feature, baseline]``.
+        ``[run, day, period, feature]``, and ``baseline`` last when it is built.
     """
-    return [
+    filters = [
         _select_filter(
             "NATIVE_FILTER-run",
             "Run",
@@ -4085,6 +4110,11 @@ def build_native_filters(
                 "listed by mean |SHAP| rank, so it opens on the run's first"
             ),
         ),
+    ]
+    if not with_baseline:
+        return filters
+    return [
+        *filters,
         _select_filter(
             "NATIVE_FILTER-baseline",
             "Baseline",
@@ -4899,16 +4929,19 @@ def build_dashboard(
     explanation = build_explanation_tab(
         chart, spec, explanation_id, explanation_period_id, summary_id, importance_id
     )
-    compare = build_compare_tab(chart, spec, comparison_id, explanation_comparison_id)
-    tabs = [accuracy, explanation, compare]
+    compare = (
+        build_compare_tab(chart, spec, comparison_id, explanation_comparison_id)
+        if BUILD_COMPARE_TAB
+        else None
+    )
+    tabs = [accuracy, explanation, *([compare] if compare else [])]
     all_charts = [chart_id for tab in tabs for chart_id in tab.chart_ids]
 
     worst_days = accuracy.charts["Worst days"]
     detail = accuracy.charts["Forecast vs actual (30-min detail)"]
-    cmp_detail = compare.charts["Candidate vs baseline vs actual (30-min detail)"]
-    cmp_improved = compare.charts["Most improved days"]
-    cmp_worsened = compare.charts["Most worsened days"]
-    explained_vs_baseline = [compare.charts[name] for name in EXPLANATION_VS_BASELINE_CHART_NAMES]
+    explained_vs_baseline = (
+        [compare.charts[name] for name in EXPLANATION_VS_BASELINE_CHART_NAMES] if compare else []
+    )
     # The Explanation tab's charts of a selection (the Period filter's scope): its
     # Day overview and Single period sub-tabs, not the run-level Feature importance
     # one. The Day filter's scope adds the Compare tab's explanation-vs-baseline
@@ -4924,14 +4957,13 @@ def build_dashboard(
     # explanation-vs-baseline section, never into the Explanation tab: its dataset
     # ranks the features of the pinned Day, and a cross-filter arrives after that
     # ranking. The day tables' Explain links set the Day filter instead.
-    chart_configuration = build_chart_configuration(
-        {
-            worst_days: [detail, cmp_detail, *explained_vs_baseline],
-            cmp_improved: [cmp_detail, *explained_vs_baseline],
-            cmp_worsened: [cmp_detail, *explained_vs_baseline],
-        },
-        all_charts,
-    )
+    emitters = {worst_days: [detail]}
+    if compare:
+        cmp_detail = compare.charts["Candidate vs baseline vs actual (30-min detail)"]
+        emitters[worst_days] = [detail, cmp_detail, *explained_vs_baseline]
+        for name in ("Most improved days", "Most worsened days"):
+            emitters[compare.charts[name]] = [cmp_detail, *explained_vs_baseline]
+    chart_configuration = build_chart_configuration(emitters, all_charts)
 
     defaults = run_defaults(client, database_id, spec, baseline_run)
     default_run = None if defaults is None else defaults.run_label
@@ -4961,8 +4993,13 @@ def build_dashboard(
             summary_dataset_id=summary_id,
             feature_excluded=[c for c in all_charts if c not in feature_by_period],
             default_feature_label=default_feature,
+            # The Baseline arguments are worked out whether or not the tab is
+            # built, and thrown away when it is not. That costs nothing — the
+            # default comes from the query the Run default already needs — and
+            # it is what keeps BUILD_COMPARE_TAB a one-line flip.
             baseline_excluded=[*accuracy.chart_ids, *explanation.chart_ids],
             default_baseline_label=default_baseline,
+            with_baseline=bool(compare),
         ),
         chart_configuration,
     )
@@ -5170,7 +5207,8 @@ def main(argv: list[str] | None = None) -> None:
         default=None,
         help=(
             "run_id (or prefix) the Compare tab's Baseline filter opens on; default: the newest "
-            "other run with the same area and window as the newest run"
+            "other run with the same area and window as the newest run. Does nothing while "
+            "BUILD_COMPARE_TAB is False, which is how the tab ships today"
         ),
     )
     args = parser.parse_args(argv)
