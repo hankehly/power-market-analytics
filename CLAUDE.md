@@ -218,12 +218,15 @@
   two features matched on 2024-08-18 … 2026-08-17 (control `3dc586c4…` MAE 594,900; old run
   `9f02c385…` 585,788, its feature rebuilt into `pma_scratch` tables; new `d019a370…` 572,428;
   new vs old −2.3 %, CI over days includes zero; kept tentatively on 2026-09-19).
-  The twelfth preset is `e212` (experiment #212, 2026-09-20): every tagged column of the
-  seven marts we build ourselves, 104 features — the Tokyo baseline's 23 in their order,
-  then the other 81, written out in full rather than as a `base` and an `add`, with
-  `ftr_day_occto` and `ftr_period_jepx` left out at the researcher's ruling. It is a joint
-  test: with 104 correlated columns the importance is shared, so no single feature takes a
-  verdict from its run.
+  The twelfth preset is `e212` (experiment #212, 2026-09-20), **the Tokyo baseline since
+  2026-09-20**: every tagged column of the seven marts we build ourselves, 104 features — the
+  previous baseline's 23 in their order, then the other 81, written out in full rather than as
+  a `base` and an `add`, with `ftr_day_occto` and `ftr_period_jepx` left out at the
+  researcher's ruling. It lowered MAE 6.5 % (546,202 → 510,465 kWh; run
+  `34c506fb…` against `32ecbdbc…`), and the researcher kept it on that. It was a joint test:
+  with 104 correlated columns the importance is shared, so no single feature took a verdict
+  from its run, and one added feature dominates the ranking —
+  `wavg_similar_day_top3_demand_kwh`, at about 22 times the next feature's ΔMAE.
   Areas: `tokyo`, `kansai` = the TSO feeds loaded
   into `fct_area_demand_generation_actual`. An area's feature marts need its representative JMA
   station's hourly weather loaded and current (`dim_area.representative_jma_station_id`:
@@ -958,7 +961,7 @@
   `quarter` never split on). `lightgbm_msm_popw_daytype_simday_lags` (research
   `demand/R-006` E-001, run 2026-09-12 `34707ed6…` against the fresh baseline `a3fde7eb…`
   on the 723 days both scored: MAE −0.6 %, CI over days includes zero, holidays −8.9 %,
-  overnight −8.5 %, daytime +1.3 %, the top-10 % demand days +2.9 %; kept tentatively on 2026-09-19) = the Tokyo baseline + the thirteen columns of
+  overnight −8.5 %, daytime +1.3 %, the top-10 % demand days +2.9 %; kept tentatively on 2026-09-19) = `lightgbm_msm_popw_daytype_simday` + the thirteen columns of
   `ftr_period_actuals` and `ftr_day_actuals` above but `lag_9d_demand_kwh`; the 2025-06-14
   hole reaches every lag it reads, so that run skipped seven target days where the baseline
   skipped one (compared with `--common-days`; since 2026-09-13 both forecast them).
@@ -969,11 +972,22 @@
   (577,355 → 560,508), MAPE 3.55 % → 3.44 %, CI over days [−24,697, −8,739] excludes zero,
   20 of 25 months lower, spring −7.4 % but summer −1.2 % and autumn +0.6 %; no single
   element's permutation importance approaches the joint gain, so which of the three carries
-  it is unknown; kept tentatively on 2026-09-19) = `…_simday_lags` +
-  the three `ftr_hour_msm` columns
+  it is unknown; kept tentatively on 2026-09-19; the Tokyo baseline from then until
+  2026-09-20, when experiment #212 took it — its run `32ecbdbc…` on
+  2024-08-18 … 2026-08-17, MAE 546,202 kWh, is the one matched to the marts of that day) =
+  `…_simday_lags` + the three `ftr_hour_msm` columns
   `popw_forecast_relative_humidity_pct`, `popw_forecast_precipitation_mm` and
   `popw_forecast_solar_radiation_mjm2`. The forecast temperature is not repeated: every
   preset since `lightgbm_msm_popw` carries it, so this adds three features, not four.
+  `e212` (experiment #212, kept 2026-09-20; **the Tokyo baseline since**, reference run
+  `34c506fbb30d4c7eb4efdca973e49384`) = every tagged column of the seven marts we build
+  ourselves, 104 features: the preset above plus the 81 the demand presets had never used,
+  written out in full. Against `32ecbdbc…` on 2024-08-18 … 2026-08-17, the 35,002 periods
+  both scored: MAE −6.5 % (546,202 → 510,465), MAPE 3.34 % → 3.12 %, CI over days
+  [−49,399, −22,149] excludes zero, lower on 57 % of days and in 20 of 25 months, top-10 %
+  demand days −7.9 %, but holidays +7.2 %. Its permutation importance is dominated by one of
+  the added columns, `wavg_similar_day_top3_demand_kwh` (ΔMAE about 22 times the next
+  feature's), so how much of the 6.5 % the other 80 carry is an open question.
   Write-back: `pma_ml.demand_forecast` →
   `stg/std_ml__demand_forecast` →
   `fct_demand_forecast` → `fct_demand_forecast_accuracy` → Superset **Demand Forecast Analysis**
@@ -1337,8 +1351,11 @@
   experiment's body keeps Keep / Reject / Refine / Inconclusive (`Supported` for Keep,
   `Not supported` for Reject, `Inconclusive` for the other two). R-006, R-007 and R-008 were
   kept tentatively on 2026-09-19 ("Provisionally Keep, researcher to confirm"), which made
-  `lightgbm_msm_popw_daytype_simday_lags_weather` the Tokyo baseline; no run of it is matched
-  to the current marts, so the first experiment's baseline is a fresh run.
+  `lightgbm_msm_popw_daytype_simday_lags_weather` the Tokyo baseline; experiment #212 took it
+  on 2026-09-20 (MAE −6.5 %) and `e212` is the Tokyo baseline since, with the matched pair
+  `32ecbdbc…` (baseline) and `34c506fb…` (candidate) on 2024-08-18 … 2026-08-17 as its
+  reference runs — a candidate on that window needs no fresh baseline run, one on any other
+  window does.
 - Keep reasoning, interpretations and decisions in the issues; keep run-level parameters,
   metrics, code versions and detailed artifacts in MLflow. Asset files are named by the issue,
   `assets/<issue number>-<slug>.png` (the thirteen figures migrated on 2026-09-19 keep their
