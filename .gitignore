@@ -51,7 +51,7 @@ tmp/
 .playwright-mcp
 
 # Scratch space for ad-hoc scripts, probes and their output (see CLAUDE.md)
-scratch/
+/scratch/
 
 # Ops logs (repo-root, from nohup'd refresh commands)
 /jma_scrape.log
