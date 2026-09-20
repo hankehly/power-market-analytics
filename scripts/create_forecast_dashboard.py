@@ -357,18 +357,120 @@ COMMON_DATASET_COLUMNS = (
     ("horizon_hours", "DOUBLE", False),
 )
 
+# The Explanation tab's overview charts draw the TOP_COMPONENTS features with the
+# largest mean |contribution| in the selection and fold the rest into one
+# OTHER_FEATURES group: a preset has a hundred features (e212: 104), and a bar or
+# a stacked series per feature reads as noise. The All features table lists
+# every one.
+TOP_COMPONENTS = 10
+OTHER_FEATURES = "Other features"
+
+# A chart mark (a bar, a series, a legend entry) cannot carry a 130-character
+# expression, so marks use the expression's head and tail around an ellipsis;
+# the tail keeps what tells siblings apart (``…, rank=2) / 2``). Tables show the
+# full expression, and a rank number beside both ties a mark to its table row.
+SHORT_LABEL_HEAD = 34
+SHORT_LABEL_TAIL = 21
+
+
+def short_label_sql(expression: str) -> str:
+    """SQL shortening ``expression`` for a chart mark: its head, an ellipsis, its tail.
+
+    Parameters
+    ----------
+    expression : str
+        A SQL string expression (the feature's expression).
+
+    Returns
+    -------
+    str
+        A ``case`` expression: ``expression`` as it is up to
+        ``SHORT_LABEL_HEAD + SHORT_LABEL_TAIL + 1`` characters, else shortened
+        to that length.
+    """
+    limit = SHORT_LABEL_HEAD + SHORT_LABEL_TAIL + 1
+    return (
+        f"case when length({expression}) > {limit} "
+        f"then concat(substring({expression}, 1, {SHORT_LABEL_HEAD}), '…', "
+        f"substring({expression}, -{SHORT_LABEL_TAIL})) else {expression} end"
+    )
+
+
+# The Feature filter's option text: the feature's rank by mean |SHAP| within its
+# run, zero-padded so the list sorts by it and opens on the run's first feature,
+# then the expression. One definition, formatted with the contribution summary's
+# alias ``s`` and the expression: the filter lists the summary dataset's column
+# and filters the explanation dataset's, so both must build the same text.
+FEATURE_PICK_SQL = "concat(lpad(cast({s}.feature_rank as string), 3, '0'), ' ', {expression})"
+
 # Shared skeleton of every task's explanation dataset: the contribution fact
-# (one row per period x component) with calendar / period / area context,
-# the same run_label construction as the analysis dataset (so the Run filter
-# selects both), sortable Day / component labels, then the task's
-# value block — the contribution and, from the accuracy mart, the period's
-# forecast and actual (repeated on each component row: AVG-only metrics).
-EXPLANATION_DATASET_SQL_TEMPLATE = """\
+# (one row per period x component) with calendar / period / area context, the
+# same run_label construction as the analysis dataset (so the Run filter selects
+# both), then the task's value block — the contribution and, from the accuracy
+# mart, the period's forecast and actual (repeated on each component row:
+# AVG-only metrics).
+#
+# The Run, Day and Period filters are pinned inside the SQL (``pinned``), on the
+# fact's own columns, so the scan is pruned (see RUN_ID_PREFIX_LENGTH); without
+# a Run value it reads everything. ``ranked`` orders the selection's features by
+# mean |contribution| — the selection is exactly the pinned rows, which is why
+# the Explanation tab takes its day from the Day filter alone and not from a
+# cross-filter, which would arrive after the ranking. ``grouped`` names each
+# feature's group: its short label within the top TOP_COMPONENTS (with its rank
+# appended should two shorten to the same text), else OTHER_FEATURES.
+# component_group is the stacked chart's series, without a rank, so a feature
+# keeps its colour when its rank changes; component_group_label carries the rank
+# as a sortable prefix for the waterfall, which sorts by label.
+#
+# ``$period_gate`` is empty here and, for the period dataset, a predicate that
+# leaves no rows unless the Period filter has a value: Superset cannot hide a
+# chart on a condition, so the Single period charts show "No data" instead.
+# A string.Template ($name) because the SQL carries Jinja braces.
+EXPLANATION_DATASET_SQL_TEMPLATE = string.Template("""\
+{% set run = filter_values('run_label') %}
+{% set day = filter_values('trade_date_label') %}
+{% set period = filter_values('period_label') %}
+with pinned as (
+select c.*
+from $contribution_table c
+where {% if run %}$run_pin{% else %}1 = 1{% endif %}
+  {% if day %}and c.date_key = date '{{ day[0] | replace("'", "''") }}'{% endif %}
+  {% if period %}and c.time_code = {{ period[0][:2] | int }}{% endif %}$period_gate
+),
+ranked as (
+select
+  k.component,
+  row_number() over (order by avg(abs(k.$contribution_fact_col)) desc, k.component) as selection_rank
+from pinned k
+where not k.is_base
+group by k.component
+),
+labelled as (
+select
+  r.component,
+  r.selection_rank,
+  $short_label_sql as short_label
+from ranked r
+$ranked_feature_join_sql
+),
+grouped as (
+select
+  l.component,
+  l.selection_rank,
+  case
+    when l.selection_rank > $top then '$other'
+    when count(*) over (partition by l.selection_rank <= $top, l.short_label) > 1
+      then concat(l.short_label, ' #', cast(l.selection_rank as string))
+    else l.short_label
+  end as component_group
+from labelled l
+)
 select
   c.date_key,
   date_format(c.date_key, 'yyyy-MM-dd') as trade_date_label,
   c.trade_datetime,
   c.time_code,
+  concat(lpad(cast(c.time_code as string), 2, '0'), ' ', p.period_start_time, '–', p.period_end_time) as period_label,
   p.hour_of_day,
   p.day_part,
   d.day_name,
@@ -380,33 +482,49 @@ select
   a.area_code,
   a.area_name_en,
   c.run_id,
-  {run_label_sql} as run_label,
+  $run_label_sql as run_label,
   c.strategy,
   c.published_at,
   c.component,
-  {feature_expression_sql} as feature_expression,
+  $feature_expression_sql as feature_expression,
   c.component_order,
-  concat(lpad(cast(c.component_order as string), 2, '0'), ' ', {feature_expression_sql}) as component_label,
   c.is_base,
+  g.selection_rank,
+  case when c.is_base then 'base' else g.component_group end as component_group,
+  case
+    when c.is_base then '00 base'
+    when g.selection_rank > $top then '$other_order $other'
+    else concat(lpad(cast(g.selection_rank as string), 2, '0'), ' ', g.component_group)
+  end as component_group_label,
+  $feature_pick_sql as feature_pick,
   c.feature_value,
-{explanation_value_columns_sql}
-from {contribution_table} c
+$explanation_value_columns_sql
+from pinned c
 join pma_curated.dim_area a on c.area_key = a.area_key
 join pma_curated.dim_half_hour p on c.time_code = p.time_code
 join pma_curated.dim_date d on c.date_key = d.date_key
-{feature_join_sql}
-left join {accuracy_table} f
+left join grouped g on g.component = c.component
+$feature_join_sql
+left join $summary_table s
+  on s.run_id = c.run_id
+  and s.area_key = c.area_key
+  and s.component = c.component
+left join $accuracy_table f
   on c.run_id = f.run_id
   and c.date_key = f.date_key
   and c.time_code = f.time_code
   and c.area_key = f.area_key
-"""
+""")
+
+#: The period dataset's extra predicate of ``pinned``: no rows without a Period.
+PERIOD_GATE_SQL = "\n  {% if not period %}and 1 = 0{% endif %}"
 
 COMMON_EXPLANATION_COLUMNS = (
     ("date_key", "DATE", True),
     ("trade_date_label", "STRING", False),
     ("trade_datetime", "TIMESTAMP", True),
     ("time_code", "INT", False),
+    ("period_label", "STRING", False),
     ("hour_of_day", "INT", False),
     ("day_part", "STRING", False),
     ("day_name", "STRING", False),
@@ -420,17 +538,34 @@ COMMON_EXPLANATION_COLUMNS = (
     ("component", "STRING", False),
     ("feature_expression", "STRING", False),
     ("component_order", "INT", False),
-    ("component_label", "STRING", False),
     ("is_base", "BOOLEAN", False),
+    ("selection_rank", "INT", False),
+    ("component_group", "STRING", False),
+    ("component_group_label", "STRING", False),
+    ("feature_pick", "STRING", False),
     ("feature_value", "DOUBLE", False),
 )
 
 # Shared skeleton of every task's importance dataset: the permutation feature
 # importance fact (one row per run x feature x repeat) with the run label and
-# area context. feature_label carries the model's feature order as a sortable
-# prefix like component_label, before the feature's expression. No delivery-day
-# axis: importance describes a run.
+# area context. ``ranked`` orders each run's features by ΔMAE, largest first, so
+# the bars can keep the top ones with a plain filter, and feature_short carries
+# that rank before the short label, so no two bars share a name. The run-level
+# contribution summary brings the feature's mean |SHAP| (the same on every
+# repeat's row). No delivery-day axis: importance describes a run.
 IMPORTANCE_DATASET_SQL_TEMPLATE = """\
+with ranked as (
+select
+  i.run_id,
+  i.area_key,
+  i.feature,
+  row_number() over (
+    partition by i.run_id, i.area_key
+    order by avg(i.{permuted_mae_fact_col}) - avg(i.{mae_fact_col}) desc, i.feature
+  ) as importance_rank
+from {importance_table} i
+group by i.run_id, i.area_key, i.feature
+)
 select
   a.area_code,
   a.area_name_en,
@@ -441,13 +576,23 @@ select
   i.feature,
   {feature_expression_sql} as feature_expression,
   i.feature_order,
-  concat(lpad(cast(i.feature_order as string), 2, '0'), ' ', {feature_expression_sql}) as feature_label,
+  r.importance_rank,
+  concat(lpad(cast(r.importance_rank as string), 3, '0'), ' ', {short_label_sql}) as feature_short,
   i.repeat_index,
   i.n_periods,
-{importance_value_columns_sql}
+{importance_value_columns_sql},
+  {mean_abs_contribution_sql}
 from {importance_table} i
+join ranked r
+  on r.run_id = i.run_id
+  and r.area_key = i.area_key
+  and r.feature = i.feature
 join pma_curated.dim_area a on i.area_key = a.area_key
 {feature_join_sql}
+left join {summary_table} s
+  on s.run_id = i.run_id
+  and s.area_key = i.area_key
+  and s.component = i.feature
 """
 
 COMMON_IMPORTANCE_COLUMNS = (
@@ -460,9 +605,50 @@ COMMON_IMPORTANCE_COLUMNS = (
     ("feature", "STRING", False),
     ("feature_expression", "STRING", False),
     ("feature_order", "INT", False),
-    ("feature_label", "STRING", False),
+    ("importance_rank", "INT", False),
+    ("feature_short", "STRING", False),
     ("repeat_index", "INT", False),
     ("n_periods", "INT", False),
+)
+
+# Shared skeleton of every task's summary dataset: the run-level contribution
+# summary (one row per run x feature, the base row left out) with the run label.
+# It feeds the mean |SHAP| bars and the Feature filter's options; feature_short
+# and feature_pick both start with the feature's rank by mean |SHAP|.
+SUMMARY_DATASET_SQL_TEMPLATE = """\
+select
+  a.area_code,
+  a.area_name_en,
+  s.run_id,
+  {run_label_sql} as run_label,
+  s.strategy,
+  s.published_at,
+  s.component,
+  {feature_expression_sql} as feature_expression,
+  s.feature_rank,
+  concat(lpad(cast(s.feature_rank as string), 3, '0'), ' ', {short_label_sql}) as feature_short,
+  {feature_pick_sql} as feature_pick,
+  s.n_periods,
+{summary_value_columns_sql}
+from {summary_table} s
+join pma_curated.dim_area a on s.area_key = a.area_key
+{feature_join_sql}
+where not s.is_base
+"""
+
+COMMON_SUMMARY_COLUMNS = (
+    ("area_code", "STRING", False),
+    ("area_name_en", "STRING", False),
+    ("run_id", "STRING", False),
+    ("run_label", "STRING", False),
+    ("strategy", "STRING", False),
+    ("published_at", "TIMESTAMP", True),
+    ("component", "STRING", False),
+    ("feature_expression", "STRING", False),
+    ("feature_rank", "INT", False),
+    ("feature_short", "STRING", False),
+    ("feature_pick", "STRING", False),
+    ("n_periods", "BIGINT", False),
 )
 
 # Shared skeleton of every task's comparison dataset: the accuracy mart
@@ -828,6 +1014,22 @@ class DashboardSpec:
     explanation_value_columns_sql, explanation_value_columns : str, tuple of (str, str, bool)
         The value block — contribution, forecast, actual — two-space
         indented, the last line without a trailing comma.
+    contribution_fact_col : str
+        The contribution fact's own contribution column (``TaskSpec.contribution_col``),
+        which the explanation dataset ranks the selection's features on.
+    explanation_period_dataset_name : str
+        The Single period sub-tab's dataset: the explanation SQL, with no rows
+        unless the Period filter has a value.
+    summary_dataset_name, summary_table : str
+        The summary dataset and the run-level contribution summary fact it reads.
+    summary_value_columns_sql, summary_value_columns : str, tuple of (str, str, bool)
+        The summary dataset's value block — the mean contribution, then the mean
+        absolute contribution (mean |SHAP|), rescaled like the value columns —
+        two-space indented, the last line without a trailing comma, and its
+        column metadata. The importance dataset selects the block's last line too.
+    importance_mae_fact_col, importance_permuted_mae_fact_col : str
+        The importance fact's own MAE columns (``TaskSpec.mae_col`` /
+        ``permuted_mae_col``), which the importance dataset ranks the features on.
     comparison_dataset_name : str
         The comparison dataset (the accuracy mart self-joined, candidate vs baseline).
     comparison_value_columns_sql : str
@@ -897,6 +1099,14 @@ class DashboardSpec:
     importance_value_columns: tuple[tuple[str, str, bool], ...]
     feature_values_dataset_name: str
     issue_time_sql: str
+    contribution_fact_col: str
+    explanation_period_dataset_name: str
+    summary_dataset_name: str
+    summary_table: str
+    summary_value_columns_sql: str
+    summary_value_columns: tuple[tuple[str, str, bool], ...]
+    importance_mae_fact_col: str
+    importance_permuted_mae_fact_col: str
 
     @property
     def feature_values_sql(self) -> str:
@@ -956,17 +1166,65 @@ class DashboardSpec:
     def p90_metric(self) -> dict:
         return sql_metric(f"percentile({self.abs_error_col}, 0.90)", "P90 abs error")
 
+    def _explanation_sql(self, period_gate: str) -> str:
+        """The explanation SQL around this task's value block, with ``period_gate``
+        appended to the pinned rows' predicate."""
+        expression = FEATURE_EXPRESSION_SQL.format(e="e", name="c.component")
+        ranked_expression = FEATURE_EXPRESSION_SQL.format(e="e", name="r.component")
+        return EXPLANATION_DATASET_SQL_TEMPLATE.substitute(
+            explanation_value_columns_sql=self.explanation_value_columns_sql,
+            contribution_table=self.contribution_table,
+            contribution_fact_col=self.contribution_fact_col,
+            accuracy_table=self.accuracy_table,
+            summary_table=self.summary_table,
+            run_pin=run_pin_sql("run", "c.run_id"),
+            period_gate=period_gate,
+            run_label_sql=RUN_LABEL_SQL.format(f="c", a="a"),
+            feature_expression_sql=expression,
+            feature_join_sql=FEATURE_JOIN_SQL.format(e="e", name="c.component"),
+            short_label_sql=short_label_sql(ranked_expression),
+            ranked_feature_join_sql=FEATURE_JOIN_SQL.format(e="e", name="r.component"),
+            feature_pick_sql=FEATURE_PICK_SQL.format(s="s", expression=expression),
+            top=TOP_COMPONENTS,
+            other=OTHER_FEATURES,
+            other_order=TOP_COMPONENTS + 1,
+        )
+
     @property
     def explanation_dataset_sql(self) -> str:
         """The explanation dataset's SQL: the shared template around this task's value block."""
-        return EXPLANATION_DATASET_SQL_TEMPLATE.format(
-            explanation_value_columns_sql=self.explanation_value_columns_sql,
-            contribution_table=self.contribution_table,
-            accuracy_table=self.accuracy_table,
-            run_label_sql=RUN_LABEL_SQL.format(f="c", a="a"),
-            feature_expression_sql=FEATURE_EXPRESSION_SQL.format(e="e", name="c.component"),
-            feature_join_sql=FEATURE_JOIN_SQL.format(e="e", name="c.component"),
+        return self._explanation_sql(period_gate="")
+
+    @property
+    def explanation_period_dataset_sql(self) -> str:
+        """The period dataset's SQL: the explanation SQL, with no rows unless the Period
+        filter has a value."""
+        return self._explanation_sql(period_gate=PERIOD_GATE_SQL)
+
+    @property
+    def summary_dataset_sql(self) -> str:
+        """The summary dataset's SQL: the shared template around this task's value block."""
+        expression = FEATURE_EXPRESSION_SQL.format(e="e", name="s.component")
+        return SUMMARY_DATASET_SQL_TEMPLATE.format(
+            summary_value_columns_sql=self.summary_value_columns_sql,
+            summary_table=self.summary_table,
+            run_label_sql=RUN_LABEL_SQL.format(f="s", a="a"),
+            feature_expression_sql=expression,
+            feature_join_sql=FEATURE_JOIN_SQL.format(e="e", name="s.component"),
+            short_label_sql=short_label_sql(expression),
+            feature_pick_sql=FEATURE_PICK_SQL.format(s="s", expression=expression),
         )
+
+    @property
+    def summary_dataset_columns(self) -> list[tuple[str, str, bool]]:
+        """(column_name, generic type, is temporal) for every summary column, in select order."""
+        return [*COMMON_SUMMARY_COLUMNS, *self.summary_value_columns]
+
+    @property
+    def mean_abs_contribution_col(self) -> str:
+        """The *dataset* column of a feature's mean |SHAP| over its run (the summary
+        value block's last column; the importance dataset carries it too)."""
+        return self.summary_value_columns[-1][0]
 
     @property
     def explanation_dataset_columns(self) -> list[tuple[str, str, bool]]:
@@ -1129,18 +1387,28 @@ class DashboardSpec:
     @property
     def importance_dataset_sql(self) -> str:
         """The importance dataset's SQL: the shared template around this task's value block."""
+        expression = FEATURE_EXPRESSION_SQL.format(e="e", name="i.feature")
         return IMPORTANCE_DATASET_SQL_TEMPLATE.format(
             importance_value_columns_sql=self.importance_value_columns_sql,
+            mean_abs_contribution_sql=self.summary_value_columns_sql.splitlines()[-1].strip(),
             importance_table=self.importance_table,
+            summary_table=self.summary_table,
+            mae_fact_col=self.importance_mae_fact_col,
+            permuted_mae_fact_col=self.importance_permuted_mae_fact_col,
             run_label_sql=RUN_LABEL_SQL.format(f="i", a="a"),
-            feature_expression_sql=FEATURE_EXPRESSION_SQL.format(e="e", name="i.feature"),
+            feature_expression_sql=expression,
             feature_join_sql=FEATURE_JOIN_SQL.format(e="e", name="i.feature"),
+            short_label_sql=short_label_sql(expression),
         )
 
     @property
     def importance_dataset_columns(self) -> list[tuple[str, str, bool]]:
         """(column_name, generic type, is temporal) for every importance column, in select order."""
-        return [*COMMON_IMPORTANCE_COLUMNS, *self.importance_value_columns]
+        return [
+            *COMMON_IMPORTANCE_COLUMNS,
+            *self.importance_value_columns,
+            self.summary_value_columns[-1],
+        ]
 
     @property
     def importance_mae_metric(self) -> dict:
@@ -1449,6 +1717,19 @@ SPOT_PRICE = DashboardSpec(
     ),
     feature_values_dataset_name="spot_price_feature_values",
     issue_time_sql=issue_time_sql(SPOT_PRICE_TASK.issue_offset),
+    contribution_fact_col=SPOT_PRICE_TASK.contribution_col,
+    explanation_period_dataset_name="spot_price_forecast_explanation_period",
+    summary_dataset_name="spot_price_forecast_contribution_summary",
+    summary_table="pma_curated.fct_spot_price_forecast_contribution_summary",
+    summary_value_columns_sql="""\
+  s.mean_contribution_price_jpy_kwh,
+  s.mean_abs_contribution_price_jpy_kwh""",
+    summary_value_columns=(
+        ("mean_contribution_price_jpy_kwh", "DOUBLE", False),
+        ("mean_abs_contribution_price_jpy_kwh", "DOUBLE", False),
+    ),
+    importance_mae_fact_col=SPOT_PRICE_TASK.mae_col,
+    importance_permuted_mae_fact_col=SPOT_PRICE_TASK.permuted_mae_col,
     importance_dataset_name="spot_price_forecast_importance",
     importance_table="pma_curated.fct_spot_price_forecast_importance",
     importance_mae_col="mae_price_jpy_kwh",
@@ -1572,6 +1853,19 @@ DEMAND = DashboardSpec(
     ),
     feature_values_dataset_name="demand_feature_values",
     issue_time_sql=issue_time_sql(DEMAND_TASK.issue_offset),
+    contribution_fact_col=DEMAND_TASK.contribution_col,
+    explanation_period_dataset_name="demand_forecast_explanation_period",
+    summary_dataset_name="demand_forecast_contribution_summary",
+    summary_table="pma_curated.fct_demand_forecast_contribution_summary",
+    summary_value_columns_sql="""\
+  s.mean_contribution_demand_kwh / 1000 as mean_contribution_mwh,
+  s.mean_abs_contribution_demand_kwh / 1000 as mean_abs_contribution_mwh""",
+    summary_value_columns=(
+        ("mean_contribution_mwh", "DOUBLE", False),
+        ("mean_abs_contribution_mwh", "DOUBLE", False),
+    ),
+    importance_mae_fact_col=DEMAND_TASK.mae_col,
+    importance_permuted_mae_fact_col=DEMAND_TASK.permuted_mae_col,
     importance_dataset_name="demand_forecast_importance",
     importance_table="pma_curated.fct_demand_forecast_importance",
     importance_mae_col="mae_mwh",

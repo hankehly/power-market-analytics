@@ -531,12 +531,54 @@ DEMAND_COLUMNS = COMMON_COLUMNS_HEAD + [
     ("abs_pct_error", "DOUBLE", False),
 ]
 
-EXPLANATION_SQL_HEAD = """\
+# The explanation dataset, as plain text with @TOKENS@ (the SQL carries Jinja braces).
+# The period dataset is the same SQL with one more line in the pinned CTE: no
+# rows unless the Period filter has a value.
+EXPLANATION_SQL = """\
+{% set run = filter_values('run_label') %}
+{% set day = filter_values('trade_date_label') %}
+{% set period = filter_values('period_label') %}
+with pinned as (
+select c.*
+from @CONTRIBUTION_TABLE@ c
+where {% if run %}c.run_id like '{{ run[0][-8:] | replace("'", "''") }}%'{% else %}1 = 1{% endif %}
+  {% if day %}and c.date_key = date '{{ day[0] | replace("'", "''") }}'{% endif %}
+  {% if period %}and c.time_code = {{ period[0][:2] | int }}{% endif %}@GATE@
+),
+ranked as (
+select
+  k.component,
+  row_number() over (order by avg(abs(k.@FACT_COL@)) desc, k.component) as selection_rank
+from pinned k
+where not k.is_base
+group by k.component
+),
+labelled as (
+select
+  r.component,
+  r.selection_rank,
+  case when length(coalesce(e.feature_expression, r.component)) > 56 then concat(substring(coalesce(e.feature_expression, r.component), 1, 34), '…', substring(coalesce(e.feature_expression, r.component), -21)) else coalesce(e.feature_expression, r.component) end as short_label
+from ranked r
+left join pma_curated.dim_feature e on e.feature_name = r.component
+),
+grouped as (
+select
+  l.component,
+  l.selection_rank,
+  case
+    when l.selection_rank > 10 then 'Other features'
+    when count(*) over (partition by l.selection_rank <= 10, l.short_label) > 1
+      then concat(l.short_label, ' #', cast(l.selection_rank as string))
+    else l.short_label
+  end as component_group
+from labelled l
+)
 select
   c.date_key,
   date_format(c.date_key, 'yyyy-MM-dd') as trade_date_label,
   c.trade_datetime,
   c.time_code,
+  concat(lpad(cast(c.time_code as string), 2, '0'), ' ', p.period_start_time, '–', p.period_end_time) as period_label,
   p.hour_of_day,
   p.day_part,
   d.day_name,
@@ -559,56 +601,91 @@ select
   c.component,
   coalesce(e.feature_expression, c.component) as feature_expression,
   c.component_order,
-  concat(lpad(cast(c.component_order as string), 2, '0'), ' ', coalesce(e.feature_expression, c.component)) as component_label,
   c.is_base,
+  g.selection_rank,
+  case when c.is_base then 'base' else g.component_group end as component_group,
+  case
+    when c.is_base then '00 base'
+    when g.selection_rank > 10 then '11 Other features'
+    else concat(lpad(cast(g.selection_rank as string), 2, '0'), ' ', g.component_group)
+  end as component_group_label,
+  concat(lpad(cast(s.feature_rank as string), 3, '0'), ' ', coalesce(e.feature_expression, c.component)) as feature_pick,
   c.feature_value,
-"""
-
-
-def explanation_sql_tail(contribution_table: str, accuracy_table: str) -> str:
-    return f"""\
-from {contribution_table} c
+@VALUES@
+from pinned c
 join pma_curated.dim_area a on c.area_key = a.area_key
 join pma_curated.dim_half_hour p on c.time_code = p.time_code
 join pma_curated.dim_date d on c.date_key = d.date_key
+left join grouped g on g.component = c.component
 left join pma_curated.dim_feature e on e.feature_name = c.component
-left join {accuracy_table} f
+left join @SUMMARY_TABLE@ s
+  on s.run_id = c.run_id
+  and s.area_key = c.area_key
+  and s.component = c.component
+left join @ACCURACY_TABLE@ f
   on c.run_id = f.run_id
   and c.date_key = f.date_key
   and c.time_code = f.time_code
   and c.area_key = f.area_key
 """
+PERIOD_GATE = "\n  {% if not period %}and 1 = 0{% endif %}"
 
 
-SPOT_EXPLANATION_SQL = (
-    EXPLANATION_SQL_HEAD
-    + """\
+def final_select_names(sql: str) -> list[str]:
+    """Output column names of a dataset SQL's final select list, in order.
+
+    The final select is what follows the last CTE (or the Jinja header); a plain
+    ``alias.column`` line gives its column, any other line its ``as <name>``.
+    """
+    final = sql.rsplit("\n)\nselect\n", 1)[-1].split("\nfrom ", 1)[0]
+    names = []
+    for line in final.splitlines():
+        if m := re.fullmatch(r"\s+[a-z]\.(\w+),?", line):
+            names.append(m.group(1))
+        elif m := re.search(r"\bas (\w+),?$", line):
+            names.append(m.group(1))
+    return names
+
+
+def explanation_sql(task: str, fact_col: str, values: str, gate: str = "") -> str:
+    return (
+        EXPLANATION_SQL.replace(
+            "@CONTRIBUTION_TABLE@", f"pma_curated.fct_{task}_forecast_contribution"
+        )
+        .replace("@SUMMARY_TABLE@", f"pma_curated.fct_{task}_forecast_contribution_summary")
+        .replace("@ACCURACY_TABLE@", f"pma_curated.fct_{task}_forecast_accuracy")
+        .replace("@FACT_COL@", fact_col)
+        .replace("@VALUES@", values)
+        .replace("@GATE@", gate)
+    )
+
+
+SPOT_EXPLANATION_VALUES = """\
   c.contribution_price_jpy_kwh,
   f.forecast_price_jpy_kwh,
-  f.actual_price_jpy_kwh
-"""
-    + explanation_sql_tail(
-        "pma_curated.fct_spot_price_forecast_contribution",
-        "pma_curated.fct_spot_price_forecast_accuracy",
-    )
-)
-DEMAND_EXPLANATION_SQL = (
-    EXPLANATION_SQL_HEAD
-    + """\
+  f.actual_price_jpy_kwh"""
+DEMAND_EXPLANATION_VALUES = """\
   c.contribution_demand_kwh / 1000 as contribution_mwh,
   f.forecast_demand_kwh / 1000 as forecast_demand_mwh,
-  f.actual_demand_kwh / 1000 as actual_demand_mwh
-"""
-    + explanation_sql_tail(
-        "pma_curated.fct_demand_forecast_contribution",
-        "pma_curated.fct_demand_forecast_accuracy",
-    )
+  f.actual_demand_kwh / 1000 as actual_demand_mwh"""
+SPOT_EXPLANATION_SQL = explanation_sql(
+    "spot_price", "contribution_price_jpy_kwh", SPOT_EXPLANATION_VALUES
+)
+DEMAND_EXPLANATION_SQL = explanation_sql(
+    "demand", "contribution_demand_kwh", DEMAND_EXPLANATION_VALUES
+)
+SPOT_EXPLANATION_PERIOD_SQL = explanation_sql(
+    "spot_price", "contribution_price_jpy_kwh", SPOT_EXPLANATION_VALUES, PERIOD_GATE
+)
+DEMAND_EXPLANATION_PERIOD_SQL = explanation_sql(
+    "demand", "contribution_demand_kwh", DEMAND_EXPLANATION_VALUES, PERIOD_GATE
 )
 EXPLANATION_COLUMNS_HEAD = [
     ("date_key", "DATE", True),
     ("trade_date_label", "STRING", False),
     ("trade_datetime", "TIMESTAMP", True),
     ("time_code", "INT", False),
+    ("period_label", "STRING", False),
     ("hour_of_day", "INT", False),
     ("day_part", "STRING", False),
     ("day_name", "STRING", False),
@@ -622,8 +699,11 @@ EXPLANATION_COLUMNS_HEAD = [
     ("component", "STRING", False),
     ("feature_expression", "STRING", False),
     ("component_order", "INT", False),
-    ("component_label", "STRING", False),
     ("is_base", "BOOLEAN", False),
+    ("selection_rank", "INT", False),
+    ("component_group", "STRING", False),
+    ("component_group_label", "STRING", False),
+    ("feature_pick", "STRING", False),
     ("feature_value", "DOUBLE", False),
 ]
 SPOT_EXPLANATION_COLUMNS = EXPLANATION_COLUMNS_HEAD + [
@@ -637,7 +717,19 @@ DEMAND_EXPLANATION_COLUMNS = EXPLANATION_COLUMNS_HEAD + [
     ("actual_demand_mwh", "DOUBLE", False),
 ]
 
-IMPORTANCE_SQL_HEAD = """\
+IMPORTANCE_SQL = """\
+with ranked as (
+select
+  i.run_id,
+  i.area_key,
+  i.feature,
+  row_number() over (
+    partition by i.run_id, i.area_key
+    order by avg(i.@PERMUTED@) - avg(i.@MAE@) desc, i.feature
+  ) as importance_rank
+from @IMPORTANCE_TABLE@ i
+group by i.run_id, i.area_key, i.feature
+)
 select
   a.area_code,
   a.area_name_en,
@@ -653,36 +745,116 @@ select
   i.feature,
   coalesce(e.feature_expression, i.feature) as feature_expression,
   i.feature_order,
-  concat(lpad(cast(i.feature_order as string), 2, '0'), ' ', coalesce(e.feature_expression, i.feature)) as feature_label,
+  r.importance_rank,
+  concat(lpad(cast(r.importance_rank as string), 3, '0'), ' ', case when length(coalesce(e.feature_expression, i.feature)) > 56 then concat(substring(coalesce(e.feature_expression, i.feature), 1, 34), '…', substring(coalesce(e.feature_expression, i.feature), -21)) else coalesce(e.feature_expression, i.feature) end) as feature_short,
   i.repeat_index,
   i.n_periods,
-"""
-
-
-def importance_sql_tail(importance_table: str) -> str:
-    return f"""\
-from {importance_table} i
+@VALUES@
+from @IMPORTANCE_TABLE@ i
+join ranked r
+  on r.run_id = i.run_id
+  and r.area_key = i.area_key
+  and r.feature = i.feature
 join pma_curated.dim_area a on i.area_key = a.area_key
 left join pma_curated.dim_feature e on e.feature_name = i.feature
+left join @SUMMARY_TABLE@ s
+  on s.run_id = i.run_id
+  and s.area_key = i.area_key
+  and s.component = i.feature
 """
 
 
-SPOT_IMPORTANCE_SQL = (
-    IMPORTANCE_SQL_HEAD
-    + """\
+def importance_sql(task: str, mae: str, values: str) -> str:
+    return (
+        IMPORTANCE_SQL.replace("@IMPORTANCE_TABLE@", f"pma_curated.fct_{task}_forecast_importance")
+        .replace("@SUMMARY_TABLE@", f"pma_curated.fct_{task}_forecast_contribution_summary")
+        .replace("@PERMUTED@", f"permuted_{mae}")
+        .replace("@MAE@", mae)
+        .replace("@VALUES@", values)
+    )
+
+
+SPOT_IMPORTANCE_SQL = importance_sql(
+    "spot_price",
+    "mae_price_jpy_kwh",
+    """\
   i.mae_price_jpy_kwh,
-  i.permuted_mae_price_jpy_kwh
-"""
-    + importance_sql_tail("pma_curated.fct_spot_price_forecast_importance")
+  i.permuted_mae_price_jpy_kwh,
+  s.mean_abs_contribution_price_jpy_kwh""",
 )
-DEMAND_IMPORTANCE_SQL = (
-    IMPORTANCE_SQL_HEAD
-    + """\
+DEMAND_IMPORTANCE_SQL = importance_sql(
+    "demand",
+    "mae_demand_kwh",
+    """\
   i.mae_demand_kwh / 1000 as mae_mwh,
-  i.permuted_mae_demand_kwh / 1000 as permuted_mae_mwh
-"""
-    + importance_sql_tail("pma_curated.fct_demand_forecast_importance")
+  i.permuted_mae_demand_kwh / 1000 as permuted_mae_mwh,
+  s.mean_abs_contribution_demand_kwh / 1000 as mean_abs_contribution_mwh""",
 )
+
+# The summary dataset: the run-level contribution summary, base row left out.
+SUMMARY_SQL = """\
+select
+  a.area_code,
+  a.area_name_en,
+  s.run_id,
+  concat(
+    date_format(s.published_at, 'yyyy-MM-dd HH:mm'),
+    ' | ', a.area_code,
+    ' | ', s.strategy,
+    ' | ', substring(s.run_id, 1, 8)
+  ) as run_label,
+  s.strategy,
+  s.published_at,
+  s.component,
+  coalesce(e.feature_expression, s.component) as feature_expression,
+  s.feature_rank,
+  concat(lpad(cast(s.feature_rank as string), 3, '0'), ' ', case when length(coalesce(e.feature_expression, s.component)) > 56 then concat(substring(coalesce(e.feature_expression, s.component), 1, 34), '…', substring(coalesce(e.feature_expression, s.component), -21)) else coalesce(e.feature_expression, s.component) end) as feature_short,
+  concat(lpad(cast(s.feature_rank as string), 3, '0'), ' ', coalesce(e.feature_expression, s.component)) as feature_pick,
+  s.n_periods,
+@VALUES@
+from @SUMMARY_TABLE@ s
+join pma_curated.dim_area a on s.area_key = a.area_key
+left join pma_curated.dim_feature e on e.feature_name = s.component
+where not s.is_base
+"""
+SPOT_SUMMARY_SQL = SUMMARY_SQL.replace(
+    "@SUMMARY_TABLE@", "pma_curated.fct_spot_price_forecast_contribution_summary"
+).replace(
+    "@VALUES@",
+    """\
+  s.mean_contribution_price_jpy_kwh,
+  s.mean_abs_contribution_price_jpy_kwh""",
+)
+DEMAND_SUMMARY_SQL = SUMMARY_SQL.replace(
+    "@SUMMARY_TABLE@", "pma_curated.fct_demand_forecast_contribution_summary"
+).replace(
+    "@VALUES@",
+    """\
+  s.mean_contribution_demand_kwh / 1000 as mean_contribution_mwh,
+  s.mean_abs_contribution_demand_kwh / 1000 as mean_abs_contribution_mwh""",
+)
+SUMMARY_COLUMNS_HEAD = [
+    ("area_code", "STRING", False),
+    ("area_name_en", "STRING", False),
+    ("run_id", "STRING", False),
+    ("run_label", "STRING", False),
+    ("strategy", "STRING", False),
+    ("published_at", "TIMESTAMP", True),
+    ("component", "STRING", False),
+    ("feature_expression", "STRING", False),
+    ("feature_rank", "INT", False),
+    ("feature_short", "STRING", False),
+    ("feature_pick", "STRING", False),
+    ("n_periods", "BIGINT", False),
+]
+SPOT_SUMMARY_COLUMNS = SUMMARY_COLUMNS_HEAD + [
+    ("mean_contribution_price_jpy_kwh", "DOUBLE", False),
+    ("mean_abs_contribution_price_jpy_kwh", "DOUBLE", False),
+]
+DEMAND_SUMMARY_COLUMNS = SUMMARY_COLUMNS_HEAD + [
+    ("mean_contribution_mwh", "DOUBLE", False),
+    ("mean_abs_contribution_mwh", "DOUBLE", False),
+]
 IMPORTANCE_COLUMNS_HEAD = [
     ("area_code", "STRING", False),
     ("area_name_en", "STRING", False),
@@ -693,17 +865,20 @@ IMPORTANCE_COLUMNS_HEAD = [
     ("feature", "STRING", False),
     ("feature_expression", "STRING", False),
     ("feature_order", "INT", False),
-    ("feature_label", "STRING", False),
+    ("importance_rank", "INT", False),
+    ("feature_short", "STRING", False),
     ("repeat_index", "INT", False),
     ("n_periods", "INT", False),
 ]
 SPOT_IMPORTANCE_COLUMNS = IMPORTANCE_COLUMNS_HEAD + [
     ("mae_price_jpy_kwh", "DOUBLE", False),
     ("permuted_mae_price_jpy_kwh", "DOUBLE", False),
+    ("mean_abs_contribution_price_jpy_kwh", "DOUBLE", False),
 ]
 DEMAND_IMPORTANCE_COLUMNS = IMPORTANCE_COLUMNS_HEAD + [
     ("mae_mwh", "DOUBLE", False),
     ("permuted_mae_mwh", "DOUBLE", False),
+    ("mean_abs_contribution_mwh", "DOUBLE", False),
 ]
 IMPORTANCE_CHART_NAMES = [
     "Permutation importance",
@@ -1358,24 +1533,57 @@ class TestDashboardSpecs:
         assert demand.contribution_table == "pma_curated.fct_demand_forecast_contribution"
         assert demand.contribution_col == "contribution_mwh"
         assert demand.contribution_format == "+,.0f"
+        # The ranking runs on the fact's own column, before any rescaling
+        assert spot.contribution_fact_col == "contribution_price_jpy_kwh"
+        assert demand.contribution_fact_col == "contribution_demand_kwh"
+        assert spot.explanation_period_dataset_name == "spot_price_forecast_explanation_period"
+        assert demand.explanation_period_dataset_name == "demand_forecast_explanation_period"
+
+    def test_short_label_keeps_the_head_and_the_tail(self, script):
+        assert (script.SHORT_LABEL_HEAD, script.SHORT_LABEL_TAIL) == (34, 21)
+        assert script.short_label_sql("x") == (
+            "case when length(x) > 56 then concat(substring(x, 1, 34), '…', "
+            "substring(x, -21)) else x end"
+        )
 
     def test_explanation_dataset_sql(self, spot, demand):
         assert spot.explanation_dataset_sql == SPOT_EXPLANATION_SQL
         assert demand.explanation_dataset_sql == DEMAND_EXPLANATION_SQL
+
+    def test_the_top_components_and_the_other_group_come_from_the_constants(self, script, spec):
+        assert (script.TOP_COMPONENTS, script.OTHER_FEATURES) == (10, "Other features")
+        sql = spec.explanation_dataset_sql
+        assert "when l.selection_rank > 10 then 'Other features'" in sql
+        assert "when g.selection_rank > 10 then '11 Other features'" in sql
+
+    def test_period_dataset_is_the_explanation_sql_with_no_rows_without_a_period(
+        self, spot, demand
+    ):
+        assert spot.explanation_period_dataset_sql == SPOT_EXPLANATION_PERIOD_SQL
+        assert demand.explanation_period_dataset_sql == DEMAND_EXPLANATION_PERIOD_SQL
+        assert (
+            demand.explanation_period_dataset_sql.replace(PERIOD_GATE, "")
+            == demand.explanation_dataset_sql
+        )
+
+    def test_explanation_pins_read_the_three_filters(self, spec):
+        sql = spec.explanation_dataset_sql
+        assert sql.startswith(
+            "{% set run = filter_values('run_label') %}\n"
+            "{% set day = filter_values('trade_date_label') %}\n"
+            "{% set period = filter_values('period_label') %}\n"
+        )
+        # Without a Run value the SQL reads everything, as before the pins
+        assert "{% else %}1 = 1{% endif %}" in sql
 
     def test_explanation_columns_follow_the_sql(self, spot, demand):
         assert spot.explanation_dataset_columns == SPOT_EXPLANATION_COLUMNS
         assert demand.explanation_dataset_columns == DEMAND_EXPLANATION_COLUMNS
 
     def test_explanation_columns_match_the_sql_select_list_in_order(self, spec):
-        select_list = spec.explanation_dataset_sql.split("\nfrom ", 1)[0].splitlines()[1:]
-        output_names = []
-        for line in select_list:
-            if m := re.fullmatch(r"\s+[cfpda]\.(\w+),?", line):
-                output_names.append(m.group(1))
-            elif m := re.search(r"\bas (\w+),?$", line):
-                output_names.append(m.group(1))
+        output_names = final_select_names(spec.explanation_dataset_sql)
         assert [name for name, _, _ in spec.explanation_dataset_columns] == output_names
+        assert final_select_names(spec.explanation_period_dataset_sql) == output_names
         assert [n for n, _, is_dttm in spec.explanation_dataset_columns if is_dttm] == [
             "date_key",
             "trade_datetime",
@@ -1442,18 +1650,53 @@ class TestDashboardSpecs:
         assert spot.importance_dataset_sql == SPOT_IMPORTANCE_SQL
         assert demand.importance_dataset_sql == DEMAND_IMPORTANCE_SQL
 
+    def test_importance_ranks_on_the_facts_own_columns(self, spot, demand):
+        assert (spot.importance_mae_fact_col, spot.importance_permuted_mae_fact_col) == (
+            "mae_price_jpy_kwh",
+            "permuted_mae_price_jpy_kwh",
+        )
+        assert (demand.importance_mae_fact_col, demand.importance_permuted_mae_fact_col) == (
+            "mae_demand_kwh",
+            "permuted_mae_demand_kwh",
+        )
+
+    def test_summary_identity(self, spot, demand):
+        assert spot.summary_dataset_name == "spot_price_forecast_contribution_summary"
+        assert spot.summary_table == "pma_curated.fct_spot_price_forecast_contribution_summary"
+        assert spot.mean_abs_contribution_col == "mean_abs_contribution_price_jpy_kwh"
+        assert demand.summary_dataset_name == "demand_forecast_contribution_summary"
+        assert demand.summary_table == "pma_curated.fct_demand_forecast_contribution_summary"
+        assert demand.mean_abs_contribution_col == "mean_abs_contribution_mwh"
+
+    def test_summary_dataset_sql(self, spot, demand):
+        assert spot.summary_dataset_sql == SPOT_SUMMARY_SQL
+        assert demand.summary_dataset_sql == DEMAND_SUMMARY_SQL
+
+    def test_summary_columns_follow_the_sql(self, spot, demand):
+        assert spot.summary_dataset_columns == SPOT_SUMMARY_COLUMNS
+        assert demand.summary_dataset_columns == DEMAND_SUMMARY_COLUMNS
+
+    def test_summary_columns_match_the_sql_select_list_in_order(self, spec):
+        output_names = final_select_names(spec.summary_dataset_sql)
+        assert [name for name, _, _ in spec.summary_dataset_columns] == output_names
+
+    def test_feature_pick_has_one_definition(self, script, spec):
+        # The Feature filter lists the summary dataset's feature_pick and filters the
+        # explanation dataset's: the two must build the same text.
+        pick = script.FEATURE_PICK_SQL.format(
+            s="s", expression="coalesce(e.feature_expression, {name})"
+        )
+        assert f"  {pick.format(name='s.component')} as feature_pick,\n" in spec.summary_dataset_sql
+        assert f"  {pick.format(name='c.component')} as feature_pick,\n" in (
+            spec.explanation_dataset_sql
+        )
+
     def test_importance_columns_follow_the_sql(self, spot, demand):
         assert spot.importance_dataset_columns == SPOT_IMPORTANCE_COLUMNS
         assert demand.importance_dataset_columns == DEMAND_IMPORTANCE_COLUMNS
 
     def test_importance_columns_match_the_sql_select_list_in_order(self, spec):
-        select_list = spec.importance_dataset_sql.split("\nfrom ", 1)[0].splitlines()[1:]
-        output_names = []
-        for line in select_list:
-            if m := re.fullmatch(r"\s+[ia]\.(\w+),?", line):
-                output_names.append(m.group(1))
-            elif m := re.search(r"\bas (\w+),?$", line):
-                output_names.append(m.group(1))
+        output_names = final_select_names(spec.importance_dataset_sql)
         assert [name for name, _, _ in spec.importance_dataset_columns] == output_names
         assert [n for n, _, is_dttm in spec.importance_dataset_columns if is_dttm] == [
             "published_at"
