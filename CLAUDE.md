@@ -1120,6 +1120,26 @@
 - Long-running ops (scrapes, raw reloads, `dbt build`) must run as main-session background
   Bash tasks — a subagent that backgrounds a job and ends its turn gets reaped with the job.
 
+## Scratch space
+
+- `scratch/` at the repo root is gitignored and is where anything the work needs but the
+  history does not goes: ad-hoc scripts, probe output, diff dumps, run logs. It sits inside
+  the working directory, so the devcontainer sees it at `/workspace/scratch` and
+  `just python scratch/<file>.py` works. `just lint` skips it (ruff honours `.gitignore`)
+  and the coverage gate never sees it (`[tool.coverage.run] source` is
+  `power_market_analytics` + `scripts`), so a scratch script needs no tests and no style.
+- One directory per piece of work, named `<YYYY-MM-DD>-<slug>` — the date it was created,
+  never renamed afterwards — with the issue number first in the slug when there is one:
+  `scratch/2026-09-20-201-daytype-lags/`, `scratch/2026-09-20-thriftserver-hang/`. So
+  `ls scratch/` reads oldest to newest, which is the only question ever asked of the folder
+  ("what can go?"), and an issue's work is still found with `ls scratch/ | grep 201`. The
+  date is the directory's birthday, not the date of the thing it is about.
+- A dated directory that is worth keeping gets a one-line `README.md` saying what the
+  question was — a month later the slug gives the topic and nothing else.
+- A loose file at the top level (`scratch/probe.py`) means throwaway: it may be deleted at
+  any time, by anyone. Anything that should survive goes in a dated directory. Nothing
+  sweeps the folder automatically; pruning is the researcher's, by date.
+
 ## Git conventions
 
 - Branches follow [Conventional Branch](https://conventionalbranch.org/): `<type>/<description>`
