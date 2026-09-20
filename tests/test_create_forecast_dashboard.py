@@ -4744,9 +4744,14 @@ class TestBuildDashboard:
         explanation_tab = list(range(35, 48))
         assert (worst_days, improved, worsened, detail, compare_detail) == (33, 68, 69, 34, 70)
         assert list(configuration) == ["33", "68", "69"]
-        assert configuration["33"]["crossFilters"]["chartsInScope"] == [detail, compare_detail]
+        # Worst days drills like the other two day tables, plus its own tab's detail
+        assert configuration["33"]["crossFilters"]["chartsInScope"] == [
+            detail,
+            compare_detail,
+            *explained_vs_baseline,
+        ]
         assert configuration["33"]["crossFilters"]["scope"]["excluded"] == [
-            i for i in range(17, 76) if i not in (detail, compare_detail)
+            i for i in range(17, 76) if i not in (detail, compare_detail, *explained_vs_baseline)
         ]
         for emitter in ("68", "69"):
             assert configuration[emitter]["crossFilters"]["chartsInScope"] == [

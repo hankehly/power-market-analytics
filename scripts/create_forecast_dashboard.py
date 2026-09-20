@@ -4711,7 +4711,7 @@ def build_dashboard(
     # ranking. The day tables' Explain links set the Day filter instead.
     chart_configuration = build_chart_configuration(
         {
-            worst_days: [detail, cmp_detail],
+            worst_days: [detail, cmp_detail, *explained_vs_baseline],
             cmp_improved: [cmp_detail, *explained_vs_baseline],
             cmp_worsened: [cmp_detail, *explained_vs_baseline],
         },
