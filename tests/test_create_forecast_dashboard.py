@@ -86,6 +86,22 @@ def parse_filters(q: str) -> list[tuple[str, str, str | int]] | None:
     return [(c, o, v[1:-1] if v.startswith("'") else int(v)) for c, o, v in parts]
 
 
+def as_api_row(row: dict) -> dict:
+    """A stored row as the list endpoint returns it.
+
+    Superset's write takes dashboard ids (``{"dashboards": [30]}``) and its read
+    gives the related rows back (``[{"id": 30, ...}]``), so the fake renders the
+    many-to-many column the way a caller reading it will find it.
+    """
+    related = row.get("dashboards")
+    if related is None:
+        return row
+    return {
+        **row,
+        "dashboards": [d if isinstance(d, dict) else {"id": d} for d in related],
+    }
+
+
 def row_matches(row: dict, column: str, operator: str, value) -> bool:
     """Whether a fake row satisfies one parsed filter.
 
@@ -193,7 +209,7 @@ class FakeSupersetSession:
             if filters is None:
                 return FakeResponse({"message": "bad rison"}, 400)
             result = [
-                row
+                as_api_row(row)
                 for row in self.rows[m.group(1)].values()
                 if all(row_matches(row, col, operator, value) for col, operator, value in filters)
             ]
@@ -3949,7 +3965,7 @@ class TestAttachCharts:
         fake.seed("chart", id=12, slice_name="b")
         client = make_client(script, fake)
 
-        script.attach_charts(client, 30, [11, 12])
+        script.attach_charts(client, 30, [11, 12], {})
 
         assert fake.calls_after_login() == [
             ("PUT", f"{BASE}/api/v1/chart/11", {"dashboards": [30]}, None),
@@ -3958,9 +3974,18 @@ class TestAttachCharts:
         assert fake.rows["chart"][11]["dashboards"] == [30]
         assert fake.rows["chart"][12]["dashboards"] == [30]
 
+    def test_a_chart_keeps_the_other_dashboards_it_is_on(self, script, fake):
+        # the write replaces the whole many-to-many list, so the others go back too
+        fake.seed("chart", id=11, slice_name="a", dashboards=[{"id": 30}, {"id": 41}])
+        client = make_client(script, fake)
+
+        script.attach_charts(client, 30, [11], {11: [41, 30]})
+
+        assert fake.rows["chart"][11]["dashboards"] == [30, 41]
+
     def test_no_charts_no_calls(self, script, fake):
         client = make_client(script, fake)
-        script.attach_charts(client, 30, [])
+        script.attach_charts(client, 30, [], {})
         assert fake.calls_after_login() == []
 
 
@@ -3974,17 +3999,28 @@ class TestDetachStaleCharts:
         fake.seed("chart", id=13, slice_name="elsewhere", dashboards=[{"id": 31}])
         client = make_client(script, fake)
 
-        assert script.detach_stale_charts(client, 30, [11]) == [12]
+        assert script.detach_stale_charts(client, 30, [11], {11: [30], 12: [30]}) == [12]
 
         assert fake.rows["chart"][12]["dashboards"] == []
         assert fake.rows["chart"][11]["dashboards"] == [{"id": 30}]
         assert fake.rows["chart"][13]["dashboards"] == [{"id": 31}]
 
+    def test_a_stale_chart_keeps_the_other_dashboards_it_is_on(self, script, fake):
+        # the chart/dashboard link is many-to-many and the PUT replaces the whole
+        # list, so a chart someone also put on their own dashboard must come back
+        # with that one still on it
+        fake.seed("chart", id=12, slice_name="stale", dashboards=[{"id": 30}, {"id": 41}])
+        client = make_client(script, fake)
+
+        assert script.detach_stale_charts(client, 30, [], {12: [30, 41]}) == [12]
+
+        assert fake.rows["chart"][12]["dashboards"] == [41]
+
     def test_nothing_stale_puts_nothing(self, script, fake):
         fake.seed("chart", id=11, slice_name="live", dashboards=[{"id": 30}])
         client = make_client(script, fake)
 
-        assert script.detach_stale_charts(client, 30, [11]) == []
+        assert script.detach_stale_charts(client, 30, [11], {11: [30]}) == []
 
         assert [call for call in fake.calls_after_login() if call[0] == "PUT"] == []
 
@@ -4848,8 +4884,9 @@ class TestMain:
         assert len(superset.rows["chart"]) == 119
         assert method_counts(superset.calls, "database") == {"GET": 1}
         # one find, one create and one attach per chart, the catalogue's included
-        # 119 lookups + one per dashboard for its charts, none of them stale here
-        assert method_counts(superset.calls, "chart") == {"GET": 121, "POST": 119, "PUT": 119}
+        # 119 lookups + one per dashboard for its charts (the two task ones and
+        # the catalogue), none of them stale here
+        assert method_counts(superset.calls, "chart") == {"GET": 122, "POST": 119, "PUT": 119}
 
     def test_task_flag_selects_one_dashboard(self, script, superset, monkeypatch):
         run_main(script, superset, monkeypatch, ["--url", BASE, "--task", "demand"])

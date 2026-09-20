@@ -2161,8 +2161,8 @@ class SupersetClient:
         result = self._get_json(f"/api/v1/{resource}/", params={"q": q})["result"]
         return result[0]["id"] if result else None
 
-    def charts_of_dashboard(self, dashboard_id: int) -> list[int]:
-        """Return the ids of every chart attached to a dashboard.
+    def charts_of_dashboard(self, dashboard_id: int) -> dict[int, list[int]]:
+        """Every chart attached to a dashboard, with the dashboards each one is on.
 
         Parameters
         ----------
@@ -2170,11 +2170,14 @@ class SupersetClient:
 
         Returns
         -------
-        list of int
+        dict of int to list of int
+            Chart id → the ids of every dashboard it is attached to. The link
+            is many-to-many, and writing it replaces the whole list, so a
+            caller that changes one dashboard needs the others.
         """
         q = f"(filters:!((col:dashboards,opr:rel_m_m,value:{dashboard_id})),page_size:100)"
         result = self._get_json("/api/v1/chart/", params={"q": q})["result"]
-        return [row["id"] for row in result]
+        return {row["id"]: [d["id"] for d in row.get("dashboards") or []] for row in result}
 
 
 def upsert_dataset(
@@ -4066,7 +4069,12 @@ def upsert_dashboard(
     return dashboard_id
 
 
-def attach_charts(client: SupersetClient, dashboard_id: int, chart_ids: list[int]) -> None:
+def attach_charts(
+    client: SupersetClient,
+    dashboard_id: int,
+    chart_ids: list[int],
+    attached: dict[int, list[int]],
+) -> None:
     """Link charts to the dashboard (position_json alone is not enough).
 
     Parameters
@@ -4074,13 +4082,22 @@ def attach_charts(client: SupersetClient, dashboard_id: int, chart_ids: list[int
     client : SupersetClient
     dashboard_id : int
     chart_ids : list of int
+    attached : dict of int to list of int
+        What each chart is attached to already (``charts_of_dashboard``). The
+        write replaces the whole many-to-many list, so every other dashboard a
+        chart is on goes back with it; a chart this map does not know is new,
+        and lands on this dashboard alone.
     """
     for chart_id in chart_ids:
-        client._put_json(f"/api/v1/chart/{chart_id}", {"dashboards": [dashboard_id]})
+        dashboards = sorted({*attached.get(chart_id, []), dashboard_id})
+        client._put_json(f"/api/v1/chart/{chart_id}", {"dashboards": dashboards})
 
 
 def detach_stale_charts(
-    client: SupersetClient, dashboard_id: int, chart_ids: list[int]
+    client: SupersetClient,
+    dashboard_id: int,
+    chart_ids: list[int],
+    attached: dict[int, list[int]],
 ) -> list[int]:
     """Unlink the charts an earlier build left on the dashboard, and return their ids.
 
@@ -4096,17 +4113,23 @@ def detach_stale_charts(
     dashboard_id : int
     chart_ids : list of int
         Every chart this build placed; the rest are detached.
+    attached : dict of int to list of int
+        What each chart is attached to already (``charts_of_dashboard``).
 
     Returns
     -------
     list of int
         The detached charts, in the order Superset listed them. The charts
-        themselves are kept, so nothing a person saved by hand is lost.
+        themselves are kept, and so is every other dashboard they are on —
+        the link is many-to-many and the write replaces the whole list, so a
+        chart someone reused elsewhere must come back with that one still on
+        it.
     """
     placed = set(chart_ids)
-    stale = [c for c in client.charts_of_dashboard(dashboard_id) if c not in placed]
+    stale = [chart_id for chart_id in attached if chart_id not in placed]
     for chart_id in stale:
-        client._put_json(f"/api/v1/chart/{chart_id}", {"dashboards": []})
+        others = [d for d in attached[chart_id] if d != dashboard_id]
+        client._put_json(f"/api/v1/chart/{chart_id}", {"dashboards": others})
     return stale
 
 
@@ -4815,8 +4838,11 @@ def build_dashboard(
         ),
         chart_configuration,
     )
-    attach_charts(client, dashboard_id, all_charts)
-    detached = detach_stale_charts(client, dashboard_id, all_charts)
+    # One read of the chart/dashboard links serves both writes, so neither drops
+    # another dashboard a chart happens to be on.
+    attached = client.charts_of_dashboard(dashboard_id)
+    attach_charts(client, dashboard_id, all_charts, attached)
+    detached = detach_stale_charts(client, dashboard_id, all_charts, attached)
     if detached:
         logger.info("detached {} chart(s) an earlier build left: {}", len(detached), detached)
     logger.info("dashboard: id={}", dashboard_id)
@@ -4981,7 +5007,7 @@ def build_feature_catalogue(client: SupersetClient, database_id: int) -> int:
         [],
         {},
     )
-    attach_charts(client, dashboard_id, [chart_id])
+    attach_charts(client, dashboard_id, [chart_id], client.charts_of_dashboard(dashboard_id))
     logger.info("dashboard: id={}", dashboard_id)
     logger.info("open: http://localhost:8088/superset/dashboard/{}/", FEATURE_CATALOGUE_SLUG)
     return dashboard_id
