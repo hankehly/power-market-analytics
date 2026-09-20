@@ -800,8 +800,11 @@
   `permutation_importance_repeats.csv` and `permutation_importance_plot.html`
   (`plots.permutation_importance_plot`, a Plotly figure like the error heatmaps since
   2026-09-20 — a PNG before that, unreadable once a preset has a hundred features; the
-  figure grows 28 px per feature, the labels set their own left margin and each bar's
-  hover carries its spread, its permuted MAE and its importance %)
+  figure grows 28 px per feature, and a tick label over 56 characters is cut in the
+  middle — the budget growing in steps of 8 until the labels are as distinct as the
+  expressions, 72 for `e212`'s 105 — because MLflow's artifact pane is ~950 px and an
+  expression runs to 185, which left the bars a sliver; each bar's hover carries the
+  whole expression, its spread, its permuted MAE and its importance %)
   → `stg_ml__<task>_forecast_importance` →
   `fct_<task>_forecast_importance` (no `std`: no time axis; singular test: `n_periods` and the
   MAE reconcile with the accuracy mart per run) → Superset dataset `<task>_forecast_importance`
