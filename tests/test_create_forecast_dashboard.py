@@ -4704,6 +4704,26 @@ class TestBuildDashboard:
         assert baseline_filter["controlValues"]["defaultToFirstItem"] is False
         assert all(c["dashboards"] == [76] for c in superset.rows["chart"].values())
 
+    def test_a_rebuild_detaches_a_chart_an_earlier_build_left_behind(
+        self, script, superset, demand
+    ):
+        # Superset renders an attached chart the layout does not place, at the
+        # foot of the first tab, so a dropped or moved chart would still show.
+        client = make_client(script, superset)
+        dashboard_id = script.build_dashboard(client, 3, demand)
+        stale = superset.seed("chart", slice_name="Run leaderboard", dashboards=[dashboard_id])
+
+        script.build_dashboard(client, 3, demand)
+
+        assert superset.rows["chart"][stale]["dashboards"] == []
+        placed = json.loads(superset.rows["dashboard"][dashboard_id]["position_json"])
+        assert f"CHART-{stale}" not in placed
+        assert all(
+            c["dashboards"] == [dashboard_id]
+            for chart_id, c in superset.rows["chart"].items()
+            if chart_id != stale
+        )
+
     def test_day_tables_cross_filter_the_detail_charts_but_not_the_explanation_tab(
         self, script, superset, demand
     ):
