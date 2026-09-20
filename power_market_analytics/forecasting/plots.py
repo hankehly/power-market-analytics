@@ -216,7 +216,8 @@ def permutation_importance_plot(
     deviation. Interactive so that a long feature list stays readable: the
     figure grows 28 px per feature, the labels set the left margin themselves
     and the width is the viewer's, and each bar's hover carries its spread,
-    its permuted MAE and its share of the total.
+    its permuted MAE and its importance % (the ΔMAE over the run's MAE, as
+    ``importance_pct`` and the dashboard's Importance % column give it).
 
     Parameters
     ----------
@@ -254,7 +255,7 @@ def permutation_importance_plot(
                 "%{y}<br>ΔMAE %{x:,.4~r} ± %{customdata[0]:,.4~r} "
                 + unit
                 + "<br>MAE %{customdata[1]:,.4~r} → %{customdata[2]:,.4~r} shuffled"
-                + "<br>Share of the total ΔMAE: %{customdata[3]:.1f} %<extra></extra>"
+                + "<br>Importance: %{customdata[3]:.1f} % of the run's MAE<extra></extra>"
             ),
         )
     )
