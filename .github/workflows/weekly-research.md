@@ -124,7 +124,8 @@ Read these before you search, so the report is about this project and not the in
   `investigation` and `experiment` — the investigations run so far and their outcomes;
   `feature candidate` — the ideas already on the backlog. Do not report or propose one of
   them again.
-- `docs/research/papers.md` — papers the research already cites. Do not report them again.
+- `docs/research/literature-review.md` — the papers the research already cites or lists as
+  candidates. Do not report them again.
 - The pull requests and issues of the last 7 days.
 - The previous `[weekly-research]` discussion, if one exists. Do not repeat its items.
 

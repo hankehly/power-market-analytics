@@ -27,4 +27,4 @@ assignees: []
 
 ## Related
 
-<!-- Issues and papers (docs/research/papers.md). Closing this issue means it needs no attention, not that it stopped being true: say what captured it in the closing comment. -->
+<!-- Issues and papers (docs/research/literature-review.md). Closing this issue means it needs no attention, not that it stopped being true: say what captured it in the closing comment. -->

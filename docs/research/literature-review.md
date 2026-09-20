@@ -1,4 +1,4 @@
-# Papers
+# Literature review
 
 ## Reference table
 
@@ -11,7 +11,7 @@ repository. The nine accessible full texts were read for this revision on
 |---|---|---|---|---|---|
 | [P-001](#p-001) | Short-Term Forecasting of Anomalous Load Using Rule-Based Triple Seasonal Methods | Siddharth Arora; James W. Taylor | IEEE Transactions on Power Systems 28(3), 3235–3242 | 2013 | [DOI](https://doi.org/10.1109/TPWRS.2013.2252929) · [Author manuscript](https://arxiv.org/pdf/1409.2027) |
 | [P-002](#p-002) | Advances in Similar Day Methods for Short-Term Load Forecasting for Power Systems | Monica Borunda; Luis Conde-López; Gerardo Ruiz-Chavarría; Guadalupe Lopez Lopez; Victor M. Alvarado; Edgardo de Jesús Carrera Avendaño | Forecasting 8(2), 32; review | 2026 | [DOI](https://doi.org/10.3390/forecast8020032) · [PDF](https://www.mdpi.com/2571-9394/8/2/32/pdf) |
-| [P-003](#p-003) | Electricity Load and Peak Forecasting: Feature Engineering, Probabilistic LightGBM and Temporal Hierarchies | Nicolò Rubattu; Gabriele Maroni; Giorgio Corani | ECML PKDD 2023, AALTD workshop | 2023 | [Workshop manuscript](https://ecml-aaltd.github.io/aaltd2023/papers/Electricity%20Load%20and%20Peak%20Forecasting_%20Feature%20Engineering,%20Probabilistic%20LightGBM%20and%20Temporal%20Hierarchies.pdf) |
+| [P-003](#p-003) | Electricity Load and Peak Forecasting: Feature Engineering, Probabilistic LightGBM and Temporal Hierarchies | Nicolò Rubattu; Gabriele Maroni; Giorgio Corani | ECML PKDD 2023, AALTD workshop; Advanced Analytics and Learning on Temporal Data, Lecture Notes in Computer Science, 276–292 | 2023 | [DOI](https://doi.org/10.1007/978-3-031-49896-1_18) · [Workshop manuscript](https://ecml-aaltd.github.io/aaltd2023/papers/Electricity%20Load%20and%20Peak%20Forecasting_%20Feature%20Engineering,%20Probabilistic%20LightGBM%20and%20Temporal%20Hierarchies.pdf) · [arXiv v1](https://arxiv.org/html/2305.05575v1) |
 | [P-004](#p-004) | Classification of Special Days in Short-Term Load Forecasting: The Spanish Case Study | Miguel López; Carlos Sans; Sergio Valero; Carolina Senabre | Energies 12(7), 1253 | 2019 | [DOI](https://doi.org/10.3390/en12071253) · [PDF](https://www.mdpi.com/1996-1073/12/7/1253/pdf) |
 | [P-005](#p-005) | Efficient mid-term forecasting of hourly electricity load using generalized additive models | Monika Zimmermann; Florian Ziel | arXiv:2405.17070v1; preprint | 2024 | [Version record](https://arxiv.org/abs/2405.17070v1) · [PDF](https://arxiv.org/pdf/2405.17070v1) |
 | [P-006](#p-006) | 複数の簡易的なデータ参照方法の組み合わせによる翌日電力需要予測の検討 (A Study of Electricity Demand Forecast with Combination of Several Simplified Data Reference Methods) | 森田圭; 真鍋勇介; 加藤丈佳; 舟橋俊久; 鈴置保雄 | エネルギー・資源学会論文誌 / Journal of Japan Society of Energy and Resources 38(3), 1–10 | 2017 | [DOI](https://doi.org/10.24778/jjser.38.3_1) · [PDF](https://www.jstage.jst.go.jp/article/jjser/38/3/38_1/_pdf/-char/en) |
@@ -25,7 +25,9 @@ repository. The nine accessible full texts were read for this revision on
 Each breakdown concerns the source itself. **Appraisal** identifies a limitation
 inferred during this review; other limitations are stated by the authors. Page,
 section and table references refer to the linked text, with printed page numbers
-where available. P-005 uses the 2024 first version throughout.
+where available. P-003 uses the workshop manuscript; its arXiv version is an
+earlier, longer text (22 pages against 16). P-005 uses the 2024 first version
+throughout.
 
 ### P-001
 

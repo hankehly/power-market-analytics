@@ -16,7 +16,7 @@ Power market analytics.
   the `just` recipes, and how a pull request is reviewed.
 - [**Forecasting research**](research/README.md) — how the research ledger on
   GitHub issues works, each task's scope defaults, and the
-  [papers](research/papers.md) the research cites.
+  [literature review](research/literature-review.md).
 - [**Design history**](superpowers/README.md) — every design spec and
   implementation plan, newest first.
 
