@@ -197,7 +197,7 @@
   month / high-price days, plus bias) as markdown; needs
   `just dbt build --select +fct_spot_price_forecast_accuracy` after the runs.
 - `just python scripts/demand_backtest.py --strategy lightgbm_msm_popw_daytype --area tokyo` —
-  day-ahead area demand backtest. Strategies: the eleven files under `conf/presets/demand/`
+  day-ahead area demand backtest. Strategies: the twelve files under `conf/presets/demand/`
   — `lightgbm`, `lightgbm_msm`, `lightgbm_msm_popw`, `lightgbm_msm_popw_daytype` (the
   script default and the Kansai baseline), `lightgbm_msm_popw_daytype_simday` (the Tokyo
   demand baseline until 2026-09-19, reference run `008868fe…`; Tokyo-only, because its
@@ -218,6 +218,12 @@
   two features matched on 2024-08-18 … 2026-08-17 (control `3dc586c4…` MAE 594,900; old run
   `9f02c385…` 585,788, its feature rebuilt into `pma_scratch` tables; new `d019a370…` 572,428;
   new vs old −2.3 %, CI over days includes zero; kept tentatively on 2026-09-19).
+  The twelfth preset is `e212` (experiment #212, 2026-09-20): every tagged column of the
+  seven marts we build ourselves, 104 features — the Tokyo baseline's 23 in their order,
+  then the other 81, written out in full rather than as a `base` and an `add`, with
+  `ftr_day_occto` and `ftr_period_jepx` left out at the researcher's ruling. It is a joint
+  test: with 104 correlated columns the importance is shared, so no single feature takes a
+  verdict from its run.
   Areas: `tokyo`, `kansai` = the TSO feeds loaded
   into `fct_area_demand_generation_actual`. An area's feature marts need its representative JMA
   station's hourly weather loaded and current (`dim_area.representative_jma_station_id`:
