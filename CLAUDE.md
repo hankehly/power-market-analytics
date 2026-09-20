@@ -981,8 +981,10 @@
   preset since `lightgbm_msm_popw` carries it, so this adds three features, not four.
   `e212` (experiment #212, kept 2026-09-20; **the Tokyo baseline since**, reference run
   `34c506fbb30d4c7eb4efdca973e49384`) = every tagged column of the seven marts we build
-  ourselves, 104 features: the preset above plus the 81 the demand presets had never used,
-  written out in full. Against `32ecbdbc…` on 2024-08-18 … 2026-08-17, the 35,002 periods
+  ourselves, 104 features: the preset above plus the other 81, of which 70 were in no demand
+  preset at all — the other 11 are `ftr_hour_msm:forecast_temperature_c` and the ten
+  `ftr_day_calendar` columns of the rejected R-005 presets — written out in full.
+  Against `32ecbdbc…` on 2024-08-18 … 2026-08-17, the 35,002 periods
   both scored: MAE −6.5 % (546,202 → 510,465), MAPE 3.34 % → 3.12 %, CI over days
   [−49,399, −22,149] excludes zero, lower on 57 % of days and in 20 of 25 months, top-10 %
   demand days −7.9 %, but holidays +7.2 %. Its permutation importance is dominated by one of
