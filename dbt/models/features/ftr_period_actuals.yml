@@ -228,6 +228,42 @@ models:
             feature: true
             categorical: false
             expression: "EWA(demand_kwh, gap=2d, window=4, halflife=1) by day_type"
+      - name: newest_daytype_4d_lag_days
+        data_type: int
+        description: >
+          How many days before D the newest day of the day-type window lies: the newest complete day of D's day type at or before D-2, the first of the days mean_daytype_4d_demand_kwh and ewm_daytype_4d_demand_kwh read (feature candidate #203). 2 when D-2 has D's day type; larger after a run of other days, and the window has no bound. The same on all 48 periods of a day; null where the window is.
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "newest_daytype_4d_lag_days"
+      - name: oldest_daytype_4d_lag_days
+        data_type: int
+        description: >
+          How many days before D the oldest day of the same window lies: the fourth newest complete day of D's day type at or before D-2, or the oldest present when the window holds fewer than four (feature candidate #203). Days on a weekday target, weeks on a weekend one, often months on a holiday. The same on all 48 periods of a day; null where the window is.
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "oldest_daytype_4d_lag_days"
+      - name: mean_daytype_weekly_lags_demand_kwh
+        data_type: double
+        description: >
+          Mean over the same period of the newest four weekly lags whose day has D's day type (ftr_day_calendar.day_type): the first four of D-7, D-14 ... D-56, eight weeks at most, that have D's day type and a value at the period, kWh (feature candidate #202). A week whose same weekday was a holiday is skipped for a working-day target, and the window reaches a week further back. Over the values present, not complete days, as mean_weekly_lags_demand_kwh: where the four plain weekly lags are all present with D's day type the two are equal. Fewer than four give the mean of those present; null when there is none, as on most holiday targets.
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "ROLLING_MEAN(demand_kwh, gap=7d, window=4, step=7d) by day_type"
+      - name: ewm_daytype_weekly_lags_demand_kwh
+        data_type: double
+        description: >
+          The same values with weights 8, 4, 2, 1 in the order of use, the newest value used taking 8 even when it is D-14, renormalised over the values present, kWh (feature candidate #202). Equal to ewm_weekly_lags_demand_kwh where the four plain weekly lags are all present with D's day type.
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "EWA(demand_kwh, gap=7d, window=4, step=7d, halflife=1) by day_type"
       - name: ewm_5d_demand_kwh
         data_type: double
         description: >
@@ -366,6 +402,15 @@ unit_tests:
       last four complete Saturdays at or before D-2: 03-01's window ends at
       02-22 and leaves 01-25 out; 03-08's skips the incomplete 03-01. Mondays
       and Tuesdays have no complete weekday, so their window is null. The
+      window's ages count the days from D back to its newest and its oldest
+      day: 7 and 7 with one Saturday (02-01), 7 and 28 with four, and 14, 21
+      and 28 for the newest once the Saturdays stop (03-08 to 03-22), while
+      the oldest is the oldest present when there are fewer than four. The
+      day-type weekly lags take the first four Saturdays with a value among
+      D-7 to D-56: through 03-01 they equal the plain weekly means, and from
+      03-08 on, where the plain ones lose D-7 to the all-null 03-01 or to a
+      Saturday without data, they reach back to 02-01 and stay at 235 and
+      292, the weight 8 going to the newest value used. The
       02-01 file is public only 03-10, so every row that used it, through a
       lag or the window alone (03-08, 03-15, 03-22), carries that instant.
       ewm_5d takes D-2 to D-6, so each Saturday also feeds the Wednesday,
@@ -437,6 +482,10 @@ unit_tests:
           cast(t.change as bigint) as change_2d_9d_demand_kwh,
           cast(t.mean_daytype as double) as mean_daytype_4d_demand_kwh,
           cast(t.ewm_daytype as double) as ewm_daytype_4d_demand_kwh,
+          cast(t.newest_age as int) as newest_daytype_4d_lag_days,
+          cast(t.oldest_age as int) as oldest_daytype_4d_lag_days,
+          cast(t.mean_daytype_weekly as double) as mean_daytype_weekly_lags_demand_kwh,
+          cast(t.ewm_daytype_weekly as double) as ewm_daytype_weekly_lags_demand_kwh,
           cast(t.ewm_5d as double) as ewm_5d_demand_kwh,
           cast(t.ewm_5d_minus_weekly as double) as ewm_5d_minus_ewm_weekly_lags_demand_kwh,
           -- One Saturday a week: never two values in D-2 to D-6.
@@ -468,43 +517,43 @@ unit_tests:
           cast(null as bigint) as lag_7d_wind_solar_generation_kwh,
           t.available_at
         from (values
-          (date '2025-01-27',   40, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,   40, null, timestamp '2025-01-26 00:05:00'),
-          (date '2025-01-28', null,   40, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,   40, null, timestamp '2025-01-26 00:05:00'),
-          (date '2025-01-29', null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,   40, null, timestamp '2025-01-26 00:05:00'),
-          (date '2025-01-30', null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,   40, null, timestamp '2025-01-26 00:05:00'),
-          (date '2025-01-31', null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,   40, null, timestamp '2025-01-26 00:05:00'),
-          (date '2025-02-01', null, null,   40, null, null, null, null,   40,   40, null, null, null, 40, null, null,   40,   40, null, null, timestamp '2025-01-26 00:05:00'),
-          (date '2025-02-03',  100, null, null,   40, null, null, null, null, null, null, null, null, null, null,   60, null, null,  100, null, timestamp '2025-03-10 00:05:00'),
-          (date '2025-02-04', null,  100, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  100, null, timestamp '2025-03-10 00:05:00'),
-          (date '2025-02-05', null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  100, null, timestamp '2025-03-10 00:05:00'),
-          (date '2025-02-06', null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  100, null, timestamp '2025-03-10 00:05:00'),
-          (date '2025-02-07', null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  100, null, timestamp '2025-03-10 00:05:00'),
-          (date '2025-02-08', null, null,  100, null,   40, null, null,   70,   80, sqrt(115200 / 64), 60, sqrt(3600 / 2), 70, null, null,   70,   80, null, null, timestamp '2025-03-10 00:05:00'),
-          (date '2025-02-10',  220, null, null,  100, null, null, null, null, null, null, null, null, null, null,  120, null, null,  220, null, timestamp '2025-03-10 00:05:00'),
-          (date '2025-02-11', null,  220, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  220, null, timestamp '2025-02-09 00:05:00'),
-          (date '2025-02-12', null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  220, null, timestamp '2025-02-09 00:05:00'),
-          (date '2025-02-13', null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  220, null, timestamp '2025-02-09 00:05:00'),
-          (date '2025-02-14', null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  220, null, timestamp '2025-02-09 00:05:00'),
-          (date '2025-02-15', null, null,  220, null,  100,   40, null,  120,  160, sqrt(1008000 / 112), 540 / 6, sqrt(50400 / 6), 100, 300 / (2 * sqrt(3600 / 2)), null,  120,  160, null, null, timestamp '2025-03-10 00:05:00'),
-          (date '2025-02-17',  280, null, null,  220, null, null, null, null, null, null, null, null, null, null,   60, null, null,  280, null, timestamp '2025-03-10 00:05:00'),
-          (date '2025-02-18', null,  280, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  280, null, timestamp '2025-02-16 00:05:00'),
-          (date '2025-02-19', null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  280, null, timestamp '2025-02-16 00:05:00'),
-          (date '2025-02-20', null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  280, null, timestamp '2025-02-16 00:05:00'),
-          (date '2025-02-21', null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  280, null, timestamp '2025-02-16 00:05:00'),
-          (date '2025-02-22', null, null,  280, null,  220,  100,   40,  160,  224, sqrt(1346400 / 140), 1680 / 20, sqrt(144000 / 12), 160, 480 / (3 * sqrt(50400 / 6)), null,  160,  224, null, null, timestamp '2025-03-10 00:05:00'),
-          (date '2025-02-24',  340, null, null,  280, null, null, null, null, null, null, null, null, null, null,   60, null, null,  340, null, timestamp '2025-03-10 00:05:00'),
-          (date '2025-02-25', null,  340, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  340, null, timestamp '2025-02-23 00:05:00'),
-          (date '2025-02-26', null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  340, null, timestamp '2025-02-23 00:05:00'),
-          (date '2025-02-27', null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  340, null, timestamp '2025-02-23 00:05:00'),
-          (date '2025-02-28', null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  340, null, timestamp '2025-02-23 00:05:00'),
-          (date '2025-03-01', null, null,  340, null,  280,  220,  100,  235,  292, sqrt(993600 / 140), 1560 / 20, sqrt(126000 / 12), 250, 420 / (3 * sqrt(50400 / 6)), null,  235,  292, null, null, timestamp '2025-03-10 00:05:00'),
-          (date '2025-03-03', null, null, null,  340, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, timestamp '2025-02-23 00:05:00'),
-          (date '2025-03-08', null, null, null, null,  340,  280,  220,  280, 2140 / 7, sqrt(93600 / 28), 360 / 6, sqrt(21600 / 6), 280, null, null, 235, 292, null, null, timestamp '2025-03-10 00:05:00'),
-          (date '2025-03-15', null, null, null, null, null,  340,  280,  310,  320, sqrt(7200 / 4), 60, sqrt(3600 / 2), 310, null, null,  235,  292, null, null, timestamp '2025-03-10 00:05:00'),
-          (date '2025-03-22', null, null, null, null, null, null,  340,  340,  340, null, null, null, 340, null, null,  235,  292, null, null, timestamp '2025-03-10 00:05:00')
+          (date '2025-01-27',   40, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,   40, null, null, null, null, null, timestamp '2025-01-26 00:05:00'),
+          (date '2025-01-28', null,   40, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,   40, null, null, null, null, null, timestamp '2025-01-26 00:05:00'),
+          (date '2025-01-29', null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,   40, null, null, null, null, null, timestamp '2025-01-26 00:05:00'),
+          (date '2025-01-30', null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,   40, null, null, null, null, null, timestamp '2025-01-26 00:05:00'),
+          (date '2025-01-31', null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,   40, null, null, null, null, null, timestamp '2025-01-26 00:05:00'),
+          (date '2025-02-01', null, null,   40, null, null, null, null,   40,   40, null, null, null, 40, null, null,   40,   40, null, null, 7, 7, 40, 40, timestamp '2025-01-26 00:05:00'),
+          (date '2025-02-03',  100, null, null,   40, null, null, null, null, null, null, null, null, null, null,   60, null, null,  100, null, null, null, null, null, timestamp '2025-03-10 00:05:00'),
+          (date '2025-02-04', null,  100, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  100, null, null, null, null, null, timestamp '2025-03-10 00:05:00'),
+          (date '2025-02-05', null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  100, null, null, null, null, null, timestamp '2025-03-10 00:05:00'),
+          (date '2025-02-06', null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  100, null, null, null, null, null, timestamp '2025-03-10 00:05:00'),
+          (date '2025-02-07', null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  100, null, null, null, null, null, timestamp '2025-03-10 00:05:00'),
+          (date '2025-02-08', null, null,  100, null,   40, null, null,   70,   80, sqrt(115200 / 64), 60, sqrt(3600 / 2), 70, null, null,   70,   80, null, null, 7, 14, 70, 80, timestamp '2025-03-10 00:05:00'),
+          (date '2025-02-10',  220, null, null,  100, null, null, null, null, null, null, null, null, null, null,  120, null, null,  220, null, null, null, null, null, timestamp '2025-03-10 00:05:00'),
+          (date '2025-02-11', null,  220, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  220, null, null, null, null, null, timestamp '2025-02-09 00:05:00'),
+          (date '2025-02-12', null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  220, null, null, null, null, null, timestamp '2025-02-09 00:05:00'),
+          (date '2025-02-13', null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  220, null, null, null, null, null, timestamp '2025-02-09 00:05:00'),
+          (date '2025-02-14', null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  220, null, null, null, null, null, timestamp '2025-02-09 00:05:00'),
+          (date '2025-02-15', null, null,  220, null,  100,   40, null,  120,  160, sqrt(1008000 / 112), 540 / 6, sqrt(50400 / 6), 100, 300 / (2 * sqrt(3600 / 2)), null,  120,  160, null, null, 7, 21, 120, 160, timestamp '2025-03-10 00:05:00'),
+          (date '2025-02-17',  280, null, null,  220, null, null, null, null, null, null, null, null, null, null,   60, null, null,  280, null, null, null, null, null, timestamp '2025-03-10 00:05:00'),
+          (date '2025-02-18', null,  280, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  280, null, null, null, null, null, timestamp '2025-02-16 00:05:00'),
+          (date '2025-02-19', null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  280, null, null, null, null, null, timestamp '2025-02-16 00:05:00'),
+          (date '2025-02-20', null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  280, null, null, null, null, null, timestamp '2025-02-16 00:05:00'),
+          (date '2025-02-21', null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  280, null, null, null, null, null, timestamp '2025-02-16 00:05:00'),
+          (date '2025-02-22', null, null,  280, null,  220,  100,   40,  160,  224, sqrt(1346400 / 140), 1680 / 20, sqrt(144000 / 12), 160, 480 / (3 * sqrt(50400 / 6)), null,  160,  224, null, null, 7, 28, 160, 224, timestamp '2025-03-10 00:05:00'),
+          (date '2025-02-24',  340, null, null,  280, null, null, null, null, null, null, null, null, null, null,   60, null, null,  340, null, null, null, null, null, timestamp '2025-03-10 00:05:00'),
+          (date '2025-02-25', null,  340, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  340, null, null, null, null, null, timestamp '2025-02-23 00:05:00'),
+          (date '2025-02-26', null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  340, null, null, null, null, null, timestamp '2025-02-23 00:05:00'),
+          (date '2025-02-27', null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  340, null, null, null, null, null, timestamp '2025-02-23 00:05:00'),
+          (date '2025-02-28', null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,  340, null, null, null, null, null, timestamp '2025-02-23 00:05:00'),
+          (date '2025-03-01', null, null,  340, null,  280,  220,  100,  235,  292, sqrt(993600 / 140), 1560 / 20, sqrt(126000 / 12), 250, 420 / (3 * sqrt(50400 / 6)), null,  235,  292, null, null, 7, 28, 235, 292, timestamp '2025-03-10 00:05:00'),
+          (date '2025-03-03', null, null, null,  340, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, timestamp '2025-02-23 00:05:00'),
+          (date '2025-03-08', null, null, null, null,  340,  280,  220,  280, 2140 / 7, sqrt(93600 / 28), 360 / 6, sqrt(21600 / 6), 280, null, null, 235, 292, null, null, 14, 35, 235, 292, timestamp '2025-03-10 00:05:00'),
+          (date '2025-03-15', null, null, null, null, null,  340,  280,  310,  320, sqrt(7200 / 4), 60, sqrt(3600 / 2), 310, null, null,  235,  292, null, null, 21, 42, 235, 292, timestamp '2025-03-10 00:05:00'),
+          (date '2025-03-22', null, null, null, null, null, null,  340,  340,  340, null, null, null, 340, null, null,  235,  292, null, null, 28, 49, 235, 292, timestamp '2025-03-10 00:05:00')
         ) as t(trade_date, lag_2d, lag_3d, lag_7d, lag_9d, lag_14d, lag_21d, lag_28d,
                mean_weekly, ewm_weekly, ewstd_weekly, trend_weekly, std_weekly, median_weekly, zscore_7d, change, mean_daytype, ewm_daytype, ewm_5d,
-               ewm_5d_minus_weekly, available_at)
+               ewm_5d_minus_weekly, newest_age, oldest_age, mean_daytype_weekly, ewm_daytype_weekly, available_at)
         cross join (select explode(sequence(1, 48)) as time_code) as p
         left join (values
           (date '2025-01-25', 40), (date '2025-02-01', 100), (date '2025-02-08', 220),
@@ -922,3 +971,153 @@ unit_tests:
         - {area_code: tokyo, trade_date: 2025-03-29, time_code: 1, lag_2d_demand_kwh: null, lag_7d_demand_kwh: null, lag_2d_wind_solar_generation_kwh: null, lag_7d_wind_solar_generation_kwh: null}
         - {area_code: tokyo, trade_date: 2025-03-30, time_code: 1, lag_2d_demand_kwh: null, lag_7d_demand_kwh: null, lag_2d_wind_solar_generation_kwh: null, lag_7d_wind_solar_generation_kwh: null}
         - {area_code: tokyo, trade_date: 2025-04-03, time_code: 1, lag_2d_demand_kwh: null, lag_7d_demand_kwh: null, lag_2d_wind_solar_generation_kwh: null, lag_7d_wind_solar_generation_kwh: null}
+
+  - name: ftr_period_actuals_day_type_weekly_lags_skip_other_day_types
+    description: >
+      Ten Wednesdays, 2025-01-15 to 03-19, with the loads 2, 4, 8 ... 1024 at
+      period 1, in a calendar where 01-29, 02-05, 02-12, 02-19 and 03-19 are
+      holidays. The day-type weekly lags take the first four of D-7 ... D-56
+      that have D's day type and a value at the period. Wednesday 03-26 has the
+      holiday 03-19 at D-7, so it starts at D-14: 512, 256 and 128 with the
+      weights 8, 4, 2 by order of use, (4096 + 1024 + 256) / 14 = 384. It finds
+      three only, and 01-22 at D-63, a working day with a value, is never
+      read. Wednesday 03-12 skips the four holidays in the middle of its
+      window and reaches D-56: 256, 128, 4 and 2. The holiday 03-19 reads the
+      four holidays 64, 32, 16 and 8; the holiday 02-05 has one holiday among
+      its eight weeks, 01-29, and takes its value; the holiday 01-29 has none
+      and is null. Period 2 has a value on 02-26 and 03-12 only: on 03-26 it
+      skips 03-05, a hole at that period, and reads 5120 and 1280, while
+      period 1 beside it reads 03-05. A target on another weekday has no
+      weekly lag with a value: null. The 01-22 file is replaced on 05-01, so
+      every row that read it waits for that instant: 02-26, 03-05 and 03-12
+      read 01-22 through these weekly lags alone, five, six and seven weeks
+      back, and wait too, while no other row's available_at moves.
+    model: ftr_period_actuals
+    given:
+      - input: ref('dim_area')
+        rows:
+          - {area_key: 1, area_code: tokyo}
+      - input: ref('ftr_day_calendar')
+        format: sql
+        rows: |
+          select
+            'tokyo' as area_code,
+            d as trade_date,
+            case
+              when d in (date '2025-01-29', date '2025-02-05', date '2025-02-12', date '2025-02-19', date '2025-03-19') then 2
+              when dayofweek(d) in (1, 7) then 1
+              else 0
+            end as day_type
+          from
+            (select explode(sequence(date '2025-01-01', date '2025-04-30')) as d)
+      - input: ref('fct_area_demand_generation_actual')
+        format: sql
+        rows: |
+          select
+            d as date_key,
+            p as time_code,
+            1 as area_key,
+            cast(v as bigint) as demand_kwh,
+            cast(null as bigint) as wind_solar_generation_kwh,
+            case
+              when d = date '2025-01-22' then timestamp '2025-05-01 00:30:00'
+              else timestampadd(minute, 30, timestampadd(day, 1, cast(d as timestamp)))
+            end as available_at
+          from (values
+            (date '2025-01-15', 1, 2),
+            (date '2025-01-22', 1, 4),
+            (date '2025-01-29', 1, 8),
+            (date '2025-02-05', 1, 16),
+            (date '2025-02-12', 1, 32),
+            (date '2025-02-19', 1, 64),
+            (date '2025-02-26', 1, 128),
+            (date '2025-02-26', 2, 1280),
+            (date '2025-03-05', 1, 256),
+            (date '2025-03-12', 1, 512),
+            (date '2025-03-12', 2, 5120),
+            (date '2025-03-19', 1, 1024)
+          ) as t(d, p, v)
+    expect:
+      rows:
+        - {area_code: tokyo, trade_date: 2025-01-17, time_code: 1, mean_daytype_weekly_lags_demand_kwh: null, ewm_daytype_weekly_lags_demand_kwh: null, available_at: "2025-01-16 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-01-18, time_code: 1, mean_daytype_weekly_lags_demand_kwh: null, ewm_daytype_weekly_lags_demand_kwh: null, available_at: "2025-01-16 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-01-19, time_code: 1, mean_daytype_weekly_lags_demand_kwh: null, ewm_daytype_weekly_lags_demand_kwh: null, available_at: "2025-01-16 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-01-20, time_code: 1, mean_daytype_weekly_lags_demand_kwh: null, ewm_daytype_weekly_lags_demand_kwh: null, available_at: "2025-01-16 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-01-21, time_code: 1, mean_daytype_weekly_lags_demand_kwh: null, ewm_daytype_weekly_lags_demand_kwh: null, available_at: "2025-01-16 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-01-22, time_code: 1, mean_daytype_weekly_lags_demand_kwh: 2.0, ewm_daytype_weekly_lags_demand_kwh: 2.0, available_at: "2025-01-16 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-01-24, time_code: 1, mean_daytype_weekly_lags_demand_kwh: null, ewm_daytype_weekly_lags_demand_kwh: null, available_at: "2025-05-01 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-01-25, time_code: 1, mean_daytype_weekly_lags_demand_kwh: null, ewm_daytype_weekly_lags_demand_kwh: null, available_at: "2025-05-01 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-01-26, time_code: 1, mean_daytype_weekly_lags_demand_kwh: null, ewm_daytype_weekly_lags_demand_kwh: null, available_at: "2025-05-01 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-01-27, time_code: 1, mean_daytype_weekly_lags_demand_kwh: null, ewm_daytype_weekly_lags_demand_kwh: null, available_at: "2025-05-01 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-01-28, time_code: 1, mean_daytype_weekly_lags_demand_kwh: null, ewm_daytype_weekly_lags_demand_kwh: null, available_at: "2025-05-01 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-01-29, time_code: 1, mean_daytype_weekly_lags_demand_kwh: null, ewm_daytype_weekly_lags_demand_kwh: null, available_at: "2025-05-01 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-01-31, time_code: 1, mean_daytype_weekly_lags_demand_kwh: null, ewm_daytype_weekly_lags_demand_kwh: null, available_at: "2025-05-01 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-02-01, time_code: 1, mean_daytype_weekly_lags_demand_kwh: null, ewm_daytype_weekly_lags_demand_kwh: null, available_at: "2025-01-30 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-02-02, time_code: 1, mean_daytype_weekly_lags_demand_kwh: null, ewm_daytype_weekly_lags_demand_kwh: null, available_at: "2025-01-30 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-02-03, time_code: 1, mean_daytype_weekly_lags_demand_kwh: null, ewm_daytype_weekly_lags_demand_kwh: null, available_at: "2025-01-30 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-02-04, time_code: 1, mean_daytype_weekly_lags_demand_kwh: null, ewm_daytype_weekly_lags_demand_kwh: null, available_at: "2025-01-30 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-02-05, time_code: 1, mean_daytype_weekly_lags_demand_kwh: 8.0, ewm_daytype_weekly_lags_demand_kwh: 8.0, available_at: "2025-05-01 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-02-07, time_code: 1, mean_daytype_weekly_lags_demand_kwh: null, ewm_daytype_weekly_lags_demand_kwh: null, available_at: "2025-05-01 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-02-08, time_code: 1, mean_daytype_weekly_lags_demand_kwh: null, ewm_daytype_weekly_lags_demand_kwh: null, available_at: "2025-02-06 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-02-09, time_code: 1, mean_daytype_weekly_lags_demand_kwh: null, ewm_daytype_weekly_lags_demand_kwh: null, available_at: "2025-02-06 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-02-10, time_code: 1, mean_daytype_weekly_lags_demand_kwh: null, ewm_daytype_weekly_lags_demand_kwh: null, available_at: "2025-02-06 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-02-11, time_code: 1, mean_daytype_weekly_lags_demand_kwh: null, ewm_daytype_weekly_lags_demand_kwh: null, available_at: "2025-02-06 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-02-12, time_code: 1, mean_daytype_weekly_lags_demand_kwh: 12.0, ewm_daytype_weekly_lags_demand_kwh: 13.333333333333334, available_at: "2025-05-01 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-02-14, time_code: 1, mean_daytype_weekly_lags_demand_kwh: null, ewm_daytype_weekly_lags_demand_kwh: null, available_at: "2025-05-01 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-02-15, time_code: 1, mean_daytype_weekly_lags_demand_kwh: null, ewm_daytype_weekly_lags_demand_kwh: null, available_at: "2025-02-13 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-02-16, time_code: 1, mean_daytype_weekly_lags_demand_kwh: null, ewm_daytype_weekly_lags_demand_kwh: null, available_at: "2025-02-13 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-02-17, time_code: 1, mean_daytype_weekly_lags_demand_kwh: null, ewm_daytype_weekly_lags_demand_kwh: null, available_at: "2025-02-13 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-02-18, time_code: 1, mean_daytype_weekly_lags_demand_kwh: null, ewm_daytype_weekly_lags_demand_kwh: null, available_at: "2025-02-13 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-02-19, time_code: 1, mean_daytype_weekly_lags_demand_kwh: 18.666666666666668, ewm_daytype_weekly_lags_demand_kwh: 24.0, available_at: "2025-05-01 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-02-21, time_code: 1, mean_daytype_weekly_lags_demand_kwh: null, ewm_daytype_weekly_lags_demand_kwh: null, available_at: "2025-02-20 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-02-22, time_code: 1, mean_daytype_weekly_lags_demand_kwh: null, ewm_daytype_weekly_lags_demand_kwh: null, available_at: "2025-02-20 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-02-23, time_code: 1, mean_daytype_weekly_lags_demand_kwh: null, ewm_daytype_weekly_lags_demand_kwh: null, available_at: "2025-02-20 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-02-24, time_code: 1, mean_daytype_weekly_lags_demand_kwh: null, ewm_daytype_weekly_lags_demand_kwh: null, available_at: "2025-02-20 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-02-25, time_code: 1, mean_daytype_weekly_lags_demand_kwh: null, ewm_daytype_weekly_lags_demand_kwh: null, available_at: "2025-02-20 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-02-26, time_code: 1, mean_daytype_weekly_lags_demand_kwh: 3.0, ewm_daytype_weekly_lags_demand_kwh: 3.3333333333333335, available_at: "2025-05-01 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-02-28, time_code: 1, mean_daytype_weekly_lags_demand_kwh: null, ewm_daytype_weekly_lags_demand_kwh: null, available_at: "2025-02-27 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-02-28, time_code: 2, mean_daytype_weekly_lags_demand_kwh: null, ewm_daytype_weekly_lags_demand_kwh: null, available_at: "2025-02-27 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-03-01, time_code: 1, mean_daytype_weekly_lags_demand_kwh: null, ewm_daytype_weekly_lags_demand_kwh: null, available_at: "2025-02-27 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-03-01, time_code: 2, mean_daytype_weekly_lags_demand_kwh: null, ewm_daytype_weekly_lags_demand_kwh: null, available_at: "2025-02-27 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-03-02, time_code: 1, mean_daytype_weekly_lags_demand_kwh: null, ewm_daytype_weekly_lags_demand_kwh: null, available_at: "2025-02-27 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-03-02, time_code: 2, mean_daytype_weekly_lags_demand_kwh: null, ewm_daytype_weekly_lags_demand_kwh: null, available_at: "2025-02-27 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-03-03, time_code: 1, mean_daytype_weekly_lags_demand_kwh: null, ewm_daytype_weekly_lags_demand_kwh: null, available_at: "2025-02-27 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-03-03, time_code: 2, mean_daytype_weekly_lags_demand_kwh: null, ewm_daytype_weekly_lags_demand_kwh: null, available_at: "2025-02-27 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-03-04, time_code: 1, mean_daytype_weekly_lags_demand_kwh: null, ewm_daytype_weekly_lags_demand_kwh: null, available_at: "2025-02-27 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-03-04, time_code: 2, mean_daytype_weekly_lags_demand_kwh: null, ewm_daytype_weekly_lags_demand_kwh: null, available_at: "2025-02-27 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-03-05, time_code: 1, mean_daytype_weekly_lags_demand_kwh: 44.666666666666664, ewm_daytype_weekly_lags_demand_kwh: 74.57142857142857, available_at: "2025-05-01 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-03-05, time_code: 2, mean_daytype_weekly_lags_demand_kwh: 1280.0, ewm_daytype_weekly_lags_demand_kwh: 1280.0, available_at: "2025-02-27 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-03-07, time_code: 1, mean_daytype_weekly_lags_demand_kwh: null, ewm_daytype_weekly_lags_demand_kwh: null, available_at: "2025-03-06 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-03-07, time_code: 2, mean_daytype_weekly_lags_demand_kwh: null, ewm_daytype_weekly_lags_demand_kwh: null, available_at: "2025-02-27 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-03-08, time_code: 1, mean_daytype_weekly_lags_demand_kwh: null, ewm_daytype_weekly_lags_demand_kwh: null, available_at: "2025-03-06 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-03-09, time_code: 1, mean_daytype_weekly_lags_demand_kwh: null, ewm_daytype_weekly_lags_demand_kwh: null, available_at: "2025-03-06 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-03-10, time_code: 1, mean_daytype_weekly_lags_demand_kwh: null, ewm_daytype_weekly_lags_demand_kwh: null, available_at: "2025-03-06 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-03-11, time_code: 1, mean_daytype_weekly_lags_demand_kwh: null, ewm_daytype_weekly_lags_demand_kwh: null, available_at: "2025-03-06 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-03-12, time_code: 1, mean_daytype_weekly_lags_demand_kwh: 97.5, ewm_daytype_weekly_lags_demand_kwh: 171.33333333333334, available_at: "2025-05-01 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-03-12, time_code: 2, mean_daytype_weekly_lags_demand_kwh: 1280.0, ewm_daytype_weekly_lags_demand_kwh: 1280.0, available_at: "2025-03-06 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-03-14, time_code: 1, mean_daytype_weekly_lags_demand_kwh: null, ewm_daytype_weekly_lags_demand_kwh: null, available_at: "2025-03-13 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-03-14, time_code: 2, mean_daytype_weekly_lags_demand_kwh: null, ewm_daytype_weekly_lags_demand_kwh: null, available_at: "2025-03-13 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-03-15, time_code: 1, mean_daytype_weekly_lags_demand_kwh: null, ewm_daytype_weekly_lags_demand_kwh: null, available_at: "2025-03-13 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-03-15, time_code: 2, mean_daytype_weekly_lags_demand_kwh: null, ewm_daytype_weekly_lags_demand_kwh: null, available_at: "2025-03-13 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-03-16, time_code: 1, mean_daytype_weekly_lags_demand_kwh: null, ewm_daytype_weekly_lags_demand_kwh: null, available_at: "2025-03-13 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-03-16, time_code: 2, mean_daytype_weekly_lags_demand_kwh: null, ewm_daytype_weekly_lags_demand_kwh: null, available_at: "2025-03-13 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-03-17, time_code: 1, mean_daytype_weekly_lags_demand_kwh: null, ewm_daytype_weekly_lags_demand_kwh: null, available_at: "2025-03-13 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-03-17, time_code: 2, mean_daytype_weekly_lags_demand_kwh: null, ewm_daytype_weekly_lags_demand_kwh: null, available_at: "2025-03-13 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-03-18, time_code: 1, mean_daytype_weekly_lags_demand_kwh: null, ewm_daytype_weekly_lags_demand_kwh: null, available_at: "2025-03-13 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-03-18, time_code: 2, mean_daytype_weekly_lags_demand_kwh: null, ewm_daytype_weekly_lags_demand_kwh: null, available_at: "2025-03-13 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-03-19, time_code: 1, mean_daytype_weekly_lags_demand_kwh: 30.0, ewm_daytype_weekly_lags_demand_kwh: 45.333333333333336, available_at: "2025-03-13 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-03-19, time_code: 2, mean_daytype_weekly_lags_demand_kwh: null, ewm_daytype_weekly_lags_demand_kwh: null, available_at: "2025-03-13 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-03-21, time_code: 1, mean_daytype_weekly_lags_demand_kwh: null, ewm_daytype_weekly_lags_demand_kwh: null, available_at: "2025-03-20 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-03-21, time_code: 2, mean_daytype_weekly_lags_demand_kwh: null, ewm_daytype_weekly_lags_demand_kwh: null, available_at: "2025-03-13 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-03-22, time_code: 1, mean_daytype_weekly_lags_demand_kwh: null, ewm_daytype_weekly_lags_demand_kwh: null, available_at: "2025-03-20 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-03-23, time_code: 1, mean_daytype_weekly_lags_demand_kwh: null, ewm_daytype_weekly_lags_demand_kwh: null, available_at: "2025-03-20 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-03-24, time_code: 1, mean_daytype_weekly_lags_demand_kwh: null, ewm_daytype_weekly_lags_demand_kwh: null, available_at: "2025-03-20 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-03-25, time_code: 1, mean_daytype_weekly_lags_demand_kwh: null, ewm_daytype_weekly_lags_demand_kwh: null, available_at: "2025-03-20 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-03-26, time_code: 1, mean_daytype_weekly_lags_demand_kwh: 298.6666666666667, ewm_daytype_weekly_lags_demand_kwh: 384.0, available_at: "2025-03-20 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-03-26, time_code: 2, mean_daytype_weekly_lags_demand_kwh: 3200.0, ewm_daytype_weekly_lags_demand_kwh: 3840.0, available_at: "2025-03-20 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-03-28, time_code: 1, mean_daytype_weekly_lags_demand_kwh: null, ewm_daytype_weekly_lags_demand_kwh: null, available_at: "2025-03-20 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-04-02, time_code: 1, mean_daytype_weekly_lags_demand_kwh: 298.6666666666667, ewm_daytype_weekly_lags_demand_kwh: 384.0, available_at: "2025-03-20 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-04-02, time_code: 2, mean_daytype_weekly_lags_demand_kwh: 3200.0, ewm_daytype_weekly_lags_demand_kwh: 3840.0, available_at: "2025-03-20 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-04-09, time_code: 1, mean_daytype_weekly_lags_demand_kwh: 298.6666666666667, ewm_daytype_weekly_lags_demand_kwh: 384.0, available_at: "2025-03-20 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-04-09, time_code: 2, mean_daytype_weekly_lags_demand_kwh: 3200.0, ewm_daytype_weekly_lags_demand_kwh: 3840.0, available_at: "2025-03-20 00:30:00"}
+        - {area_code: tokyo, trade_date: 2025-04-16, time_code: 1, mean_daytype_weekly_lags_demand_kwh: 298.6666666666667, ewm_daytype_weekly_lags_demand_kwh: 384.0, available_at: "2025-03-20 00:30:00"}

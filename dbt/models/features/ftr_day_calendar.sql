@@ -18,6 +18,15 @@ with
   from days
   ),
 
+  -- The one definition of the day type (research demand/R-003), a step of its own
+  -- so the lag days below read it and the rule stays written once.
+  day_types as (
+  select
+    date_key,
+    case when is_holiday then 2 when is_weekend then 1 else 0 end as day_type
+  from days
+  ),
+
   final as (
   select
     areas.area_code,
@@ -25,7 +34,7 @@ with
     days.month,
     -- pandas dayofweek: Monday = 0.
     days.day_of_week_iso - 1 as day_of_week,
-    case when days.is_holiday then 2 when days.is_weekend then 1 else 0 end as day_type,
+    day_types.day_type,
     -- The first match wins. The three periods are holiday_degree's (dim_date), by
     -- date, so a weekend or a 祝日 inside one takes the period. 4 is any other
     -- holiday, a 振替休日 on 5/6 included. 5 is a sandwiched working day: no working
@@ -39,6 +48,12 @@ with
       when days.is_business_day and days.holiday_degree > 0 then 5
       else 0
     end as special_period,
+    -- The day types of the days the load lags read (feature candidate #201), joined
+    -- on the date, so a gap in the spine could not shift a value. Null where the
+    -- earlier day is before the spine's first day.
+    lag_2d.day_type as lag_2d_day_type,
+    lag_3d.day_type as lag_3d_day_type,
+    lag_7d.day_type as lag_7d_day_type,
     days.holiday_degree,
     days.half,
     days.quarter,
@@ -54,6 +69,10 @@ with
   from
     days
     inner join holidays on holidays.date_key = days.date_key
+    inner join day_types on day_types.date_key = days.date_key
+    left join day_types as lag_2d on lag_2d.date_key = date_sub(days.date_key, 2)
+    left join day_types as lag_3d on lag_3d.date_key = date_sub(days.date_key, 3)
+    left join day_types as lag_7d on lag_7d.date_key = date_sub(days.date_key, 7)
     cross join areas
   )
 
