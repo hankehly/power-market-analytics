@@ -20,21 +20,24 @@ days ≤ D-2 at the area's representative JMA station
 (`dim_area.representative_jma_station_id`).
 
 **Baseline.** A strategy run in the `demand` MLflow experiment. The Tokyo
-baseline is `lightgbm_msm_popw_daytype_simday_lags_weather` since 2026-09-19,
-when the researcher kept [R-006](https://github.com/hankehly/power-market-analytics/issues/165),
+baseline is `e212` since 2026-09-20, when the researcher kept
+[#212](https://github.com/hankehly/power-market-analytics/issues/212) for
+lowering MAE 6.5 % (546,202 → 510,465 kWh over 2024-08-18 … 2026-08-17, CI over
+days excluding zero). Its reference run is `34c506fbb30d4c7eb4efdca973e49384`
+and the baseline it beat is `32ecbdbc7c1a456d8f1411ba867c6d84`, a run of
+`lightgbm_msm_popw_daytype_simday_lags_weather` — the Tokyo baseline from
+2026-09-19, when [R-006](https://github.com/hankehly/power-market-analytics/issues/165),
 [R-007](https://github.com/hankehly/power-market-analytics/issues/166) and [R-008](https://github.com/hankehly/power-market-analytics/issues/167)
-together, tentatively. It runs for Tokyo only, because its similar-day mart
-needs the でんき予報 hourly load and a fit of the weights
-(`scripts/fit_similar_day.py`). No run of it is matched to the current marts:
-its runs (`e6d6d4ef…`, 2026-09-12) predate the 2026-09-14 switch to rank 1 of
-the paper-style similar-day pool, and R-008's `d019a370…` is
-`lightgbm_msm_popw_daytype_simday` without the lag and weather features. So
-the first experiment's baseline is a fresh run of the preset on the same window
-as its candidate. `scripts/demand_backtest.py` keeps `lightgbm_msm_popw_daytype`
+were kept tentatively — on the same window. Both runs are matched to the marts
+of 2026-09-20, so a candidate on that window can use `34c506fb…` as its
+baseline instead of a fresh run; a candidate on any other window still needs
+one. `e212` runs for Tokyo only, because its similar-day mart needs the
+でんき予報 hourly load and a fit of the weights (`scripts/fit_similar_day.py`).
+`scripts/demand_backtest.py` keeps `lightgbm_msm_popw_daytype`
 as its default and as the Kansai baseline ([R-003](https://github.com/hankehly/power-market-analytics/issues/162),
-2026-08-26). `lightgbm`, `lightgbm_msm` and `lightgbm_msm_popw` stay registered
-as reference presets. Pin `--start-date`, `--end-date` and `--train-start`
-identically for a candidate and its baseline.
+2026-08-26). `lightgbm`, `lightgbm_msm`, `lightgbm_msm_popw` and the chain-named
+similar-day presets stay registered as reference presets. Pin `--start-date`,
+`--end-date` and `--train-start` identically for a candidate and its baseline.
 
 **Primary metric.** MAE (kWh).
 
