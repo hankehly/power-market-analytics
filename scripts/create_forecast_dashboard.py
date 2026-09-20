@@ -431,6 +431,7 @@ select
   f.time_code,
   p.hour_of_day,
   p.day_part,
+  {day_part_hours_sql} as day_part_hours,
   p.is_daytime,
   d.fiscal_year,
   d.day_name,
@@ -440,6 +441,7 @@ select
     when d.is_weekend then 'Weekend'
     else 'Weekday'
   end as day_type,
+  {day_type_share_sql} as day_type_share,
   d.is_weekend,
   d.is_holiday,
   d.is_business_day,
@@ -460,6 +462,7 @@ from {accuracy_table} f
 join pma_curated.dim_area a on f.area_key = a.area_key
 join pma_curated.dim_half_hour p on f.time_code = p.time_code
 join pma_curated.dim_date d on f.date_key = d.date_key
+{day_part_hours_join_sql}
 {{% if run %}}where {run_pin}{{% endif %}}
 """
 
@@ -475,11 +478,13 @@ COMMON_DATASET_COLUMNS = (
     ("time_code", "INT", False),
     ("hour_of_day", "INT", False),
     ("day_part", "STRING", False),
+    ("day_part_hours", "STRING", False),
     ("is_daytime", "BOOLEAN", False),
     ("fiscal_year", "INT", False),
     ("day_name", "STRING", False),
     ("day_of_week", "STRING", False),
     ("day_type", "STRING", False),
+    ("day_type_share", "STRING", False),
     ("is_weekend", "BOOLEAN", False),
     ("is_holiday", "BOOLEAN", False),
     ("is_business_day", "BOOLEAN", False),
@@ -540,6 +545,55 @@ def short_label_sql(expression: str) -> str:
 # alias ``s`` and the expression: the filter lists the summary dataset's column
 # and filters the explanation dataset's, so both must build the same text.
 FEATURE_PICK_SQL = "concat(lpad(cast({s}.feature_rank as string), 3, '0'), ' ', {expression})"
+
+# A bar per day part reads as a time of day, so the bar carries the hours it
+# covers — nobody should have to look up what "Daytime" means. The range comes
+# from dim_half_hour itself, through a four-row join, so it stays right if the
+# day parts are ever redrawn and does not narrow to whatever periods a run
+# happens to have scored.
+DAY_PART_HOURS_JOIN_SQL = """\
+join (
+  select
+    day_part,
+    min(period_start_time) as day_part_start,
+    max(period_end_time) as day_part_end
+  from pma_curated.dim_half_hour
+  group by day_part
+) h on h.day_part = {p}.day_part"""
+DAY_PART_HOURS_SQL = "concat({p}.day_part, ' (', h.day_part_start, '–', h.day_part_end, ')')"
+
+
+def day_type_share_sql(date_alias: str, run_column: str | None = None) -> str:
+    """The day type with its share of the selection's periods, as one bar label.
+
+    A bar per day type invites reading the three as equals, when a run is about
+    two thirds weekday and under a tenth holiday, so the share rides on the
+    label: chasing a holiday gain then shows its own weight.
+
+    Parameters
+    ----------
+    date_alias : str
+        Alias of ``dim_date`` in the query.
+    run_column : str, optional
+        Column the share is taken within, for a dataset holding several runs.
+        None when the dataset already holds one selection.
+
+    Returns
+    -------
+    str
+        ``Weekday (65% of periods)`` as a SQL expression. The share is of the
+        rows the dataset yields, before any filter Superset applies outside it.
+    """
+    case = (
+        f"case when {date_alias}.is_holiday then 'Holiday' "
+        f"when {date_alias}.is_weekend then 'Weekend' else 'Weekday' end"
+    )
+    within = f"partition by {run_column}, {case}" if run_column else f"partition by {case}"
+    total = f"partition by {run_column}" if run_column else ""
+    # cast(100 as double): a decimal literal would truncate the division
+    share = f"cast(100 as double) * count(*) over ({within}) / count(*) over ({total})"
+    return f"concat({case}, ' (', cast(cast(round({share}) as int) as string), '% of periods)')"
+
 
 # Shared skeleton of every task's explanation dataset: the contribution fact
 # (one row per period x component) with calendar / period / area context, the
@@ -860,6 +914,7 @@ select
   m.time_code,
   p.hour_of_day,
   p.day_part,
+  $day_part_hours_sql as day_part_hours,
   d.day_name,
   concat(d.day_of_week_iso, ' ', substring(d.day_name, 1, 3)) as day_of_week,
   case
@@ -867,6 +922,7 @@ select
     when d.is_weekend then 'Weekend'
     else 'Weekday'
   end as day_type,
+  $day_type_share_sql as day_type_share,
   case when d.is_holiday then d.holiday_name_ja else '' end as holiday_name_ja,
   m.area_code,
   m.area_name_en,
@@ -887,6 +943,7 @@ $value_select_sql
 from matched m
 join pma_curated.dim_half_hour p on m.time_code = p.time_code
 join pma_curated.dim_date d on m.date_key = d.date_key
+$day_part_hours_join_sql
 """)
 
 COMMON_COMPARISON_COLUMNS = (
@@ -897,9 +954,11 @@ COMMON_COMPARISON_COLUMNS = (
     ("time_code", "INT", False),
     ("hour_of_day", "INT", False),
     ("day_part", "STRING", False),
+    ("day_part_hours", "STRING", False),
     ("day_name", "STRING", False),
     ("day_of_week", "STRING", False),
     ("day_type", "STRING", False),
+    ("day_type_share", "STRING", False),
     ("holiday_name_ja", "STRING", False),
     ("area_code", "STRING", False),
     ("area_name_en", "STRING", False),
@@ -1265,6 +1324,9 @@ class DashboardSpec:
             accuracy_table=self.accuracy_table,
             run_label_sql=RUN_LABEL_SQL.format(f="f", a="a"),
             run_pin=run_pin_sql("run", "f.run_id"),
+            day_part_hours_sql=DAY_PART_HOURS_SQL.format(p="p"),
+            day_part_hours_join_sql=DAY_PART_HOURS_JOIN_SQL.format(p="p"),
+            day_type_share_sql=day_type_share_sql("d", run_column="f.run_id"),
             explain_link_sql=explain_link_sql(
                 self.dashboard_slug,
                 RUN_LABEL_SQL.format(f="f", a="a"),
@@ -1426,6 +1488,9 @@ class DashboardSpec:
             run_label_sql=RUN_LABEL_SQL.format(f="f", a="a"),
             candidate_pin=run_pin_sql("candidate", "run_id"),
             baseline_pin=run_pin_sql("baseline", "run_id"),
+            day_part_hours_sql=DAY_PART_HOURS_SQL.format(p="p"),
+            day_part_hours_join_sql=DAY_PART_HOURS_JOIN_SQL.format(p="p"),
+            day_type_share_sql=day_type_share_sql("d"),
             accuracy_table=self.accuracy_table,
             comparison_value_columns_sql=self.comparison_value_columns_sql,
             explain_link_sql=explain_link_sql(
@@ -2435,7 +2500,9 @@ def big_number_params(dataset_id: int, metric: dict, subheader: str, number_form
     }
 
 
-def bar_params(spec: DashboardSpec, dataset_id: int, x_axis: str) -> dict:
+def bar_params(
+    spec: DashboardSpec, dataset_id: int, x_axis: str, *, label_rotation: int = 0
+) -> dict:
     """Params for a single-series MAE bar chart over ``x_axis``.
 
     One series, so no legend (the title names it).
@@ -2446,6 +2513,10 @@ def bar_params(spec: DashboardSpec, dataset_id: int, x_axis: str) -> dict:
     dataset_id : int
     x_axis : str
         Dataset column for the x axis.
+    label_rotation : int, optional
+        Degrees to turn the x axis labels by. A label that carries its hours or
+        its share does not fit a third of a row flat, and Superset answers that
+        by dropping the labels that collide and cutting the rest short.
 
     Returns
     -------
@@ -2458,6 +2529,7 @@ def bar_params(spec: DashboardSpec, dataset_id: int, x_axis: str) -> dict:
         "time_grain_sqla": None,
         "x_axis_sort": x_axis,
         "x_axis_sort_asc": True,
+        "xAxisLabelRotation": label_rotation,
         "metrics": [spec.mae_metric],
         "groupby": [],
         "adhoc_filters": [],
@@ -2747,16 +2819,23 @@ TOP_MEAN_ABS_SHAP_FILTER = {
 # name roles, not runs, so the same colour means the same thing for any pair.
 # Blue / orange is a cool-warm pair that survives colour-vision deficiency; the
 # delta tiles and the delta heatmaps' blue-white-yellow scheme put "better" on
-# the same blue pole. "Actual" also recolours the Accuracy tab's detail line,
-# whose error line takes the "worse" orange. The Explanation tab's Other
-# features group is grey, so the ten named features stand out.
+# the same blue pole. "Actual" also recolours the Accuracy tab's detail line.
+# The Explanation tab's Other features group is grey, so the ten named features
+# stand out.
+#
+# The detail chart's error is drawn in nothing at all. It belongs in the hover,
+# which lists every series of the chart, but a third line over the forecast and
+# the actual only distracts, and Superset offers no way to put a metric in the
+# tooltip alone. A transparent series is the one lever it does offer; that
+# chart pins its axis at zero so the undrawn negative values cannot stretch it.
+INVISIBLE = "rgba(0, 0, 0, 0)"
 LABEL_COLORS = {
     "Candidate": "#1FA8C9",
     "Baseline": "#B2B2B2",
     "Actual": "#222222",
     "Better": "#1FA8C9",
     "Worse": "#FF7F44",
-    "Error (forecast − actual)": "#FF7F44",
+    "Error (forecast − actual)": INVISIBLE,
     OTHER_FEATURES: "#B2B2B2",
 }
 
@@ -4272,8 +4351,14 @@ def build_accuracy_tab(chart: ChartFactory, spec: DashboardSpec, dataset_id: int
     heat_tc = add("MAE by year and time code", heatmap_params(spec, dataset_id, "time_code"))
     heat_month = add("MAE by year and month", heatmap_params(spec, dataset_id, "month"))
     mae_dow = add("MAE by day of week", bar_params(spec, dataset_id, "day_of_week"))
-    mae_daypart = add("MAE by day part", bar_params(spec, dataset_id, "day_part"))
-    mae_daytype = add("MAE by day type", bar_params(spec, dataset_id, "day_type"))
+    # the hours each day part covers, and each day type's share of the run, ride
+    # on the bar labels: a bar per category otherwise reads as an equal weight
+    mae_daypart = add(
+        "MAE by day part", bar_params(spec, dataset_id, "day_part_hours", label_rotation=45)
+    )
+    mae_daytype = add(
+        "MAE by day type", bar_params(spec, dataset_id, "day_type_share", label_rotation=45)
+    )
 
     # Calibration & distribution
     mae_band = add(spec.band_chart_title, bar_params(spec, dataset_id, spec.band_col))
@@ -4305,9 +4390,9 @@ def build_accuracy_tab(chart: ChartFactory, spec: DashboardSpec, dataset_id: int
                 [(heat_tc, "MAE by year and time code", 12, 50)],
                 [(heat_month, "MAE by year and month", 12, 46)],
                 [
-                    (mae_dow, "MAE by day of week", 4, 36),
-                    (mae_daypart, "MAE by day part", 4, 36),
-                    (mae_daytype, "MAE by day type", 4, 36),
+                    (mae_dow, "MAE by day of week", 4, 44),
+                    (mae_daypart, "MAE by day part", 4, 44),
+                    (mae_daytype, "MAE by day type", 4, 44),
                 ],
             ],
         },
@@ -4573,8 +4658,8 @@ def build_compare_tab(
         ),
     )
     cmp_tc = add("ΔMAE % by time code", delta_bar_params(spec, comparison_id, "time_code"))
-    cmp_daypart = add("ΔMAE % by day part", delta_bar_params(spec, comparison_id, "day_part"))
-    cmp_daytype = add("ΔMAE % by day type", delta_bar_params(spec, comparison_id, "day_type"))
+    cmp_daypart = add("ΔMAE % by day part", delta_bar_params(spec, comparison_id, "day_part_hours"))
+    cmp_daytype = add("ΔMAE % by day type", delta_bar_params(spec, comparison_id, "day_type_share"))
     cmp_dow = add("ΔMAE % by day of week", delta_bar_params(spec, comparison_id, "day_of_week"))
     cmp_band = add(
         spec.delta_band_chart_title, delta_bar_params(spec, comparison_id, spec.band_col)
