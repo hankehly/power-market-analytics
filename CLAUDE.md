@@ -797,8 +797,12 @@
   `permuted_mae_col` = `mae_demand_kwh` / `permuted_mae_demand_kwh`; tag `importance_table`;
   params `permutation_repeats`, `permutation_seed`) and log `permutation_importance.csv`
   (`PermutationImportance.summary()`: mean / population std over repeats, importance %),
-  `permutation_importance_repeats.csv` and `permutation_importance_plot.png`
-  (`plots.permutation_importance_plot`) → `stg_ml__<task>_forecast_importance` →
+  `permutation_importance_repeats.csv` and `permutation_importance_plot.html`
+  (`plots.permutation_importance_plot`, a Plotly figure like the error heatmaps since
+  2026-09-20 — a PNG before that, unreadable once a preset has a hundred features; the
+  figure grows 28 px per feature, the labels set their own left margin and each bar's
+  hover carries its spread, its permuted MAE and its importance %)
+  → `stg_ml__<task>_forecast_importance` →
   `fct_<task>_forecast_importance` (no `std`: no time axis; singular test: `n_periods` and the
   MAE reconcile with the accuracy mart per run) → Superset dataset `<task>_forecast_importance`
   (the Explanation tab's Feature importance section). The two `stg_ml__<task>_forecast_importance`
