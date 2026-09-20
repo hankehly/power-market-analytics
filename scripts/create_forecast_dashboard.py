@@ -730,8 +730,11 @@ left join $accuracy_table f
   and c.area_key = f.area_key
 """)
 
-#: The period dataset's extra predicate of ``pinned``: no rows without a Period.
-PERIOD_GATE_SQL = "\n  {% if not period %}and 1 = 0{% endif %}"
+# The period dataset's extra predicate of ``pinned``: no rows until a Day *and* a
+# Period are picked. The Day filter is optional, and the period predicate alone
+# left one time code of every day in the run — 729 days and 77,274 rows on e212 —
+# which the Single period tiles would have averaged and labelled a single period.
+PERIOD_GATE_SQL = "\n  {% if not (day and period) %}and 1 = 0{% endif %}"
 
 COMMON_EXPLANATION_COLUMNS = (
     ("date_key", "DATE", True),
@@ -4601,7 +4604,7 @@ def build_explanation_tab(
             "title": "Single period",
             "sections": [
                 {
-                    "header": "One period — pick a Period (and a Day) to fill this tab",
+                    "header": "One period — pick a Day and a Period to fill this tab",
                     "rows": [
                         [
                             (kpi_base, "Base value", 3, 24),
