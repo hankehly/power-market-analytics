@@ -337,9 +337,21 @@
   One day of `e212`: 3.27 s → 0.56 s per chart query; an Accuracy tile 1.18 s → 0.40 s. In
   the browser on that run: Accuracy 20–46 s → 4 s, Explanation 46 s → 7 s; Compare, which
   keeps its one tab and its two self-joined datasets, is 29 s.
-  **Accuracy**: no run leaderboard since 2026-09-20; the 30-minute detail draws `Error
-  (forecast − actual)` as a third series on the same axis (it starts at zero, same unit), so
-  the hover popup lists it; **Worst days** has an **Explain** link per row
+  **Accuracy**: no run leaderboard since 2026-09-20; the 30-minute detail carries `Error
+  (forecast − actual)` as a third series so the hover popup lists it, drawn in
+  `LABEL_COLORS`' `INVISIBLE` because a third line over the forecast and the actual
+  distracts and Superset has no tooltip-only metric. The series is still in the chart, so
+  its negative values set the axis and the plot keeps an empty band below zero;
+  `y_axis_bounds` would take the band back but drops a negative error from the popup with
+  it, since Superset leaves a clipped point out of the hover. The two categorical bars
+  carry what a bar per category hides: `MAE by day part` labels each bar with the hours it
+  covers (`DAY_PART_HOURS_SQL`, from `dim_half_hour`, not from the periods a run scored)
+  and `MAE by day type` with that type's share of the run's periods
+  (`day_type_share_sql`; Tokyo `e212` is 65 % weekday, 27 % weekend, 8 % holiday, so three
+  equal bars would invite chasing a holiday gain worth a twelfth of the data). Both labels
+  are too long to sit flat in a third of a row, so those bars turn theirs 45°
+  (`bar_params(label_rotation=…)`); the Compare tab's ΔMAE % bars use the same two columns.
+  **Worst days** has an **Explain** link per row
   (`explain_link_sql`: `/superset/dashboard/<slug>/?native_filters=<Run and Day as
   rison>#TAB-1`, HTML in the dataset column `explain_link`, the table's
   `allow_render_html` and a `customColumnName` heading), which opens the Explanation tab

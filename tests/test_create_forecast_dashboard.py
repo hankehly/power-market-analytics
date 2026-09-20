@@ -487,6 +487,7 @@ select
   f.time_code,
   p.hour_of_day,
   p.day_part,
+  concat(p.day_part, ' (', h.day_part_start, '–', h.day_part_end, ')') as day_part_hours,
   p.is_daytime,
   d.fiscal_year,
   d.day_name,
@@ -496,6 +497,7 @@ select
     when d.is_weekend then 'Weekend'
     else 'Weekday'
   end as day_type,
+  concat(case when d.is_holiday then 'Holiday' when d.is_weekend then 'Weekend' else 'Weekday' end, ' (', cast(cast(round(cast(100 as double) * count(*) over (partition by f.run_id, case when d.is_holiday then 'Holiday' when d.is_weekend then 'Weekend' else 'Weekday' end) / count(*) over (partition by f.run_id)) as int) as string), '% of periods)') as day_type_share,
   d.is_weekend,
   d.is_holiday,
   d.is_business_day,
@@ -540,6 +542,14 @@ from pma_curated.fct_spot_price_forecast_accuracy f
 join pma_curated.dim_area a on f.area_key = a.area_key
 join pma_curated.dim_half_hour p on f.time_code = p.time_code
 join pma_curated.dim_date d on f.date_key = d.date_key
+join (
+  select
+    day_part,
+    min(period_start_time) as day_part_start,
+    max(period_end_time) as day_part_end
+  from pma_curated.dim_half_hour
+  group by day_part
+) h on h.day_part = p.day_part
 {% if run %}where f.run_id like '{{ run[0][-8:] | replace("'", "''") }}%'{% endif %}
 """.replace(
     "@EXPLAIN_LINK@",
@@ -558,6 +568,7 @@ select
   f.time_code,
   p.hour_of_day,
   p.day_part,
+  concat(p.day_part, ' (', h.day_part_start, '–', h.day_part_end, ')') as day_part_hours,
   p.is_daytime,
   d.fiscal_year,
   d.day_name,
@@ -567,6 +578,7 @@ select
     when d.is_weekend then 'Weekend'
     else 'Weekday'
   end as day_type,
+  concat(case when d.is_holiday then 'Holiday' when d.is_weekend then 'Weekend' else 'Weekday' end, ' (', cast(cast(round(cast(100 as double) * count(*) over (partition by f.run_id, case when d.is_holiday then 'Holiday' when d.is_weekend then 'Weekend' else 'Weekday' end) / count(*) over (partition by f.run_id)) as int) as string), '% of periods)') as day_type_share,
   d.is_weekend,
   d.is_holiday,
   d.is_business_day,
@@ -609,6 +621,14 @@ from pma_curated.fct_demand_forecast_accuracy f
 join pma_curated.dim_area a on f.area_key = a.area_key
 join pma_curated.dim_half_hour p on f.time_code = p.time_code
 join pma_curated.dim_date d on f.date_key = d.date_key
+join (
+  select
+    day_part,
+    min(period_start_time) as day_part_start,
+    max(period_end_time) as day_part_end
+  from pma_curated.dim_half_hour
+  group by day_part
+) h on h.day_part = p.day_part
 {% if run %}where f.run_id like '{{ run[0][-8:] | replace("'", "''") }}%'{% endif %}
 """.replace(
     "@EXPLAIN_LINK@",
@@ -625,11 +645,13 @@ COMMON_COLUMNS_HEAD = [
     ("time_code", "INT", False),
     ("hour_of_day", "INT", False),
     ("day_part", "STRING", False),
+    ("day_part_hours", "STRING", False),
     ("is_daytime", "BOOLEAN", False),
     ("fiscal_year", "INT", False),
     ("day_name", "STRING", False),
     ("day_of_week", "STRING", False),
     ("day_type", "STRING", False),
+    ("day_type_share", "STRING", False),
     ("is_weekend", "BOOLEAN", False),
     ("is_holiday", "BOOLEAN", False),
     ("is_business_day", "BOOLEAN", False),
@@ -1079,6 +1101,7 @@ select
   m.time_code,
   p.hour_of_day,
   p.day_part,
+  concat(p.day_part, ' (', h.day_part_start, '–', h.day_part_end, ')') as day_part_hours,
   d.day_name,
   concat(d.day_of_week_iso, ' ', substring(d.day_name, 1, 3)) as day_of_week,
   case
@@ -1086,6 +1109,7 @@ select
     when d.is_weekend then 'Weekend'
     else 'Weekday'
   end as day_type,
+  concat(case when d.is_holiday then 'Holiday' when d.is_weekend then 'Weekend' else 'Weekday' end, ' (', cast(cast(round(cast(100 as double) * count(*) over (partition by case when d.is_holiday then 'Holiday' when d.is_weekend then 'Weekend' else 'Weekday' end) / count(*) over ()) as int) as string), '% of periods)') as day_type_share,
   case when d.is_holiday then d.holiday_name_ja else '' end as holiday_name_ja,
   m.area_code,
   m.area_name_en,
@@ -1106,6 +1130,14 @@ select
 from matched m
 join pma_curated.dim_half_hour p on m.time_code = p.time_code
 join pma_curated.dim_date d on m.date_key = d.date_key
+join (
+  select
+    day_part,
+    min(period_start_time) as day_part_start,
+    max(period_end_time) as day_part_end
+  from pma_curated.dim_half_hour
+  group by day_part
+) h on h.day_part = p.day_part
 """
 SPOT_COMPARISON_VALUES = """\
   c.forecast_price_jpy_kwh,
@@ -1207,9 +1239,11 @@ COMPARISON_COLUMNS_HEAD = [
     ("time_code", "INT", False),
     ("hour_of_day", "INT", False),
     ("day_part", "STRING", False),
+    ("day_part_hours", "STRING", False),
     ("day_name", "STRING", False),
     ("day_of_week", "STRING", False),
     ("day_type", "STRING", False),
+    ("day_type_share", "STRING", False),
     ("holiday_name_ja", "STRING", False),
     ("area_code", "STRING", False),
     ("area_name_en", "STRING", False),
@@ -1594,7 +1628,7 @@ class TestDashboardSpecs:
         sql = spec.dataset_sql
         assert sql.startswith("{% set run = filter_values('run_label') %}\nselect\n")
         assert sql.endswith(
-            "join pma_curated.dim_date d on f.date_key = d.date_key\n"
+            ") h on h.day_part = p.day_part\n"
             "{% if run %}where f.run_id like '{{ run[0][-8:] | replace(\"'\", \"''\") }}%'"
             "{% endif %}\n"
         )
@@ -2976,10 +3010,51 @@ class TestChartParams:
             "Actual": "#222222",
             "Better": "#1FA8C9",
             "Worse": "#FF7F44",
-            "Error (forecast − actual)": "#FF7F44",
+            "Error (forecast − actual)": "rgba(0, 0, 0, 0)",
             "Other features": "#B2B2B2",
         }
         assert script.OTHER_FEATURES in script.LABEL_COLORS
+
+    def test_the_detail_error_is_in_the_hover_but_drawn_in_nothing(self, script, spec):
+        # Superset cannot put a metric in the tooltip alone, and a third line
+        # over the forecast and the actual distracts; an invisible series is the
+        # one lever it offers, and the axis is pinned so its negatives cannot
+        # stretch the chart
+        assert script.LABEL_COLORS["Error (forecast − actual)"] == script.INVISIBLE
+        p = script.detail_params(spec, 7)
+        assert p["metrics"][2]["label"] == "Error (forecast − actual)"
+
+    def test_the_day_type_bar_label_carries_its_share_of_the_periods(self, script):
+        # three equal bars read as three equal weights, when a run is about two
+        # thirds weekday and under a tenth holiday
+        share = script.day_type_share_sql("d", run_column="f.run_id")
+        assert share.startswith("concat(case when d.is_holiday then 'Holiday'")
+        assert share.endswith("'% of periods)')")
+        assert "count(*) over (partition by f.run_id, case when d.is_holiday" in share
+        assert "count(*) over (partition by f.run_id)" in share
+        # a decimal literal would truncate the division
+        assert "cast(100 as double)" in share
+        # one selection: the share is over the whole dataset
+        assert "count(*) over ()" in script.day_type_share_sql("d")
+
+    def test_the_two_long_labelled_bars_turn_their_labels(self, script, spec):
+        # a day type or day part label no longer fits a third of the row flat:
+        # Superset drops the ones that collide and cuts the rest short
+        assert script.bar_params(spec, 7, "day_type_share", label_rotation=45)[
+            "xAxisLabelRotation"
+        ] == 45
+        assert script.bar_params(spec, 7, "year")["xAxisLabelRotation"] == 0
+
+    def test_the_day_part_bar_label_carries_the_hours_it_covers(self, script):
+        assert script.DAY_PART_HOURS_SQL.format(p="p") == (
+            "concat(p.day_part, ' (', h.day_part_start, '–', h.day_part_end, ')')"
+        )
+        # the range comes from dim_half_hour, not from the periods a run scored
+        join = script.DAY_PART_HOURS_JOIN_SQL.format(p="p")
+        assert "from pma_curated.dim_half_hour" in join
+        assert "min(period_start_time) as day_part_start" in join
+        assert "max(period_end_time) as day_part_end" in join
+        assert join.endswith("h on h.day_part = p.day_part")
 
     def test_delta_big_number_colours_the_value_by_sign(self, script, demand):
         p = script.delta_big_number_params(7, demand.delta_mae_metric, "MWh", "+,.1f")
@@ -4286,6 +4361,9 @@ class TestBuildDashboard:
         assert by_name["WAPE"]["y_axis_format"] == ".1%"
         assert by_name["P90 abs error"]["metric"] == demand.p90_metric
         assert by_name["MAE by year and month"]["x_axis"] == "month"
+        # the two categorical bars carry their weight and their hours
+        assert by_name["MAE by day type"]["x_axis"] == "day_type_share"
+        assert by_name["MAE by day part"]["x_axis"] == "day_part_hours"
         assert by_name["MAE by actual demand band"]["x_axis"] == "actual_demand_band"
         assert by_name["Error distribution"]["column"] == "error_mwh"
         assert "Run leaderboard" not in by_name
@@ -4337,8 +4415,8 @@ class TestBuildDashboard:
         assert by_name["Median daily ΔMAE"]["metric"] == demand.median_daily_delta_metric
         assert by_name["Median daily ΔMAE"]["conditional_formatting"][1]["operator"] == ">"
         assert by_name["ΔMAE % by time code"]["x_axis"] == "time_code"
-        assert by_name["ΔMAE % by day part"]["x_axis"] == "day_part"
-        assert by_name["ΔMAE % by day type"]["x_axis"] == "day_type"
+        assert by_name["ΔMAE % by day part"]["x_axis"] == "day_part_hours"
+        assert by_name["ΔMAE % by day type"]["x_axis"] == "day_type_share"
         assert by_name["ΔMAE % by day of week"]["x_axis"] == "day_of_week"
         assert by_name["ΔMAE % by actual demand band"]["x_axis"] == "actual_demand_band"
         assert by_name["ΔMAE % by year"]["x_axis"] == "year"
