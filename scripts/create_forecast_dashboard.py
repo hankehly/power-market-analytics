@@ -2244,6 +2244,18 @@ group by f.run_id, f.strategy, f.published_at, a.area_code
 order by f.published_at desc
 """
 
+# One row per run: the feature its contributions rank first, as the Feature
+# filter lists it. Every run, so the default run can be looked up without
+# putting its id in the SQL.
+TOP_FEATURE_SQL_TEMPLATE = """\
+select
+  s.run_id,
+  {feature_pick_sql} as feature_pick
+from {summary_table} s
+{feature_join_sql}
+where s.feature_rank = 1
+"""
+
 
 @dataclass(frozen=True)
 class RunDefaults:
@@ -2257,11 +2269,15 @@ class RunDefaults:
         That run's last delivery day, ``yyyy-MM-dd`` — the Day filter's default.
     baseline_run_label : str or None
         The Baseline filter's default; None when no run qualifies.
+    feature_pick : str or None
+        That run's first-ranked feature by mean |SHAP| — the Feature filter's
+        default; None when the run has no contributions.
     """
 
     run_label: str
     last_day: str
     baseline_run_label: str | None
+    feature_pick: str | None
 
 
 def run_defaults(
@@ -2294,19 +2310,62 @@ def run_defaults(
         None when the query fails or the mart is empty (every filter then
         falls back to its ``defaultToFirstItem`` setting).
     """
-    sql = RUNS_SQL_TEMPLATE.format(
-        run_label_sql=RUN_LABEL_SQL.format(f="f", a="a"), accuracy_table=spec.accuracy_table
-    )
-    try:
-        rows = client._post_json(
+
+    def query(sql: str) -> list[dict]:
+        return client._post_json(
             "/api/v1/sqllab/execute/",
             {"database_id": database_id, "sql": sql, "runAsync": False},
         )["data"]
-        newest = rows[0]
-        return RunDefaults(
-            newest["run_label"], newest["last_day"], _default_baseline(rows, baseline_run)
+
+    try:
+        rows = query(
+            RUNS_SQL_TEMPLATE.format(
+                run_label_sql=RUN_LABEL_SQL.format(f="f", a="a"),
+                accuracy_table=spec.accuracy_table,
+            )
         )
+        newest = rows[0]
+        run_label, last_day, run_id = newest["run_label"], newest["last_day"], newest["run_id"]
+        baseline_label = _default_baseline(rows, baseline_run)
     except (requests.HTTPError, KeyError, IndexError):
+        return None
+    # The feature default is fetched outside the guard: its query reads another
+    # table, and its failure must not cost the defaults above.
+    return RunDefaults(run_label, last_day, baseline_label, _top_feature(query, spec, run_id))
+
+
+def _top_feature(
+    query: Callable[[str], list[dict]], spec: DashboardSpec, run_id: str
+) -> str | None:
+    """The run's first-ranked feature as the Feature filter lists it.
+
+    Parameters
+    ----------
+    query : callable
+        Runs SQL and returns the rows.
+    spec : DashboardSpec
+    run_id : str
+        The default run.
+
+    Returns
+    -------
+    str or None
+        None when the summary cannot be read — a warehouse that has never
+        published contributions has no such table — or when the run has no
+        contributions. The other defaults stand either way; the Feature filter
+        then stages its first option instead of applying it.
+    """
+    expression = FEATURE_EXPRESSION_SQL.format(e="e", name="s.component")
+    try:
+        rows = query(
+            TOP_FEATURE_SQL_TEMPLATE.format(
+                summary_table=spec.summary_table,
+                feature_pick_sql=FEATURE_PICK_SQL.format(s="s", expression=expression),
+                feature_join_sql=FEATURE_JOIN_SQL.format(e="e", name="s.component"),
+            )
+        )
+        return {row["run_id"]: row["feature_pick"] for row in rows}.get(run_id)
+    except (requests.HTTPError, KeyError):
         return None
 
 
@@ -3786,6 +3845,7 @@ def build_native_filters(
     period_excluded: list[int],
     summary_dataset_id: int,
     feature_excluded: list[int],
+    default_feature_label: str | None,
     baseline_excluded: list[int],
     default_baseline_label: str | None,
 ) -> list[dict]:
@@ -3821,6 +3881,10 @@ def build_native_filters(
     feature_excluded : list of int
         Charts outside the Feature filter's scope (everything but
         ``FEATURE_BY_PERIOD_CHART_NAMES``).
+    default_feature_label : str or None
+        Explicit on-load feature — the default run's first by mean |SHAP|.
+        None leaves the filter to stage the first option, and its two charts
+        then average every feature until someone clicks Apply.
     baseline_excluded : list of int
         Charts outside the Baseline filter's scope (everything but the
         Compare tab — on the analysis dataset the alias column would
@@ -3886,7 +3950,7 @@ def build_native_filters(
             "feature_pick",
             summary_dataset_id,
             excluded=feature_excluded,
-            default=None,
+            default=default_feature_label,
             default_to_first=True,
             required=True,
             sort_ascending=True,
@@ -4722,8 +4786,13 @@ def build_dashboard(
     default_run = None if defaults is None else defaults.run_label
     default_day = None if defaults is None else defaults.last_day
     default_baseline = None if defaults is None else defaults.baseline_run_label
+    default_feature = None if defaults is None else defaults.feature_pick
     logger.info(
-        "defaults: run {} (last day {}), baseline {}", default_run, default_day, default_baseline
+        "defaults: run {} (last day {}), baseline {}, feature {}",
+        default_run,
+        default_day,
+        default_baseline,
+        default_feature,
     )
     dashboard_id = upsert_dashboard(
         client,
@@ -4740,6 +4809,7 @@ def build_dashboard(
             period_excluded=[c for c in all_charts if c not in per_selection],
             summary_dataset_id=summary_id,
             feature_excluded=[c for c in all_charts if c not in feature_by_period],
+            default_feature_label=default_feature,
             baseline_excluded=[*accuracy.chart_ids, *explanation.chart_ids],
             default_baseline_label=default_baseline,
         ),

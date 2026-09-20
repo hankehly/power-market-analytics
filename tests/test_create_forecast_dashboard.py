@@ -30,6 +30,7 @@ BASELINE_RUN_ID = "0123456789abcdef0123456789abcdef"
 SHORT_RUN_ID = "ffffffff00000000ffffffff00000000"
 BASELINE_LABEL = "2026-08-17 09:00 | tokyo | lightgbm | 01234567"
 SHORT_LABEL = "2026-08-17 18:00 | tokyo | lightgbm | ffffffff"
+DEFAULT_FEATURE_LABEL = "001 SIMILAR_DAY(power_usage_demand_kwh, gap=(2d, 335d))"
 # What the fake SQL Lab returns for the runs query: newest first; the second
 # row is a short test window, the third the newest run with the same window.
 RUN_ROWS = [
@@ -57,6 +58,13 @@ RUN_ROWS = [
         "last_day": DEFAULT_LAST_DAY,
         "periods": 34954,
     },
+]
+
+# What the fake SQL Lab returns for the top-feature query: one row per run, the
+# feature its contributions rank first.
+TOP_FEATURE_ROWS = [
+    {"run_id": DEFAULT_RUN_ID, "feature_pick": DEFAULT_FEATURE_LABEL},
+    {"run_id": BASELINE_RUN_ID, "feature_pick": "001 LAG(demand_kwh, 7d)"},
 ]
 
 # The exact rison the client must send for a lookup: one or more
@@ -196,7 +204,9 @@ class FakeSupersetSession:
         if path == "/api/v1/security/login":
             return FakeResponse({"access_token": "tok"})
         if path == "/api/v1/sqllab/execute/":
-            return FakeResponse({"data": RUN_ROWS})
+            assert payload is not None
+            rows = TOP_FEATURE_ROWS if "s.feature_rank = 1" in payload["sql"] else RUN_ROWS
+            return FakeResponse({"data": rows})
         m = re.fullmatch(r"/api/v1/(dataset|chart|dashboard)/", path)
         if m:
             assert payload is not None
@@ -2423,9 +2433,14 @@ class TestRunDefaults:
 
         defaults = script.run_defaults(client, 3, spec)
 
-        assert defaults == script.RunDefaults(DEFAULT_LABEL, DEFAULT_LAST_DAY, BASELINE_LABEL)
-        (call,) = fake.calls_after_login()
-        method, url, payload, params = call
+        assert defaults == script.RunDefaults(
+            DEFAULT_LABEL, DEFAULT_LAST_DAY, BASELINE_LABEL, DEFAULT_FEATURE_LABEL
+        )
+        runs_call, feature_call = fake.calls_after_login()
+        # the second query reads the newest run's first-ranked feature
+        assert "s.feature_rank = 1" in feature_call[2]["sql"]
+        assert f"from {spec.summary_table} s" in feature_call[2]["sql"]
+        method, url, payload, params = runs_call
         assert (method, url, params) == ("POST", f"{BASE}/api/v1/sqllab/execute/", None)
         assert payload["database_id"] == 3
         assert payload["runAsync"] is False
@@ -2444,7 +2459,9 @@ class TestRunDefaults:
             SHORT_LABEL
         )
         assert script.run_defaults(client, 3, spot, baseline_run=BASELINE_RUN_ID) == (
-            script.RunDefaults(DEFAULT_LABEL, DEFAULT_LAST_DAY, BASELINE_LABEL)
+            script.RunDefaults(
+                DEFAULT_LABEL, DEFAULT_LAST_DAY, BASELINE_LABEL, DEFAULT_FEATURE_LABEL
+            )
         )
 
     def test_unknown_baseline_run_warns_and_keeps_the_rule(self, script, fake, spot, monkeypatch):
@@ -2459,9 +2476,17 @@ class TestRunDefaults:
         assert warnings[0][1] == "nope"
 
     def test_no_run_shares_the_newest_window(self, script, spot):
+        # the canned answer serves both queries, so it carries no feature either
         fake = FakeSupersetSession(sqllab=FakeResponse({"data": RUN_ROWS[:2]}))
         defaults = script.run_defaults(make_client(script, fake), 3, spot)
-        assert defaults == script.RunDefaults(DEFAULT_LABEL, DEFAULT_LAST_DAY, None)
+        assert defaults == script.RunDefaults(DEFAULT_LABEL, DEFAULT_LAST_DAY, None, None)
+
+    def test_an_unreadable_summary_costs_only_the_feature_default(self, script, fake, spot):
+        # a warehouse that never published contributions has no summary table;
+        # the Run, Day and Baseline defaults must still apply
+        fake.overrides[("POST", "/api/v1/sqllab/execute/")] = FakeResponse({"data": RUN_ROWS})
+        defaults = script.run_defaults(make_client(script, fake), 3, spot)
+        assert defaults == script.RunDefaults(DEFAULT_LABEL, DEFAULT_LAST_DAY, BASELINE_LABEL, None)
 
     def test_none_on_http_error(self, script, spot):
         fake = FakeSupersetSession(sqllab=FakeResponse({"message": "boom"}, 500))
@@ -3505,6 +3530,7 @@ def native_filters(script, **overrides):
         "period_excluded": [12, 13, 15],
         "summary_dataset_id": 16,
         "feature_excluded": [12, 13, 15, 17],
+        "default_feature_label": DEFAULT_FEATURE_LABEL,
         "baseline_excluded": [12, 13, 14],
         "default_baseline_label": BASELINE_LABEL,
     }
@@ -3612,11 +3638,18 @@ class TestBuildNativeFilters:
         # listed from the summary dataset (a row per feature), applied to the
         # explanation dataset's column of the same name and text
         assert feature["targets"] == [{"column": {"name": "feature_pick"}, "datasetId": 16}]
-        assert feature["defaultDataMask"] == {"extraFormData": {}, "filterState": {}}
+        # an applied default, not a staged one: defaultToFirstItem leaves the two
+        # charts averaging every feature until someone clicks Apply
+        assert feature["defaultDataMask"] == {
+            "extraFormData": {
+                "filters": [{"col": "feature_pick", "op": "IN", "val": [DEFAULT_FEATURE_LABEL]}]
+            },
+            "filterState": {"value": [DEFAULT_FEATURE_LABEL], "label": DEFAULT_FEATURE_LABEL},
+        }
         assert feature["controlValues"] == {
             "multiSelect": False,
             "enableEmptyFilter": True,
-            "defaultToFirstItem": True,
+            "defaultToFirstItem": False,
             "inverseSelection": False,
             "searchAllOptions": False,
             "sortAscending": True,
@@ -3634,6 +3667,7 @@ class TestBuildNativeFilters:
             run_excluded=[],
             default_run_label=None,
             default_day_label=None,
+            default_feature_label=None,
             default_baseline_label=None,
         )
         assert run["defaultDataMask"] == {"extraFormData": {}, "filterState": {}}
@@ -3641,8 +3675,10 @@ class TestBuildNativeFilters:
         assert run["scope"] == {"rootPath": ["ROOT_ID"], "excluded": []}
         assert day["defaultDataMask"] == {"extraFormData": {}, "filterState": {}}
         assert day["controlValues"]["defaultToFirstItem"] is True
-        # Period and Feature never take an explicit default
+        # Period never takes an explicit default; Feature falls back to staging
+        # the first option when the run has no contributions to rank
         assert period["controlValues"]["defaultToFirstItem"] is False
+        assert feature["defaultDataMask"] == {"extraFormData": {}, "filterState": {}}
         assert feature["controlValues"]["defaultToFirstItem"] is True
         # No baseline: the Compare tab stays on "No data" until one is picked
         assert baseline["defaultDataMask"] == {"extraFormData": {}, "filterState": {}}
