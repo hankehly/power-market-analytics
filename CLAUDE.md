@@ -334,12 +334,15 @@
   that prefix, and a test ties the two), and the explanation datasets pin the Day
   (`date_key`) and the Period (`time_code`) the same way. Superset still applies its own
   filter on the label, so a pin only makes the scan smaller; without a value there is no pin.
-  One day of `e212`: 3.27 s → 0.56 s per chart query; an Accuracy tile 1.18 s → 0.40 s.
+  One day of `e212`: 3.27 s → 0.56 s per chart query; an Accuracy tile 1.18 s → 0.40 s. In
+  the browser on that run: Accuracy 20–46 s → 4 s, Explanation 46 s → 7 s; Compare, which
+  keeps its one tab and its two self-joined datasets, is 29 s.
   **Accuracy**: no run leaderboard since 2026-09-20; the 30-minute detail draws `Error
   (forecast − actual)` as a third series on the same axis (it starts at zero, same unit), so
   the hover popup lists it; **Worst days** has an **Explain** link per row
   (`explain_link_sql`: `/superset/dashboard/<slug>/?native_filters=<Run and Day as
-  rison>#TAB-1`, HTML in the dataset column `explain_link`), which opens the Explanation tab
+  rison>#TAB-1`, HTML in the dataset column `explain_link`, the table's
+  `allow_render_html` and a `customColumnName` heading), which opens the Explanation tab
   on that Run and Day. Superset has no click-to-navigate, and a cross-filter would arrive
   after the ranking below, so the day tables no longer cross-filter the Explanation tab:
   there the Day filter is the only way a day is chosen.
@@ -1076,6 +1079,27 @@
   `bigint`; TEPCO writes 0 for not-yet-observed periods and the archived 2025-06-14 file froze
   mid-day (time codes 11–48 all-zero) → those measures are null from `std` onward. Past days are
   occasionally re-issued, hence the always-re-download policy.
+- Superset rewrites a virtual dataset's SQL on its way to Spark, and the rewrite turns an
+  **escaped-quote literal into an empty string**: `concat('val:!(', '''', 'X', '''', ')')`
+  comes back `val:!(X)`, not `val:!('X')`. So SQL built in
+  `scripts/create_forecast_dashboard.py` writes every apostrophe as `chr(39)`
+  (`SQL_QUOTE`), which survives; the Explain links' rison needs them, and without them
+  each link opened the Explanation tab filtered to nothing. Found 2026-09-20 in the
+  browser, then isolated through SQL Lab, the same query both ways; beeline shows neither
+  problem, so a unit test on the SQL string and a beeline check both pass while the
+  dashboard is broken.
+- A Superset chart's x axis must not be named like one of its series. The by-period charts
+  drew a series per feature over `time_code` — which is itself a model feature — and
+  Superset, which pivots the series onto an index named after the axis, failed the whole
+  chart with `cannot insert time_code, already exists`. They use `period_label`
+  (`BY_PERIOD_X_AXIS`, `27 13:00–13:30`, zero-padded so it sorts by time), a column of the
+  dataset that no mart column can collide with.
+- Superset renders **every chart attached to a dashboard**, appending the ones
+  `position_json` does not place to the foot of the first tab. So a rebuild that drops a
+  chart, or moves one to another dataset (charts are matched by name *within* a dataset, so
+  a move makes a new chart), leaves the old one showing — and it errors if its dataset has
+  since lost a column it reads. `build_dashboard` therefore ends with `detach_stale_charts`,
+  which unlinks what this build did not place and keeps the charts themselves.
 - Timestamps in tests: PySpark's `collect()` renders `TimestampType` as a naive datetime in the
   *process's* local time zone, while the `spark` fixture parses CSV strings in
   `spark.sql.session.timeZone=Asia/Tokyo`; `tests/conftest.py` therefore pins `TZ=Asia/Tokyo`
