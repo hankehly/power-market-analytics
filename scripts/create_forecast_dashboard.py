@@ -178,6 +178,10 @@ EXPLANATION_TAB_KEY = "TAB-1"
 EXPLAIN_LINK_COLUMN = "explain_link"
 EXPLAIN_LINK_COLUMN_CONFIG = {EXPLAIN_LINK_COLUMN: {"customColumnName": "Explain"}}
 
+#: The same for the column every feature table is grouped by: a table of features
+#: heads that column "Feature", not ``feature_expression``.
+FEATURE_COLUMN_CONFIG = {"feature_expression": {"customColumnName": "Feature"}}
+
 EXPLAIN_LINK_RISON = (
     "(NATIVE_FILTER-run:(extraFormData:(filters:!((col:run_label,op:IN,val:!('{run}')))),"
     "filterState:(label:'{run}',validateStatus:!f,value:!('{run}')),"
@@ -186,6 +190,17 @@ EXPLAIN_LINK_RISON = (
     "filterState:(label:'{day}',validateStatus:!f,value:!('{day}')),"
     "id:NATIVE_FILTER-day,ownState:()))"
 )
+
+
+# Every apostrophe of the link's rison is written ``chr(39)``, never as an
+# escaped-quote literal. Superset rewrites a virtual dataset's SQL on its way to
+# Spark, and that rewrite turns an escaped-quote literal into an empty string:
+# the rison came out with no quotes at all, so the filters it carried matched
+# nothing and every link opened the Explanation tab unfiltered. Checked against
+# the running Superset (6.1) through SQL Lab, the same query two ways:
+# ``concat('val:!(', chr(39), 'X', chr(39), ')')`` gives ``val:!('X')``, and the
+# escaped-literal form gives ``val:!(X)``.
+SQL_QUOTE = "chr(39)"
 
 
 def rison_escape_sql(expression: str) -> str:
@@ -202,7 +217,29 @@ def rison_escape_sql(expression: str) -> str:
         ``expression`` with ``!`` doubled, then ``'`` written ``!'`` (rison's
         escape character is ``!``, so it goes first).
     """
-    return f"replace(replace({expression}, '!', '!!'), '''', '!''')"
+    return f"replace(replace({expression}, '!', '!!'), {SQL_QUOTE}, concat('!', {SQL_QUOTE}))"
+
+
+def rison_literal_sql(text: str) -> list[str]:
+    """``text`` as ``concat`` arguments, each apostrophe its own ``SQL_QUOTE``.
+
+    Parameters
+    ----------
+    text : str
+        Literal text of the rison.
+
+    Returns
+    -------
+    list of str
+        SQL expressions which concatenated give ``text``; empty for empty text.
+    """
+    pieces = []
+    for i, chunk in enumerate(text.split("'")):
+        if i:
+            pieces.append(SQL_QUOTE)
+        if chunk:
+            pieces.append(f"'{chunk}'")
+    return pieces
 
 
 def explain_link_sql(slug: str, run_label: str, day_label: str) -> str:
@@ -224,14 +261,13 @@ def explain_link_sql(slug: str, run_label: str, day_label: str) -> str:
     str
         ``concat('<a href="…?native_filters=', url_encode(<the rison>),
         '#TAB-1">Explain</a>')``. The rison is a ``concat`` of
-        ``EXPLAIN_LINK_RISON``'s text as SQL literals (a quote doubled) around
-        the two values, each escaped for rison.
+        ``EXPLAIN_LINK_RISON``'s text as SQL literals, its apostrophes as
+        ``SQL_QUOTE``, around the two values, each escaped for rison.
     """
     values = {"{run}": rison_escape_sql(run_label), "{day}": rison_escape_sql(day_label)}
-    pieces = [
-        values[piece] if piece in values else "'" + piece.replace("'", "''") + "'"
-        for piece in re.split(r"(\{run\}|\{day\})", EXPLAIN_LINK_RISON)
-    ]
+    pieces: list[str] = []
+    for piece in re.split(r"(\{run\}|\{day\})", EXPLAIN_LINK_RISON):
+        pieces.extend([values[piece]] if piece in values else rison_literal_sql(piece))
     return (
         f"concat('<a href=\"/superset/dashboard/{slug}/?native_filters=', "
         f"url_encode(concat({', '.join(pieces)})), "
@@ -2615,6 +2651,15 @@ NOT_BASE_FILTER = {
     "filterOptionName": "filter_not_is_base",
 }
 
+# The x axis the three by-period charts share, so they stack in line. Not
+# ``time_code``: that is a model feature as well as a column, and Superset pivots
+# a series per feature onto an index named after the axis — a series called
+# ``time_code`` then fails the whole chart with "cannot insert time_code, already
+# exists" (seen on the Tokyo e212 run, where the feature ranks second on some
+# days). ``period_label`` is the dataset's own column, zero-padded so it sorts by
+# time, and it reads the clock rather than a code.
+BY_PERIOD_X_AXIS = "period_label"
+
 # The importance and mean |SHAP| bars draw the TOP_FEATURE_BARS largest features;
 # their tables list every one. Each cut is an ad-hoc WHERE clause on a rank the
 # dataset computes (importance_rank by ΔMAE, feature_rank by mean |SHAP|), so it
@@ -3088,6 +3133,7 @@ def feature_table_params(spec: DashboardSpec, dataset_id: int) -> dict:
         "include_search": True,
         "table_timestamp_format": "smart_date",
         "column_config": {
+            **FEATURE_COLUMN_CONFIG,
             "Feature value": {"d3NumberFormat": ",.2~f"},
             contribution["label"]: {"d3NumberFormat": spec.contribution_format},
         },
@@ -3136,6 +3182,7 @@ def all_features_table_params(spec: DashboardSpec, dataset_id: int) -> dict:
         "include_search": True,
         "table_timestamp_format": "smart_date",
         "column_config": {
+            **FEATURE_COLUMN_CONFIG,
             "Rank": {"d3NumberFormat": ",d"},
             contribution["label"]: {"d3NumberFormat": spec.contribution_format},
             mean_abs["label"]: {"d3NumberFormat": spec.number_format},
@@ -3167,7 +3214,7 @@ def feature_value_by_period_params(spec: DashboardSpec, dataset_id: int) -> dict
     return {
         "datasource": f"{dataset_id}__table",
         "viz_type": "echarts_timeseries_line",
-        "x_axis": "time_code",
+        "x_axis": BY_PERIOD_X_AXIS,
         "time_grain_sqla": None,
         "x_axis_sort_asc": True,
         "metrics": [sql_metric("avg(feature_value)", "Feature value")],
@@ -3182,7 +3229,8 @@ def feature_value_by_period_params(spec: DashboardSpec, dataset_id: int) -> dict
         "rich_tooltip": True,
         "y_axis_format": "SMART_NUMBER",
         "y_axis_title": "Feature value",
-        "y_axis_title_margin": 30,
+        # a feature's level runs to millions, so its labels are wide
+        "y_axis_title_margin": 60,
         "truncateYAxis": True,
         "y_axis_bounds": [None, None],
         "color_scheme": "supersetColors",
@@ -3210,7 +3258,7 @@ def feature_contribution_by_period_params(spec: DashboardSpec, dataset_id: int) 
     dict
     """
     return {
-        **bar_params(spec, dataset_id, "time_code"),
+        **bar_params(spec, dataset_id, BY_PERIOD_X_AXIS),
         "metrics": [spec.contribution_metric],
         "adhoc_filters": [NOT_BASE_FILTER],
         "row_limit": 10000,
@@ -3365,6 +3413,7 @@ def importance_table_params(spec: DashboardSpec, dataset_id: int) -> dict:
         "include_search": True,
         "table_timestamp_format": "smart_date",
         "column_config": {
+            **FEATURE_COLUMN_CONFIG,
             mae["label"]: {"d3NumberFormat": spec.number_format},
             permuted["label"]: {"d3NumberFormat": spec.number_format},
             delta["label"]: {"d3NumberFormat": spec.signed_number_format},
@@ -3403,7 +3452,7 @@ def contribution_by_period_params(spec: DashboardSpec, dataset_id: int) -> dict:
     return {
         "datasource": f"{dataset_id}__table",
         "viz_type": "mixed_timeseries",
-        "x_axis": "time_code",
+        "x_axis": BY_PERIOD_X_AXIS,
         "time_grain_sqla": None,
         # Query A: one stacked series per top feature, and one for the rest
         "metrics": [spec.grouped_contribution_metric],
