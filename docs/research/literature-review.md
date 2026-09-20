@@ -52,161 +52,160 @@ OpenAlex. Japanese articles were found with the J-STAGE search API: Powered by
 | [P-012](#p-012) | Review | Load Forecasting | Eugene A. Feinberg; Dora Genethliou | Chapter 12 of Applied Mathematics for Restructured Electric Power Systems (Power Electronics and Power Systems series), Springer (Kluwer Academic Publishers), pp. 269–285; book chapter | 2005 | [DOI](https://doi.org/10.1007/0-387-23471-3_12) · [Author manuscript](https://www.ams.sunysb.edu/~feinberg/public/lf.pdf) |
 | [P-013](#p-013) | Review | Short Term Electric Load Forecasting | Tao Hong | PhD dissertation (Operations Research and Electrical Engineering), North Carolina State University, xvi + 157 pages | 2010 | [Record](http://www.lib.ncsu.edu/resolver/1840.16/6457) · [Free copy](https://repository.lib.ncsu.edu/bitstreams/2f574ab7-59eb-4001-b869-10abf40fbd7d/download) |
 | [P-014](#p-014) | Review | Load Forecasting Case Study | Tao Hong; Mohammad Shahidehpour | Report for the Eastern Interconnection States' Planning Council (EISPC) and the National Association of Regulatory Utility Commissioners (NARUC), funded by the U.S. Department of Energy, 15 January 2015 | 2015 | [Full text](https://pubs.naruc.org/pub.cfm?id=536E10A7-2354-D714-5191-A8AAFE45D626) |
-| [P-015](#p-015) | Review | Electrical load forecasting models: A critical systematic review | Corentin Kuster; Yacine Rezgui; Monjur Mourshed | Sustainable Cities and Society 35, 257–270; review | 2017 | [DOI](https://doi.org/10.1016/j.scs.2017.08.009) · [Author manuscript](https://orca.cardiff.ac.uk/id/eprint/103793/1/Manuscript.pdf) |
-| [P-016](#p-016) | Review | Energy Forecasting: A Review and Outlook | Tao Hong; Pierre Pinson; Yi Wang; Rafal Weron; Dazhi Yang; Hamidreza Zareipour | IEEE Open Access Journal of Power and Energy 7, 376–388; review | 2020 | [DOI](https://doi.org/10.1109/oajpe.2020.3029979) · [PDF](https://ieeexplore.ieee.org/ielx7/8784343/8889549/09218967.pdf) |
-| [P-017](#p-017) | Review | Electricity load forecasting: a systematic review | Isaac Kofi Nti; Moses Teimeh; Owusu Nyarko-Boateng; Adebayo Felix Adekoya | Journal of Electrical Systems and Information Technology 7(1), article 13; review | 2020 | [DOI](https://doi.org/10.1186/s43067-020-00021-8) · [PDF](https://jesit.springeropen.com/track/pdf/10.1186/s43067-020-00021-8) |
-| [P-018](#p-018) | Review | Explainability and Interpretability in Electric Load Forecasting Using Machine Learning Techniques – A Review | Lukas Baur; Konstantin Ditschuneit; Maximilian Schambach; Can Kaymakci; Thomas Wollmann; Alexander Sauer | Energy and AI 16, 100358; review | 2024 | [DOI](https://doi.org/10.1016/j.egyai.2024.100358) · [Full text](https://www.sciencedirect.com/science/article/pii/S2666546824000247) |
-| [P-019](#p-019) | Review | Publicly Available Datasets For Electric Load Forecasting – An Overview | Lukas Baur; Vignesh Chandramouli; Alexander Sauer | Proceedings of the Conference on Production Systems and Logistics: CPSL 2024 (Honolulu, 9-12 July 2024), publish-Ing., Hannover | 2024 | [DOI](https://doi.org/10.15488/17659) · [Full text](https://repo.uni-hannover.de/bitstreams/6db8955d-c9de-406b-8446-5a2bec258677/download) |
-| [P-020](#p-020) | Review | A comprehensive review on deep learning approaches for short-term load forecasting | Yavuz Eren; İbrahim Küçükdemiral | Renewable and Sustainable Energy Reviews 189, 114031 | 2024 | [DOI](https://doi.org/10.1016/j.rser.2023.114031) · [Author manuscript](https://researchonline.gcu.ac.uk/ws/files/81149524/81004974.pdf) |
-| [P-021](#p-021) | Review | Short-Term Electricity-Load Forecasting by deep learning: A comprehensive survey | Qi Dong; Rubing Huang; Chenhui Cui; Dave Towey; Ling Zhou; Jinyu Tian; Jianzhou Wang | Engineering Applications of Artificial Intelligence 154, 110980; review | 2025 | [DOI](https://doi.org/10.1016/j.engappai.2025.110980) · [Preprint](https://arxiv.org/pdf/2408.16202) |
-| [P-022](#p-022) | Review | Machine learning in peak demand forecasting: foundations, trends, and insights | Shuang Dai; Fanlin Meng; Hongsheng Dai; Qian Wang; Xizhong Chen; Wenlei Bai; Peizhi Shi; Richard Allmendinger; Yuchen Zhang; Jian Liu | Renewable and Sustainable Energy Reviews 227, 116500 | 2026 | [DOI](https://doi.org/10.1016/j.rser.2025.116500) · [PDF](https://eprints.whiterose.ac.uk/id/eprint/234926/1/1-s2.0-S1364032125011736-main.pdf) |
-| [P-023](#p-023) | Competition | Load Forecasting Using Support Vector Machines: A Study on EUNITE Competition 2001 | B.-J. Chen; M.-W. Chang; C.-J. Lin | IEEE Transactions on Power Systems 19(4), 1821–1830 | 2004 | [DOI](https://doi.org/10.1109/tpwrs.2004.835679) · [Author manuscript](https://www.csie.ntu.edu.tw/~cjlin/papers/elf.pdf) |
-| [P-024](#p-024) | Competition | A refined parametric model for short term load forecasting | Nathaniel Charlton; Colin Singleton | International Journal of Forecasting 30(2), 364–368 | 2014 | [DOI](https://doi.org/10.1016/j.ijforecast.2013.07.003) · [Author manuscript](https://centaur.reading.ac.uk/37972/1/IJFpaper.pdf) |
-| [P-025](#p-025) | Competition | Global Energy Forecasting Competition 2012 | Tao Hong; Pierre Pinson; Shu Fan | International Journal of Forecasting 30(2), 357–363 | 2014 | [DOI](https://doi.org/10.1016/j.ijforecast.2013.07.001) · [Working paper](https://prac.im.pwr.edu.pl/~hugo/RePEc/wuu/wpaper/HSC_13_16.pdf) |
-| [P-026](#p-026) | Competition | GEFCom2012 hierarchical load forecasting: Gradient boosting machines and Gaussian processes | James Robert Lloyd | International Journal of Forecasting 30(2), 369–374 | 2014 | [DOI](https://doi.org/10.1016/j.ijforecast.2013.07.002) · [Preprint](https://jamesrobertlloyd.com/papers/GEFCom2012.pdf) |
-| [P-027](#p-027) | Competition | A gradient boosting approach to the Kaggle load forecasting competition | Souhaib Ben Taieb; Rob J. Hyndman | International Journal of Forecasting 30(2), 382–394 | 2014 | [DOI](https://doi.org/10.1016/j.ijforecast.2013.07.005) · [Author manuscript](https://robjhyndman.com/papers/kaggle-competition.pdf) |
-| [P-028](#p-028) | Competition | Additive models and robust aggregation for GEFCom2014 probabilistic electric load and electricity price forecasting | Pierre Gaillard; Yannig Goude; Raphaël Nedellec | International Journal of Forecasting 32(3), 1038–1050 | 2016 | [DOI](https://doi.org/10.1016/j.ijforecast.2015.12.001) · [Author manuscript](https://web.archive.org/web/20220528224219if_/http://pierre.gaillard.me/doc/GaillardGoudeNedellec2015.pdf) |
-| [P-029](#p-029) | Competition | A hybrid model of kernel density estimation and quantile regression for GEFCom2014 probabilistic load forecasting | Stephen Haben; Georgios Giasemidis | International Journal of Forecasting 32(3), 1017–1022 | 2016 | [DOI](https://doi.org/10.1016/j.ijforecast.2015.11.004) · [Preprint](https://arxiv.org/pdf/1610.05183) |
-| [P-030](#p-030) | Competition | Probabilistic energy forecasting: Global Energy Forecasting Competition 2014 and beyond | Tao Hong; Pierre Pinson; Shu Fan; Hamidreza Zareipour; Alberto Troccoli; Rob J. Hyndman | International Journal of Forecasting 32(3), 896–913 | 2016 | [DOI](https://doi.org/10.1016/j.ijforecast.2016.02.001) · [Author manuscript](https://robjhyndman.com/papers/gefcom2014.pdf) |
-| [P-031](#p-031) | Competition | Lasso estimation for GEFCom2014 probabilistic electric load forecasting | Florian Ziel; Bidong Liu | International Journal of Forecasting 32(3), 1029–1037 | 2016 | [DOI](https://doi.org/10.1016/j.ijforecast.2016.01.001) · [Preprint](https://arxiv.org/pdf/1603.01376) |
-| [P-032](#p-032) | Competition | Data preprocessing and quantile regression for probabilistic load forecasting in the GEFCom2017 final match | Isao Kanda; J.M. Quintana Veguillas | International Journal of Forecasting 35(4), 1460–1468 | 2019 | [DOI](https://doi.org/10.1016/j.ijforecast.2019.02.005) · [Full text](https://www.sciencedirect.com/science/article/pii/S0169207019300238) |
-| [P-033](#p-033) | Competition | Reconciled boosted models for GEFCom2017 hierarchical probabilistic load forecasting | Cameron Roach | International Journal of Forecasting 35(4), 1439–1450 | 2019 | [DOI](https://doi.org/10.1016/j.ijforecast.2018.09.009) · [Author manuscript](https://raw.githubusercontent.com/camroach87/1701-gefcom/master/paper.pdf) |
-| [P-034](#p-034) | Competition | Quantile regression for the qualifying match of GEFCom2017 probabilistic load forecasting | Florian Ziel | International Journal of Forecasting 35(4), 1400–1408 | 2019 | [DOI](https://doi.org/10.1016/j.ijforecast.2018.07.004) · [Preprint](https://arxiv.org/pdf/1809.03561) |
-| [P-035](#p-035) | Competition | Day-Ahead Electricity Demand Forecasting Competition: Post-COVID Paradigm | Mostafa Farrokhabadi; Jethro Browell; Yi Wang; Stephen Makonin; Wencong Su; Hamidreza Zareipour | IEEE Open Access Journal of Power and Energy 9, 185–191 | 2022 | [DOI](https://doi.org/10.1109/oajpe.2022.3161101) · [PDF](https://eprints.gla.ac.uk/254028/1/254028.pdf) |
-| [P-036](#p-036) | Competition | State-Space Models for Online Post-Covid Electricity Load Forecasting Competition | Joseph De Vilmarest; Yannig Goude | IEEE Open Access Journal of Power and Energy 9, 192–201 | 2022 | [DOI](https://doi.org/10.1109/oajpe.2022.3141883) · [PDF](https://ieeexplore.ieee.org/ielx7/8784343/9662292/09677626.pdf) |
-| [P-037](#p-037) | Competition | Smoothed Bernstein Online Aggregation for Short-Term Load Forecasting in IEEE DataPort Competition on Day-Ahead Electricity Demand Forecasting: Post-COVID Paradigm | Florian Ziel | IEEE Open Access Journal of Power and Energy 9, 202–212 | 2022 | [DOI](https://doi.org/10.1109/oajpe.2022.3160933) · [PDF](https://ieeexplore.ieee.org/ielx7/8784343/9662292/09740204.pdf) |
-| [P-038](#p-038) | Competition | Predicting the magnitude and timing of peak electricity demand: A competition case study | Daniel L. Donaldson; Jethro Browell; Ciaran Gilbert | IET Smart Grid 7(4), 473–484 | 2024 | [DOI](https://doi.org/10.1049/stg2.12152) · [PDF](https://eprints.gla.ac.uk/320296/1/320296.pdf) |
-| [P-039](#p-039) | Competition | Privacy‐preserving peak time forecasting with Learning to Rank XGBoost and extensive feature engineering | Leo Semmelmann; Oliver Resch; Sarah Henni; Christof Weinhardt | IET Smart Grid 7(2), 172–185 | 2024 | [DOI](https://doi.org/10.1049/stg2.12137) · [Full text](https://publikationen.bibliothek.kit.edu/1000163920/151675430) |
-| [P-040](#p-040) | Competition | BigDEAL Challenge 2022: Forecasting peak timing of electricity demand | Shreyashi Shukla; Tao Hong | IET Smart Grid 7(4), 442–459 | 2024 | [DOI](https://doi.org/10.1049/stg2.12162) · [PDF](https://onlinelibrary.wiley.com/doi/pdfdirect/10.1049/stg2.12162) |
-| [P-041](#p-041) | Statistical model | Short-term electricity demand forecasting using double seasonal exponential smoothing | J W Taylor | Journal of the Operational Research Society 54(8), 799–805 | 2003 | [DOI](https://doi.org/10.1057/palgrave.jors.2601589) · [Author manuscript](https://users.ox.ac.uk/~mast0315/ExpSmDoubleSeasonal.pdf) |
-| [P-042](#p-042) | Statistical model | A non-linear regression model for mid-term load forecasting and improvements in seasonality | Alexander Bruhns; Gilles Deurveilher; Jean-Sebastien Roy | 15th Power Systems Computation Conference (PSCC'05), Liège, Belgium, 22-26 August 2005, session 17 (Loadflow and Time Series Analysis), paper 168 | 2005 | [Record](https://services.montefiore.uliege.be/stochastic/pscc05/show_session.php?id=17) · [PDF](https://services.montefiore.uliege.be/stochastic/pscc05/papers/fp168.pdf) |
-| [P-043](#p-043) | Statistical model | A comparison of univariate methods for forecasting electricity demand up to a day ahead | James W. Taylor; Lilian M. de Menezes; Patrick E. McSharry | International Journal of Forecasting 22(1), 1–16 | 2006 | [DOI](https://doi.org/10.1016/j.ijforecast.2005.06.006) · [Author manuscript](https://users.ox.ac.uk/~mast0315/CompareUnivLoad.pdf) |
-| [P-044](#p-044) | Statistical model | Short-Term Load Forecasting Methods: An Evaluation Based on European Data | James W. Taylor; Patrick E. McSharry | IEEE Transactions on Power Systems 22(4), 2213–2219 | 2007 | [DOI](https://doi.org/10.1109/tpwrs.2007.907583) · [Author manuscript](https://users.ox.ac.uk/~mast0315/EuroLoad.pdf) |
-| [P-045](#p-045) | Statistical model | Forecasting the electricity load from one day to one week ahead for the Spanish system operator | José Ramón Cancelo; Antoni Espasa; Rosmarie Grafe | International Journal of Forecasting 24(4), 588–602 | 2008 | [DOI](https://doi.org/10.1016/j.ijforecast.2008.07.005) · [Working paper](https://e-archivo.uc3m.es/rest/api/core/bitstreams/80c00754-3edc-4a1b-8d56-ace47eef1472/content) |
-| [P-046](#p-046) | Statistical model | An hourly periodic state space model for modelling French national electricity load | V. Dordonnat; S.J. Koopman; M. Ooms; A. Dessertaine; J. Collet | International Journal of Forecasting 24(4), 566–587 | 2008 | [DOI](https://doi.org/10.1016/j.ijforecast.2008.08.010) · [Working paper](https://papers.tinbergen.nl/08008.pdf) |
-| [P-047](#p-047) | Statistical model | Modeling and forecasting short-term electricity load: A comparison of methods with an application to Brazilian data | Lacir J. Soares; Marcelo C. Medeiros | International Journal of Forecasting 24(4), 630–644 | 2008 | [DOI](https://doi.org/10.1016/j.ijforecast.2008.08.003) · [Working paper](https://www.econ.puc-rio.br/marcelomedeiros/Soares%20and%20Medeiros%20(IJF,%202008).pdf) |
-| [P-048](#p-048) | Statistical model | Density Forecasting for Long-Term Peak Electricity Demand | Rob J. Hyndman; Shu Fan | IEEE Transactions on Power Systems 25(2), 1142–1153 | 2010 | [DOI](https://doi.org/10.1109/tpwrs.2009.2036017) · [Author manuscript](https://robjhyndman.com/papers/peak_electricity_demand.pdf) |
-| [P-049](#p-049) | Statistical model | Triple seasonal methods for short-term electricity demand forecasting | James W. Taylor | European Journal of Operational Research 204(1), 139–152 | 2010 | [DOI](https://doi.org/10.1016/j.ejor.2009.10.003) · [Author manuscript](https://users.ox.ac.uk/~mast0315/TripleSeasonalEJOR.pdf) |
-| [P-050](#p-050) | Statistical model | Short-Term Load Forecasting Based on a Semi-Parametric Additive Model | Shu Fan; Rob J. Hyndman | IEEE Transactions on Power Systems 27(1), 134–141 | 2012 | [DOI](https://doi.org/10.1109/tpwrs.2011.2162082) · [Author manuscript](https://robjhyndman.com/papers/2010STLF-FinalR1.pdf) |
-| [P-051](#p-051) | Statistical model | Short-Term Load Forecasting With Exponentially Weighted Methods | James W. Taylor | IEEE Transactions on Power Systems 27(1), 458–464 | 2012 | [DOI](https://doi.org/10.1109/tpwrs.2011.2161780) · [Author manuscript](https://users.ox.ac.uk/~mast0315/LoadExponentiallyWeighted.pdf) |
-| [P-052](#p-052) | Statistical model | Modeling and Forecasting Daily Electricity Load Curves: A Hybrid Approach | Haeran Cho; Yannig Goude; Xavier Brossat; Qiwei Yao | Journal of the American Statistical Association 108(501), 7–21 | 2013 | [DOI](https://doi.org/10.1080/01621459.2012.722900) · [Author manuscript](https://researchonline.lse.ac.uk/id/eprint/49634/1/Cho_Modeling_forecasting_daily_2013.pdf) |
-| [P-053](#p-053) | Statistical model | Short-Term Load Forecasting: The Similar Shape Functional Time-Series Predictor | Efstathios Paparoditis; Theofanis Sapatinas | IEEE Transactions on Power Systems 28(4), 3818–3825 | 2013 | [DOI](https://doi.org/10.1109/tpwrs.2013.2272326) · [Preprint](https://arxiv.org/pdf/1201.2617) |
-| [P-054](#p-054) | Statistical model | Generalized Additive Models for Large Data Sets | Simon N. Wood; Yannig Goude; Simon Shaw | Journal of the Royal Statistical Society Series C: Applied Statistics 64(1), 139–155 | 2015 | [DOI](https://doi.org/10.1111/rssc.12068) · [Full text](https://academic.oup.com/jrsssc/article/64/1/139/7067761) |
-| [P-055](#p-055) | Statistical model | Forecasting day-ahead electricity load using a multiple equation time series approach | A.E. Clements; A.S. Hurn; Z. Li | European Journal of Operational Research 251(2), 522–530 | 2016 | [DOI](https://doi.org/10.1016/j.ejor.2015.12.030) · [Working paper](https://web.archive.org/web/20180220014811if_/http://www.ncer.edu.au/papers/documents/WP103R.pdf) |
-| [P-056](#p-056) | Statistical model | Periodically correlated models for short-term electricity load forecasting | Eduardo Caro; Jesús Juan; Javier Cara | Applied Mathematics and Computation 364, 124642 | 2020 | [DOI](https://doi.org/10.1016/j.amc.2019.124642) · [Author manuscript](https://oa.upm.es/79586/1/5810862.pdf) |
-| [P-057](#p-057) | Statistical model | Regularization methods for the short-term forecasting of the Italian electric load | Alessandro Incremona; Giuseppe De Nicolao | Sustainable Energy Technologies and Assessments 51, 101960 | 2022 | [DOI](https://doi.org/10.1016/j.seta.2022.101960) · [Preprint](https://arxiv.org/pdf/2112.04604) |
-| [P-058](#p-058) | Statistical model | Daily peak electrical load forecasting with a multi-resolution approach | Yvenn Amara-Ouali; Matteo Fasiolo; Yannig Goude; Hui Yan | International Journal of Forecasting 39(3), 1272–1286 | 2023 | [DOI](https://doi.org/10.1016/j.ijforecast.2022.06.001) · [Preprint](https://arxiv.org/pdf/2112.04492) |
-| [P-059](#p-059) | Statistical model | Enhancing energy system models using better load forecasts | Thomas Möbius; Mira Watermeyer; Oliver Grothe; Felix Müsgens | Energy Systems 16(2), 573–602 | 2025 | [DOI](https://doi.org/10.1007/s12667-023-00590-3) · [Preprint](https://arxiv.org/pdf/2302.11017) |
-| [P-060](#p-060) | Trees and features | A Permutation Importance-Based Feature Selection Method for Short-Term Electricity Load Forecasting Using Random Forest | Nantian Huang; Guobo Lu; Dianguo Xu | Energies 9(10), 767 | 2016 | [DOI](https://doi.org/10.3390/en9100767) · [PDF](https://mdpi-res.com/d_attachment/energies/energies-09-00767/article_deploy/energies-09-00767.pdf) |
-| [P-061](#p-061) | Trees and features | Improving short term load forecast accuracy via combining sister forecasts | Jakub Nowotarski; Bidong Liu; Rafał Weron; Tao Hong | Energy 98, 40–49 | 2016 | [DOI](https://doi.org/10.1016/j.energy.2015.12.142) · [Working paper](https://prac.im.pwr.edu.pl/~hugo/RePEc/wuu/wpaper/HSC_15_05.pdf) |
-| [P-062](#p-062) | Trees and features | Forecasting medium-term electricity demand in a South African electric power supply system | Caston Sigauke | Journal of Energy in Southern Africa 28(4), 54–67 | 2017 | [DOI](https://doi.org/10.17159/2413-3051/2017/v28i4a2428) · [Full text](https://journals.assaf.org.za/index.php/jesa/article/download/4193/6309) |
-| [P-063](#p-063) | Trees and features | Short-Term Load Forecasting Using EMD-LSTM Neural Networks with a Xgboost Algorithm for Feature Importance Evaluation | Huiting Zheng; Jiabin Yuan; Long Chen | Energies 10(8), 1168 | 2017 | [DOI](https://doi.org/10.3390/en10081168) · [PDF](https://mdpi-res.com/d_attachment/energies/energies-10-01168/article_deploy/energies-10-01168.pdf) |
-| [P-064](#p-064) | Trees and features | Relative evaluation of regression tools for urban area electrical energy demand forecasting | Nils Jakob Johannesen; Mohan Kolhe; Morten Goodwin | Journal of Cleaner Production 218, 555–564 | 2019 | [DOI](https://doi.org/10.1016/j.jclepro.2019.01.108) · [Author manuscript](https://hdl.handle.net/11250/3088334) |
-| [P-065](#p-065) | Trees and features | Feature selection for probabilistic load forecasting via sparse penalized quantile regression | Yi Wang; Dahua Gan; Ning Zhang; Le Xie; Chongqing Kang | Journal of Modern Power Systems and Clean Energy 7(5), 1200–1209 | 2019 | [DOI](https://doi.org/10.1007/s40565-019-0552-3) · [Full text](https://ieeexplore.ieee.org/document/8952836) |
-| [P-066](#p-066) | Trees and features | Short-Term Electricity Load Forecasting with Machine Learning | Ernesto Aguilar Madrid; Nuno Antonio | Information 12(2), 50 | 2021 | [DOI](https://doi.org/10.3390/info12020050) · [Full text](https://www.mdpi.com/2078-2489/12/2/50) |
-| [P-067](#p-067) | Trees and features | A Comprehensive Study of Random Forest for Short-Term Load Forecasting | Grzegorz Dudek | Energies 15(20), 7547 | 2022 | [DOI](https://doi.org/10.3390/en15207547) · [Full text](https://www.mdpi.com/1996-1073/15/20/7547) |
-| [P-068](#p-068) | Trees and features | Forecasting Short-Term Electricity Load Using Validated Ensemble Learning | Chatum Sankalpa; Somsak Kittipiyakul; Seksan Laitrakun | Energies 15(22), 8567 | 2022 | [DOI](https://doi.org/10.3390/en15228567) · [Full text](https://www.mdpi.com/1996-1073/15/22/8567) |
-| [P-069](#p-069) | Trees and features | Short-Term Load Forecasting Method Based on Feature Preference Strategy and LightGBM-XGboost | Xiaotong Yao; Xiaoli Fu; Chaofei Zong | IEEE Access 10, 75257–75268 | 2022 | [DOI](https://doi.org/10.1109/access.2022.3192011) · [Full text](https://ieeexplore.ieee.org/document/9832627) |
-| [P-070](#p-070) | Trees and features | Short-term electricity load forecasting—A systematic approach from system level to secondary substations | Marco G. Pinheiro; Sara C. Madeira; Alexandre P. Francisco | Applied Energy 332, 120493 | 2023 | [DOI](https://doi.org/10.1016/j.apenergy.2022.120493) · [PDF](https://escholarship.org/content/qt0s14445q/qt0s14445q.pdf) |
-| [P-071](#p-071) | Trees and features | News and Load: A Quantitative Exploration of Natural Language Processing Applications for Forecasting Day-Ahead Electricity System Demand | Yun Bai; Simon Camal; Andrea Michiorri | IEEE Transactions on Power Systems 39(5), 6222–6234 | 2024 | [DOI](https://doi.org/10.1109/tpwrs.2024.3361074) · [Preprint](https://arxiv.org/pdf/2301.07535v2) |
-| [P-072](#p-072) | Trees and features | Short-Term Load Forecasting in the Greek Power Distribution System: A Comparative Study of Gradient Boosting and Deep Learning Models | Md Fazle Hasan Shiblee; Paraskevas Koukaras | Energies 18(19), 5060 | 2025 | [DOI](https://doi.org/10.3390/en18195060) · [Full text](https://www.mdpi.com/1996-1073/18/19/5060) |
-| [P-073](#p-073) | Neural network | Electric load forecasting using an artificial neural network | D.C. Park; M.A. El-Sharkawi; R.J. Marks; L.E. Atlas; M.J. Damborg | IEEE Transactions on Power Systems 6(2), 442–449 | 1991 | [DOI](https://doi.org/10.1109/59.76685) · [PDF](https://robertmarks.org/REPRINTS/1991-05_ElectricLoadForecasting.pdf) |
-| [P-074](#p-074) | Neural network | Artificial neural networks for short-term energy forecasting: Accuracy and economic value | Benjamin F Hobbs; Udi Helman; Suradet Jitprapaikulsarn; Sreenivas Konda; Dominic Maratukulam | Neurocomputing 23(1-3), 71–84 | 1998 | [DOI](https://doi.org/10.1016/s0925-2312(98)00072-1) · [Full text](https://www.sciencedirect.com/science/article/pii/S0925231298000721) |
-| [P-075](#p-075) | Neural network | An evaluation of Bayesian techniques for controlling model complexity and selecting inputs in a neural network for short-term load forecasting | Henrique S. Hippert; James W. Taylor | Neural Networks 23(3), 386–395 | 2010 | [DOI](https://doi.org/10.1016/j.neunet.2009.11.016) · [Author manuscript](https://users.ox.ac.uk/~mast0315/BayesianNeuralNets.pdf) |
-| [P-076](#p-076) | Neural network | A New Neural Network Approach to Short Term Load Forecasting of Electrical Power Systems | Nima Amjady; Farshid Keynia | Energies 4(3), 488–503 | 2011 | [DOI](https://doi.org/10.3390/en4030488) · [Full text](https://www.mdpi.com/1996-1073/4/3/488) |
-| [P-077](#p-077) | Neural network | Short-term load forecasting by wavelet transform and evolutionary extreme learning machine | Song Li; Peng Wang; Lalit Goel | Electric Power Systems Research 122, 96–103 | 2015 | [DOI](https://doi.org/10.1016/j.epsr.2015.01.002) · [Author manuscript](https://dr.ntu.edu.sg/bitstreams/5b2078d4-3947-47e8-989d-78bb7dfcc103/download) |
-| [P-078](#p-078) | Neural network | Optimal Deep Learning LSTM Model for Electric Load Forecasting using Feature Selection and Genetic Algorithm: Comparison with Machine Learning Approaches † | Salah Bouktif; Ali Fiaz; Ali Ouni; Mohamed Serhani | Energies 11(7), 1636 | 2018 | [DOI](https://doi.org/10.3390/en11071636) · [Full text](https://www.mdpi.com/1996-1073/11/7/1636) |
-| [P-079](#p-079) | Neural network | A Deep Neural Network Model for Short-Term Load Forecast Based on Long Short-Term Memory Network and Convolutional Neural Network | Chujie Tian; Jian Ma; Chunhong Zhang; Panpan Zhan | Energies 11(12), 3493 | 2018 | [DOI](https://doi.org/10.3390/en11123493) · [Full text](https://www.mdpi.com/1996-1073/11/12/3493) |
-| [P-080](#p-080) | Neural network | Short-Term Load Forecasting With Deep Residual Networks | Kunjin Chen; Kunlong Chen; Qin Wang; Ziyu He; Jun Hu; Jinliang He | IEEE Transactions on Smart Grid 10(4), 3943–3952 | 2019 | [DOI](https://doi.org/10.1109/tsg.2018.2844307) · [Preprint](https://arxiv.org/pdf/1805.11956v1) |
-| [P-081](#p-081) | Neural network | Energy Demand Forecasting Using Deep Learning: Applications for the French Grid | Alejandro J. del Real; Fernando Dorado; Jaime Durán | Energies 13(9), 2242 | 2020 | [DOI](https://doi.org/10.3390/en13092242) · [Full text](https://www.mdpi.com/1996-1073/13/9/2242) |
-| [P-082](#p-082) | Neural network | Deep learning for time series forecasting: The electric load case | Alberto Gasparin; Slobodan Lukovic; Cesare Alippi | CAAI Transactions on Intelligence Technology 7(1), 1–25 | 2022 | [DOI](https://doi.org/10.1049/cit2.12060) · [Preprint](https://arxiv.org/pdf/1907.09207) |
-| [P-083](#p-083) | Neural network | Transformer-Based Model for Electrical Load Forecasting | Alexandra L’Heureux; Katarina Grolinger; Miriam A. M. Capretz | Energies 15(14), 4993 | 2022 | [DOI](https://doi.org/10.3390/en15144993) · [Full text](https://www.mdpi.com/1996-1073/15/14/4993) |
-| [P-084](#p-084) | Neural network | A comparative assessment of deep learning models for day-ahead load forecasting: Investigating key accuracy drivers | Sotiris Pelekis; Ioannis-Konstantinos Seisopoulos; Evangelos Spiliotis; Theodosios Pountridis; Evangelos Karakolis; Spiros Mouzakitis; Dimitris Askounis | Sustainable Energy, Grids and Networks 36, 101171 | 2023 | [DOI](https://doi.org/10.1016/j.segan.2023.101171) · [Preprint](https://arxiv.org/pdf/2302.12168v2) |
-| [P-085](#p-085) | Neural network | ES-dRNN: A Hybrid Exponential Smoothing and Dilated Recurrent Neural Network Model for Short-Term Load Forecasting | Slawek Smyl; Grzegorz Dudek; Paweł Pełka | IEEE Transactions on Neural Networks and Learning Systems 35(8), 11346–11358 | 2024 | [DOI](https://doi.org/10.1109/tnnls.2023.3259149) · [Preprint](https://arxiv.org/pdf/2112.02663) |
-| [P-086](#p-086) | Neural network | Transfer Learning for Day-Ahead Load Forecasting: A Case Study on European National Electricity Demand Time Series | Alexandros Menelaos Tzortzis; Sotiris Pelekis; Evangelos Spiliotis; Evangelos Karakolis; Spiros Mouzakitis; John Psarras; Dimitris Askounis | Mathematics 12(1), 19 | 2024 | [DOI](https://doi.org/10.3390/math12010019) · [Preprint](https://arxiv.org/pdf/2310.15555) |
-| [P-087](#p-087) | Neural network | Explainable Load Forecasting with Covariate-Informed Time Series Foundation Models | Matthias Hertel; Alexandra Nikoltchovska; Sebastian Pütz; Benjamin Schäfer; Ralf Mikut; Veit Hagenmeyer | Proceedings of the 17th ACM International Conference on Future and Sustainable Energy Systems (e-Energy '26), 612–626 | 2026 | [DOI](https://doi.org/10.1145/3744255.3811724) · [Preprint](https://arxiv.org/pdf/2604.28149) |
-| [P-088](#p-088) | Neural network | Explainable time-series forecasting with sampling-free SHAP for Transformers | Matthias Hertel; Sebastian Pütz; Ralf Mikut; Veit Hagenmeyer; Benjamin Schäfer | Nature Communications 17(1), 4723 | 2026 | [DOI](https://doi.org/10.1038/s41467-026-73243-5) · [PDF](https://www.nature.com/articles/s41467-026-73243-5.pdf) |
-| [P-089](#p-089) | Neural network | An Hour-Specific Hybrid DNN–SVR Framework for National-Scale Short-Term Load Forecasting | Ervin Čeperić; Kristijan Lenac | Sensors 26(3), 797 | 2026 | [DOI](https://doi.org/10.3390/s26030797) · [Full text](https://pmc.ncbi.nlm.nih.gov/articles/PMC12899336/) |
-| [P-090](#p-090) | Weather | Daily Air Temperature and Electricity Load in Spain | Enric Valor; Vicente Meneu; Vicente Caselles | Journal of Applied Meteorology 40(8), 1413–1421 | 2001 | [DOI](https://doi.org/10.1175/1520-0450(2001)040<1413:datael>2.0.co;2) · [Full text](https://journals.ametsoc.org/view/journals/apme/40/8/1520-0450_2001_040_1413_datael_2.0.co_2.xml) |
-| [P-091](#p-091) | Weather | Neural network load forecasting with weather ensemble predictions | J.W. Taylor; R. Buizza | IEEE Transactions on Power Systems 17(3), 626–632 | 2002 | [DOI](https://doi.org/10.1109/tpwrs.2002.800906) · [Author manuscript](https://users.ox.ac.uk/~mast0315/EnsemblesForNeuralNetLoad.pdf) |
-| [P-092](#p-092) | Weather | Using weather ensemble predictions in electricity demand forecasting | James W. Taylor; Roberto Buizza | International Journal of Forecasting 19(1), 57–70 | 2003 | [DOI](https://doi.org/10.1016/s0169-2070(01)00123-6) · [Author manuscript](https://users.ox.ac.uk/~mast0315/EnsemblesForLoad.pdf) |
-| [P-093](#p-093) | Weather | The Economic Value of Temperature Forecasts in Electricity Generation | Thomas J. Teisberg; Rodney F. Weiher; Alireza Khotanzad | Bulletin of the American Meteorological Society 86(12), 1765–1772 | 2005 | [DOI](https://doi.org/10.1175/bams-86-12-1765) · [PDF](https://journals.ametsoc.org/downloadpdf/view/journals/bams/86/12/bams-86-12-1765.pdf) |
-| [P-094](#p-094) | Weather | On the Influence of Weather Forecast Errors in Short-Term Load Forecasting Models | Damien Fay; John V. Ringwood | IEEE Transactions on Power Systems 25(3), 1751–1758 | 2010 | [DOI](https://doi.org/10.1109/tpwrs.2009.2038704) · [PDF](https://mural.maynoothuniversity.ie/id/eprint/3618/1/JR_On_the_influence.pdf) |
-| [P-095](#p-095) | Weather | Quantifying the increasing sensitivity of power systems to climate variability | H. C. Bloomfield; D. J. Brayshaw; L. C. Shaffrey; P. J. Coker; H. E. Thornton | Environmental Research Letters 11(12), 124025 | 2016 | [DOI](https://doi.org/10.1088/1748-9326/11/12/124025) · [PDF](https://centaur.reading.ac.uk/68191/7/Bloomfield_2016_Environ._Res._Lett._11_124025.pdf) |
-| [P-096](#p-096) | Weather | The role of temperature in the variability and extremes of electricity and gas demand in Great Britain | H. E. Thornton; B. J. Hoskins; A. A. Scaife | Environmental Research Letters 11(11), 114015 | 2016 | [DOI](https://doi.org/10.1088/1748-9326/11/11/114015) · [PDF](https://centaur.reading.ac.uk/68474/1/Thornton_2016_Environ._Res._Lett._11_114015.pdf) |
-| [P-097](#p-097) | Weather | Electric load forecasting with recency effect: A big data approach | Pu Wang; Bidong Liu; Tao Hong | International Journal of Forecasting 32(3), 585–597 | 2016 | [DOI](https://doi.org/10.1016/j.ijforecast.2015.09.006) · [Working paper](https://prac.im.pwr.edu.pl/~hugo/RePEc/wuu/wpaper/HSC_15_08.pdf) |
-| [P-098](#p-098) | Weather | Wind Speed for Load Forecasting Models | Jingrui Xie; Tao Hong | Sustainability 9(5), 795 | 2017 | [DOI](https://doi.org/10.3390/su9050795) · [PDF](https://www.mdpi.com/2071-1050/9/5/795/pdf?version=1494416391) |
-| [P-099](#p-099) | Weather | The increasing impact of weather on electricity supply and demand | Iain Staffell; Stefan Pfenninger | Energy 145, 65–78 | 2018 | [DOI](https://doi.org/10.1016/j.energy.2017.12.051) · [Full text](https://spiral.imperial.ac.uk/bitstreams/1717f1e3-aba1-463e-b82d-c8dbc7cae693/download) |
-| [P-100](#p-100) | Weather | Combining Weather Stations for Electric Load Forecasting | Masoud Sobhani; Allison Campbell; Saurabh Sangamwar; Changlin Li; Tao Hong | Energies 12(8), 1510 | 2019 | [DOI](https://doi.org/10.3390/en12081510) · [PDF](https://www.mdpi.com/1996-1073/12/8/1510/pdf?version=1555853797) |
-| [P-101](#p-101) | Weather | Characterizing the winter meteorological drivers of the European electricity system using targeted circulation types | Hannah C. Bloomfield; David J. Brayshaw; Andrew J. Charlton-Perez | Meteorological Applications 27(1), e1858 | 2020 | [DOI](https://doi.org/10.1002/met.1858) · [PDF](https://rmets.onlinelibrary.wiley.com/doi/pdfdirect/10.1002/met.1858) |
-| [P-102](#p-102) | Weather | Rethinking weather station selection for electric load forecasting using genetic algorithms | Santiago Moreno-Carbonell; Eugenio F. Sánchez-Úbeda; Antonio Muñoz | International Journal of Forecasting 36(2), 695–712 | 2020 | [DOI](https://doi.org/10.1016/j.ijforecast.2019.08.008) · [Author manuscript](https://repositorio.comillas.edu/bitstreams/367ece5b-8fdd-4de9-a32a-e4c80e724651/download) |
-| [P-103](#p-103) | Weather | Short-term load forecasting considering improved cumulative effect of hourly temperature | Min Wang; Zixuan Yu; Yuan Chen; Xingang Yang; Jian Zhou | Electric Power Systems Research 205, 107746 | 2022 | [DOI](https://doi.org/10.1016/j.epsr.2021.107746) · [PDF](https://www.sciencedirect.com/science/article/pii/S0378779621007276/pdf) |
-| [P-104](#p-104) | Weather | Optimal Selection of Weather Stations for Electric Load Forecasting | Eduardo Caro; Jesús Juan; Shadi Nouhitehrani | IEEE Access 11, 42981–42990 | 2023 | [DOI](https://doi.org/10.1109/access.2023.3270933) · [PDF](https://ieeexplore.ieee.org/ielx7/6287639/10005208/10109727.pdf) |
-| [P-105](#p-105) | Calendar and similar day | Energy Time Series Forecasting Based on Pattern Sequence Similarity | Francisco Martinez Alvarez; Alicia Troncoso; Jose C. Riquelme; Jesus S. Aguilar Ruiz | IEEE Transactions on Knowledge and Data Engineering 23(8), 1230–1243 | 2011 | [DOI](https://doi.org/10.1109/tkde.2010.227) · [Free copy](https://idus.us.es/bitstreams/4ed0e47c-590f-42ae-b704-8051dc10b298/download) |
-| [P-106](#p-106) | Calendar and similar day | Pattern similarity-based methods for short-term load forecasting – Part 1: Principles | Grzegorz Dudek | Applied Soft Computing 37, 277–287 | 2015 | [DOI](https://doi.org/10.1016/j.asoc.2015.08.040) · [Author manuscript](https://gdudek.el.pcz.pl/files/SBFM_Principles_15.pdf) |
-| [P-107](#p-107) | Calendar and similar day | Pattern similarity-based methods for short-term load forecasting – Part 2: Models | Grzegorz Dudek | Applied Soft Computing 36, 422–441 | 2015 | [DOI](https://doi.org/10.1016/j.asoc.2015.07.035) · [Author manuscript](https://gdudek.el.pcz.pl/files/SBFM_Models_15.pdf) |
-| [P-108](#p-108) | Calendar and similar day | Pattern-based local linear regression models for short-term load forecasting | Grzegorz Dudek | Electric Power Systems Research 130, 139–147 | 2016 | [DOI](https://doi.org/10.1016/j.epsr.2015.09.001) · [Author manuscript](https://gdudek.el.pcz.pl/files/PattBasLinRegSTLF_15.pdf) |
-| [P-109](#p-109) | Calendar and similar day | Rule-based autoregressive moving average models for forecasting load on special days: A case study for France | Siddharth Arora; James W. Taylor | European Journal of Operational Research 266(1), 259–268 | 2018 | [DOI](https://doi.org/10.1016/j.ejor.2017.08.056) · [Author manuscript](https://arxiv.org/pdf/1803.09590) |
-| [P-110](#p-110) | Calendar and similar day | Load forecasting using 24 solar terms | Jingrui Xie; Tao Hong | Journal of Modern Power Systems and Clean Energy 6(2), 208–214 | 2018 | [DOI](https://doi.org/10.1007/s40565-017-0374-0) · [Full text](https://d-nb.info/1159820155/34) |
-| [P-111](#p-111) | Calendar and similar day | Modeling public holidays in load forecasting: a German case study | Florian Ziel | Journal of Modern Power Systems and Clean Energy 6(2), 191–207 | 2018 | [DOI](https://doi.org/10.1007/s40565-018-0385-5) · [Full text](https://d-nb.info/1159820163/34) |
-| [P-112](#p-112) | Calendar and similar day | Application of Discrete-Interval Moving Seasonalities to Spanish Electricity Demand Forecasting during Easter | Óscar Trull; J. Carlos García-Díaz; Alicia Troncoso | Energies 12(6), 1083 | 2019 | [DOI](https://doi.org/10.3390/en12061083) · [PDF](https://mdpi-res.com/d_attachment/energies/energies-12-01083/article_deploy/energies-12-01083.pdf) |
-| [P-113](#p-113) | Calendar and similar day | Use of Available Daylight to Improve Short-Term Load Forecasting Accuracy | Miguel López; Sergio Valero; Carlos Sans; Carolina Senabre | Energies 14(1), 95 | 2021 | [DOI](https://doi.org/10.3390/en14010095) · [PDF](https://mdpi-res.com/d_attachment/energies/energies-14-00095/article_deploy/energies-14-00095.pdf) |
-| [P-114](#p-114) | Calendar and similar day | One-day-ahead electricity demand forecasting in holidays using discrete-interval moving seasonalities | Oscar Trull; J. Carlos García-Díaz; Alicia Troncoso | Energy 231, 120966 | 2021 | [DOI](https://doi.org/10.1016/j.energy.2021.120966) · [Author manuscript](https://riunet.upv.es/bitstreams/8aa94f33-c5be-4052-b05d-aa6ed1c8dcb9/download) |
-| [P-115](#p-115) | Calendar and similar day | Gab-SSDS: An AI-Based Similar Days Selection Method for Load Forecast | Zoran Janković; Boban Vesin; Aleksandar Selakov; Lasse Berntzen | Frontiers in Energy Research 10, 844838 | 2022 | [DOI](https://doi.org/10.3389/fenrg.2022.844838) · [PDF](https://www.frontiersin.org/articles/10.3389/fenrg.2022.844838/pdf) |
-| [P-116](#p-116) | Calendar and similar day | Automatic classification of special days for short-term load forecasting | Miguel López; Carlos Sans; Sergio Valero | Electric Power Systems Research 202, 107533 | 2022 | [DOI](https://doi.org/10.1016/j.epsr.2021.107533) · [Full text](https://www.sciencedirect.com/science/article/pii/S0378779621005149) |
-| [P-117](#p-117) | Calendar and similar day | Short-term load forecasting using time series clustering | Ana Martins; João Lagarto; Hiren Canacsinh; Francisco Reis; Margarida G. M. S. Cardoso | Optimization and Engineering 23(4), 2293–2314 | 2022 | [DOI](https://doi.org/10.1007/s11081-022-09760-1) · [Author manuscript](https://repositorio.iscte-iul.pt/bitstreams/4ffa8856-b2bb-4238-8384-8ae53a12033e/download) |
-| [P-118](#p-118) | Calendar and similar day | Short-term electricity load forecasting with special days: an analysis on parametric and non-parametric methods | Esra Erişen; Cem Iyigun; Fehmi Tanrısever | Annals of Operations Research 354(3), 1039–1072 | 2025 (online 2017) | [DOI](https://doi.org/10.1007/s10479-017-2726-6) · [Free copy](https://repository.bilkent.edu.tr/bitstreams/ff978d35-0d18-4668-bca2-131f5b9fde28/download) |
-| [P-119](#p-119) | Japan | 電力の翌日最大需要予測システムの研究開発動向 (Trends of R&D on Short-Term Load Forecasting) | 長谷川淳; 田中英一 | 電気学会論文誌Ｂ（電力・エネルギー部門誌） 114(9), 835–838; review | 1994 | [DOI](https://doi.org/10.1541/ieejpes1990.114.9_835) · [PDF](https://www.jstage.jst.go.jp/article/ieejpes1990/114/9/114_9_835/_pdf) |
-| [P-120](#p-120) | Japan | ニューラルネットを用いた翌日電力需要予測 (Daily Electric Load Forecasting Using Artificial Neural Network) | 石田隆張; 田村滋 | 電気学会論文誌Ｂ（電力・エネルギー部門誌） 114(11), 1109–1115 | 1994 | [DOI](https://doi.org/10.1541/ieejpes1990.114.11_1109) · [PDF](https://www.jstage.jst.go.jp/article/ieejpes1990/114/11/114_11_1109/_pdf) |
-| [P-121](#p-121) | Japan | 階層型ニューラルネットワークによる補正を考慮した翌日電力需要予測 (Daily Load Curve Forecasting with Corrective Mechanism by Multi-Layered Neural Network) | 佐藤亮; 田中英一; 長谷川淳 | 電気学会論文誌Ｂ（電力・エネルギー部門誌） 114(10), 979–987 | 1994 | [DOI](https://doi.org/10.1541/ieejpes1990.114.10_979) · [PDF](https://www.jstage.jst.go.jp/article/ieejpes1990/114/10/114_10_979/_pdf) |
-| [P-122](#p-122) | Japan | ニューロ・ファジー応用最大電力予測システムの開発 (Development of Peak Load Forecasting System using Neural Networks and Fuzzy Theory) | 植木芳照; 松井哲郎; 遠藤弘; 加藤龍義; 荒家良作 | 電気学会論文誌Ｂ（電力・エネルギー部門誌） 115(9), 1038–1045 | 1995 | [DOI](https://doi.org/10.1541/ieejpes1990.115.9_1038) · [PDF](https://www.jstage.jst.go.jp/article/ieejpes1990/115/9/115_9_1038/_pdf) |
-| [P-123](#p-123) | Japan | 電力需要予測 (Analysis and Forcast by Computer Simulation. Electric Load Forecasting.) | 灰田武史 | 電気学会誌 (The Journal of The Institute of Electrical Engineers of Japan) 117(9), 596–599; review | 1997 | [DOI](https://doi.org/10.1541/ieejjournal.117.596) · [PDF](https://www.jstage.jst.go.jp/article/ieejjournal1994/117/9/117_9_596/_pdf/-char/ja) |
-| [P-124](#p-124) | Japan | 翌日最大電力需要予測におけるAI技術 (AI Technology in Next Day Electric Peak Load Forecast) | 小野田崇 | 人工知能 12(4), 550–558; review | 1997 | [DOI](https://doi.org/10.11517/jjsai.12.4_550) · [PDF](https://www.jstage.jst.go.jp/article/jjsai/12/4/12_550/_pdf) |
-| [P-125](#p-125) | Japan | 基準需要を利用したニューラルネットによる翌日最大電力需要予測 (Forecast of Daily Maximum Electric Load by Neural Networks using the Standard Electric Load) | 須貝康雄; 堀部浩; 川瀬太郎 | 電気学会論文誌Ｂ（電力・エネルギー部門誌） 117(6), 872–879 | 1997 | [DOI](https://doi.org/10.1541/ieejpes1990.117.6_872) · [PDF](https://www.jstage.jst.go.jp/article/ieejpes1990/117/6/117_6_872/_pdf) |
-| [P-126](#p-126) | Japan | 翌日最大電力需要予測における最適なニューラルネットワーク構成の決定法 (Selection of the Optimal Neural Network Architecture for Next Peak Load Forecasting) | 小野田崇; 大場英二 | 電気学会論文誌Ｂ（電力・エネルギー部門誌） 118(5), 497–504 | 1998 | [DOI](https://doi.org/10.1541/ieejpes1990.118.5_497) · [PDF](https://www.jstage.jst.go.jp/article/ieejpes1990/118/5/118_5_497/_pdf) |
-| [P-127](#p-127) | Japan | 類似性に基づくファジィニューラルネットワークによる翌日最大電力需要予測 (Next Day Peak Load Forecasting Based on Similarity by Using Fuzzy Neural Network) | 千住智信; 比嘉修三; 上里勝実 | 日本ファジィ学会誌 11(1), 169–177 | 1999 | [DOI](https://doi.org/10.3156/jfuzzy.11.1_169) · [PDF](https://www.jstage.jst.go.jp/article/jfuzzy/11/1/11_KJ00002086854/_pdf) |
-| [P-128](#p-128) | Japan | NN応用電力需要予測システムの開発 (Development of Electric Load Forecasting System using Neural Networks) | 石岡修; 佐藤佳彦; 石原徹; 植木芳照; 松井哲郎; 飯坂達也 | 電気学会論文誌Ｂ（電力・エネルギー部門誌） 120(12), 1550–1557 | 2000 | [DOI](https://doi.org/10.1541/ieejpes1990.120.12_1550) · [PDF](https://www.jstage.jst.go.jp/article/ieejpes1990/120/12/120_12_1550/_pdf) |
-| [P-129](#p-129) | Japan | 構造化ニューラルネットワークの新しい学習法と最大電力需要予測への適用 (A New Training Method for Analyzable Structured Neural Network and Application of Daily Peak Load Forecasting) | 飯坂達也; 松井哲郎; 福山良和 | 電気学会論文誌Ｂ（電力・エネルギー部門誌） 124(3), 347–354 | 2004 | [DOI](https://doi.org/10.1541/ieejpes.124.347) · [PDF](https://www.jstage.jst.go.jp/article/ieejpes/124/3/124_3_347/_pdf) |
-| [P-130](#p-130) | Japan | 構造的GAによるGMDHを用いた翌日最大電力需要予測 (Daily Peak Load Forecasting by Structured Representation on Genetic Algorithms for Non-linear Function Fitting) | 雪田和人; 加藤慎也; 後藤泰之; 一柳勝宏; 川島靖弘 | 電気学会論文誌Ｂ（電力・エネルギー部門誌） 124(3), 355–362 | 2004 | [DOI](https://doi.org/10.1541/ieejpes.124.355) · [PDF](https://www.jstage.jst.go.jp/article/ieejpes/124/3/124_3_355/_pdf) |
-| [P-131](#p-131) | Japan | 需要想定と気象 (Electric Load Forecasting and Weather) | 灰田武史 | 日本風工学会誌 2008(114), 42–47; review | 2008 | [DOI](https://doi.org/10.5359/jawe.2008.42) · [PDF](https://www.jstage.jst.go.jp/article/jawe1982/2008/114/2008_114_42/_pdf) |
-| [P-132](#p-132) | Japan | 日種別・日射量を考慮した時刻別回帰型トレンド調整項付き需要モデリングによる電力ロードカーブ予測手法 (Study on Daily Electric Load Curve Forecasting Method based on Regression Type Hourly Load Modeling with Yearly Load Trends, Day-types and Insolations) | 灰田武史 | 電気学会論文誌Ｂ（電力・エネルギー部門誌） 129(12), 1477–1485 | 2009 | [DOI](https://doi.org/10.1541/ieejpes.129.1477) · [PDF](https://www.jstage.jst.go.jp/article/ieejpes/129/12/129_12_1477/_pdf) |
-| [P-133](#p-133) | Japan | 気温地域分布および各近日データ比較値を用いた翌日最大電力需要予測 (Daily Peak Load Forecasting of Next Day using Weather Distribution and Comparison Value of Each Nearby Date Data) | 伊東重信; 雪田和人; 後藤泰之; 一柳勝宏; 中野寛之 | 電気学会論文誌Ｂ（電力・エネルギー部門誌） 130(3), 329–337 | 2010 | [DOI](https://doi.org/10.1541/ieejpes.130.329) · [PDF](https://www.jstage.jst.go.jp/article/ieejpes/130/3/130_3_329/_pdf) |
-| [P-134](#p-134) | Japan | タグチのT法を用いた翌日最大電力需要予測 (Daily Peak Load Forecasting by Taguchi's T Method) | 根岸信太郎; 森本裕介; 高山聡志; 石亀篤司 | 電気学会論文誌Ｃ（電子・情報・システム部門誌） 136(6), 794–801 | 2016 | [DOI](https://doi.org/10.1541/ieejeiss.136.794) · [PDF](https://www.jstage.jst.go.jp/article/ieejeiss/136/6/136_794/_pdf) |
-| [P-135](#p-135) | Japan | 予測実施時点の実績値のみを用いた短時間先電力需要予測 (Short-term Power Demand Forecasting using Fixed Information at the Time of Prediction) | 所健一; 比護貴之 | 電気学会論文誌Ｃ（電子・情報・システム部門誌） 137(8), 1036–1042 | 2017 | [DOI](https://doi.org/10.1541/ieejeiss.137.1036) · [PDF](https://www.jstage.jst.go.jp/article/ieejeiss/137/8/137_1036/_pdf) |
-| [P-136](#p-136) | Japan | 電力需要予測コンテストの参加体験記（＜特集＞「若手の会」が発信するAIの最前線） | 進博正 | 日本機械学会誌 121(1198), 19–21; report | 2018 | [DOI](https://doi.org/10.1299/jsmemag.121.1198_19) · [PDF](https://www.jstage.jst.go.jp/article/jsmemag/121/1198/121_19/_pdf) |
-| [P-137](#p-137) | Japan | 気温と湿度に対する消費電力の感応度 ―一般送配電事業者ごとの毎時電力消費量に着目して― (SENSITIVITY OF HOURLY ELECTRICITY POWER CONSUMPTION TO TEMPERATURE AND HUMIDITY IN JAPAN) | 蛭田有希; GAO Lu; 芦名秀一 | 土木学会論文集G（環境） 75(6), II_17-II_27 | 2019 | [DOI](https://doi.org/10.2208/jscejer.75.6_ii_17) · [PDF](https://www.jstage.jst.go.jp/article/jscejer/75/6/75_II_17/_pdf) |
-| [P-138](#p-138) | Japan | 人工ニューラルネットワークによる電力需要予測の影響要因評価 ‐学習条件による影響‐ (Evaluation of Factors Influencing the Accuracy of Electric Demand Forecasting by Artificial Neural Networks: Effect of Changes in Model Configuration) | 柴田智文; 大谷公哉; 寄田保夫; 川上恭章; 永富悠; 松尾雄司 | エネルギー・資源学会論文誌 40(5), 144–153 | 2019 | [DOI](https://doi.org/10.24778/jjser.40.5_144) · [PDF](https://www.jstage.jst.go.jp/article/jjser/40/5/40_144/_pdf) |
-| [P-139](#p-139) | Japan | 電力需要予測コンテスト ─オープンイノベーションへの取組み─ (TEPCO Electricity Load Forecasting Contest ─TEPCO Open Innovation Challenge─ (the English title printed in the article; J-STAGE registers none)) | 竹田恒; 岡本知樹; 真保崇 | 人工知能 (Journal of the Japanese Society for Artificial Intelligence) 35(3), 360–365 | 2020 | [DOI](https://doi.org/10.11517/jjsai.35.3_360) · [PDF](https://www.jstage.jst.go.jp/article/jjsai/35/3/35_360/_pdf/-char/ja) |
-| [P-140](#p-140) | East Asia | A Weekend Load Forecasting Model Based on Semi-Parametric Regression Analysis Considering Weather and Load Interaction | Bin Li; Mingzhen Lu; Yiyi Zhang; Jia Huang | Energies 12(20), 3820 | 2019 | [DOI](https://doi.org/10.3390/en12203820) · [PDF](https://mdpi-res.com/d_attachment/energies/energies-12-03820/article_deploy/energies-12-03820.pdf) |
-| [P-141](#p-141) | East Asia | A learning framework based on weighted knowledge transfer for holiday load forecasting | Pan ZENG; Chang SHENG; Min JIN | Journal of Modern Power Systems and Clean Energy 7(2), 329–339 | 2019 | [DOI](https://doi.org/10.1007/s40565-018-0435-z) · [PDF](https://link.springer.com/content/pdf/10.1007/s40565-018-0435-z.pdf) |
-| [P-142](#p-142) | East Asia | Short-Term Electricity Demand Forecasting: Impact Analysis of Temperature for Thailand | Kamal Chapagain; Somsak Kittipiyakul; Pisut Kulthanavit | Energies 13(10), 2498 | 2020 | [DOI](https://doi.org/10.3390/en13102498) · [PDF](https://mdpi-res.com/d_attachment/energies/energies-13-02498/article_deploy/energies-13-02498.pdf) |
-| [P-143](#p-143) | East Asia | Dual Deep Learning Networks Based Load Forecasting with Partial Real-Time Information and Its Application to System Marginal Price Prediction | Khikmafaris Yudantaka; Jung-Su Kim; Hwachang Song | Energies 13(1), 148 | 2020 | [DOI](https://doi.org/10.3390/en13010148) · [PDF](https://mdpi-res.com/d_attachment/energies/energies-13-00148/article_deploy/energies-13-00148.pdf) |
-| [P-144](#p-144) | East Asia | XGBoost-Based Day-Ahead Load Forecasting Algorithm Considering Behind-the-Meter Solar PV Generation | Dong-Jin Bae; Bo-Sung Kwon; Kyung-Bin Song | Energies 15(1), 128 | 2022 | [DOI](https://doi.org/10.3390/en15010128) · [PDF](https://mdpi-res.com/d_attachment/energies/energies-15-00128/article_deploy/energies-15-00128.pdf) |
-| [P-145](#p-145) | East Asia | Week‐ahead daily peak load forecasting using genetic algorithm‐based hybrid convolutional neural network | Ying‐Yi Hong; Yu‐Hsuan Chan; Yung‐Han Cheng; Yih‐Der Lee; Jheng‐Lun Jiang; Shen‐Szu Wang | IET Generation, Transmission & Distribution 16(12), 2416–2424 | 2022 | [DOI](https://doi.org/10.1049/gtd2.12460) · [PDF](https://onlinelibrary.wiley.com/doi/pdfdirect/10.1049/gtd2.12460) |
-| [P-146](#p-146) | East Asia | Short-Term Electricity Load Forecasting Based on Temporal Fusion Transformer Model | Pham Canh Huy; Nguyen Quoc Minh; Nguyen Dang Tien; Tao Thi Quynh Anh | IEEE Access 10, 106296–106304 | 2022 | [DOI](https://doi.org/10.1109/access.2022.3211941) · [PDF](https://ieeexplore.ieee.org/ielx7/6287639/9668973/09910162.pdf) |
-| [P-147](#p-147) | East Asia | National-scale electricity peak load forecasting: Traditional, machine learning, or hybrid model? | Juyong Lee; Youngsang Cho | Energy 239, 122366 | 2022 | [DOI](https://doi.org/10.1016/j.energy.2021.122366) · [Preprint](https://arxiv.org/pdf/2107.06174) |
-| [P-148](#p-148) | East Asia | Day-Ahead Short-Term Load Forecasting for Holidays Based on Modification of Similar Days’ Load Profiles | Jihoo Son; Jiwon Cha; Hyunsu Kim; Young-Min Wi | IEEE Access 10, 17864–17880 | 2022 | [DOI](https://doi.org/10.1109/access.2022.3150344) · [PDF](https://ieeexplore.ieee.org/ielx7/6287639/9668973/09709300.pdf) |
-| [P-149](#p-149) | East Asia | eForecaster: Unifying Electricity Forecasting with Robust, Flexible, and Explainable Machine Learning Algorithms | Zhaoyang Zhu; Weiqi Chen; Rui Xia; Tian Zhou; Peisong Niu; Bingqing Peng; Wenwei Wang; Hengbo Liu; Ziqing Ma; Qingsong Wen; Liang Sun | Proceedings of the AAAI Conference on Artificial Intelligence 37(13), 15630–15638 | 2023 | [DOI](https://doi.org/10.1609/aaai.v37i13.26853) · [Full text](https://ojs.aaai.org/index.php/AAAI/article/view/26853) |
-| [P-150](#p-150) | East Asia | Analysis of the Impact of Biometeorological Thermal Indices on Summer Peak Power Load Forecasting in Guangdong Province | Jingqi Miao; Hui Yang; Yu Zhang; Quancheng Hao; Liying Peng; Feng Xu; Haibo Shen | Atmosphere 17(5), 463 | 2026 | [DOI](https://doi.org/10.3390/atmos17050463) · [PDF](https://mdpi-res.com/d_attachment/atmosphere/atmosphere-17-00463/article_deploy/atmosphere-17-00463.pdf) |
-| [P-151](#p-151) | East Asia | A Two-Stage Calendar-Aware Random Forest Framework for Robust Short-Term Load Forecasting in Heterogeneous Power Systems | May Thazin Phuu Wai; Panharith Chhom; Yung-Cheol Byun; Aussadavut Dumrongsiri; Chawalit Jeenanunta | IEEE Access 14, 68281–68301 | 2026 | [DOI](https://doi.org/10.1109/access.2026.3688005) · [PDF](https://ieeexplore.ieee.org/ielx8/6287639/6514899/11495107.pdf) |
-| [P-152](#p-152) | Probabilistic and adaptive | Adaptive Learning of Smoothing Functions: Application to Electricity Load Forecasting | Amadou Ba; Mathieu Sinn; Yannig Goude; Pascal Pompey | Advances in Neural Information Processing Systems 25 (NIPS 2012) | 2012 | [Record](https://proceedings.neurips.cc/paper/2012/hash/b571ecea16a9824023ee1af16897a582-Abstract.html) · [PDF](https://proceedings.neurips.cc/paper_files/paper/2012/file/b571ecea16a9824023ee1af16897a582-Paper.pdf) |
-| [P-153](#p-153) | Probabilistic and adaptive | Forecasting electricity consumption by aggregating specialized experts | Marie Devaine; Pierre Gaillard; Yannig Goude; Gilles Stoltz | Machine Learning 90(2), 231–260 | 2013 | [DOI](https://doi.org/10.1007/s10994-012-5314-7) · [Preprint](https://arxiv.org/pdf/1207.1965) |
-| [P-154](#p-154) | Probabilistic and adaptive | Short-Term Load Forecast Error Distributions and Implications for Renewable Integration Studies | Bri-Mathias Hodge; Debra Lew; Michael Milligan | 2013 IEEE Green Technologies Conference (GreenTech), 435–442 | 2013 | [DOI](https://doi.org/10.1109/greentech.2013.73) · [Preprint](https://docs.nlr.gov/docs/fy13osti/57340.pdf) |
-| [P-155](#p-155) | Probabilistic and adaptive | A prediction interval for a function-valued forecast model: Application to load forecasting | Anestis Antoniadis; Xavier Brossat; Jairo Cugliari; Jean-Michel Poggi | International Journal of Forecasting 32(3), 939–947 | 2016 | [DOI](https://doi.org/10.1016/j.ijforecast.2015.09.001) · [Preprint](https://arxiv.org/pdf/1412.4222) |
-| [P-156](#p-156) | Probabilistic and adaptive | Probabilistic Load Forecasting via Quantile Regression Averaging on Sister Forecasts | Bidong Liu; Jakub Nowotarski; Tao Hong; Rafal Weron | IEEE Transactions on Smart Grid 8(2), 730–737 | 2017 | [DOI](https://doi.org/10.1109/tsg.2015.2437877) · [Working paper](https://alfa.im.pwr.edu.pl/~hugo/RePEc/wuu/wpaper/HSC_15_01.pdf) |
-| [P-157](#p-157) | Probabilistic and adaptive | Short term electricity demand forecasting using partially linear additive quantile regression with an application to the unit commitment problem | Moshoko Emily Lebotsa; Caston Sigauke; Alphonce Bere; Robert Fildes; John E. Boylan | Applied Energy 222, 104–118 | 2018 | [DOI](https://doi.org/10.1016/j.apenergy.2018.03.155) · [Author manuscript](https://eprints.lancs.ac.uk/id/eprint/124464/4/Applied_Energy_sigauke_APEN_D_17_10255R2_edit.pdf) |
-| [P-158](#p-158) | Probabilistic and adaptive | Combining Probabilistic Load Forecasts | Yi Wang; Ning Zhang; Yushi Tan; Tao Hong; Daniel S. Kirschen; Chongqing Kang | IEEE Transactions on Smart Grid 10(4), 3664–3674 | 2019 | [DOI](https://doi.org/10.1109/tsg.2018.2833869) · [Preprint](https://arxiv.org/pdf/1803.06730) |
-| [P-159](#p-159) | Probabilistic and adaptive | Day-Ahead Hierarchical Probabilistic Load Forecasting With Linear Quantile Regression and Empirical Copulas | Tianhui Zhao; Jianxue Wang; Yao Zhang | IEEE Access 7, 80969–80979 | 2019 | [DOI](https://doi.org/10.1109/access.2019.2922744) · [PDF](https://ieeexplore.ieee.org/ielx7/6287639/8600701/08736321.pdf) |
-| [P-160](#p-160) | Probabilistic and adaptive | Temporal hierarchies with autocorrelation for load forecasting | Peter Nystrup; Erik Lindström; Pierre Pinson; Henrik Madsen | European Journal of Operational Research 280(3), 876–888 | 2020 | [DOI](https://doi.org/10.1016/j.ejor.2019.07.061) · [Author manuscript](https://pierrepinson.com/docs/Nystrupetal2019.pdf) |
-| [P-161](#p-161) | Probabilistic and adaptive | Probabilistic Load Forecasting Based on Adaptive Online Learning | Veronica Alvarez; Santiago Mazuelas; Jose A. Lozano | IEEE Transactions on Power Systems 36(4), 3668–3680 | 2021 | [DOI](https://doi.org/10.1109/tpwrs.2021.3050837) · [Preprint](https://arxiv.org/pdf/2011.14721) |
-| [P-162](#p-162) | Probabilistic and adaptive | Probabilistic Forecasting of Regional Net-Load With Conditional Extremes and Gridded NWP | Jethro Browell; Matteo Fasiolo | IEEE Transactions on Smart Grid 12(6), 5011–5019 | 2021 | [DOI](https://doi.org/10.1109/tsg.2021.3107159) · [Preprint](https://eprints.gla.ac.uk/250372/1/250372.pdf) |
-| [P-163](#p-163) | Probabilistic and adaptive | Fast Calibrated Additive Quantile Regression | Matteo Fasiolo; Simon N. Wood; Margaux Zaffran; Raphaël Nedellec; Yannig Goude | Journal of the American Statistical Association 116(535), 1402–1412 | 2021 | [DOI](https://doi.org/10.1080/01621459.2020.1725521) · [Preprint](https://arxiv.org/pdf/1707.03307) |
-| [P-164](#p-164) | Probabilistic and adaptive | Adaptive Methods for Short-Term Electricity Load Forecasting During COVID-19 Lockdown in France | David Obst; Joseph de Vilmarest; Yannig Goude | IEEE Transactions on Power Systems 36(5), 4754–4763 | 2021 | [DOI](https://doi.org/10.1109/tpwrs.2021.3067551) · [Preprint](https://arxiv.org/pdf/2009.06527) |
-| [P-165](#p-165) | Probabilistic and adaptive | Day-ahead probabilistic forecasting for French half-hourly electricity loads and quantiles for curve-to-curve regression | Xiuqin Xu; Ying Chen; Yannig Goude; Qiwei Yao | Applied Energy 301, 117465 | 2021 | [DOI](https://doi.org/10.1016/j.apenergy.2021.117465) · [Preprint](https://researchonline.lse.ac.uk/id/eprint/120774/1/20200830.pdf) |
-| [P-166](#p-166) | Probabilistic and adaptive | Cost-oriented load forecasting | Jialun Zhang; Yi Wang; Gabriela Hug | Electric Power Systems Research 205, 107723 | 2022 | [DOI](https://doi.org/10.1016/j.epsr.2021.107723) · [Preprint](https://arxiv.org/pdf/2107.01861) |
-| [P-167](#p-167) | Probabilistic and adaptive | Hierarchical transfer learning with applications to electricity load forecasting | Anestis Antoniadis; Solenne Gaucher; Yannig Goude | International Journal of Forecasting 40(2), 641–660 | 2024 | [DOI](https://doi.org/10.1016/j.ijforecast.2023.04.006) · [Preprint](https://arxiv.org/pdf/2111.08512) |
-| [P-168](#p-168) | Probabilistic and adaptive | Adaptive Probabilistic Forecasting of Electricity (Net-)Load | Joseph de Vilmarest; Jethro Browell; Matteo Fasiolo; Yannig Goude; Olivier Wintenberger | IEEE Transactions on Power Systems 39(2), 4154–4163 | 2024 | [DOI](https://doi.org/10.1109/tpwrs.2023.3310280) · [Preprint](https://arxiv.org/pdf/2301.10090) |
-| [P-169](#p-169) | Probabilistic and adaptive | Probabilistic day-ahead forecasting of system-level renewable energy and electricity demand | Guillermo Terrén-Serrano; Ranjit Deshmukh; Manel Martínez-Ramón | Nature Communications 17(1), 3307 | 2026 | [DOI](https://doi.org/10.1038/s41467-026-69015-w) · [PDF](https://www.nature.com/articles/s41467-026-69015-w.pdf) |
+| [P-015](#p-015) | Review | Energy Forecasting: A Review and Outlook | Tao Hong; Pierre Pinson; Yi Wang; Rafal Weron; Dazhi Yang; Hamidreza Zareipour | IEEE Open Access Journal of Power and Energy 7, 376–388; review | 2020 | [DOI](https://doi.org/10.1109/oajpe.2020.3029979) · [PDF](https://ieeexplore.ieee.org/ielx7/8784343/8889549/09218967.pdf) |
+| [P-016](#p-016) | Review | Electricity load forecasting: a systematic review | Isaac Kofi Nti; Moses Teimeh; Owusu Nyarko-Boateng; Adebayo Felix Adekoya | Journal of Electrical Systems and Information Technology 7(1), article 13; review | 2020 | [DOI](https://doi.org/10.1186/s43067-020-00021-8) · [PDF](https://jesit.springeropen.com/track/pdf/10.1186/s43067-020-00021-8) |
+| [P-017](#p-017) | Review | Explainability and Interpretability in Electric Load Forecasting Using Machine Learning Techniques – A Review | Lukas Baur; Konstantin Ditschuneit; Maximilian Schambach; Can Kaymakci; Thomas Wollmann; Alexander Sauer | Energy and AI 16, 100358; review | 2024 | [DOI](https://doi.org/10.1016/j.egyai.2024.100358) · [Full text](https://www.sciencedirect.com/science/article/pii/S2666546824000247) |
+| [P-018](#p-018) | Review | Publicly Available Datasets For Electric Load Forecasting – An Overview | Lukas Baur; Vignesh Chandramouli; Alexander Sauer | Proceedings of the Conference on Production Systems and Logistics: CPSL 2024 (Honolulu, 9-12 July 2024), publish-Ing., Hannover | 2024 | [DOI](https://doi.org/10.15488/17659) · [Full text](https://repo.uni-hannover.de/bitstreams/6db8955d-c9de-406b-8446-5a2bec258677/download) |
+| [P-019](#p-019) | Review | A comprehensive review on deep learning approaches for short-term load forecasting | Yavuz Eren; İbrahim Küçükdemiral | Renewable and Sustainable Energy Reviews 189, 114031 | 2024 | [DOI](https://doi.org/10.1016/j.rser.2023.114031) · [Author manuscript](https://researchonline.gcu.ac.uk/ws/files/81149524/81004974.pdf) |
+| [P-020](#p-020) | Review | Short-Term Electricity-Load Forecasting by deep learning: A comprehensive survey | Qi Dong; Rubing Huang; Chenhui Cui; Dave Towey; Ling Zhou; Jinyu Tian; Jianzhou Wang | Engineering Applications of Artificial Intelligence 154, 110980; review | 2025 | [DOI](https://doi.org/10.1016/j.engappai.2025.110980) · [Preprint](https://arxiv.org/pdf/2408.16202) |
+| [P-021](#p-021) | Review | Machine learning in peak demand forecasting: foundations, trends, and insights | Shuang Dai; Fanlin Meng; Hongsheng Dai; Qian Wang; Xizhong Chen; Wenlei Bai; Peizhi Shi; Richard Allmendinger; Yuchen Zhang; Jian Liu | Renewable and Sustainable Energy Reviews 227, 116500 | 2026 | [DOI](https://doi.org/10.1016/j.rser.2025.116500) · [PDF](https://eprints.whiterose.ac.uk/id/eprint/234926/1/1-s2.0-S1364032125011736-main.pdf) |
+| [P-022](#p-022) | Competition | Load Forecasting Using Support Vector Machines: A Study on EUNITE Competition 2001 | B.-J. Chen; M.-W. Chang; C.-J. Lin | IEEE Transactions on Power Systems 19(4), 1821–1830 | 2004 | [DOI](https://doi.org/10.1109/tpwrs.2004.835679) · [Author manuscript](https://www.csie.ntu.edu.tw/~cjlin/papers/elf.pdf) |
+| [P-023](#p-023) | Competition | A refined parametric model for short term load forecasting | Nathaniel Charlton; Colin Singleton | International Journal of Forecasting 30(2), 364–368 | 2014 | [DOI](https://doi.org/10.1016/j.ijforecast.2013.07.003) · [Author manuscript](https://centaur.reading.ac.uk/37972/1/IJFpaper.pdf) |
+| [P-024](#p-024) | Competition | Global Energy Forecasting Competition 2012 | Tao Hong; Pierre Pinson; Shu Fan | International Journal of Forecasting 30(2), 357–363 | 2014 | [DOI](https://doi.org/10.1016/j.ijforecast.2013.07.001) · [Working paper](https://prac.im.pwr.edu.pl/~hugo/RePEc/wuu/wpaper/HSC_13_16.pdf) |
+| [P-025](#p-025) | Competition | GEFCom2012 hierarchical load forecasting: Gradient boosting machines and Gaussian processes | James Robert Lloyd | International Journal of Forecasting 30(2), 369–374 | 2014 | [DOI](https://doi.org/10.1016/j.ijforecast.2013.07.002) · [Preprint](https://jamesrobertlloyd.com/papers/GEFCom2012.pdf) |
+| [P-026](#p-026) | Competition | A gradient boosting approach to the Kaggle load forecasting competition | Souhaib Ben Taieb; Rob J. Hyndman | International Journal of Forecasting 30(2), 382–394 | 2014 | [DOI](https://doi.org/10.1016/j.ijforecast.2013.07.005) · [Author manuscript](https://robjhyndman.com/papers/kaggle-competition.pdf) |
+| [P-027](#p-027) | Competition | Additive models and robust aggregation for GEFCom2014 probabilistic electric load and electricity price forecasting | Pierre Gaillard; Yannig Goude; Raphaël Nedellec | International Journal of Forecasting 32(3), 1038–1050 | 2016 | [DOI](https://doi.org/10.1016/j.ijforecast.2015.12.001) · [Author manuscript](https://web.archive.org/web/20220528224219if_/http://pierre.gaillard.me/doc/GaillardGoudeNedellec2015.pdf) |
+| [P-028](#p-028) | Competition | A hybrid model of kernel density estimation and quantile regression for GEFCom2014 probabilistic load forecasting | Stephen Haben; Georgios Giasemidis | International Journal of Forecasting 32(3), 1017–1022 | 2016 | [DOI](https://doi.org/10.1016/j.ijforecast.2015.11.004) · [Preprint](https://arxiv.org/pdf/1610.05183) |
+| [P-029](#p-029) | Competition | Probabilistic energy forecasting: Global Energy Forecasting Competition 2014 and beyond | Tao Hong; Pierre Pinson; Shu Fan; Hamidreza Zareipour; Alberto Troccoli; Rob J. Hyndman | International Journal of Forecasting 32(3), 896–913 | 2016 | [DOI](https://doi.org/10.1016/j.ijforecast.2016.02.001) · [Author manuscript](https://robjhyndman.com/papers/gefcom2014.pdf) |
+| [P-030](#p-030) | Competition | Lasso estimation for GEFCom2014 probabilistic electric load forecasting | Florian Ziel; Bidong Liu | International Journal of Forecasting 32(3), 1029–1037 | 2016 | [DOI](https://doi.org/10.1016/j.ijforecast.2016.01.001) · [Preprint](https://arxiv.org/pdf/1603.01376) |
+| [P-031](#p-031) | Competition | Data preprocessing and quantile regression for probabilistic load forecasting in the GEFCom2017 final match | Isao Kanda; J.M. Quintana Veguillas | International Journal of Forecasting 35(4), 1460–1468 | 2019 | [DOI](https://doi.org/10.1016/j.ijforecast.2019.02.005) · [Full text](https://www.sciencedirect.com/science/article/pii/S0169207019300238) |
+| [P-032](#p-032) | Competition | Reconciled boosted models for GEFCom2017 hierarchical probabilistic load forecasting | Cameron Roach | International Journal of Forecasting 35(4), 1439–1450 | 2019 | [DOI](https://doi.org/10.1016/j.ijforecast.2018.09.009) · [Author manuscript](https://raw.githubusercontent.com/camroach87/1701-gefcom/master/paper.pdf) |
+| [P-033](#p-033) | Competition | Quantile regression for the qualifying match of GEFCom2017 probabilistic load forecasting | Florian Ziel | International Journal of Forecasting 35(4), 1400–1408 | 2019 | [DOI](https://doi.org/10.1016/j.ijforecast.2018.07.004) · [Preprint](https://arxiv.org/pdf/1809.03561) |
+| [P-034](#p-034) | Competition | Day-Ahead Electricity Demand Forecasting Competition: Post-COVID Paradigm | Mostafa Farrokhabadi; Jethro Browell; Yi Wang; Stephen Makonin; Wencong Su; Hamidreza Zareipour | IEEE Open Access Journal of Power and Energy 9, 185–191 | 2022 | [DOI](https://doi.org/10.1109/oajpe.2022.3161101) · [PDF](https://eprints.gla.ac.uk/254028/1/254028.pdf) |
+| [P-035](#p-035) | Competition | State-Space Models for Online Post-Covid Electricity Load Forecasting Competition | Joseph De Vilmarest; Yannig Goude | IEEE Open Access Journal of Power and Energy 9, 192–201 | 2022 | [DOI](https://doi.org/10.1109/oajpe.2022.3141883) · [PDF](https://ieeexplore.ieee.org/ielx7/8784343/9662292/09677626.pdf) |
+| [P-036](#p-036) | Competition | Smoothed Bernstein Online Aggregation for Short-Term Load Forecasting in IEEE DataPort Competition on Day-Ahead Electricity Demand Forecasting: Post-COVID Paradigm | Florian Ziel | IEEE Open Access Journal of Power and Energy 9, 202–212 | 2022 | [DOI](https://doi.org/10.1109/oajpe.2022.3160933) · [PDF](https://ieeexplore.ieee.org/ielx7/8784343/9662292/09740204.pdf) |
+| [P-037](#p-037) | Competition | Predicting the magnitude and timing of peak electricity demand: A competition case study | Daniel L. Donaldson; Jethro Browell; Ciaran Gilbert | IET Smart Grid 7(4), 473–484 | 2024 | [DOI](https://doi.org/10.1049/stg2.12152) · [PDF](https://eprints.gla.ac.uk/320296/1/320296.pdf) |
+| [P-038](#p-038) | Competition | Privacy‐preserving peak time forecasting with Learning to Rank XGBoost and extensive feature engineering | Leo Semmelmann; Oliver Resch; Sarah Henni; Christof Weinhardt | IET Smart Grid 7(2), 172–185 | 2024 | [DOI](https://doi.org/10.1049/stg2.12137) · [Full text](https://publikationen.bibliothek.kit.edu/1000163920/151675430) |
+| [P-039](#p-039) | Competition | BigDEAL Challenge 2022: Forecasting peak timing of electricity demand | Shreyashi Shukla; Tao Hong | IET Smart Grid 7(4), 442–459 | 2024 | [DOI](https://doi.org/10.1049/stg2.12162) · [PDF](https://onlinelibrary.wiley.com/doi/pdfdirect/10.1049/stg2.12162) |
+| [P-040](#p-040) | Statistical model | Short-term electricity demand forecasting using double seasonal exponential smoothing | J W Taylor | Journal of the Operational Research Society 54(8), 799–805 | 2003 | [DOI](https://doi.org/10.1057/palgrave.jors.2601589) · [Author manuscript](https://users.ox.ac.uk/~mast0315/ExpSmDoubleSeasonal.pdf) |
+| [P-041](#p-041) | Statistical model | A non-linear regression model for mid-term load forecasting and improvements in seasonality | Alexander Bruhns; Gilles Deurveilher; Jean-Sebastien Roy | 15th Power Systems Computation Conference (PSCC'05), Liège, Belgium, 22-26 August 2005, session 17 (Loadflow and Time Series Analysis), paper 168 | 2005 | [Record](https://services.montefiore.uliege.be/stochastic/pscc05/show_session.php?id=17) · [PDF](https://services.montefiore.uliege.be/stochastic/pscc05/papers/fp168.pdf) |
+| [P-042](#p-042) | Statistical model | A comparison of univariate methods for forecasting electricity demand up to a day ahead | James W. Taylor; Lilian M. de Menezes; Patrick E. McSharry | International Journal of Forecasting 22(1), 1–16 | 2006 | [DOI](https://doi.org/10.1016/j.ijforecast.2005.06.006) · [Author manuscript](https://users.ox.ac.uk/~mast0315/CompareUnivLoad.pdf) |
+| [P-043](#p-043) | Statistical model | Short-Term Load Forecasting Methods: An Evaluation Based on European Data | James W. Taylor; Patrick E. McSharry | IEEE Transactions on Power Systems 22(4), 2213–2219 | 2007 | [DOI](https://doi.org/10.1109/tpwrs.2007.907583) · [Author manuscript](https://users.ox.ac.uk/~mast0315/EuroLoad.pdf) |
+| [P-044](#p-044) | Statistical model | Forecasting the electricity load from one day to one week ahead for the Spanish system operator | José Ramón Cancelo; Antoni Espasa; Rosmarie Grafe | International Journal of Forecasting 24(4), 588–602 | 2008 | [DOI](https://doi.org/10.1016/j.ijforecast.2008.07.005) · [Working paper](https://e-archivo.uc3m.es/rest/api/core/bitstreams/80c00754-3edc-4a1b-8d56-ace47eef1472/content) |
+| [P-045](#p-045) | Statistical model | An hourly periodic state space model for modelling French national electricity load | V. Dordonnat; S.J. Koopman; M. Ooms; A. Dessertaine; J. Collet | International Journal of Forecasting 24(4), 566–587 | 2008 | [DOI](https://doi.org/10.1016/j.ijforecast.2008.08.010) · [Working paper](https://papers.tinbergen.nl/08008.pdf) |
+| [P-046](#p-046) | Statistical model | Modeling and forecasting short-term electricity load: A comparison of methods with an application to Brazilian data | Lacir J. Soares; Marcelo C. Medeiros | International Journal of Forecasting 24(4), 630–644 | 2008 | [DOI](https://doi.org/10.1016/j.ijforecast.2008.08.003) · [Working paper](https://www.econ.puc-rio.br/marcelomedeiros/Soares%20and%20Medeiros%20(IJF,%202008).pdf) |
+| [P-047](#p-047) | Statistical model | Density Forecasting for Long-Term Peak Electricity Demand | Rob J. Hyndman; Shu Fan | IEEE Transactions on Power Systems 25(2), 1142–1153 | 2010 | [DOI](https://doi.org/10.1109/tpwrs.2009.2036017) · [Author manuscript](https://robjhyndman.com/papers/peak_electricity_demand.pdf) |
+| [P-048](#p-048) | Statistical model | Triple seasonal methods for short-term electricity demand forecasting | James W. Taylor | European Journal of Operational Research 204(1), 139–152 | 2010 | [DOI](https://doi.org/10.1016/j.ejor.2009.10.003) · [Author manuscript](https://users.ox.ac.uk/~mast0315/TripleSeasonalEJOR.pdf) |
+| [P-049](#p-049) | Statistical model | Short-Term Load Forecasting Based on a Semi-Parametric Additive Model | Shu Fan; Rob J. Hyndman | IEEE Transactions on Power Systems 27(1), 134–141 | 2012 | [DOI](https://doi.org/10.1109/tpwrs.2011.2162082) · [Author manuscript](https://robjhyndman.com/papers/2010STLF-FinalR1.pdf) |
+| [P-050](#p-050) | Statistical model | Short-Term Load Forecasting With Exponentially Weighted Methods | James W. Taylor | IEEE Transactions on Power Systems 27(1), 458–464 | 2012 | [DOI](https://doi.org/10.1109/tpwrs.2011.2161780) · [Author manuscript](https://users.ox.ac.uk/~mast0315/LoadExponentiallyWeighted.pdf) |
+| [P-051](#p-051) | Statistical model | Modeling and Forecasting Daily Electricity Load Curves: A Hybrid Approach | Haeran Cho; Yannig Goude; Xavier Brossat; Qiwei Yao | Journal of the American Statistical Association 108(501), 7–21 | 2013 | [DOI](https://doi.org/10.1080/01621459.2012.722900) · [Author manuscript](https://researchonline.lse.ac.uk/id/eprint/49634/1/Cho_Modeling_forecasting_daily_2013.pdf) |
+| [P-052](#p-052) | Statistical model | Short-Term Load Forecasting: The Similar Shape Functional Time-Series Predictor | Efstathios Paparoditis; Theofanis Sapatinas | IEEE Transactions on Power Systems 28(4), 3818–3825 | 2013 | [DOI](https://doi.org/10.1109/tpwrs.2013.2272326) · [Preprint](https://arxiv.org/pdf/1201.2617) |
+| [P-053](#p-053) | Statistical model | Generalized Additive Models for Large Data Sets | Simon N. Wood; Yannig Goude; Simon Shaw | Journal of the Royal Statistical Society Series C: Applied Statistics 64(1), 139–155 | 2015 | [DOI](https://doi.org/10.1111/rssc.12068) · [Full text](https://academic.oup.com/jrsssc/article/64/1/139/7067761) |
+| [P-054](#p-054) | Statistical model | Forecasting day-ahead electricity load using a multiple equation time series approach | A.E. Clements; A.S. Hurn; Z. Li | European Journal of Operational Research 251(2), 522–530 | 2016 | [DOI](https://doi.org/10.1016/j.ejor.2015.12.030) · [Working paper](https://web.archive.org/web/20180220014811if_/http://www.ncer.edu.au/papers/documents/WP103R.pdf) |
+| [P-055](#p-055) | Statistical model | Periodically correlated models for short-term electricity load forecasting | Eduardo Caro; Jesús Juan; Javier Cara | Applied Mathematics and Computation 364, 124642 | 2020 | [DOI](https://doi.org/10.1016/j.amc.2019.124642) · [Author manuscript](https://oa.upm.es/79586/1/5810862.pdf) |
+| [P-056](#p-056) | Statistical model | Regularization methods for the short-term forecasting of the Italian electric load | Alessandro Incremona; Giuseppe De Nicolao | Sustainable Energy Technologies and Assessments 51, 101960 | 2022 | [DOI](https://doi.org/10.1016/j.seta.2022.101960) · [Preprint](https://arxiv.org/pdf/2112.04604) |
+| [P-057](#p-057) | Statistical model | Daily peak electrical load forecasting with a multi-resolution approach | Yvenn Amara-Ouali; Matteo Fasiolo; Yannig Goude; Hui Yan | International Journal of Forecasting 39(3), 1272–1286 | 2023 | [DOI](https://doi.org/10.1016/j.ijforecast.2022.06.001) · [Preprint](https://arxiv.org/pdf/2112.04492) |
+| [P-058](#p-058) | Statistical model | Enhancing energy system models using better load forecasts | Thomas Möbius; Mira Watermeyer; Oliver Grothe; Felix Müsgens | Energy Systems 16(2), 573–602 | 2025 | [DOI](https://doi.org/10.1007/s12667-023-00590-3) · [Preprint](https://arxiv.org/pdf/2302.11017) |
+| [P-059](#p-059) | Trees and features | A Permutation Importance-Based Feature Selection Method for Short-Term Electricity Load Forecasting Using Random Forest | Nantian Huang; Guobo Lu; Dianguo Xu | Energies 9(10), 767 | 2016 | [DOI](https://doi.org/10.3390/en9100767) · [PDF](https://mdpi-res.com/d_attachment/energies/energies-09-00767/article_deploy/energies-09-00767.pdf) |
+| [P-060](#p-060) | Trees and features | Improving short term load forecast accuracy via combining sister forecasts | Jakub Nowotarski; Bidong Liu; Rafał Weron; Tao Hong | Energy 98, 40–49 | 2016 | [DOI](https://doi.org/10.1016/j.energy.2015.12.142) · [Working paper](https://prac.im.pwr.edu.pl/~hugo/RePEc/wuu/wpaper/HSC_15_05.pdf) |
+| [P-061](#p-061) | Trees and features | Forecasting medium-term electricity demand in a South African electric power supply system | Caston Sigauke | Journal of Energy in Southern Africa 28(4), 54–67 | 2017 | [DOI](https://doi.org/10.17159/2413-3051/2017/v28i4a2428) · [Full text](https://journals.assaf.org.za/index.php/jesa/article/download/4193/6309) |
+| [P-062](#p-062) | Trees and features | Short-Term Load Forecasting Using EMD-LSTM Neural Networks with a Xgboost Algorithm for Feature Importance Evaluation | Huiting Zheng; Jiabin Yuan; Long Chen | Energies 10(8), 1168 | 2017 | [DOI](https://doi.org/10.3390/en10081168) · [PDF](https://mdpi-res.com/d_attachment/energies/energies-10-01168/article_deploy/energies-10-01168.pdf) |
+| [P-063](#p-063) | Trees and features | Relative evaluation of regression tools for urban area electrical energy demand forecasting | Nils Jakob Johannesen; Mohan Kolhe; Morten Goodwin | Journal of Cleaner Production 218, 555–564 | 2019 | [DOI](https://doi.org/10.1016/j.jclepro.2019.01.108) · [Author manuscript](https://hdl.handle.net/11250/3088334) |
+| [P-064](#p-064) | Trees and features | Feature selection for probabilistic load forecasting via sparse penalized quantile regression | Yi Wang; Dahua Gan; Ning Zhang; Le Xie; Chongqing Kang | Journal of Modern Power Systems and Clean Energy 7(5), 1200–1209 | 2019 | [DOI](https://doi.org/10.1007/s40565-019-0552-3) · [Full text](https://ieeexplore.ieee.org/document/8952836) |
+| [P-065](#p-065) | Trees and features | Short-Term Electricity Load Forecasting with Machine Learning | Ernesto Aguilar Madrid; Nuno Antonio | Information 12(2), 50 | 2021 | [DOI](https://doi.org/10.3390/info12020050) · [Full text](https://www.mdpi.com/2078-2489/12/2/50) |
+| [P-066](#p-066) | Trees and features | A Comprehensive Study of Random Forest for Short-Term Load Forecasting | Grzegorz Dudek | Energies 15(20), 7547 | 2022 | [DOI](https://doi.org/10.3390/en15207547) · [Full text](https://www.mdpi.com/1996-1073/15/20/7547) |
+| [P-067](#p-067) | Trees and features | Forecasting Short-Term Electricity Load Using Validated Ensemble Learning | Chatum Sankalpa; Somsak Kittipiyakul; Seksan Laitrakun | Energies 15(22), 8567 | 2022 | [DOI](https://doi.org/10.3390/en15228567) · [Full text](https://www.mdpi.com/1996-1073/15/22/8567) |
+| [P-068](#p-068) | Trees and features | Short-Term Load Forecasting Method Based on Feature Preference Strategy and LightGBM-XGboost | Xiaotong Yao; Xiaoli Fu; Chaofei Zong | IEEE Access 10, 75257–75268 | 2022 | [DOI](https://doi.org/10.1109/access.2022.3192011) · [Full text](https://ieeexplore.ieee.org/document/9832627) |
+| [P-069](#p-069) | Trees and features | Short-term electricity load forecasting—A systematic approach from system level to secondary substations | Marco G. Pinheiro; Sara C. Madeira; Alexandre P. Francisco | Applied Energy 332, 120493 | 2023 | [DOI](https://doi.org/10.1016/j.apenergy.2022.120493) · [PDF](https://escholarship.org/content/qt0s14445q/qt0s14445q.pdf) |
+| [P-070](#p-070) | Trees and features | News and Load: A Quantitative Exploration of Natural Language Processing Applications for Forecasting Day-Ahead Electricity System Demand | Yun Bai; Simon Camal; Andrea Michiorri | IEEE Transactions on Power Systems 39(5), 6222–6234 | 2024 | [DOI](https://doi.org/10.1109/tpwrs.2024.3361074) · [Preprint](https://arxiv.org/pdf/2301.07535v2) |
+| [P-071](#p-071) | Trees and features | Short-Term Load Forecasting in the Greek Power Distribution System: A Comparative Study of Gradient Boosting and Deep Learning Models | Md Fazle Hasan Shiblee; Paraskevas Koukaras | Energies 18(19), 5060 | 2025 | [DOI](https://doi.org/10.3390/en18195060) · [Full text](https://www.mdpi.com/1996-1073/18/19/5060) |
+| [P-072](#p-072) | Neural network | Electric load forecasting using an artificial neural network | D.C. Park; M.A. El-Sharkawi; R.J. Marks; L.E. Atlas; M.J. Damborg | IEEE Transactions on Power Systems 6(2), 442–449 | 1991 | [DOI](https://doi.org/10.1109/59.76685) · [PDF](https://robertmarks.org/REPRINTS/1991-05_ElectricLoadForecasting.pdf) |
+| [P-073](#p-073) | Neural network | Artificial neural networks for short-term energy forecasting: Accuracy and economic value | Benjamin F Hobbs; Udi Helman; Suradet Jitprapaikulsarn; Sreenivas Konda; Dominic Maratukulam | Neurocomputing 23(1-3), 71–84 | 1998 | [DOI](https://doi.org/10.1016/s0925-2312%2898%2900072-1) · [Full text](https://www.sciencedirect.com/science/article/pii/S0925231298000721) |
+| [P-074](#p-074) | Neural network | An evaluation of Bayesian techniques for controlling model complexity and selecting inputs in a neural network for short-term load forecasting | Henrique S. Hippert; James W. Taylor | Neural Networks 23(3), 386–395 | 2010 | [DOI](https://doi.org/10.1016/j.neunet.2009.11.016) · [Author manuscript](https://users.ox.ac.uk/~mast0315/BayesianNeuralNets.pdf) |
+| [P-075](#p-075) | Neural network | A New Neural Network Approach to Short Term Load Forecasting of Electrical Power Systems | Nima Amjady; Farshid Keynia | Energies 4(3), 488–503 | 2011 | [DOI](https://doi.org/10.3390/en4030488) · [Full text](https://www.mdpi.com/1996-1073/4/3/488) |
+| [P-076](#p-076) | Neural network | Short-term load forecasting by wavelet transform and evolutionary extreme learning machine | Song Li; Peng Wang; Lalit Goel | Electric Power Systems Research 122, 96–103 | 2015 | [DOI](https://doi.org/10.1016/j.epsr.2015.01.002) · [Author manuscript](https://dr.ntu.edu.sg/bitstreams/5b2078d4-3947-47e8-989d-78bb7dfcc103/download) |
+| [P-077](#p-077) | Neural network | Optimal Deep Learning LSTM Model for Electric Load Forecasting using Feature Selection and Genetic Algorithm: Comparison with Machine Learning Approaches † | Salah Bouktif; Ali Fiaz; Ali Ouni; Mohamed Serhani | Energies 11(7), 1636 | 2018 | [DOI](https://doi.org/10.3390/en11071636) · [Full text](https://www.mdpi.com/1996-1073/11/7/1636) |
+| [P-078](#p-078) | Neural network | A Deep Neural Network Model for Short-Term Load Forecast Based on Long Short-Term Memory Network and Convolutional Neural Network | Chujie Tian; Jian Ma; Chunhong Zhang; Panpan Zhan | Energies 11(12), 3493 | 2018 | [DOI](https://doi.org/10.3390/en11123493) · [Full text](https://www.mdpi.com/1996-1073/11/12/3493) |
+| [P-079](#p-079) | Neural network | Short-Term Load Forecasting With Deep Residual Networks | Kunjin Chen; Kunlong Chen; Qin Wang; Ziyu He; Jun Hu; Jinliang He | IEEE Transactions on Smart Grid 10(4), 3943–3952 | 2019 | [DOI](https://doi.org/10.1109/tsg.2018.2844307) · [Preprint](https://arxiv.org/pdf/1805.11956v1) |
+| [P-080](#p-080) | Neural network | Energy Demand Forecasting Using Deep Learning: Applications for the French Grid | Alejandro J. del Real; Fernando Dorado; Jaime Durán | Energies 13(9), 2242 | 2020 | [DOI](https://doi.org/10.3390/en13092242) · [Full text](https://www.mdpi.com/1996-1073/13/9/2242) |
+| [P-081](#p-081) | Neural network | Deep learning for time series forecasting: The electric load case | Alberto Gasparin; Slobodan Lukovic; Cesare Alippi | CAAI Transactions on Intelligence Technology 7(1), 1–25 | 2022 | [DOI](https://doi.org/10.1049/cit2.12060) · [Preprint](https://arxiv.org/pdf/1907.09207) |
+| [P-082](#p-082) | Neural network | Transformer-Based Model for Electrical Load Forecasting | Alexandra L’Heureux; Katarina Grolinger; Miriam A. M. Capretz | Energies 15(14), 4993 | 2022 | [DOI](https://doi.org/10.3390/en15144993) · [Full text](https://www.mdpi.com/1996-1073/15/14/4993) |
+| [P-083](#p-083) | Neural network | A comparative assessment of deep learning models for day-ahead load forecasting: Investigating key accuracy drivers | Sotiris Pelekis; Ioannis-Konstantinos Seisopoulos; Evangelos Spiliotis; Theodosios Pountridis; Evangelos Karakolis; Spiros Mouzakitis; Dimitris Askounis | Sustainable Energy, Grids and Networks 36, 101171 | 2023 | [DOI](https://doi.org/10.1016/j.segan.2023.101171) · [Preprint](https://arxiv.org/pdf/2302.12168v2) |
+| [P-084](#p-084) | Neural network | ES-dRNN: A Hybrid Exponential Smoothing and Dilated Recurrent Neural Network Model for Short-Term Load Forecasting | Slawek Smyl; Grzegorz Dudek; Paweł Pełka | IEEE Transactions on Neural Networks and Learning Systems 35(8), 11346–11358 | 2024 | [DOI](https://doi.org/10.1109/tnnls.2023.3259149) · [Preprint](https://arxiv.org/pdf/2112.02663) |
+| [P-085](#p-085) | Neural network | Transfer Learning for Day-Ahead Load Forecasting: A Case Study on European National Electricity Demand Time Series | Alexandros Menelaos Tzortzis; Sotiris Pelekis; Evangelos Spiliotis; Evangelos Karakolis; Spiros Mouzakitis; John Psarras; Dimitris Askounis | Mathematics 12(1), 19 | 2024 | [DOI](https://doi.org/10.3390/math12010019) · [Preprint](https://arxiv.org/pdf/2310.15555) |
+| [P-086](#p-086) | Neural network | Explainable Load Forecasting with Covariate-Informed Time Series Foundation Models | Matthias Hertel; Alexandra Nikoltchovska; Sebastian Pütz; Benjamin Schäfer; Ralf Mikut; Veit Hagenmeyer | Proceedings of the 17th ACM International Conference on Future and Sustainable Energy Systems (e-Energy '26), 612–626 | 2026 | [DOI](https://doi.org/10.1145/3744255.3811724) · [Preprint](https://arxiv.org/pdf/2604.28149) |
+| [P-087](#p-087) | Neural network | Explainable time-series forecasting with sampling-free SHAP for Transformers | Matthias Hertel; Sebastian Pütz; Ralf Mikut; Veit Hagenmeyer; Benjamin Schäfer | Nature Communications 17(1), 4723 | 2026 | [DOI](https://doi.org/10.1038/s41467-026-73243-5) · [PDF](https://www.nature.com/articles/s41467-026-73243-5.pdf) |
+| [P-088](#p-088) | Neural network | An Hour-Specific Hybrid DNN–SVR Framework for National-Scale Short-Term Load Forecasting | Ervin Čeperić; Kristijan Lenac | Sensors 26(3), 797 | 2026 | [DOI](https://doi.org/10.3390/s26030797) · [Full text](https://pmc.ncbi.nlm.nih.gov/articles/PMC12899336/) |
+| [P-089](#p-089) | Weather | Daily Air Temperature and Electricity Load in Spain | Enric Valor; Vicente Meneu; Vicente Caselles | Journal of Applied Meteorology 40(8), 1413–1421 | 2001 | [DOI](https://doi.org/10.1175/1520-0450%282001%29040%3C1413%3Adatael%3E2.0.co%3B2) · [Full text](https://journals.ametsoc.org/view/journals/apme/40/8/1520-0450_2001_040_1413_datael_2.0.co_2.xml) |
+| [P-090](#p-090) | Weather | Neural network load forecasting with weather ensemble predictions | J.W. Taylor; R. Buizza | IEEE Transactions on Power Systems 17(3), 626–632 | 2002 | [DOI](https://doi.org/10.1109/tpwrs.2002.800906) · [Author manuscript](https://users.ox.ac.uk/~mast0315/EnsemblesForNeuralNetLoad.pdf) |
+| [P-091](#p-091) | Weather | Using weather ensemble predictions in electricity demand forecasting | James W. Taylor; Roberto Buizza | International Journal of Forecasting 19(1), 57–70 | 2003 | [DOI](https://doi.org/10.1016/s0169-2070%2801%2900123-6) · [Author manuscript](https://users.ox.ac.uk/~mast0315/EnsemblesForLoad.pdf) |
+| [P-092](#p-092) | Weather | The Economic Value of Temperature Forecasts in Electricity Generation | Thomas J. Teisberg; Rodney F. Weiher; Alireza Khotanzad | Bulletin of the American Meteorological Society 86(12), 1765–1772 | 2005 | [DOI](https://doi.org/10.1175/bams-86-12-1765) · [PDF](https://journals.ametsoc.org/downloadpdf/view/journals/bams/86/12/bams-86-12-1765.pdf) |
+| [P-093](#p-093) | Weather | On the Influence of Weather Forecast Errors in Short-Term Load Forecasting Models | Damien Fay; John V. Ringwood | IEEE Transactions on Power Systems 25(3), 1751–1758 | 2010 | [DOI](https://doi.org/10.1109/tpwrs.2009.2038704) · [PDF](https://mural.maynoothuniversity.ie/id/eprint/3618/1/JR_On_the_influence.pdf) |
+| [P-094](#p-094) | Weather | Quantifying the increasing sensitivity of power systems to climate variability | H. C. Bloomfield; D. J. Brayshaw; L. C. Shaffrey; P. J. Coker; H. E. Thornton | Environmental Research Letters 11(12), 124025 | 2016 | [DOI](https://doi.org/10.1088/1748-9326/11/12/124025) · [PDF](https://centaur.reading.ac.uk/68191/7/Bloomfield_2016_Environ._Res._Lett._11_124025.pdf) |
+| [P-095](#p-095) | Weather | The role of temperature in the variability and extremes of electricity and gas demand in Great Britain | H. E. Thornton; B. J. Hoskins; A. A. Scaife | Environmental Research Letters 11(11), 114015 | 2016 | [DOI](https://doi.org/10.1088/1748-9326/11/11/114015) · [PDF](https://centaur.reading.ac.uk/68474/1/Thornton_2016_Environ._Res._Lett._11_114015.pdf) |
+| [P-096](#p-096) | Weather | Electric load forecasting with recency effect: A big data approach | Pu Wang; Bidong Liu; Tao Hong | International Journal of Forecasting 32(3), 585–597 | 2016 | [DOI](https://doi.org/10.1016/j.ijforecast.2015.09.006) · [Working paper](https://prac.im.pwr.edu.pl/~hugo/RePEc/wuu/wpaper/HSC_15_08.pdf) |
+| [P-097](#p-097) | Weather | Wind Speed for Load Forecasting Models | Jingrui Xie; Tao Hong | Sustainability 9(5), 795 | 2017 | [DOI](https://doi.org/10.3390/su9050795) · [PDF](https://www.mdpi.com/2071-1050/9/5/795/pdf?version=1494416391) |
+| [P-098](#p-098) | Weather | The increasing impact of weather on electricity supply and demand | Iain Staffell; Stefan Pfenninger | Energy 145, 65–78 | 2018 | [DOI](https://doi.org/10.1016/j.energy.2017.12.051) · [Full text](https://spiral.imperial.ac.uk/bitstreams/1717f1e3-aba1-463e-b82d-c8dbc7cae693/download) |
+| [P-099](#p-099) | Weather | Combining Weather Stations for Electric Load Forecasting | Masoud Sobhani; Allison Campbell; Saurabh Sangamwar; Changlin Li; Tao Hong | Energies 12(8), 1510 | 2019 | [DOI](https://doi.org/10.3390/en12081510) · [PDF](https://www.mdpi.com/1996-1073/12/8/1510/pdf?version=1555853797) |
+| [P-100](#p-100) | Weather | Characterizing the winter meteorological drivers of the European electricity system using targeted circulation types | Hannah C. Bloomfield; David J. Brayshaw; Andrew J. Charlton-Perez | Meteorological Applications 27(1), e1858 | 2020 | [DOI](https://doi.org/10.1002/met.1858) · [PDF](https://rmets.onlinelibrary.wiley.com/doi/pdfdirect/10.1002/met.1858) |
+| [P-101](#p-101) | Weather | Rethinking weather station selection for electric load forecasting using genetic algorithms | Santiago Moreno-Carbonell; Eugenio F. Sánchez-Úbeda; Antonio Muñoz | International Journal of Forecasting 36(2), 695–712 | 2020 | [DOI](https://doi.org/10.1016/j.ijforecast.2019.08.008) · [Author manuscript](https://repositorio.comillas.edu/bitstreams/367ece5b-8fdd-4de9-a32a-e4c80e724651/download) |
+| [P-102](#p-102) | Weather | Short-term load forecasting considering improved cumulative effect of hourly temperature | Min Wang; Zixuan Yu; Yuan Chen; Xingang Yang; Jian Zhou | Electric Power Systems Research 205, 107746 | 2022 | [DOI](https://doi.org/10.1016/j.epsr.2021.107746) · [PDF](https://www.sciencedirect.com/science/article/pii/S0378779621007276/pdf) |
+| [P-103](#p-103) | Weather | Optimal Selection of Weather Stations for Electric Load Forecasting | Eduardo Caro; Jesús Juan; Shadi Nouhitehrani | IEEE Access 11, 42981–42990 | 2023 | [DOI](https://doi.org/10.1109/access.2023.3270933) · [PDF](https://ieeexplore.ieee.org/ielx7/6287639/10005208/10109727.pdf) |
+| [P-104](#p-104) | Calendar and similar day | Energy Time Series Forecasting Based on Pattern Sequence Similarity | Francisco Martinez Alvarez; Alicia Troncoso; Jose C. Riquelme; Jesus S. Aguilar Ruiz | IEEE Transactions on Knowledge and Data Engineering 23(8), 1230–1243 | 2011 | [DOI](https://doi.org/10.1109/tkde.2010.227) · [Free copy](https://idus.us.es/bitstreams/4ed0e47c-590f-42ae-b704-8051dc10b298/download) |
+| [P-105](#p-105) | Calendar and similar day | Pattern similarity-based methods for short-term load forecasting – Part 1: Principles | Grzegorz Dudek | Applied Soft Computing 37, 277–287 | 2015 | [DOI](https://doi.org/10.1016/j.asoc.2015.08.040) · [Author manuscript](https://gdudek.el.pcz.pl/files/SBFM_Principles_15.pdf) |
+| [P-106](#p-106) | Calendar and similar day | Pattern similarity-based methods for short-term load forecasting – Part 2: Models | Grzegorz Dudek | Applied Soft Computing 36, 422–441 | 2015 | [DOI](https://doi.org/10.1016/j.asoc.2015.07.035) · [Author manuscript](https://gdudek.el.pcz.pl/files/SBFM_Models_15.pdf) |
+| [P-107](#p-107) | Calendar and similar day | Pattern-based local linear regression models for short-term load forecasting | Grzegorz Dudek | Electric Power Systems Research 130, 139–147 | 2016 | [DOI](https://doi.org/10.1016/j.epsr.2015.09.001) · [Author manuscript](https://gdudek.el.pcz.pl/files/PattBasLinRegSTLF_15.pdf) |
+| [P-108](#p-108) | Calendar and similar day | Rule-based autoregressive moving average models for forecasting load on special days: A case study for France | Siddharth Arora; James W. Taylor | European Journal of Operational Research 266(1), 259–268 | 2018 | [DOI](https://doi.org/10.1016/j.ejor.2017.08.056) · [Author manuscript](https://arxiv.org/pdf/1803.09590) |
+| [P-109](#p-109) | Calendar and similar day | Load forecasting using 24 solar terms | Jingrui Xie; Tao Hong | Journal of Modern Power Systems and Clean Energy 6(2), 208–214 | 2018 | [DOI](https://doi.org/10.1007/s40565-017-0374-0) · [Full text](https://d-nb.info/1159820155/34) |
+| [P-110](#p-110) | Calendar and similar day | Modeling public holidays in load forecasting: a German case study | Florian Ziel | Journal of Modern Power Systems and Clean Energy 6(2), 191–207 | 2018 | [DOI](https://doi.org/10.1007/s40565-018-0385-5) · [Full text](https://d-nb.info/1159820163/34) |
+| [P-111](#p-111) | Calendar and similar day | Application of Discrete-Interval Moving Seasonalities to Spanish Electricity Demand Forecasting during Easter | Óscar Trull; J. Carlos García-Díaz; Alicia Troncoso | Energies 12(6), 1083 | 2019 | [DOI](https://doi.org/10.3390/en12061083) · [PDF](https://mdpi-res.com/d_attachment/energies/energies-12-01083/article_deploy/energies-12-01083.pdf) |
+| [P-112](#p-112) | Calendar and similar day | Use of Available Daylight to Improve Short-Term Load Forecasting Accuracy | Miguel López; Sergio Valero; Carlos Sans; Carolina Senabre | Energies 14(1), 95 | 2021 | [DOI](https://doi.org/10.3390/en14010095) · [PDF](https://mdpi-res.com/d_attachment/energies/energies-14-00095/article_deploy/energies-14-00095.pdf) |
+| [P-113](#p-113) | Calendar and similar day | One-day-ahead electricity demand forecasting in holidays using discrete-interval moving seasonalities | Oscar Trull; J. Carlos García-Díaz; Alicia Troncoso | Energy 231, 120966 | 2021 | [DOI](https://doi.org/10.1016/j.energy.2021.120966) · [Author manuscript](https://riunet.upv.es/bitstreams/8aa94f33-c5be-4052-b05d-aa6ed1c8dcb9/download) |
+| [P-114](#p-114) | Calendar and similar day | Gab-SSDS: An AI-Based Similar Days Selection Method for Load Forecast | Zoran Janković; Boban Vesin; Aleksandar Selakov; Lasse Berntzen | Frontiers in Energy Research 10, 844838 | 2022 | [DOI](https://doi.org/10.3389/fenrg.2022.844838) · [PDF](https://www.frontiersin.org/articles/10.3389/fenrg.2022.844838/pdf) |
+| [P-115](#p-115) | Calendar and similar day | Automatic classification of special days for short-term load forecasting | Miguel López; Carlos Sans; Sergio Valero | Electric Power Systems Research 202, 107533 | 2022 | [DOI](https://doi.org/10.1016/j.epsr.2021.107533) · [Full text](https://www.sciencedirect.com/science/article/pii/S0378779621005149) |
+| [P-116](#p-116) | Calendar and similar day | Short-term load forecasting using time series clustering | Ana Martins; João Lagarto; Hiren Canacsinh; Francisco Reis; Margarida G. M. S. Cardoso | Optimization and Engineering 23(4), 2293–2314 | 2022 | [DOI](https://doi.org/10.1007/s11081-022-09760-1) · [Author manuscript](https://repositorio.iscte-iul.pt/bitstreams/4ffa8856-b2bb-4238-8384-8ae53a12033e/download) |
+| [P-117](#p-117) | Calendar and similar day | Short-term electricity load forecasting with special days: an analysis on parametric and non-parametric methods | Esra Erişen; Cem Iyigun; Fehmi Tanrısever | Annals of Operations Research 354(3), 1039–1072 | 2025 (online 2017) | [DOI](https://doi.org/10.1007/s10479-017-2726-6) · [Free copy](https://repository.bilkent.edu.tr/bitstreams/ff978d35-0d18-4668-bca2-131f5b9fde28/download) |
+| [P-118](#p-118) | Japan | 電力の翌日最大需要予測システムの研究開発動向 (Trends of R&D on Short-Term Load Forecasting) | 長谷川淳; 田中英一 | 電気学会論文誌Ｂ（電力・エネルギー部門誌） 114(9), 835–838; review | 1994 | [DOI](https://doi.org/10.1541/ieejpes1990.114.9_835) · [PDF](https://www.jstage.jst.go.jp/article/ieejpes1990/114/9/114_9_835/_pdf) |
+| [P-119](#p-119) | Japan | ニューラルネットを用いた翌日電力需要予測 (Daily Electric Load Forecasting Using Artificial Neural Network) | 石田隆張; 田村滋 | 電気学会論文誌Ｂ（電力・エネルギー部門誌） 114(11), 1109–1115 | 1994 | [DOI](https://doi.org/10.1541/ieejpes1990.114.11_1109) · [PDF](https://www.jstage.jst.go.jp/article/ieejpes1990/114/11/114_11_1109/_pdf) |
+| [P-120](#p-120) | Japan | 階層型ニューラルネットワークによる補正を考慮した翌日電力需要予測 (Daily Load Curve Forecasting with Corrective Mechanism by Multi-Layered Neural Network) | 佐藤亮; 田中英一; 長谷川淳 | 電気学会論文誌Ｂ（電力・エネルギー部門誌） 114(10), 979–987 | 1994 | [DOI](https://doi.org/10.1541/ieejpes1990.114.10_979) · [PDF](https://www.jstage.jst.go.jp/article/ieejpes1990/114/10/114_10_979/_pdf) |
+| [P-121](#p-121) | Japan | ニューロ・ファジー応用最大電力予測システムの開発 (Development of Peak Load Forecasting System using Neural Networks and Fuzzy Theory) | 植木芳照; 松井哲郎; 遠藤弘; 加藤龍義; 荒家良作 | 電気学会論文誌Ｂ（電力・エネルギー部門誌） 115(9), 1038–1045 | 1995 | [DOI](https://doi.org/10.1541/ieejpes1990.115.9_1038) · [PDF](https://www.jstage.jst.go.jp/article/ieejpes1990/115/9/115_9_1038/_pdf) |
+| [P-122](#p-122) | Japan | 電力需要予測 (Analysis and Forcast by Computer Simulation. Electric Load Forecasting.) | 灰田武史 | 電気学会誌 (The Journal of The Institute of Electrical Engineers of Japan) 117(9), 596–599; review | 1997 | [DOI](https://doi.org/10.1541/ieejjournal.117.596) · [PDF](https://www.jstage.jst.go.jp/article/ieejjournal1994/117/9/117_9_596/_pdf/-char/ja) |
+| [P-123](#p-123) | Japan | 翌日最大電力需要予測におけるAI技術 (AI Technology in Next Day Electric Peak Load Forecast) | 小野田崇 | 人工知能 12(4), 550–558; review | 1997 | [DOI](https://doi.org/10.11517/jjsai.12.4_550) · [PDF](https://www.jstage.jst.go.jp/article/jjsai/12/4/12_550/_pdf) |
+| [P-124](#p-124) | Japan | 基準需要を利用したニューラルネットによる翌日最大電力需要予測 (Forecast of Daily Maximum Electric Load by Neural Networks using the Standard Electric Load) | 須貝康雄; 堀部浩; 川瀬太郎 | 電気学会論文誌Ｂ（電力・エネルギー部門誌） 117(6), 872–879 | 1997 | [DOI](https://doi.org/10.1541/ieejpes1990.117.6_872) · [PDF](https://www.jstage.jst.go.jp/article/ieejpes1990/117/6/117_6_872/_pdf) |
+| [P-125](#p-125) | Japan | 翌日最大電力需要予測における最適なニューラルネットワーク構成の決定法 (Selection of the Optimal Neural Network Architecture for Next Peak Load Forecasting) | 小野田崇; 大場英二 | 電気学会論文誌Ｂ（電力・エネルギー部門誌） 118(5), 497–504 | 1998 | [DOI](https://doi.org/10.1541/ieejpes1990.118.5_497) · [PDF](https://www.jstage.jst.go.jp/article/ieejpes1990/118/5/118_5_497/_pdf) |
+| [P-126](#p-126) | Japan | 類似性に基づくファジィニューラルネットワークによる翌日最大電力需要予測 (Next Day Peak Load Forecasting Based on Similarity by Using Fuzzy Neural Network) | 千住智信; 比嘉修三; 上里勝実 | 日本ファジィ学会誌 11(1), 169–177 | 1999 | [DOI](https://doi.org/10.3156/jfuzzy.11.1_169) · [PDF](https://www.jstage.jst.go.jp/article/jfuzzy/11/1/11_KJ00002086854/_pdf) |
+| [P-127](#p-127) | Japan | NN応用電力需要予測システムの開発 (Development of Electric Load Forecasting System using Neural Networks) | 石岡修; 佐藤佳彦; 石原徹; 植木芳照; 松井哲郎; 飯坂達也 | 電気学会論文誌Ｂ（電力・エネルギー部門誌） 120(12), 1550–1557 | 2000 | [DOI](https://doi.org/10.1541/ieejpes1990.120.12_1550) · [PDF](https://www.jstage.jst.go.jp/article/ieejpes1990/120/12/120_12_1550/_pdf) |
+| [P-128](#p-128) | Japan | 構造化ニューラルネットワークの新しい学習法と最大電力需要予測への適用 (A New Training Method for Analyzable Structured Neural Network and Application of Daily Peak Load Forecasting) | 飯坂達也; 松井哲郎; 福山良和 | 電気学会論文誌Ｂ（電力・エネルギー部門誌） 124(3), 347–354 | 2004 | [DOI](https://doi.org/10.1541/ieejpes.124.347) · [PDF](https://www.jstage.jst.go.jp/article/ieejpes/124/3/124_3_347/_pdf) |
+| [P-129](#p-129) | Japan | 構造的GAによるGMDHを用いた翌日最大電力需要予測 (Daily Peak Load Forecasting by Structured Representation on Genetic Algorithms for Non-linear Function Fitting) | 雪田和人; 加藤慎也; 後藤泰之; 一柳勝宏; 川島靖弘 | 電気学会論文誌Ｂ（電力・エネルギー部門誌） 124(3), 355–362 | 2004 | [DOI](https://doi.org/10.1541/ieejpes.124.355) · [PDF](https://www.jstage.jst.go.jp/article/ieejpes/124/3/124_3_355/_pdf) |
+| [P-130](#p-130) | Japan | 需要想定と気象 (Electric Load Forecasting and Weather) | 灰田武史 | 日本風工学会誌 2008(114), 42–47; review | 2008 | [DOI](https://doi.org/10.5359/jawe.2008.42) · [PDF](https://www.jstage.jst.go.jp/article/jawe1982/2008/114/2008_114_42/_pdf) |
+| [P-131](#p-131) | Japan | 日種別・日射量を考慮した時刻別回帰型トレンド調整項付き需要モデリングによる電力ロードカーブ予測手法 (Study on Daily Electric Load Curve Forecasting Method based on Regression Type Hourly Load Modeling with Yearly Load Trends, Day-types and Insolations) | 灰田武史 | 電気学会論文誌Ｂ（電力・エネルギー部門誌） 129(12), 1477–1485 | 2009 | [DOI](https://doi.org/10.1541/ieejpes.129.1477) · [PDF](https://www.jstage.jst.go.jp/article/ieejpes/129/12/129_12_1477/_pdf) |
+| [P-132](#p-132) | Japan | 気温地域分布および各近日データ比較値を用いた翌日最大電力需要予測 (Daily Peak Load Forecasting of Next Day using Weather Distribution and Comparison Value of Each Nearby Date Data) | 伊東重信; 雪田和人; 後藤泰之; 一柳勝宏; 中野寛之 | 電気学会論文誌Ｂ（電力・エネルギー部門誌） 130(3), 329–337 | 2010 | [DOI](https://doi.org/10.1541/ieejpes.130.329) · [PDF](https://www.jstage.jst.go.jp/article/ieejpes/130/3/130_3_329/_pdf) |
+| [P-133](#p-133) | Japan | タグチのT法を用いた翌日最大電力需要予測 (Daily Peak Load Forecasting by Taguchi's T Method) | 根岸信太郎; 森本裕介; 高山聡志; 石亀篤司 | 電気学会論文誌Ｃ（電子・情報・システム部門誌） 136(6), 794–801 | 2016 | [DOI](https://doi.org/10.1541/ieejeiss.136.794) · [PDF](https://www.jstage.jst.go.jp/article/ieejeiss/136/6/136_794/_pdf) |
+| [P-134](#p-134) | Japan | 予測実施時点の実績値のみを用いた短時間先電力需要予測 (Short-term Power Demand Forecasting using Fixed Information at the Time of Prediction) | 所健一; 比護貴之 | 電気学会論文誌Ｃ（電子・情報・システム部門誌） 137(8), 1036–1042 | 2017 | [DOI](https://doi.org/10.1541/ieejeiss.137.1036) · [PDF](https://www.jstage.jst.go.jp/article/ieejeiss/137/8/137_1036/_pdf) |
+| [P-135](#p-135) | Japan | 電力需要予測コンテストの参加体験記（＜特集＞「若手の会」が発信するAIの最前線） | 進博正 | 日本機械学会誌 121(1198), 19–21; report | 2018 | [DOI](https://doi.org/10.1299/jsmemag.121.1198_19) · [PDF](https://www.jstage.jst.go.jp/article/jsmemag/121/1198/121_19/_pdf) |
+| [P-136](#p-136) | Japan | 気温と湿度に対する消費電力の感応度 ―一般送配電事業者ごとの毎時電力消費量に着目して― (SENSITIVITY OF HOURLY ELECTRICITY POWER CONSUMPTION TO TEMPERATURE AND HUMIDITY IN JAPAN) | 蛭田有希; GAO Lu; 芦名秀一 | 土木学会論文集G（環境） 75(6), II_17-II_27 | 2019 | [DOI](https://doi.org/10.2208/jscejer.75.6_ii_17) · [PDF](https://www.jstage.jst.go.jp/article/jscejer/75/6/75_II_17/_pdf) |
+| [P-137](#p-137) | Japan | 人工ニューラルネットワークによる電力需要予測の影響要因評価 ‐学習条件による影響‐ (Evaluation of Factors Influencing the Accuracy of Electric Demand Forecasting by Artificial Neural Networks: Effect of Changes in Model Configuration) | 柴田智文; 大谷公哉; 寄田保夫; 川上恭章; 永富悠; 松尾雄司 | エネルギー・資源学会論文誌 40(5), 144–153 | 2019 | [DOI](https://doi.org/10.24778/jjser.40.5_144) · [PDF](https://www.jstage.jst.go.jp/article/jjser/40/5/40_144/_pdf) |
+| [P-138](#p-138) | Japan | 電力需要予測コンテスト ─オープンイノベーションへの取組み─ (TEPCO Electricity Load Forecasting Contest ─TEPCO Open Innovation Challenge─ (the English title printed in the article; J-STAGE registers none)) | 竹田恒; 岡本知樹; 真保崇 | 人工知能 (Journal of the Japanese Society for Artificial Intelligence) 35(3), 360–365 | 2020 | [DOI](https://doi.org/10.11517/jjsai.35.3_360) · [PDF](https://www.jstage.jst.go.jp/article/jjsai/35/3/35_360/_pdf/-char/ja) |
+| [P-139](#p-139) | East Asia | A Weekend Load Forecasting Model Based on Semi-Parametric Regression Analysis Considering Weather and Load Interaction | Bin Li; Mingzhen Lu; Yiyi Zhang; Jia Huang | Energies 12(20), 3820 | 2019 | [DOI](https://doi.org/10.3390/en12203820) · [PDF](https://mdpi-res.com/d_attachment/energies/energies-12-03820/article_deploy/energies-12-03820.pdf) |
+| [P-140](#p-140) | East Asia | A learning framework based on weighted knowledge transfer for holiday load forecasting | Pan ZENG; Chang SHENG; Min JIN | Journal of Modern Power Systems and Clean Energy 7(2), 329–339 | 2019 | [DOI](https://doi.org/10.1007/s40565-018-0435-z) · [PDF](https://link.springer.com/content/pdf/10.1007/s40565-018-0435-z.pdf) |
+| [P-141](#p-141) | East Asia | Short-Term Electricity Demand Forecasting: Impact Analysis of Temperature for Thailand | Kamal Chapagain; Somsak Kittipiyakul; Pisut Kulthanavit | Energies 13(10), 2498 | 2020 | [DOI](https://doi.org/10.3390/en13102498) · [PDF](https://mdpi-res.com/d_attachment/energies/energies-13-02498/article_deploy/energies-13-02498.pdf) |
+| [P-142](#p-142) | East Asia | Dual Deep Learning Networks Based Load Forecasting with Partial Real-Time Information and Its Application to System Marginal Price Prediction | Khikmafaris Yudantaka; Jung-Su Kim; Hwachang Song | Energies 13(1), 148 | 2020 | [DOI](https://doi.org/10.3390/en13010148) · [PDF](https://mdpi-res.com/d_attachment/energies/energies-13-00148/article_deploy/energies-13-00148.pdf) |
+| [P-143](#p-143) | East Asia | XGBoost-Based Day-Ahead Load Forecasting Algorithm Considering Behind-the-Meter Solar PV Generation | Dong-Jin Bae; Bo-Sung Kwon; Kyung-Bin Song | Energies 15(1), 128 | 2022 | [DOI](https://doi.org/10.3390/en15010128) · [PDF](https://mdpi-res.com/d_attachment/energies/energies-15-00128/article_deploy/energies-15-00128.pdf) |
+| [P-144](#p-144) | East Asia | Week‐ahead daily peak load forecasting using genetic algorithm‐based hybrid convolutional neural network | Ying‐Yi Hong; Yu‐Hsuan Chan; Yung‐Han Cheng; Yih‐Der Lee; Jheng‐Lun Jiang; Shen‐Szu Wang | IET Generation, Transmission & Distribution 16(12), 2416–2424 | 2022 | [DOI](https://doi.org/10.1049/gtd2.12460) · [PDF](https://onlinelibrary.wiley.com/doi/pdfdirect/10.1049/gtd2.12460) |
+| [P-145](#p-145) | East Asia | Short-Term Electricity Load Forecasting Based on Temporal Fusion Transformer Model | Pham Canh Huy; Nguyen Quoc Minh; Nguyen Dang Tien; Tao Thi Quynh Anh | IEEE Access 10, 106296–106304 | 2022 | [DOI](https://doi.org/10.1109/access.2022.3211941) · [PDF](https://ieeexplore.ieee.org/ielx7/6287639/9668973/09910162.pdf) |
+| [P-146](#p-146) | East Asia | National-scale electricity peak load forecasting: Traditional, machine learning, or hybrid model? | Juyong Lee; Youngsang Cho | Energy 239, 122366 | 2022 | [DOI](https://doi.org/10.1016/j.energy.2021.122366) · [Preprint](https://arxiv.org/pdf/2107.06174) |
+| [P-147](#p-147) | East Asia | Day-Ahead Short-Term Load Forecasting for Holidays Based on Modification of Similar Days’ Load Profiles | Jihoo Son; Jiwon Cha; Hyunsu Kim; Young-Min Wi | IEEE Access 10, 17864–17880 | 2022 | [DOI](https://doi.org/10.1109/access.2022.3150344) · [PDF](https://ieeexplore.ieee.org/ielx7/6287639/9668973/09709300.pdf) |
+| [P-148](#p-148) | East Asia | eForecaster: Unifying Electricity Forecasting with Robust, Flexible, and Explainable Machine Learning Algorithms | Zhaoyang Zhu; Weiqi Chen; Rui Xia; Tian Zhou; Peisong Niu; Bingqing Peng; Wenwei Wang; Hengbo Liu; Ziqing Ma; Qingsong Wen; Liang Sun | Proceedings of the AAAI Conference on Artificial Intelligence 37(13), 15630–15638 | 2023 | [DOI](https://doi.org/10.1609/aaai.v37i13.26853) · [Full text](https://ojs.aaai.org/index.php/AAAI/article/view/26853) |
+| [P-149](#p-149) | East Asia | Analysis of the Impact of Biometeorological Thermal Indices on Summer Peak Power Load Forecasting in Guangdong Province | Jingqi Miao; Hui Yang; Yu Zhang; Quancheng Hao; Liying Peng; Feng Xu; Haibo Shen | Atmosphere 17(5), 463 | 2026 | [DOI](https://doi.org/10.3390/atmos17050463) · [PDF](https://mdpi-res.com/d_attachment/atmosphere/atmosphere-17-00463/article_deploy/atmosphere-17-00463.pdf) |
+| [P-150](#p-150) | East Asia | A Two-Stage Calendar-Aware Random Forest Framework for Robust Short-Term Load Forecasting in Heterogeneous Power Systems | May Thazin Phuu Wai; Panharith Chhom; Yung-Cheol Byun; Aussadavut Dumrongsiri; Chawalit Jeenanunta | IEEE Access 14, 68281–68301 | 2026 | [DOI](https://doi.org/10.1109/access.2026.3688005) · [PDF](https://ieeexplore.ieee.org/ielx8/6287639/6514899/11495107.pdf) |
+| [P-151](#p-151) | Probabilistic and adaptive | Adaptive Learning of Smoothing Functions: Application to Electricity Load Forecasting | Amadou Ba; Mathieu Sinn; Yannig Goude; Pascal Pompey | Advances in Neural Information Processing Systems 25 (NIPS 2012) | 2012 | [Record](https://proceedings.neurips.cc/paper/2012/hash/b571ecea16a9824023ee1af16897a582-Abstract.html) · [PDF](https://proceedings.neurips.cc/paper_files/paper/2012/file/b571ecea16a9824023ee1af16897a582-Paper.pdf) |
+| [P-152](#p-152) | Probabilistic and adaptive | Forecasting electricity consumption by aggregating specialized experts | Marie Devaine; Pierre Gaillard; Yannig Goude; Gilles Stoltz | Machine Learning 90(2), 231–260 | 2013 | [DOI](https://doi.org/10.1007/s10994-012-5314-7) · [Preprint](https://arxiv.org/pdf/1207.1965) |
+| [P-153](#p-153) | Probabilistic and adaptive | Short-Term Load Forecast Error Distributions and Implications for Renewable Integration Studies | Bri-Mathias Hodge; Debra Lew; Michael Milligan | 2013 IEEE Green Technologies Conference (GreenTech), 435–442 | 2013 | [DOI](https://doi.org/10.1109/greentech.2013.73) · [Preprint](https://docs.nlr.gov/docs/fy13osti/57340.pdf) |
+| [P-154](#p-154) | Probabilistic and adaptive | A prediction interval for a function-valued forecast model: Application to load forecasting | Anestis Antoniadis; Xavier Brossat; Jairo Cugliari; Jean-Michel Poggi | International Journal of Forecasting 32(3), 939–947 | 2016 | [DOI](https://doi.org/10.1016/j.ijforecast.2015.09.001) · [Preprint](https://arxiv.org/pdf/1412.4222) |
+| [P-155](#p-155) | Probabilistic and adaptive | Probabilistic Load Forecasting via Quantile Regression Averaging on Sister Forecasts | Bidong Liu; Jakub Nowotarski; Tao Hong; Rafal Weron | IEEE Transactions on Smart Grid 8(2), 730–737 | 2017 | [DOI](https://doi.org/10.1109/tsg.2015.2437877) · [Working paper](https://alfa.im.pwr.edu.pl/~hugo/RePEc/wuu/wpaper/HSC_15_01.pdf) |
+| [P-156](#p-156) | Probabilistic and adaptive | Short term electricity demand forecasting using partially linear additive quantile regression with an application to the unit commitment problem | Moshoko Emily Lebotsa; Caston Sigauke; Alphonce Bere; Robert Fildes; John E. Boylan | Applied Energy 222, 104–118 | 2018 | [DOI](https://doi.org/10.1016/j.apenergy.2018.03.155) · [Author manuscript](https://eprints.lancs.ac.uk/id/eprint/124464/4/Applied_Energy_sigauke_APEN_D_17_10255R2_edit.pdf) |
+| [P-157](#p-157) | Probabilistic and adaptive | Combining Probabilistic Load Forecasts | Yi Wang; Ning Zhang; Yushi Tan; Tao Hong; Daniel S. Kirschen; Chongqing Kang | IEEE Transactions on Smart Grid 10(4), 3664–3674 | 2019 | [DOI](https://doi.org/10.1109/tsg.2018.2833869) · [Preprint](https://arxiv.org/pdf/1803.06730) |
+| [P-158](#p-158) | Probabilistic and adaptive | Day-Ahead Hierarchical Probabilistic Load Forecasting With Linear Quantile Regression and Empirical Copulas | Tianhui Zhao; Jianxue Wang; Yao Zhang | IEEE Access 7, 80969–80979 | 2019 | [DOI](https://doi.org/10.1109/access.2019.2922744) · [PDF](https://ieeexplore.ieee.org/ielx7/6287639/8600701/08736321.pdf) |
+| [P-159](#p-159) | Probabilistic and adaptive | Temporal hierarchies with autocorrelation for load forecasting | Peter Nystrup; Erik Lindström; Pierre Pinson; Henrik Madsen | European Journal of Operational Research 280(3), 876–888 | 2020 | [DOI](https://doi.org/10.1016/j.ejor.2019.07.061) · [Author manuscript](https://pierrepinson.com/docs/Nystrupetal2019.pdf) |
+| [P-160](#p-160) | Probabilistic and adaptive | Probabilistic Load Forecasting Based on Adaptive Online Learning | Veronica Alvarez; Santiago Mazuelas; Jose A. Lozano | IEEE Transactions on Power Systems 36(4), 3668–3680 | 2021 | [DOI](https://doi.org/10.1109/tpwrs.2021.3050837) · [Preprint](https://arxiv.org/pdf/2011.14721) |
+| [P-161](#p-161) | Probabilistic and adaptive | Probabilistic Forecasting of Regional Net-Load With Conditional Extremes and Gridded NWP | Jethro Browell; Matteo Fasiolo | IEEE Transactions on Smart Grid 12(6), 5011–5019 | 2021 | [DOI](https://doi.org/10.1109/tsg.2021.3107159) · [Preprint](https://eprints.gla.ac.uk/250372/1/250372.pdf) |
+| [P-162](#p-162) | Probabilistic and adaptive | Fast Calibrated Additive Quantile Regression | Matteo Fasiolo; Simon N. Wood; Margaux Zaffran; Raphaël Nedellec; Yannig Goude | Journal of the American Statistical Association 116(535), 1402–1412 | 2021 | [DOI](https://doi.org/10.1080/01621459.2020.1725521) · [Preprint](https://arxiv.org/pdf/1707.03307) |
+| [P-163](#p-163) | Probabilistic and adaptive | Adaptive Methods for Short-Term Electricity Load Forecasting During COVID-19 Lockdown in France | David Obst; Joseph de Vilmarest; Yannig Goude | IEEE Transactions on Power Systems 36(5), 4754–4763 | 2021 | [DOI](https://doi.org/10.1109/tpwrs.2021.3067551) · [Preprint](https://arxiv.org/pdf/2009.06527) |
+| [P-164](#p-164) | Probabilistic and adaptive | Day-ahead probabilistic forecasting for French half-hourly electricity loads and quantiles for curve-to-curve regression | Xiuqin Xu; Ying Chen; Yannig Goude; Qiwei Yao | Applied Energy 301, 117465 | 2021 | [DOI](https://doi.org/10.1016/j.apenergy.2021.117465) · [Preprint](https://researchonline.lse.ac.uk/id/eprint/120774/1/20200830.pdf) |
+| [P-165](#p-165) | Probabilistic and adaptive | Cost-oriented load forecasting | Jialun Zhang; Yi Wang; Gabriela Hug | Electric Power Systems Research 205, 107723 | 2022 | [DOI](https://doi.org/10.1016/j.epsr.2021.107723) · [Preprint](https://arxiv.org/pdf/2107.01861) |
+| [P-166](#p-166) | Probabilistic and adaptive | Hierarchical transfer learning with applications to electricity load forecasting | Anestis Antoniadis; Solenne Gaucher; Yannig Goude | International Journal of Forecasting 40(2), 641–660 | 2024 | [DOI](https://doi.org/10.1016/j.ijforecast.2023.04.006) · [Preprint](https://arxiv.org/pdf/2111.08512) |
+| [P-167](#p-167) | Probabilistic and adaptive | Adaptive Probabilistic Forecasting of Electricity (Net-)Load | Joseph de Vilmarest; Jethro Browell; Matteo Fasiolo; Yannig Goude; Olivier Wintenberger | IEEE Transactions on Power Systems 39(2), 4154–4163 | 2024 | [DOI](https://doi.org/10.1109/tpwrs.2023.3310280) · [Preprint](https://arxiv.org/pdf/2301.10090) |
+| [P-168](#p-168) | Probabilistic and adaptive | Probabilistic day-ahead forecasting of system-level renewable energy and electricity demand | Guillermo Terrén-Serrano; Ranjit Deshmukh; Manel Martínez-Ramón | Nature Communications 17(1), 3307 | 2026 | [DOI](https://doi.org/10.1038/s41467-026-69015-w) · [PDF](https://www.nature.com/articles/s41467-026-69015-w.pdf) |
 
 ## Breakdowns
 
@@ -219,9 +218,12 @@ throughout.
 
 From P-011 on, the references point into the free copy linked in the row, which
 can be an author manuscript or a working paper whose numbering differs from the
-published article. Each of these breakdowns was written from the full text, and
-says whether the study forecast with observed weather or with real weather
-forecasts, because that changes what its accuracy means.
+published article. Each of these breakdowns was written from the full text.
+Where a study forecasts with weather and the paper makes it clear, the breakdown
+says whether it used observed weather or real weather forecasts, because that
+changes what its accuracy means. A breakdown that does not mention it makes no
+claim either way: reviews, surveys and studies without weather inputs carry no
+such note.
 
 ### P-001
 
@@ -600,34 +602,6 @@ The authors warn the results hold only for the years used (§7.1).
 
 **Core Topic / Objective**
 
-Which model suits which electricity forecasting job? It builds a decision tree
-from horizon, scale, resolution and available inputs.
-
-**Methodology / Data used**
-
-A Scopus search on electricity forecasting keywords returned 10,667 hits;
-subject area, English, and the keywords "building", "dwelling", "household"
-cut it to 153 papers, of which 41 were read closely, holding 113 model
-applications (§2.1). Each was coded by scale, horizon, resolution, inputs and
-error (Table 1).
-
-**Key Findings**
-
-61.5% of cases are long-term, 43.6% short-term (Table 2); 30.8% use no
-exogenous input, building data 48.7%, weather 41.0% (Table 3). Regression and
-bottom-up dominate long horizons, neural networks, SVM and time series short
-ones.
-
-**Limitations / Gaps**
-
-The authors say comparing accuracy across studies is meaningless, so they treat
-common practice as good practice, which they call debatable (§3.3).
-**Appraisal:** the search is tilted to building scale.
-
-### P-016
-
-**Core Topic / Objective**
-
 A short review of forecasting electricity demand, prices, wind and solar power,
 with research trends, data sources and an outlook.
 
@@ -650,7 +624,7 @@ year (§VI-C).
 The authors say the review is not exhaustive. **Appraisal:** no stated search
 rule; the bibliometrics count papers, not quality.
 
-### P-017
+### P-016
 
 **Core Topic / Objective**
 
@@ -677,7 +651,7 @@ The authors name few African studies (12 of 67), little work on residential
 demand, and conflicting evidence on temperature. **Appraisal:** it counts
 papers, not accuracy.
 
-### P-018
+### P-017
 
 **Core Topic / Objective**
 
@@ -706,7 +680,7 @@ influence-function methods, no causal analysis, nothing on hierarchical
 forecasting, no standard reading of attention (§5). **Appraisal:** 27 papers
 is a thin base.
 
-### P-019
+### P-018
 
 **Core Topic / Objective**
 
@@ -733,7 +707,7 @@ Authors: a representative, not complete sample (GEFCom2017 missed); the citation
 filter disfavours recent work (§4.1). **Appraisal:** no forecast of its own; the
 deep-learning search string narrows "the ELF literature".
 
-### P-020
+### P-019
 
 **Core Topic / Objective**
 
@@ -759,7 +733,7 @@ The authors ask for uniform datasets, as most mix load types (§9.4).
 **Appraisal:** narrative, with no inclusion rule, date range or error
 comparison, so no method is shown to be better.
 
-### P-021
+### P-020
 
 **Core Topic / Objective**
 
@@ -785,7 +759,7 @@ generalisation, little probabilistic work, no interpretability, no online learni
 (§11.1). **Appraisal:** no accuracy numbers are compared, so nothing says which
 method works better; only 200 of 650 papers are cited.
 
-### P-022
+### P-021
 
 **Core Topic / Objective**
 
@@ -811,7 +785,7 @@ extremes, municipal and multi-horizon work are thin (§§2.1, 5.3.2). **Appraisa
 no accuracy numbers are compared, so "most effective" is never shown; observed
 versus forecast weather is not counted.
 
-### P-023
+### P-022
 
 **Core Topic / Objective**
 
@@ -837,7 +811,7 @@ The authors note the data holds few holidays, so they dropped the holiday flag
 for 1 and 6 January. **Appraisal:** one system, one test month; the training
 segment was chosen knowing the target month.
 
-### P-024
+### P-023
 
 **Core Topic / Objective**
 
@@ -864,7 +838,7 @@ The authors wanted cross-validation but lacked time (§5). **Appraisal:** each
 refinement was kept on the competition score itself, so the gains are partly
 fitted to the test set.
 
-### P-025
+### P-024
 
 **Core Topic / Objective**
 
@@ -890,7 +864,7 @@ forecast columns (Table 3).
 The forecast origin never moves, so a missing week may be predicted with later
 data (§4). **Appraisal:** one utility, one week forecast.
 
-### P-026
+### P-025
 
 **Core Topic / Objective**
 
@@ -917,7 +891,7 @@ ensemble (§6.1).
 Kernels and weights were set by hand or by the public leaderboard (§6.4).
 **Appraisal:** that is tuning on part of the test set.
 
-### P-027
+### P-026
 
 **Core Topic / Objective**
 
@@ -944,7 +918,7 @@ same hour late in the day (Fig. 13).
 The authors state none. **Appraisal:** no error figures are reported, only the
 rank; the backcasts use later data than an operational forecast could.
 
-### P-028
+### P-027
 
 **Core Topic / Objective**
 
@@ -969,7 +943,7 @@ Beat the benchmark every month of 2011: December 34.07 → 8.51, February
 The authors say the price methods can be improved. **Appraisal:** one utility,
 one test year; weather simulated, not forecast; no significance test.
 
-### P-029
+### P-028
 
 **Core Topic / Objective**
 
@@ -996,7 +970,7 @@ The hybrid scored 51.4 against the winner's 50.8 and their own submissions'
 The authors note the hybrid's weights were tuned on the same tasks (§5).
 **Appraisal:** one utility; no significance test.
 
-### P-030
+### P-029
 
 **Core Topic / Objective**
 
@@ -1022,7 +996,7 @@ Hierarchical probabilistic load forecasting was left out deliberately (§4.1).
 **Appraisal:** ratings are relative to each track's own benchmark, so they
 compare neither across tracks nor with published errors.
 
-### P-031
+### P-030
 
 **Core Topic / Objective**
 
@@ -1049,7 +1023,7 @@ and 62.07 (Table 5); second of 16 teams there (§1).
 The authors name homoscedastic residuals and no weather-station selection
 (§5.3). **Appraisal:** thresholds and lags picked by hand.
 
-### P-032
+### P-031
 
 **Core Topic / Objective**
 
@@ -1076,7 +1050,7 @@ runner-up: 340,271 against 517,068 (Table 2).
 The authors regret much manual work, ad-hoc formulas and periodic hour terms.
 **Appraisal:** no pinball loss or ranking numbers are reported.
 
-### P-033
+### P-032
 
 **Core Topic / Objective**
 
@@ -1102,7 +1076,7 @@ the Vanilla benchmark in every zone (Table 2).
 The author suggests other horizons and ways to balance the hierarchy (§5.4).
 **Appraisal:** one system, one year of tests; lag and block choices arbitrary.
 
-### P-034
+### P-033
 
 **Core Topic / Objective**
 
@@ -1128,7 +1102,7 @@ teams; beat the Vanilla benchmark in 90 % of 60 task-zone cells (§5, Table 1).
 The author names missing non-linear effects, holidays and structural change
 (§5). **Appraisal:** summing trend and remainder quantiles is admittedly wrong.
 
-### P-035
+### P-034
 
 **Core Topic / Objective**
 
@@ -1154,7 +1128,7 @@ significantly. Ranks 1-5 had 20-30% skill over it, ranks 6-9 about 10% or less
 The authors say 30 days was too short to separate close teams (§IV).
 **Appraisal:** one utility, one month; no MAE table, only skill figures.
 
-### P-036
+### P-035
 
 **Core Topic / Objective**
 
@@ -1181,7 +1155,7 @@ First place; an intraday autoregressive correction cut the neural net's MAE by
 The authors call interpretability open (§VI). **Appraisal:** one city, one
 30-day window; experts chosen by hand.
 
-### P-037
+### P-036
 
 **Core Topic / Objective**
 
@@ -1207,7 +1181,7 @@ benchmark (Table 1).
 The author calls several tuning choices ad hoc (§VI). **Appraisal:** one city;
 holidays found with hindsight.
 
-### P-038
+### P-037
 
 **Core Topic / Objective**
 
@@ -1234,7 +1208,7 @@ The authors say it is one U.S. region and that the rounds blocked recent load
 observations (§6). **Appraisal:** all 14 variants were re-run afterwards, so the
 best is picked with hindsight.
 
-### P-039
+### P-038
 
 **Core Topic / Objective**
 
@@ -1260,7 +1234,7 @@ not differ (p = 0.90, §5).
 Ranks still carry some information about the provider (§5). **Appraisal:** one
 test year; given temperature, not a forecast, flatters the errors.
 
-### P-040
+### P-039
 
 **Core Topic / Objective**
 
@@ -1286,7 +1260,7 @@ The authors say no standard error measure for peak timing exists and no team
 used track-specific features. **Appraisal:** ranks only, no error values
 published; one region, one test year.
 
-### P-041
+### P-040
 
 **Core Topic / Objective**
 
@@ -1313,7 +1287,7 @@ appear only in figures, under 3%.
 Special days need operator override; the authors suggest combining methods.
 **Appraisal:** one system, one 12-week summer window, no error numbers.
 
-### P-042
+### P-041
 
 **Core Topic / Objective**
 
@@ -1338,7 +1312,7 @@ against 991 MW for the four terms in use (§6.1); other fits gave 938-948 MW
 The authors say the day types need care and cross-validation lets the model see
 the future. **Appraisal:** one country, no held-out test.
 
-### P-043
+### P-042
 
 **Core Topic / Objective**
 
@@ -1364,7 +1338,7 @@ network was poor beyond five hours ahead. Errors are in figures only.
 The authors say another network design might have helped; models were never
 re-estimated. **Appraisal:** 30 weeks, no significance test.
 
-### P-044
+### P-043
 
 **Core Topic / Objective**
 
@@ -1391,7 +1365,7 @@ are in figures only.
 The authors blame the short sample for the periodic models; weather methods may
 win beyond four hours. **Appraisal:** one part-year, no significance test.
 
-### P-045
+### P-044
 
 **Core Topic / Objective**
 
@@ -1418,7 +1392,7 @@ against 2.32% and 3.21% (Table 5).
 Authors say August is still modelled poorly. **Appraisal:** one year of
 errors; the benchmarks ran at other lead times; the models are only sketched.
 
-### P-046
+### P-045
 
 **Core Topic / Objective**
 
@@ -1445,7 +1419,7 @@ model wins (Table 6).
 Authors say the model over-forecasts EJP days. **Appraisal:** results are
 detailed for two hours only; one test year; observed cloud cover.
 
-### P-047
+### P-046
 
 **Core Topic / Objective**
 
@@ -1471,7 +1445,7 @@ at night, hours 1-5 (§5.2).
 Authors say cross-dataset comparisons are meaningless. **Appraisal:** 3-6%
 errors are high; no significance test.
 
-### P-048
+### P-047
 
 **Core Topic / Objective**
 
@@ -1499,7 +1473,7 @@ forecast distribution (Fig. 18).
 The authors assume long-term temperature is stable. **Appraisal:** one state,
 one summer tested.
 
-### P-049
+### P-048
 
 **Core Topic / Objective**
 
@@ -1526,7 +1500,7 @@ the neural network (Fig. 10). Numbers are in figures only.
 The authors say another network design might do better; ARMA needs much more
 specification. **Appraisal:** one test year.
 
-### P-050
+### P-049
 
 **Core Topic / Objective**
 
@@ -1553,7 +1527,7 @@ adopted it.
 The authors want more temperature sites and drivers such as humidity.
 **Appraisal:** one region, one test month, no simple baseline.
 
-### P-051
+### P-050
 
 **Core Topic / Objective**
 
@@ -1579,7 +1553,7 @@ on 10 weeks of 2006 British data used real weather forecasts: smoothing won to
 The authors leave the annual cycle out, pick spline knots by hand, and flag the
 day after a holiday. **Appraisal:** one year.
 
-### P-052
+### P-051
 
 **Core Topic / Objective**
 
@@ -1606,7 +1580,7 @@ MAPE 1.20% for the best version and 1.35% for H2, against 2.55% for SARIMA,
 Holidays and EDF special-tariff days were left out. **Appraisal:** the class
 scheme is ad hoc; one test year; EDF's own model still beat it.
 
-### P-053
+### P-052
 
 **Core Topic / Objective**
 
@@ -1633,7 +1607,7 @@ The authors would add humidity and wind. **Appraisal:** 30 days, one small
 island; no significance test; curves are rescaled by the day's actual peak from
 EAC.
 
-### P-054
+### P-053
 
 **Core Topic / Objective**
 
@@ -1659,7 +1633,7 @@ against about an hour for 48 models (§4).
 The authors call the fit only "competitive" with EDF's model. **Appraisal:**
 one forecast year; no accuracy gain over 48 models.
 
-### P-055
+### P-054
 
 **Core Topic / Objective**
 
@@ -1686,7 +1660,7 @@ against 1.88%, or 1.37% without next-day temperature (Table 3).
 No limitation named beyond the short AEMO window. **Appraisal:** one region;
 actual temperature in the main results; no significance test.
 
-### P-056
+### P-055
 
 **Core Topic / Objective**
 
@@ -1713,7 +1687,7 @@ MAPE was 1.25% against 1.56% (Table 3).
 The authors want a better temperature model and more weather variables.
 **Appraisal:** one system, one test year; the RMSE unit is never stated.
 
-### P-057
+### P-056
 
 **Core Topic / Objective**
 
@@ -1739,7 +1713,7 @@ only 0.26-0.35 with Terna's; averaging the two cut MAPE up to 32% (Table 8).
 The authors blame a few large 2017 errors on the missing temperature input.
 **Appraisal:** special days, the hardest, are dropped.
 
-### P-058
+### P-057
 
 **Core Topic / Objective**
 
@@ -1766,7 +1740,7 @@ lost to half-hourly models on an operational metric (Fig. 12).
 The authors call the timing results unreliable and blame the ordered-logit
 model. **Appraisal:** one country, one test year.
 
-### P-059
+### P-058
 
 **Core Topic / Objective**
 
@@ -1792,7 +1766,7 @@ MSE in high-price 2018–2019.
 
 The authors state no limitation. **Appraisal:** one market; no weather input.
 
-### P-060
+### P-059
 
 **Core Topic / Objective**
 
@@ -1817,7 +1791,7 @@ beats SVR 3.273%, ANN 3.430% and ARIMA 2.957% (Table 11).
 The authors name no limitation (§5). **Appraisal:** one city, one year; random test
 days leak neighbours into training; the subset size is chosen on the test set.
 
-### P-061
+### P-060
 
 **Core Topic / Objective**
 
@@ -1844,7 +1818,7 @@ combination was ever worse (Tables 2–3).
 Authors state no limits. **Appraisal:** one test year each; forecast-day
 temperature looks observed, never stated; gains are 0.1–0.2 points.
 
-### P-062
+### P-061
 
 **Core Topic / Objective**
 
@@ -1871,7 +1845,7 @@ The author names none. **Appraisal:** one hour, one test year; observed
 temperature, not forecasts; same-day demand summaries are inputs, so 0.5% is not
 a true medium-term error.
 
-### P-063
+### P-062
 
 **Core Topic / Objective**
 
@@ -1897,7 +1871,7 @@ The authors state no limitations. **Appraisal:** one system; nothing says the
 forecast day's weather is a forecast rather than an observation; k = 9 clusters
 was picked on the test years (§5.2).
 
-### P-064
+### P-063
 
 **Core Topic / Objective**
 
@@ -1923,7 +1897,7 @@ with load, dry-bulb 0.09 (Table A.2).
 The authors ask for more weather study. **Appraisal:** one city; observed
 weather, not forecast; no naive baseline; only two of four seasons reported.
 
-### P-065
+### P-064
 
 **Core Topic / Objective**
 
@@ -1949,7 +1923,7 @@ pre-selection (§7). With the larger pool, 10–20% of features were kept (§6.2
 None stated (§7). **Appraisal:** observed temperature, so no true forecast; one
 utility; linear models only.
 
-### P-066
+### P-065
 
 **Core Topic / Objective**
 
@@ -1975,7 +1949,7 @@ carried most of XGBoost's importance, temperature 3.1% (Table 6).
 The authors say holidays need their own model and a real temperature forecast
 would be needed. **Appraisal:** one system; 14 test weeks; no significance test.
 
-### P-067
+### P-066
 
 **Core Topic / Objective**
 
@@ -2001,7 +1975,7 @@ and LightGBM (Table 5).
 The author suggests MIMO and quantile forests next. **Appraisal:** one test
 year; no weather; tuned per country, rivals perhaps less so.
 
-### P-068
+### P-067
 
 **Core Topic / Objective**
 
@@ -2027,7 +2001,7 @@ blocked cross-validation matched the test error best in 75% of cases.
 The authors call the data old and holiday training scarce. **Appraisal:** one
 region, one test year; observed temperature, not forecast; no naive baseline.
 
-### P-069
+### P-068
 
 **Core Topic / Objective**
 
@@ -2054,7 +2028,7 @@ The authors name none (§V). **Appraisal:** four test weeks; the horizon is
 never stated; β was tuned on the tested forecasts; observed, not forecast,
 weather.
 
-### P-070
+### P-069
 
 **Core Topic / Objective**
 
@@ -2079,7 +2053,7 @@ level 82.1% of models beat the 24-hour naive (§3.6).
 The ensemble weighting has no regularisation, so an overfitted expert can
 distort it (§3.5). **Appraisal:** one country, one test year, private data.
 
-### P-071
+### P-070
 
 **Core Topic / Objective**
 
@@ -2105,7 +2079,7 @@ The authors want longer horizons, node-level tests and social media (§V).
 **Appraisal:** one test year, the COVID year whose words carry much of the gain;
 Granger filtering used the whole series.
 
-### P-072
+### P-071
 
 **Core Topic / Objective**
 
@@ -2131,7 +2105,7 @@ The authors call the Athens proxy the main limit (§5). **Appraisal:** the
 1-hour load lag makes this an hour-ahead forecast, yet it is set beside
 ENTSO-E's day-ahead one; observed, not forecast, weather.
 
-### P-073
+### P-072
 
 **Core Topic / Objective**
 
@@ -2157,7 +2131,7 @@ The authors say the network only interpolates, so unfamiliar days give large
 errors (§5). **Appraisal:** one utility, three winter months, 30 test days;
 network size chosen by test accuracy.
 
-### P-074
+### P-073
 
 **Core Topic / Objective**
 
@@ -2183,7 +2157,7 @@ year each; the simulation put 1 point of MAPE at 0.12-0.35% of variable cost.
 The authors name survey self-selection, one season, three midwestern states,
 first-time users. **Appraisal:** the dollar figures are self-reported.
 
-### P-075
+### P-074
 
 **Core Topic / Objective**
 
@@ -2210,7 +2184,7 @@ The authors say an empirical study settles nothing (§5). **Appraisal:** one loa
 value a day, not an hourly profile; special days smoothed out; no significance
 test.
 
-### P-076
+### P-075
 
 **Core Topic / Objective**
 
@@ -2236,7 +2210,7 @@ methods (Table 5).
 The authors name none (§4). **Appraisal:** the New York rivals are quoted, not
 re-run; the operator forecasts may differ in issue time.
 
-### P-077
+### P-076
 
 **Core Topic / Objective**
 
@@ -2262,7 +2236,7 @@ step or the search cost 12.7–25.9% at one hour (Table 2).
 The authors state none. **Appraisal:** no real weather forecasts; settings
 picked by best try; rival numbers quoted.
 
-### P-078
+### P-077
 
 **Core Topic / Objective**
 
@@ -2287,7 +2261,7 @@ Feature selection dropped temperature (Fig. 8).
 The authors want more data sets (§7). **Appraisal:** early stopping uses the lowest
 *test* error, leaking the test set; errors are one-step-ahead, not day-ahead.
 
-### P-079
+### P-078
 
 **Core Topic / Objective**
 
@@ -2312,7 +2286,7 @@ against DeepEnergy 751.26 / 4.37% and random forest 837.51 / 4.79% (Tables 1–2
 None stated (§§5–6). **Appraisal:** one area, one test year; no naive baseline, no
 significance test, hyperparameters fixed by hand.
 
-### P-080
+### P-079
 
 **Core Topic / Objective**
 
@@ -2338,7 +2312,7 @@ The authors say actual temperature gives an upper bound, and add 1–3 °F noise
 instead (§III). **Appraisal:** that noise is not a real forecast; gains are
 hundredths of a point with no significance test.
 
-### P-081
+### P-080
 
 **Core Topic / Objective**
 
@@ -2363,7 +2337,7 @@ The authors name only the one-year weather archive (§2.2). **Appraisal:** the s
 is random, so hours of one day fall in train and test; the margin over RTE is
 untested.
 
-### P-082
+### P-081
 
 **Core Topic / Objective**
 
@@ -2389,7 +2363,7 @@ Temperature flipped it: recursive LSTM best, 13.8 (Table 7).
 None stated (§8). **Appraisal:** no naive or statistical baseline, so only deep nets are
 ranked; one system, one split, no significance test.
 
-### P-083
+### P-082
 
 **Core Topic / Objective**
 
@@ -2414,7 +2388,7 @@ points at a 36-hour horizon, slightly negative at 12 (Table 2).
 None stated (§5). **Appraisal:** one utility, 487 days; one competing model, tuned from
 older papers while the transformer had 3,477 runs.
 
-### P-084
+### P-083
 
 **Core Topic / Objective**
 
@@ -2440,7 +2414,7 @@ That run uses actual, not forecast, temperature, which the authors call unrealis
 (§4). **Appraisal:** one country, one test year, one weather station; the tuning year
 is a COVID year.
 
-### P-085
+### P-084
 
 **Core Topic / Objective**
 
@@ -2466,7 +2440,7 @@ The authors call the data set small (2–3 years) and avoided heavy tuning to es
 overfitting (§IV-E). **Appraisal:** one test year; no weather, so hot and cold spells
 are untested.
 
-### P-086
+### P-085
 
 **Core Topic / Objective**
 
@@ -2492,7 +2466,7 @@ The authors want weather inputs (§4). **Appraisal:** hundredths of a MAPE point
 significance test, one test year; picking the better setup per country needs the test
 results.
 
-### P-087
+### P-086
 
 **Core Topic / Objective**
 
@@ -2518,7 +2492,7 @@ The authors say the perfect weather makes the numbers an upper bound (§4).
 **Appraisal:** one grid, one test year; the pretraining data may already hold
 ENTSO-E load.
 
-### P-088
+### P-087
 
 **Core Topic / Objective**
 
@@ -2543,7 +2517,7 @@ The authors list longer training, cost growing as 2^N in feature groups, and onl
 real data sets. **Appraisal:** the horizon is a week, not day-ahead, and the load test
 covers six months.
 
-### P-089
+### P-088
 
 **Core Topic / Objective**
 
@@ -2570,7 +2544,7 @@ forecasts it was 2.6760%, so they cut error 29.2% (Table 7). PatchTFT reached
 The authors say the results are Croatian only (§§5.5–5.6). **Appraisal:** one
 country, one test year; no simple benchmark.
 
-### P-090
+### P-089
 
 **Core Topic / Objective**
 
@@ -2598,7 +2572,7 @@ and estimate load to ±4% and ±2%; elasticity peaks at 9 and 7 degree-days
 The authors leave humidity, wind and regional load to future work.
 **Appraisal:** four stations for a country; the degree-day fits use 1998.
 
-### P-091
+### P-090
 
 **Core Topic / Objective**
 
@@ -2624,7 +2598,7 @@ benchmarks (Figs. 4–6).
 Authors name none. **Appraisal:** one system, midday only, special days
 removed; MAPE only in a figure; no significance test.
 
-### P-092
+### P-091
 
 **Core Topic / Objective**
 
@@ -2651,7 +2625,7 @@ to 2.5% (Fig. 3). Recalibrated scenario variance had the lowest RMSE beyond
 Authors name none. **Appraisal:** one system, midday only, special days
 dropped, 18 months tested; all R² under 10% (Table 1).
 
-### P-093
+### P-092
 
 **Core Topic / Objective**
 
@@ -2678,7 +2652,7 @@ $75 million (Table 3).
 The authors exclude maintenance scheduling and say the numbers swing 30% to
 40%. **Appraisal:** one test year per site; savings simulated.
 
-### P-094
+### P-093
 
 **Core Topic / Objective**
 
@@ -2706,7 +2680,7 @@ Authors note normality is rejected, from year-to-year outliers.
 **Appraisal:** simulated, not real, weather forecasts; winter weekdays of one
 system.
 
-### P-095
+### P-094
 
 **Core Topic / Objective**
 
@@ -2733,7 +2707,7 @@ Authors: 36 years is still short; climate change and solar are left out; GB is
 isolated. **Appraisal:** demand is modelled, not measured, with holidays
 stripped out.
 
-### P-096
+### P-095
 
 **Core Topic / Objective**
 
@@ -2759,7 +2733,7 @@ sits 15% above a recent average winter day, 46% for gas (Table 3).
 None stated. **Appraisal:** one temperature series for all of GB; the relation
 is assumed fixed and projected back 241 years; no forecast test.
 
-### P-097
+### P-096
 
 **Core Topic / Objective**
 
@@ -2784,7 +2758,7 @@ Rolling 24-hour-ahead, the aggregate fell 21% (Table 4).
 A different pair was best in hindsight, so the authors want better
 cross-validation (§4.3). **Appraisal:** one utility, one test year.
 
-### P-098
+### P-097
 
 **Core Topic / Objective**
 
@@ -2811,7 +2785,7 @@ The authors say wind forecasts are less accurate than temperature ones, so
 the gain may not survive in practice. **Appraisal:** one system, one test
 year.
 
-### P-099
+### P-098
 
 **Core Topic / Objective**
 
@@ -2838,7 +2812,7 @@ Authors: no climate change, nothing rarer than 25 years, no system
 flexibility. **Appraisal:** one scenario; demand is simulated, validated to
 ±1.9 GW (5.5%).
 
-### P-100
+### P-099
 
 **Core Topic / Objective**
 
@@ -2865,7 +2839,7 @@ Authors: the methods are heuristics. **Appraisal:** one utility, one test
 year; gains tiny beside a 7% MAPE, no significance test; observed temperature,
 not a forecast.
 
-### P-101
+### P-100
 
 **Core Topic / Objective**
 
@@ -2893,7 +2867,7 @@ Zonal TCT under 10% (Figs. 7–8). Adding wind power reclassifies 40% of days
 The authors note TCTs shift as the system changes, and summer is untouched.
 **Appraisal:** loads modelled, not metered; two training years.
 
-### P-102
+### P-101
 
 **Core Topic / Objective**
 
@@ -2920,7 +2894,7 @@ for the ranked 11-station set, −4.8%, significant by Diebold-Mariano (Table
 The authors want per-period subsets next. **Appraisal:** one dataset, one test
 year, one load model; K was picked on the test set.
 
-### P-103
+### P-102
 
 **Core Topic / Objective**
 
@@ -2946,7 +2920,7 @@ Over nine July 2019 days mean MAPE was 1.83% with the corrected temperature,
 The authors state no limits. **Appraisal:** nine summer days of one year;
 the correlation gain is tiny, 0.7615 to 0.7638 (Table 9).
 
-### P-104
+### P-103
 
 **Core Topic / Objective**
 
@@ -2973,7 +2947,7 @@ cities won.
 Authors: humidity and irradiance next. **Appraisal:** one system; subsets
 picked on 2018 error, so only 2019 is a clean test; no significance test.
 
-### P-105
+### P-104
 
 **Core Topic / Objective**
 
@@ -2998,7 +2972,7 @@ New York 2.39% vs 2.51% (Table 12).
 The authors want dynamic windows and softer matching. **Appraisal:** one test
 year; rivals' numbers are copied, not re-run; no weather or holidays.
 
-### P-106
+### P-105
 
 **Core Topic / Objective**
 
@@ -3026,7 +3000,7 @@ day's values; week-old patterns give 2.8-4.7% (Table VI).
 No limit stated. **Appraisal:** one country, three years; a bare k-NN used only
 to rank pattern definitions; holidays never treated.
 
-### P-107
+### P-106
 
 **Core Topic / Objective**
 
@@ -3054,7 +3028,7 @@ The author notes the models are univariate and the stochastic ones unstable.
 **Appraisal:** holidays are removed, so the method is untested where similar-day
 methods matter; one test year per system.
 
-### P-108
+### P-107
 
 **Core Topic / Objective**
 
@@ -3080,7 +3054,7 @@ repeat's 3.43/5.05/3.52/4.88% (Table 2).
 The author says the models carry no weather inputs and cannot handle holidays.
 **Appraisal:** one test year per system; the removed holidays are the hard days.
 
-### P-109
+### P-108
 
 **Core Topic / Objective**
 
@@ -3106,7 +3080,7 @@ The authors suggest putting the rule in a weather-based model.
 **Appraisal:** one country, one test year, 24 special days, categories set by
 eye.
 
-### P-110
+### P-109
 
 **Core Topic / Objective**
 
@@ -3132,7 +3106,7 @@ The authors want other horizons and climates tested, and warn 24 levels can
 overfit (§4). **Appraisal:** one system; not a day-ahead test; tiny gains, no
 significance test.
 
-### P-111
+### P-110
 
 **Core Topic / Objective**
 
@@ -3159,7 +3133,7 @@ The authors want other training lengths and bridging effects. **Appraisal:**
 one country, linear models, no weather; the conclusion says 31 methods where
 §4 builds 32.
 
-### P-112
+### P-111
 
 **Core Topic / Objective**
 
@@ -3185,7 +3159,7 @@ The authors want several such seasonalities to coexist. **Appraisal:** one
 holiday, ten test days, the window length picked on the scored days, no
 significance test.
 
-### P-113
+### P-112
 
 **Core Topic / Objective**
 
@@ -3211,7 +3185,7 @@ The neural model gained nothing; the combination went 1.21%→1.20% (Table 7).
 The authors name no limit. **Appraisal:** one system, one test year; the paper
 never says whether its temperature is observed or forecast.
 
-### P-114
+### P-113
 
 **Core Topic / Objective**
 
@@ -3238,7 +3212,7 @@ An event must have occurred before, and overlapping events need care.
 **Appraisal:** twelve test days in one year; the French comparison is read
 off a figure.
 
-### P-115
+### P-114
 
 **Core Topic / Objective**
 
@@ -3264,7 +3238,7 @@ Only one forecasting engine and the 24-hour horizon were tested (§6.1).
 **Appraisal:** one country, one test year; only observed weather is named, so
 the forecast day's may be actual; §5.4 labels 1.82 FA1, §5.5 FA2.
 
-### P-116
+### P-115
 
 **Core Topic / Objective**
 
@@ -3290,7 +3264,7 @@ regression alone from 1.68% to 1.49% (Table 6). Ordinary days unchanged.
 The authors say at least 7 years of training data are needed. **Appraisal:**
 one test year; small gains, no significance test.
 
-### P-117
+### P-116
 
 **Core Topic / Objective**
 
@@ -3316,7 +3290,7 @@ The authors want longer series, other datasets and automatic parameter setting
 (§5). **Appraisal:** one country, one test year; the forecast day's temperature
 is the observed value (§3.3), so real accuracy would be worse.
 
-### P-118
+### P-117
 
 **Core Topic / Objective**
 
@@ -3342,7 +3316,7 @@ error about 8% overall across the five regions, 16-30% on special days.
 The authors name no limit. **Appraisal:** one test period; the network was
 searched per region and lead.
 
-### P-119
+### P-118
 
 **Core Topic / Objective**
 
@@ -3369,7 +3343,7 @@ The authors name special days (特異日) and the causes of large errors as the 
 problems (§8). **Appraisal:** no common test set, so the quoted numbers are not
 comparable, and the error measure is never defined.
 
-### P-120
+### P-119
 
 **Core Topic / Objective**
 
@@ -3396,7 +3370,7 @@ Mean error 1.78%, worst 4.75%, at the peak hour; 2.73% and 6.41% over the
 None stated. **Appraisal:** five months, fine weekdays, one utility, no
 baseline.
 
-### P-121
+### P-120
 
 **Core Topic / Objective**
 
@@ -3422,7 +3396,7 @@ year stays under 2% (§7), gains clearest in summer and autumn (Table 9).
 Holidays stay out of the net, being rare; input forecast error is ignored.
 **Appraisal:** one system, one test year, no significance test.
 
-### P-122
+### P-121
 
 **Core Topic / Objective**
 
@@ -3450,7 +3424,7 @@ The authors state none. **Appraisal:** one utility, ten months, no
 baseline, no significance test; weekends and special days excluded; fuzzy
 blending is never compared with plain seasonal switching.
 
-### P-123
+### P-122
 
 **Core Topic / Objective**
 
@@ -3478,7 +3452,7 @@ weather-forecast error, seasonal drift, and overfitting in model choice (§3.4).
 **Appraisal:** four pages, no tables; the accuracy figures are quoted from other
 papers, not measured here.
 
-### P-124
+### P-123
 
 **Core Topic / Objective**
 
@@ -3505,7 +3479,7 @@ The author says weather-forecast accuracy now limits the result, and that
 capturing experts' tacit knowledge is hard (§§6–7). **Appraisal:** two years
 only, one unnamed system, and the numbers come from his own earlier reports.
 
-### P-125
+### P-124
 
 **Core Topic / Objective**
 
@@ -3532,7 +3506,7 @@ Special days are untreated, the growth correction can hurt, and poor weather
 forecasts could make stage two harmful. **Appraisal:** one utility, no
 baseline on the same data.
 
-### P-126
+### P-125
 
 **Core Topic / Objective**
 
@@ -3559,7 +3533,7 @@ The authors want forecast accuracy weighed against model accuracy (§6).
 **Appraisal:** two years, one utility, no holidays; small gains, untested
 for significance.
 
-### P-127
+### P-126
 
 **Core Topic / Objective**
 
@@ -3585,7 +3559,7 @@ Unusual years raise the error. **Appraisal:** two
 months of one island system; the gain over their own fuzzy method is 0.04
 points, untested.
 
-### P-128
+### P-127
 
 **Core Topic / Objective**
 
@@ -3612,7 +3586,7 @@ The authors name Saturdays and holidays with no matching past pattern as
 the weak case. **Appraisal:** errors use observed or same-day forecast
 weather, not next-day forecasts; six months, one utility, no baseline.
 
-### P-129
+### P-128
 
 **Core Topic / Objective**
 
@@ -3639,7 +3613,7 @@ training (Table 3).
 The authors admit the older training is more accurate. **Appraisal:**
 one season; utility and years unnamed.
 
-### P-130
+### P-129
 
 **Core Topic / Objective**
 
@@ -3666,7 +3640,7 @@ The authors want the maximum errors cut. **Appraisal:** that factor uses
 observed temperature, not a forecast, and was tuned on the test measure;
 one area, one year.
 
-### P-131
+### P-130
 
 **Core Topic / Objective**
 
@@ -3694,7 +3668,7 @@ actually use (§3.3).
 The author names mapping sky condition to load, and quantifying local
 wind, as open problems. **Appraisal:** no data, no accuracy numbers.
 
-### P-132
+### P-131
 
 **Core Topic / Objective**
 
@@ -3721,7 +3695,7 @@ observed weather, 1.9% with real forecasts (§4.4).
 Saturday and Sunday peaks are much worse (§4.4). **Appraisal:** one
 utility, two test years; no significance test.
 
-### P-133
+### P-132
 
 **Core Topic / Objective**
 
@@ -3748,7 +3722,7 @@ temperature correlates with peak load better than Nagoya's (Table 2).
 None stated. **Appraisal:** one area, two test years; hand-set
 thresholds; no significance test.
 
-### P-134
+### P-133
 
 **Core Topic / Objective**
 
@@ -3774,7 +3748,7 @@ weeks, T method was best at 4 weeks, 6.1% (Fig. 3).
 The authors say short windows miss weather swings and outliers distort the fit.
 **Appraisal:** one utility, one test year, observed weather.
 
-### P-135
+### P-134
 
 **Core Topic / Objective**
 
@@ -3800,7 +3774,7 @@ minutes at a fixed 90-minute horizon gave 0.97% (abstract) and fewer days over
 The authors want solar radiation forecasts and more than one station.
 **Appraisal:** one utility, no simple baseline.
 
-### P-136
+### P-135
 
 **Core Topic / Objective**
 
@@ -3826,7 +3800,7 @@ big cities; the ensemble beat single models (p. 21). The placing is only called
 No limits stated. **Appraisal:** an experience report, not a study: no error
 figures, no rank, no method detail, nothing reproducible.
 
-### P-137
+### P-136
 
 **Core Topic / Objective**
 
@@ -3853,7 +3827,7 @@ differ by 13.8%; 8.5–24.0% elsewhere (§4.2).
 The authors say peak hours are too few to show saturation. **Appraisal:** two
 years, one station per area.
 
-### P-138
+### P-137
 
 **Core Topic / Objective**
 
@@ -3879,7 +3853,7 @@ annual figure to 2.36%; hourly temperature forecasts cut it to 2.17%.
 The authors want real past humidity forecasts and more than one weather site.
 **Appraisal:** one area; tuning read off three test months.
 
-### P-139
+### P-138
 
 **Core Topic / Objective**
 
@@ -3906,7 +3880,7 @@ five 83–107万kW, 2–3 % (§3.3).
 The organisers say nine days is too short to rank teams (§6). **Appraisal:** a
 commentary, not a study; no per-method comparison.
 
-### P-140
+### P-139
 
 **Core Topic / Objective**
 
@@ -3931,7 +3905,7 @@ weekend days accuracy was 97.06% before the correction, 98.15% after; daily MAPE
 Authors: holidays and typhoons remain future work (§8). **Appraisal:** one grid,
 one test year; the paper never says if observed weather or a forecast was used.
 
-### P-141
+### P-140
 
 **Core Topic / Objective**
 
@@ -3957,7 +3931,7 @@ to 2.64% (Table 3). Meizhou worsens, 3.16% to 3.41%, cut to 2.88% by TrAdaBoost
 Authors: weather and economic features are future work (§6). **Appraisal:** one
 province, one test year.
 
-### P-142
+### P-141
 
 **Core Topic / Objective**
 
@@ -3982,7 +3956,7 @@ Working days: MAPE 1.97% least squares, 1.88% with AR(7), 2.72% network; weekend
 Authors: all methods are outlier-sensitive (§3.5). **Appraisal:** one city, one
 test year; the temperature terms look like recorded values, not a forecast.
 
-### P-143
+### P-142
 
 **Core Topic / Objective**
 
@@ -4006,7 +3980,7 @@ Summer load RMSE fell from 681.8 to 591.7 MW, winter from 1192.7 to 772.5
 The authors ask only for a simpler network (§5). **Appraisal:** very few test
 days; no calendar input; needing eight hours of data is not day-ahead.
 
-### P-144
+### P-143
 
 **Core Topic / Objective**
 
@@ -4032,7 +4006,7 @@ The authors name only other distributed resources as future work (§5).
 **Appraisal:** observed weather makes the accuracy optimistic; holidays excluded;
 the estimated BTM capacity is never checked against a true value.
 
-### P-145
+### P-144
 
 **Core Topic / Objective**
 
@@ -4058,7 +4032,7 @@ The authors name none. **Appraisal:** one system, two years, one split, no
 significance test; no persistence baseline; a 7% MAPE is weak for daily peak
 load.
 
-### P-146
+### P-145
 
 **Core Topic / Objective**
 
@@ -4084,7 +4058,7 @@ The authors say holidays and shocks like Covid-19 need more work (§V).
 **Appraisal:** one city, one test year, distorted by lockdowns; measured weather,
 not a weather forecast.
 
-### P-147
+### P-146
 
 **Core Topic / Objective**
 
@@ -4110,7 +4084,7 @@ The authors say the result is Korea-only and boosting models were left out (§4)
 **Appraisal:** observed weather, not a forecast; dynamic multi-step forecasting is
 not the day-ahead task.
 
-### P-148
+### P-147
 
 **Core Topic / Objective**
 
@@ -4136,7 +4110,7 @@ The authors name BTM PV forecast error as the next problem (§V).
 **Appraisal:** two test years; BTM PV forecasts assumed available; no
 significance test.
 
-### P-149
+### P-148
 
 **Core Topic / Objective**
 
@@ -4163,7 +4137,7 @@ Only concept drift is named as future work. **Appraisal:** eForecaster's numbers
 come from the live system while baselines were re-run offline, so the comparison
 is unmatched.
 
-### P-150
+### P-149
 
 **Core Topic / Objective**
 
@@ -4190,7 +4164,7 @@ inside the random forest (§3.2.2). In the heat event PET-random forest has MAPE
 Authors: no index wins everywhere; small sample (§4.4). **Appraisal:** tuned on the
 test set; observed weather.
 
-### P-151
+### P-150
 
 **Core Topic / Objective**
 
@@ -4217,7 +4191,7 @@ The authors name the missing weather inputs (§VI). **Appraisal:** one test year
 Norway and Singapore share identical numbers in several rows, suggesting a copied
 column.
 
-### P-152
+### P-151
 
 **Core Topic / Objective**
 
@@ -4244,7 +4218,7 @@ The penalizer must be matched to the forgetting factor by hand (§5).
 **Appraisal:** one utility, one 5-month test window; observed weather; no
 significance test.
 
-### P-153
+### P-152
 
 **Core Topic / Objective**
 
@@ -4270,7 +4244,7 @@ Slovakia: the best fixed-share rule reached RMSE 27.8 MW fully online against
 Intra-day updating is left to future work. **Appraisal:** one test year each; no
 holidays in the French test; no significance test.
 
-### P-154
+### P-153
 
 **Core Topic / Objective**
 
@@ -4295,7 +4269,7 @@ is closer. Load is under-forecast on the morning ramp, most in summer (Fig. 5).
 The authors leave the cost effect to future work (§IV). **Appraisal:** one year, two
 systems; the bias is unexplained.
 
-### P-155
+### P-154
 
 **Core Topic / Objective**
 
@@ -4321,7 +4295,7 @@ No method covers a whole curve at the stated level, and no weather variable
 enters the model (§§3.2, 4). **Appraisal:** one country, one test year; point
 accuracy never reported.
 
-### P-156
+### P-155
 
 **Core Topic / Objective**
 
@@ -4348,7 +4322,7 @@ The authors name no limit. **Appraisal:** actual temperature replaces a
 forecast, so the one ex ante benchmark looks worst; one utility, one test year,
 no significance test.
 
-### P-157
+### P-156
 
 **Core Topic / Objective**
 
@@ -4374,7 +4348,7 @@ differed from the median one by one coal unit (Tables 8, 10).
 Authors suggest extreme-peak and stochastic programming work. **Appraisal:**
 three hours of one country, six-month test, actual temperature, no benchmark.
 
-### P-158
+### P-157
 
 **Core Topic / Objective**
 
@@ -4401,7 +4375,7 @@ The data split was set by hand. **Appraisal:** the models' inputs are never
 stated, so the weather question cannot be answered; one test period each, no
 significance test.
 
-### P-159
+### P-158
 
 **Core Topic / Objective**
 
@@ -4428,7 +4402,7 @@ Only directly connected nodes are used; training is slow for bigger hierarchies 
 **Appraisal:** despite the title the test is month-ahead; gains are counts of cases,
 not significance tests.
 
-### P-160
+### P-159
 
 **Core Topic / Objective**
 
@@ -4455,7 +4429,7 @@ Gains need autocorrelated errors, and the cross-correlation matrix is unestimabl
 beyond one day ahead (§6). **Appraisal:** two years, one country; weak weather-free
 base forecasts leave much to reconcile away.
 
-### P-161
+### P-160
 
 **Core Topic / Objective**
 
@@ -4482,7 +4456,7 @@ tied on most sets (Table II).
 No limitation is stated. **Appraisal:** hyper-parameters picked by eye on one
 data set (§V); no significance tests; one horizon.
 
-### P-162
+### P-161
 
 **Core Topic / Objective**
 
@@ -4509,7 +4483,7 @@ added nothing reliable. Only the GPD tails were calibrated below 1%
 Authors: dependence between regions is left for later (§VI). **Appraisal:** one
 country, one test year; net-load, not demand.
 
-### P-163
+### P-162
 
 **Core Topic / Objective**
 
@@ -4536,7 +4510,7 @@ Near τ = 0.7 on UK data no quantile method beat a Gaussian GAM. **Appraisal:**
 one half-hour of the day; the load results carry no numbers; observed
 temperature.
 
-### P-164
+### P-163
 
 **Core Topic / Objective**
 
@@ -4562,7 +4536,7 @@ the second window 1.44% (Table I).
 The authors plan mobility data and regional loads (§V). **Appraisal:** one
 country, one event; observed temperature replaces a forecast.
 
-### P-165
+### P-164
 
 **Core Topic / Objective**
 
@@ -4587,7 +4561,7 @@ Whole-curve coverage 0.563–0.669 against 0.238–0.342, nominal 0.9.
 Authors: coverage falls short of 0.9, blamed on small groups (§4.2).
 **Appraisal:** one country, one test year, special days excluded.
 
-### P-166
+### P-165
 
 **Core Topic / Objective**
 
@@ -4613,7 +4587,7 @@ III). Coarser cost losses gained under 3%.
 The authors state none. **Appraisal:** one test year, one simulated system, costs
 simulated not observed; no significance test.
 
-### P-167
+### P-166
 
 **Core Topic / Objective**
 
@@ -4640,7 +4614,7 @@ hierarchical aggregation; after it 1.84% to 0.91% (Table 4).
 No limitation is named. **Appraisal:** one test window per case, and case 2's
 gains come mostly from the covid break.
 
-### P-168
+### P-167
 
 **Core Topic / Objective**
 
@@ -4665,7 +4639,7 @@ US nRPS fell from 0.319 to 0.094 in 2020 (Table IV).
 Authors: extreme quantiles are not adapted (§VI). **Appraisal:** no
 significance tests; a test period dominated by covid.
 
-### P-169
+### P-168
 
 **Core Topic / Objective**
 
