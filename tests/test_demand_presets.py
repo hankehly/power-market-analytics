@@ -1,4 +1,9 @@
-"""The demand presets: the eleven files of conf/presets/demand, pinned to the tuples of 2026-09-19."""
+"""The demand presets: the twelve files of conf/presets/demand, pinned to their tuples.
+
+The eleven of 2026-09-19 keep the tuples they were registered with; ``e212``,
+the joint test of experiment #212, is pinned to the 104 references it was
+written with on 2026-09-20.
+"""
 
 from __future__ import annotations
 
@@ -79,11 +84,118 @@ EXPECTED = {
     f"{SIMDAY_NAME}_lags_weather": (f"{SIMDAY_NAME}_lags", (*SIMDAY, *RECENT_LOAD, *MSM_ELEMENTS)),
 }
 
+#: The other 81 tagged columns of the seven marts we build ourselves, in view
+#: order after the baseline's 23: the feature set of experiment #212. A
+#: published preset is never edited, so this is a literal pin and not a recount
+#: of the views — a mart that gains a column does not belong to this preset.
+E212_REST = (
+    # ftr_day_actuals
+    "ftr_day_actuals:lag_2d_min_demand_kwh",
+    "ftr_day_actuals:lag_2d_load_factor_demand",
+    "ftr_day_actuals:lag_2d_morning_mean_demand_kwh",
+    "ftr_day_actuals:lag_2d_afternoon_mean_demand_kwh",
+    "ftr_day_actuals:lag_2d_evening_mean_demand_kwh",
+    "ftr_day_actuals:lag_2d_peak_time_code",
+    "ftr_day_actuals:lag_2d_morning_ramp_demand_kwh",
+    "ftr_day_actuals:lag_2d_evening_ramp_demand_kwh",
+    "ftr_day_actuals:ewm_5d_daily_max_demand_kwh",
+    "ftr_day_actuals:ewm_weekly_lags_daily_max_demand_kwh",
+    "ftr_day_actuals:ewm_5d_minus_ewm_weekly_lags_daily_max_demand_kwh",
+    "ftr_day_actuals:ewm_5d_daily_mean_demand_kwh",
+    "ftr_day_actuals:ewm_weekly_lags_daily_mean_demand_kwh",
+    "ftr_day_actuals:ewm_5d_minus_ewm_weekly_lags_daily_mean_demand_kwh",
+    "ftr_day_actuals:ewm_5d_daily_min_demand_kwh",
+    "ftr_day_actuals:ewm_weekly_lags_daily_min_demand_kwh",
+    "ftr_day_actuals:ewm_5d_minus_ewm_weekly_lags_daily_min_demand_kwh",
+    # ftr_day_calendar
+    "ftr_day_calendar:special_period",
+    "ftr_day_calendar:lag_2d_day_type",
+    "ftr_day_calendar:lag_3d_day_type",
+    "ftr_day_calendar:lag_7d_day_type",
+    "ftr_day_calendar:holiday_degree",
+    "ftr_day_calendar:half",
+    "ftr_day_calendar:quarter",
+    "ftr_day_calendar:day_of_month",
+    "ftr_day_calendar:day_of_quarter",
+    "ftr_day_calendar:day_of_year",
+    "ftr_day_calendar:is_business_day",
+    "ftr_day_calendar:fiscal_quarter",
+    "ftr_day_calendar:days_since_holiday",
+    "ftr_day_calendar:days_until_holiday",
+    # ftr_day_msm
+    "ftr_day_msm:max_popw_forecast_temperature_c",
+    "ftr_day_msm:min_popw_forecast_temperature_c",
+    "ftr_day_msm:mean_popw_forecast_temperature_c",
+    "ftr_day_msm:max_popw_forecast_temperature_hour_ending",
+    "ftr_day_msm:morning_trend_popw_forecast_temperature_c",
+    # ftr_hour_jma_obs
+    "ftr_hour_jma_obs:mean_24h_popw_temperature_c",
+    "ftr_hour_jma_obs:mean_72h_popw_temperature_c",
+    "ftr_hour_jma_obs:ewm_72h_popw_temperature_c",
+    # ftr_hour_msm
+    "ftr_hour_msm:forecast_temperature_c",
+    "ftr_hour_msm:popw_forecast_total_cloud_cover_pct",
+    "ftr_hour_msm:popw_forecast_high_cloud_cover_pct",
+    "ftr_hour_msm:popw_forecast_middle_cloud_cover_pct",
+    "ftr_hour_msm:popw_forecast_low_cloud_cover_pct",
+    "ftr_hour_msm:popw_forecast_wind_speed_ms",
+    "ftr_hour_msm:popw_forecast_u_wind_ms",
+    "ftr_hour_msm:popw_forecast_v_wind_ms",
+    "ftr_hour_msm:popw_forecast_surface_pressure_hpa",
+    "ftr_hour_msm:popw_forecast_sea_level_pressure_hpa",
+    "ftr_hour_msm:popw_forecast_discomfort_index",
+    "ftr_hour_msm:cum_popw_forecast_solar_radiation_mjm2",
+    # ftr_period_actuals
+    "ftr_period_actuals:lag_9d_demand_kwh",
+    "ftr_period_actuals:ewstd_weekly_lags_demand_kwh",
+    "ftr_period_actuals:trend_weekly_lags_demand_kwh",
+    "ftr_period_actuals:std_weekly_lags_demand_kwh",
+    "ftr_period_actuals:median_weekly_lags_demand_kwh",
+    "ftr_period_actuals:zscore_7d_vs_14d_28d_demand_kwh",
+    "ftr_period_actuals:lag_7d_adjacent_mean_demand_kwh",
+    "ftr_period_actuals:lag_7d_ramp_demand_kwh",
+    "ftr_period_actuals:mean_weekly_lags_ramp_demand_kwh",
+    "ftr_period_actuals:newest_daytype_4d_lag_days",
+    "ftr_period_actuals:oldest_daytype_4d_lag_days",
+    "ftr_period_actuals:mean_daytype_weekly_lags_demand_kwh",
+    "ftr_period_actuals:ewm_daytype_weekly_lags_demand_kwh",
+    "ftr_period_actuals:ewm_5d_demand_kwh",
+    "ftr_period_actuals:std_5d_demand_kwh",
+    "ftr_period_actuals:ewstd_5d_demand_kwh",
+    "ftr_period_actuals:ewm_5d_minus_ewm_weekly_lags_demand_kwh",
+    "ftr_period_actuals:lag_2d_over_daily_mean_demand",
+    "ftr_period_actuals:lag_7d_over_daily_mean_demand",
+    "ftr_period_actuals:lag_2d_position_28d_demand",
+    "ftr_period_actuals:rel_ewm_5d_minus_ewm_weekly_lags_demand",
+    "ftr_period_actuals:rel_change_2d_9d_demand",
+    "ftr_period_actuals:lag_7d_minus_median_weekly_lags_demand_kwh",
+    "ftr_period_actuals:lag_2d_wind_solar_generation_kwh",
+    "ftr_period_actuals:lag_7d_wind_solar_generation_kwh",
+    # ftr_period_similar_day
+    "ftr_period_similar_day:similar_day_rank2_demand_kwh",
+    "ftr_period_similar_day:similar_day_rank3_demand_kwh",
+    "ftr_period_similar_day:wavg_similar_day_top3_demand_kwh",
+    "ftr_period_similar_day:similar_day_rank1_distance",
+    "ftr_period_similar_day:similar_day_rank1_lag_days",
+)
+E212 = (*SIMDAY, *RECENT_LOAD, *MSM_ELEMENTS, *E212_REST)
+#: The five categoricals of e212, in feature order: the mart tags, not the preset.
+E212_CATEGORICALS = (
+    "day_type",
+    "special_period",
+    "lag_2d_day_type",
+    "lag_3d_day_type",
+    "lag_7d_day_type",
+)
+
 
 def test_the_eleven_files_resolve_to_the_tuples_registered_on_2026_09_19():
     # The migration pin: a rerun of any preset sees the same columns in the same
     # order as before the move to files, so no published run's feature set moved.
-    assert {name: (p.base, p.features) for name, p in PRESETS.items()} == EXPECTED
+    assert {
+        name: (p.base, p.features) for name, p in PRESETS.items() if name in EXPECTED
+    } == EXPECTED
+    assert set(PRESETS) == set(EXPECTED) | {"e212"}
     assert all(p.task == "demand" for p in PRESETS.values())
     assert PRESETS["lightgbm"].feature_cols == (
         "time_code",
@@ -128,6 +240,7 @@ def test_types_and_categoricals_come_from_the_views():
     assert all(
         categorical_columns(preset) == (("day_type",) if "daytype" in name else ())
         for name, preset in PRESETS.items()
+        if name != "e212"  # its five are pinned below
     )
 
 
@@ -155,3 +268,21 @@ def test_the_lags_preset_appends_the_thirteen_recent_load_features():
     weather = PRESETS[f"{SIMDAY_NAME}_lags_weather"]
     assert len(weather.features) == len(lags.features) + 3
     assert all(feature_dtypes(weather)[c.split(":")[1]] == "float64" for c in MSM_ELEMENTS)
+
+
+def test_e212_is_every_feature_of_the_seven_marts_we_build_ourselves():
+    preset = PRESETS["e212"]
+    # The full list, not a base and an add: the baseline's 23 first, then the 81.
+    assert preset.base is None
+    assert preset.features == E212
+    assert len(preset.features) == 104
+    assert preset.columns == tuple(r.split(":")[1] for r in E212)
+    assert preset.feature_cols == ("time_code", *preset.columns)
+    # The two exogenous views are out at the researcher's ruling (issue #212).
+    assert not [
+        r for r in preset.features if r.startswith(("ftr_day_occto:", "ftr_period_jepx:"))
+    ]
+    # Every column resolves to a dtype LightGBM can take, and the categoricals
+    # are the marts', not the preset's.
+    assert set(feature_dtypes(preset)) == set(preset.columns)
+    assert categorical_columns(preset) == E212_CATEGORICALS

@@ -44,10 +44,10 @@ from power_market_analytics.tasks.demand.strategies import STRATEGIES, build_str
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     # Default = the preset that runs for every area. The Tokyo demand baseline
-    # since demand/R-004 E-002 (2026-09-06) is lightgbm_msm_popw_daytype_simday,
-    # whose similar-day mart needs the でんき予報 hourly load and a fit of the
-    # weights (scripts/fit_similar_day.py), so it runs for Tokyo only; the
-    # R-003 preset (2026-08-26) stays the default and the Kansai baseline.
+    # since experiment #212 (2026-09-20) is e212, whose similar-day mart needs
+    # the でんき予報 hourly load and a fit of the weights
+    # (scripts/fit_similar_day.py), so it runs for Tokyo only; the R-003 preset
+    # (2026-08-26) stays the default and the Kansai baseline.
     parser.add_argument(
         "--strategy", choices=sorted(STRATEGIES), default="lightgbm_msm_popw_daytype"
     )
