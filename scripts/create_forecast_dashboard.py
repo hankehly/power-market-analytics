@@ -2626,6 +2626,8 @@ def detail_params(spec: DashboardSpec, dataset_id: int) -> dict:
         "only_total": True,
         "show_value": False,
         "rich_tooltip": True,
+        # the hover lists forecast, actual and error; adding them up means nothing
+        "showTooltipTotal": False,
         "tooltipTimeFormat": "smart_date",
         "x_axis_time_format": "smart_date",
         "y_axis_format": "SMART_NUMBER",
