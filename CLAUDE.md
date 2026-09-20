@@ -1246,7 +1246,9 @@
   defaults (`docs/research/<task>/README.md`), the literature review
   (`docs/research/literature-review.md`, `papers.md` until 2026-09-20: one reference table
   with stable `P-XXX` IDs and a Topic column, and a four-part breakdown of every source,
-  written from its full text in plain words, at most 130 words from P-011 on; the
+  written from its full text in plain words, at most 130 words from P-011 on — every
+  whitespace-separated word of the four parts, not counting the four part labels and the
+  `**Appraisal:**` marker; the
   researcher's rules for a new entry: reputable sources first, journals and research papers,
   and only a work whose full text is free to read, its free link checked)
   and the figures (`docs/research/<task>/assets/`, embedded in issues by raw URL on `main`).

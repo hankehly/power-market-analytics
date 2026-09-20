@@ -2240,7 +2240,7 @@ re-run; the operator forecasts may differ in issue time.
 
 **Core Topic / Objective**
 
-Builds a load forecaster that splits the load series by wavelet transform and
+Builds a load forecaster that splits the load by wavelet transform and
 forecasts each part with an extreme learning machine (a one-hidden-layer network
 whose output weights are solved directly).
 
@@ -2248,7 +2248,7 @@ whose output weights are solved directly).
 
 Its input weights come from a bee colony search. Two hourly datasets: ISO
 New England (2010 test weeks) and a North American utility, 1988–1992 (§3.2).
-Horizons 1 and 24 hours. **Actual temperatures stand in for forecasts**, with
+Horizons 1 and 24 hours. Actual temperatures stand in for forecasts, with
 0.6 °C Gaussian noise imitating forecast error.
 
 **Key Findings**
@@ -2260,7 +2260,7 @@ step or the search cost 12.7–25.9% at one hour (Table 2).
 **Limitations / Gaps**
 
 The authors state none. **Appraisal:** no real weather forecasts; settings
-picked by keeping the best try; rival numbers quoted, not re-run.
+picked by best try; rival numbers quoted.
 
 ### P-078
 
@@ -2555,8 +2555,8 @@ layer.
 
 Hourly Croatian load from ENTSO-E, 2006–2022, with 2022 held out (§2). Forecasts
 are issued at 08:00 for the next day, horizons 16–39 h (§3). Inputs are load
-lags, calendar terms, local observations and **real weather forecasts from the
-TIGGE archive**. Baselines: DNN, LSTM, Transformer, TFT, PatchTFT.
+lags, calendar terms, local observations and real weather forecasts from the
+TIGGE archive. Baselines: DNN, LSTM, Transformer, TFT, PatchTFT.
 
 **Key Findings**
 
@@ -2567,9 +2567,8 @@ forecasts it was 2.6760%, so they cut error 29.2% (Table 7). PatchTFT reached
 
 **Limitations / Gaps**
 
-The authors say the results are Croatian only and cost-sensitive objectives are
-future work (§§5.5–5.6). **Appraisal:** one country, one test year; no simple
-benchmark.
+The authors say the results are Croatian only (§§5.5–5.6). **Appraisal:** one
+country, one test year; no simple benchmark.
 
 ### P-090
 
@@ -3891,8 +3890,8 @@ contest, held in 2017.
 
 Hourly demand for the whole TEPCO Power Grid area, forecast a day ahead, scored
 by RMSE in 万kW (§2). Two tasks: a yearly one over all 365 days of 2015, with
-2009–2015 demand supplied and **observed** weather allowed instead of
-forecasts, so model error shows without weather error; and a live one,
+2009–2015 demand supplied and observed weather allowed instead of
+forecasts, so model error shows without weather error; a live one,
 2017-09-02 to 09-10, submitted each morning with real weather forecasts. 96
 entries (§3.1).
 
