@@ -47,6 +47,13 @@ def test_fields_carry_the_marts_types_and_categorical_and_expression_tags():
         "categorical": "true",
         "expression": "special_period",
     }
+    for lag_days in (2, 3, 7):
+        lag_day_type = calendar[f"lag_{lag_days}d_day_type"]
+        assert lag_day_type.dtype == Int64
+        assert lag_day_type.tags == {
+            "categorical": "true",
+            "expression": f"LAG(day_type, {lag_days}d)",
+        }
     assert calendar["holiday_degree"].dtype == Float64
     assert calendar["holiday_degree"].tags == {
         "categorical": "false",
@@ -144,6 +151,10 @@ def test_the_actuals_views_carry_the_recent_load_columns():
         "mean_weekly_lags_ramp_demand_kwh",
         "mean_daytype_4d_demand_kwh",
         "ewm_daytype_4d_demand_kwh",
+        "newest_daytype_4d_lag_days",
+        "oldest_daytype_4d_lag_days",
+        "mean_daytype_weekly_lags_demand_kwh",
+        "ewm_daytype_weekly_lags_demand_kwh",
         "ewm_5d_demand_kwh",
         "std_5d_demand_kwh",
         "ewstd_5d_demand_kwh",
@@ -170,6 +181,16 @@ def test_the_actuals_views_carry_the_recent_load_columns():
     )
     assert period["lag_2d_demand_kwh"].dtype == Int64
     assert period["ewm_daytype_4d_demand_kwh"].dtype == Float64
+    # The weekly lags kept to D's day type: the plain weekly expressions, by day type.
+    assert period["mean_daytype_weekly_lags_demand_kwh"].dtype == Float64
+    assert (
+        period["ewm_daytype_weekly_lags_demand_kwh"].tags["expression"]
+        == "EWA(demand_kwh, gap=7d, window=4, step=7d, halflife=1) by day_type"
+    )
+    # The window's ages are whole days, and their expressions are their names.
+    for age in ("newest_daytype_4d_lag_days", "oldest_daytype_4d_lag_days"):
+        assert period[age].dtype == Int64
+        assert period[age].tags["expression"] == age
     assert period["ewm_5d_demand_kwh"].dtype == Float64
     assert period["trend_weekly_lags_demand_kwh"].dtype == Float64
     assert (

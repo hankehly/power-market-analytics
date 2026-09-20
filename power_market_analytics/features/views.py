@@ -149,7 +149,7 @@ FTR_DAY_ACTUALS = FeatureView(
 
 FTR_DAY_CALENDAR_SOURCE = SparkSource(
     name="ftr_day_calendar",
-    query="select area_code, cast(date_format(trade_date, 'yyyyMMdd') as int) as trade_date_key, month, day_of_week, day_type, special_period, holiday_degree, half, quarter, day_of_month, day_of_quarter, day_of_year, is_business_day, fiscal_quarter, days_since_holiday, days_until_holiday, available_at from pma_features.ftr_day_calendar",
+    query="select area_code, cast(date_format(trade_date, 'yyyyMMdd') as int) as trade_date_key, month, day_of_week, day_type, special_period, lag_2d_day_type, lag_3d_day_type, lag_7d_day_type, holiday_degree, half, quarter, day_of_month, day_of_quarter, day_of_year, is_business_day, fiscal_quarter, days_since_holiday, days_until_holiday, available_at from pma_features.ftr_day_calendar",
     timestamp_field="available_at",
     description="Calendar features of every delivery day for every bidding zone: dim_date's attributes as the demand strategies read them (research demand/R-003 and R-005) plus the two distances in days to the nearest named holiday. Grain: area_code x trade_date. The values do not depend on the area; the key is there so every feature mart joins on the same keys. Feature columns carry config.meta.feature; keys and available_at do not.",
 )
@@ -180,6 +180,24 @@ FTR_DAY_CALENDAR = FeatureView(
             dtype=Int64,
             description="The special period the day belongs to, the first that matches: 1 年末年始 (12/30-1/3), 2 ゴールデンウィーク (4/29-5/5), 3 お盆 (8/13-8/16), the three periods of dim_date.holiday_degree, by date, so a weekend or a 祝日 inside one takes the period; 4 any other holiday (dim_date.is_holiday), a 振替休日 on 5/6 included; 5 a sandwiched working day, one with holiday_degree 0.5 or 0.3 (one or two working days between off days); 0 none, an ordinary weekend included (feature candidate #131). A LightGBM categorical.",
             tags={"categorical": "true", "expression": "special_period"},
+        ),
+        Field(
+            name="lag_2d_day_type",
+            dtype=Int64,
+            description="The day type of D-2, the day lag_2d_demand_kwh reads: 0 Weekday, 1 Weekend, 2 Holiday, the mart's own day_type of that day, so the model can tell when a load lag is a holiday's (feature candidate #201). Null where D-2 is before the spine's first day. A LightGBM categorical.",
+            tags={"categorical": "true", "expression": "LAG(day_type, 2d)"},
+        ),
+        Field(
+            name="lag_3d_day_type",
+            dtype=Int64,
+            description="The day type of D-3, the day lag_3d_demand_kwh reads: 0 Weekday, 1 Weekend, 2 Holiday, the mart's own day_type of that day, so the model can tell when a load lag is a holiday's (feature candidate #201). Null where D-3 is before the spine's first day. A LightGBM categorical.",
+            tags={"categorical": "true", "expression": "LAG(day_type, 3d)"},
+        ),
+        Field(
+            name="lag_7d_day_type",
+            dtype=Int64,
+            description="The day type of D-7, the day lag_7d_demand_kwh reads: 0 Weekday, 1 Weekend, 2 Holiday, the mart's own day_type of that day, so the model can tell when a load lag is a holiday's (feature candidate #201). Null where D-7 is before the spine's first day. A LightGBM categorical.",
+            tags={"categorical": "true", "expression": "LAG(day_type, 7d)"},
         ),
         Field(
             name="holiday_degree",
@@ -486,7 +504,7 @@ FTR_HOUR_MSM = FeatureView(
 
 FTR_PERIOD_ACTUALS_SOURCE = SparkSource(
     name="ftr_period_actuals",
-    query="select area_code, cast(date_format(trade_date, 'yyyyMMdd') as int) as trade_date_key, time_code, lag_2d_demand_kwh, lag_3d_demand_kwh, lag_7d_demand_kwh, lag_9d_demand_kwh, lag_14d_demand_kwh, lag_21d_demand_kwh, lag_28d_demand_kwh, mean_weekly_lags_demand_kwh, ewm_weekly_lags_demand_kwh, ewstd_weekly_lags_demand_kwh, trend_weekly_lags_demand_kwh, std_weekly_lags_demand_kwh, median_weekly_lags_demand_kwh, zscore_7d_vs_14d_28d_demand_kwh, change_2d_9d_demand_kwh, lag_7d_adjacent_mean_demand_kwh, lag_7d_ramp_demand_kwh, mean_weekly_lags_ramp_demand_kwh, mean_daytype_4d_demand_kwh, ewm_daytype_4d_demand_kwh, ewm_5d_demand_kwh, std_5d_demand_kwh, ewstd_5d_demand_kwh, ewm_5d_minus_ewm_weekly_lags_demand_kwh, lag_2d_over_daily_mean_demand, lag_7d_over_daily_mean_demand, lag_2d_position_28d_demand, rel_ewm_5d_minus_ewm_weekly_lags_demand, rel_change_2d_9d_demand, lag_7d_minus_median_weekly_lags_demand_kwh, lag_2d_wind_solar_generation_kwh, lag_7d_wind_solar_generation_kwh, available_at from pma_features.ftr_period_actuals",
+    query="select area_code, cast(date_format(trade_date, 'yyyyMMdd') as int) as trade_date_key, time_code, lag_2d_demand_kwh, lag_3d_demand_kwh, lag_7d_demand_kwh, lag_9d_demand_kwh, lag_14d_demand_kwh, lag_21d_demand_kwh, lag_28d_demand_kwh, mean_weekly_lags_demand_kwh, ewm_weekly_lags_demand_kwh, ewstd_weekly_lags_demand_kwh, trend_weekly_lags_demand_kwh, std_weekly_lags_demand_kwh, median_weekly_lags_demand_kwh, zscore_7d_vs_14d_28d_demand_kwh, change_2d_9d_demand_kwh, lag_7d_adjacent_mean_demand_kwh, lag_7d_ramp_demand_kwh, mean_weekly_lags_ramp_demand_kwh, mean_daytype_4d_demand_kwh, ewm_daytype_4d_demand_kwh, newest_daytype_4d_lag_days, oldest_daytype_4d_lag_days, mean_daytype_weekly_lags_demand_kwh, ewm_daytype_weekly_lags_demand_kwh, ewm_5d_demand_kwh, std_5d_demand_kwh, ewstd_5d_demand_kwh, ewm_5d_minus_ewm_weekly_lags_demand_kwh, lag_2d_over_daily_mean_demand, lag_7d_over_daily_mean_demand, lag_2d_position_28d_demand, rel_ewm_5d_minus_ewm_weekly_lags_demand, rel_change_2d_9d_demand, lag_7d_minus_median_weekly_lags_demand_kwh, lag_2d_wind_solar_generation_kwh, lag_7d_wind_solar_generation_kwh, available_at from pma_features.ftr_period_actuals",
     timestamp_field="available_at",
     description="The area's own recent demand for each delivery period, from fct_area_demand_generation_actual: the demand 2, 3, 7, 9, 14, 21 and 28 days before, a plain and an exponentially weighted mean, a weighted standard deviation, a least-squares trend, a sample standard deviation, a median and the mean period-to-period ramp over the four weekly lags, D-7's z-score against D-14, D-21 and D-28, the D-2 minus D-9 change, D-7's mean with its neighbouring periods and its ramp from the period before, an exponentially weighted mean, a sample standard deviation and a weighted standard deviation over D-2 to D-6, the weighted mean's difference from the weekly one, and a plain and an exponentially weighted mean over the same period of the last four complete days of D's day type (the lag_7d_demand_kwh of research demand/R-001 to R-005; ewm_5d_demand_kwh, the weekly lags' trend, standard deviation and median, the D-7 z-score and the EWA difference added 2026-09-13, the standard deviations, the neighbouring-period mean and the ramps later that day; the rest research demand/R-006). Grain: area_code x trade_date x time_code. A row exists wherever at least one lag exists, D-4 to D-6 included; a column is null where its input is absent (a TSO hole, or a day before the history starts). The two four-input exponentially weighted means and the weekly weighted standard deviation use the weights 8, 4, 2, 1 from the newest input back, and the D-2 to D-6 ones the weights 16, 8, 4, 2, 1, tied to the input's position and renormalised over the inputs present. A neighbouring period is the one before or after on the timeline, so period 1's t-1 is period 48 of the day before and period 48's t+1 is period 1 of the day after. A complete day has all 48 periods non-null. available_at is the greatest over the rows shifted onto the row, the neighbouring periods included, so the whole row is usable only once its newest input is public.",
 )
@@ -613,6 +631,30 @@ FTR_PERIOD_ACTUALS = FeatureView(
             dtype=Float64,
             description="The same four days with weights 8, 4, 2, 1 from the newest back, renormalised over the days present, kWh.",
             tags={"categorical": "false", "expression": "EWA(demand_kwh, gap=2d, window=4, halflife=1) by day_type"},
+        ),
+        Field(
+            name="newest_daytype_4d_lag_days",
+            dtype=Int64,
+            description="How many days before D the newest day of the day-type window lies: the newest complete day of D's day type at or before D-2, the first of the days mean_daytype_4d_demand_kwh and ewm_daytype_4d_demand_kwh read (feature candidate #203). 2 when D-2 has D's day type; larger after a run of other days, and the window has no bound. The same on all 48 periods of a day; null where the window is.",
+            tags={"categorical": "false", "expression": "newest_daytype_4d_lag_days"},
+        ),
+        Field(
+            name="oldest_daytype_4d_lag_days",
+            dtype=Int64,
+            description="How many days before D the oldest day of the same window lies: the fourth newest complete day of D's day type at or before D-2, or the oldest present when the window holds fewer than four (feature candidate #203). Days on a weekday target, weeks on a weekend one, often months on a holiday. The same on all 48 periods of a day; null where the window is.",
+            tags={"categorical": "false", "expression": "oldest_daytype_4d_lag_days"},
+        ),
+        Field(
+            name="mean_daytype_weekly_lags_demand_kwh",
+            dtype=Float64,
+            description="Mean over the same period of the newest four weekly lags whose day has D's day type (ftr_day_calendar.day_type): the first four of D-7, D-14 ... D-56, eight weeks at most, that have D's day type and a value at the period, kWh (feature candidate #202). A week whose same weekday was a holiday is skipped for a working-day target, and the window reaches a week further back. Over the values present, not complete days, as mean_weekly_lags_demand_kwh: where the four plain weekly lags are all present with D's day type the two are equal. Fewer than four give the mean of those present; null when there is none, as on most holiday targets.",
+            tags={"categorical": "false", "expression": "ROLLING_MEAN(demand_kwh, gap=7d, window=4, step=7d) by day_type"},
+        ),
+        Field(
+            name="ewm_daytype_weekly_lags_demand_kwh",
+            dtype=Float64,
+            description="The same values with weights 8, 4, 2, 1 in the order of use, the newest value used taking 8 even when it is D-14, renormalised over the values present, kWh (feature candidate #202). Equal to ewm_weekly_lags_demand_kwh where the four plain weekly lags are all present with D's day type.",
+            tags={"categorical": "false", "expression": "EWA(demand_kwh, gap=7d, window=4, step=7d, halflife=1) by day_type"},
         ),
         Field(
             name="ewm_5d_demand_kwh",

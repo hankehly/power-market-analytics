@@ -587,8 +587,14 @@
   generator and in the presets' dtype check; the singular test
   `assert_ftr_day_calendar_special_period_agrees_with_holiday_degree` ties the mart's date
   ranges to `dim_date`'s, so neither can change alone; levels 1–4 are all `day_type`
-  Holiday and level 5 all Weekday; in no preset yet), `ftr_day_msm` (since 2026-09-19, feature
-  candidate #132: the delivery day's max, min and mean of `ftr_hour_msm`'s
+  Holiday and level 5 all Weekday; in no preset yet; since 2026-09-20, feature candidate #201,
+  also `lag_2d_day_type`, `lag_3d_day_type` and `lag_7d_day_type`, the mart's own `day_type`
+  of D-2, D-3 and D-7, the days the load lags read, so the model can tell when a lag is a
+  holiday's load — `day_type` is a step of its own and the three join it on the date, not
+  `lag()` over rows, so a gap in the spine could not shift a value; null where the earlier
+  day is before the spine's first day, 2016-01-01; categorical like `day_type`; the
+  researcher added D-3 to the issue's D-2 and D-7; in no preset yet), `ftr_day_msm` (since
+  2026-09-19, feature candidate #132: the delivery day's max, min and mean of `ftr_hour_msm`'s
   `popw_forecast_temperature_c` over its 24 hours and the hour ending of the max, the
   earliest on a tie — `max_` / `min_` / `mean_popw_forecast_temperature_c` and
   `max_popw_forecast_temperature_hour_ending`; one row per forecast vintage, complete days
@@ -650,7 +656,22 @@
   `lag_7d_wind_solar_generation_kwh`, the fact's wind and solar generation riding the
   demand lags' shifts — demand alone makes the rows, 0 is a value, and the issue's
   observed solar radiation was left out by the researcher because only some stations
-  observe it, so it cannot be population-weighted; the
+  observe it, so it cannot be population-weighted; also since 2026-09-20 (feature
+  candidate #203) `newest_daytype_4d_lag_days` and `oldest_daytype_4d_lag_days`, how many
+  days before D the newest and the oldest day of the day-type window lie — the window has
+  no bound, so on a holiday its oldest day is often months back; ints, the same on all 48
+  periods because the window takes complete days only, the oldest being the oldest present
+  with fewer than four days, their expressions their names as #138's lag is, one value per
+  day kept in the period mart next to the two means they describe; in no preset yet; and
+  (feature candidate #202) `mean_daytype_weekly_lags_demand_kwh` and
+  `ewm_daytype_weekly_lags_demand_kwh`, the plain and 8:4:2:1 weighted means over the first
+  four of D-7 … D-56 that have D's day type and a value at the period — the weekly means
+  with the other day types taken out, keeping the weekday that `ewm_daytype_4d_demand_kwh`
+  loses; the values present, not complete days, so where D-7 to D-28 are all present with
+  D's day type they equal the plain weekly means to the bit; the weights go by order of use;
+  null on most holiday targets; read with `lag()` over a day × period spine with no gap, not
+  more shifts, so the eight weeks make no row, and the days used feed `available_at`, which
+  moved on no real row; in no preset yet; the
   28-day range is a window function read at D-2, not more shifts, because the shifts are
   the row spine and `available_at`'s inputs — it and the two days still feed
   `available_at`, which moved on no real row — each over the values present — one union of the actuals shifted
@@ -1098,6 +1119,26 @@
   also checked end-to-end by running their `scripts/` entry point in the devcontainer.
 - Long-running ops (scrapes, raw reloads, `dbt build`) must run as main-session background
   Bash tasks — a subagent that backgrounds a job and ends its turn gets reaped with the job.
+
+## Scratch space
+
+- `scratch/` at the repo root is gitignored and is where anything the work needs but the
+  history does not goes: ad-hoc scripts, probe output, diff dumps, run logs. It sits inside
+  the working directory, so the devcontainer sees it at `/workspace/scratch` and
+  `just python scratch/<file>.py` works. `just lint` skips it (ruff honours `.gitignore`)
+  and the coverage gate never sees it (`[tool.coverage.run] source` is
+  `power_market_analytics` + `scripts`), so a scratch script needs no tests and no style.
+- One directory per piece of work, named `<YYYY-MM-DD>-<slug>` — the date it was created,
+  never renamed afterwards — with the issue number first in the slug when there is one:
+  `scratch/2026-09-20-201-daytype-lags/`, `scratch/2026-09-20-thriftserver-hang/`. So
+  `ls scratch/` reads oldest to newest, which is the only question ever asked of the folder
+  ("what can go?"), and an issue's work is still found with `ls scratch/ | grep 201`. The
+  date is the directory's birthday, not the date of the thing it is about.
+- A dated directory that is worth keeping gets a one-line `README.md` saying what the
+  question was — a month later the slug gives the topic and nothing else.
+- A loose file at the top level (`scratch/probe.py`) means throwaway: it may be deleted at
+  any time, by anyone. Anything that should survive goes in a dated directory. Nothing
+  sweeps the folder automatically; pruning is the researcher's, by date.
 
 ## Git conventions
 
