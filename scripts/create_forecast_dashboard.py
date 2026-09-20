@@ -614,6 +614,15 @@ def day_type_share_sql(date_alias: str, run_column: str | None = None) -> str:
 # keeps its colour when its rank changes; component_group_label carries the rank
 # as a sortable prefix for the waterfall, which sorts by label.
 #
+# The run is pinned twice over, and here that is not belt and braces. The prefix
+# ``like`` is what reaches the parquet scan, but ``ranked`` runs on whatever the
+# predicate admits, so two runs sharing the label's eight characters would have
+# their top ten taken over the pair — and Superset's own filter on the label
+# arrives too late to undo it. Measured by widening the pin until it admitted 7
+# runs: none of the true top ten kept its rank. The exact label, which needs the
+# area join, restores the rule the other datasets keep — a pin only makes the
+# scan smaller.
+#
 # ``$period_gate`` is empty here and, for the period dataset, a predicate that
 # leaves no rows unless the Period filter has a value: Superset cannot hide a
 # chart on a condition, so the Single period charts show "No data" instead.
@@ -625,7 +634,8 @@ EXPLANATION_DATASET_SQL_TEMPLATE = string.Template("""\
 with pinned as (
 select c.*
 from $contribution_table c
-where {% if run %}$run_pin{% else %}1 = 1{% endif %}
+join pma_curated.dim_area a on c.area_key = a.area_key
+where {% if run %}$run_pin and $run_label_sql = '{{ run[0] | replace("'", "''") }}'{% else %}1 = 1{% endif %}
   {% if day %}and c.date_key = date '{{ day[0] | replace("'", "''") }}'{% endif %}
   {% if period %}and c.time_code = {{ period[0][:2] | int }}{% endif %}$period_gate
 ),
@@ -2145,6 +2155,9 @@ class SupersetClient:
     pause, up to ``RATE_LIMIT_RETRIES`` times.
     """
 
+    #: Rows a listing asks for, and so the largest batch a lookup by id sends.
+    PAGE_SIZE = 100
+
     def __init__(
         self,
         base_url: str,
@@ -2222,9 +2235,36 @@ class SupersetClient:
             f"(col:{column},opr:eq,value:{_rison_value(value)})"
             for column, value in filters.items()
         )
-        q = f"(filters:!({rison_filters}),page_size:100)"
+        q = f"(filters:!({rison_filters}),page_size:{self.PAGE_SIZE})"
         result = self._get_json(f"/api/v1/{resource}/", params={"q": q})["result"]
         return result[0]["id"] if result else None
+
+    def dashboards_of_charts(self, chart_ids: list[int]) -> dict[int, list[int]]:
+        """The dashboards each of these charts is on.
+
+        ``charts_of_dashboard`` answers only for one dashboard's charts, and a
+        build also places charts that are on none of its own — a new one, or one
+        a person moved to a dashboard of theirs, which ``upsert_chart`` finds
+        again by name within its dataset.
+
+        Parameters
+        ----------
+        chart_ids : list of int
+
+        Returns
+        -------
+        dict of int to list of int
+            Chart id → the ids of every dashboard it is attached to. A chart the
+            API does not return is absent.
+        """
+        links: dict[int, list[int]] = {}
+        for start in range(0, len(chart_ids), self.PAGE_SIZE):
+            batch = chart_ids[start : start + self.PAGE_SIZE]
+            ids = ",".join(str(chart_id) for chart_id in batch)
+            q = f"(filters:!((col:id,opr:in,value:!({ids}))),page_size:{self.PAGE_SIZE})"
+            for row in self._get_json("/api/v1/chart/", params={"q": q})["result"]:
+                links[row["id"]] = [d["id"] for d in row.get("dashboards") or []]
+        return links
 
     def charts_of_dashboard(self, dashboard_id: int) -> dict[int, list[int]]:
         """Every chart attached to a dashboard, with the dashboards each one is on.
@@ -2240,7 +2280,10 @@ class SupersetClient:
             is many-to-many, and writing it replaces the whole list, so a
             caller that changes one dashboard needs the others.
         """
-        q = f"(filters:!((col:dashboards,opr:rel_m_m,value:{dashboard_id})),page_size:100)"
+        q = (
+            "(filters:!((col:dashboards,opr:rel_m_m,"
+            f"value:{dashboard_id})),page_size:{self.PAGE_SIZE})"
+        )
         result = self._get_json("/api/v1/chart/", params={"q": q})["result"]
         return {row["id"]: [d["id"] for d in row.get("dashboards") or []] for row in result}
 
@@ -4926,7 +4969,7 @@ def build_dashboard(
     # One read of the chart/dashboard links serves both writes, so neither drops
     # another dashboard a chart happens to be on.
     attached = client.charts_of_dashboard(dashboard_id)
-    attach_charts(client, dashboard_id, all_charts, attached)
+    attach_charts(client, dashboard_id, all_charts, client.dashboards_of_charts(all_charts))
     detached = detach_stale_charts(client, dashboard_id, all_charts, attached)
     if detached:
         logger.info("detached {} chart(s) an earlier build left: {}", len(detached), detached)
@@ -5092,7 +5135,7 @@ def build_feature_catalogue(client: SupersetClient, database_id: int) -> int:
         [],
         {},
     )
-    attach_charts(client, dashboard_id, [chart_id], client.charts_of_dashboard(dashboard_id))
+    attach_charts(client, dashboard_id, [chart_id], client.dashboards_of_charts([chart_id]))
     logger.info("dashboard: id={}", dashboard_id)
     logger.info("open: http://localhost:8088/superset/dashboard/{}/", FEATURE_CATALOGUE_SLUG)
     return dashboard_id

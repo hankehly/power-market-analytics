@@ -72,10 +72,14 @@ TOP_FEATURE_ROWS = [
 # compares the column; ``rel_m_m`` asks for the rows whose many-to-many column
 # holds a row of that id (the charts of a dashboard).
 FILTERS_Q_RE = re.compile(r"\(filters:!\((.*)\),page_size:100\)")
-FILTER_RE = re.compile(r"\(col:(\w+),opr:(eq|rel_m_m),value:('[^']*'|\d+)\)")
+FILTER_RE = re.compile(r"\(col:(\w+),opr:(eq|rel_m_m|in),value:('[^']*'|\d+|!\([\d,]*\))\)")
 
 
-def parse_filters(q: str) -> list[tuple[str, str, str | int]] | None:
+#: A parsed filter's value: a quoted string, a bare int, or ``in``'s list of them.
+FilterValue = str | int | list[int]
+
+
+def parse_filters(q: str) -> list[tuple[str, str, FilterValue]] | None:
     """Parse the ``q`` rison into ``[(column, operator, value), ...]``; None if malformed."""
     m = FILTERS_Q_RE.fullmatch(q)
     if m is None:
@@ -83,7 +87,17 @@ def parse_filters(q: str) -> list[tuple[str, str, str | int]] | None:
     parts = FILTER_RE.findall(m.group(1))
     if ",".join(f"(col:{c},opr:{o},value:{v})" for c, o, v in parts) != m.group(1):
         return None
-    return [(c, o, v[1:-1] if v.startswith("'") else int(v)) for c, o, v in parts]
+    values: list[tuple[str, str, FilterValue]] = []
+    for column, operator, value in parts:
+        parsed: FilterValue
+        if value.startswith("'"):
+            parsed = value[1:-1]
+        elif value.startswith("!("):
+            parsed = [int(v) for v in value[2:-1].split(",") if v]
+        else:
+            parsed = int(value)
+        values.append((column, operator, parsed))
+    return values
 
 
 def as_api_row(row: dict) -> dict:
@@ -111,6 +125,8 @@ def row_matches(row: dict, column: str, operator: str, value) -> bool:
     """
     if operator == "eq":
         return row.get(column) == value
+    if operator == "in":
+        return row.get(column) in value
     return any(
         (related.get("id") if isinstance(related, dict) else related) == value
         for related in row.get(column) or []
@@ -697,7 +713,13 @@ EXPLANATION_SQL = """\
 with pinned as (
 select c.*
 from @CONTRIBUTION_TABLE@ c
-where {% if run %}c.run_id like '{{ run[0][-8:] | replace("'", "''") }}%'{% else %}1 = 1{% endif %}
+join pma_curated.dim_area a on c.area_key = a.area_key
+where {% if run %}c.run_id like '{{ run[0][-8:] | replace("'", "''") }}%' and concat(
+    date_format(c.published_at, 'yyyy-MM-dd HH:mm'),
+    ' | ', a.area_code,
+    ' | ', c.strategy,
+    ' | ', substring(c.run_id, 1, 8)
+  ) = '{{ run[0] | replace("'", "''") }}'{% else %}1 = 1{% endif %}
   {% if day %}and c.date_key = date '{{ day[0] | replace("'", "''") }}'{% endif %}
   {% if period %}and c.time_code = {{ period[0][:2] | int }}{% endif %}@GATE@
 ),
@@ -1801,6 +1823,16 @@ class TestDashboardSpecs:
             demand.explanation_period_dataset_sql.replace(PERIOD_GATE, "")
             == demand.explanation_dataset_sql
         )
+
+    def test_the_explanation_pin_is_exact_because_a_cte_ranks_on_it(self, spec):
+        # the prefix alone is not enough here: two runs sharing eight characters
+        # would both reach `ranked`, and the top ten is then taken over the pair.
+        # Measured on the warehouse by widening the pin until it admitted 7 runs:
+        # none of the true top ten kept its own rank.
+        sql = spec.explanation_dataset_sql
+        assert "join pma_curated.dim_area a on c.area_key = a.area_key\nwhere {% if run %}" in sql
+        assert "c.run_id like '{{ run[0][-8:] | replace(\"'\", \"''\") }}%' and concat(" in sql
+        assert "  ) = '{{ run[0] | replace(\"'\", \"''\") }}'{% else %}1 = 1{% endif %}" in sql
 
     def test_explanation_pins_read_the_three_filters(self, spec):
         sql = spec.explanation_dataset_sql
@@ -3040,9 +3072,10 @@ class TestChartParams:
     def test_the_two_long_labelled_bars_turn_their_labels(self, script, spec):
         # a day type or day part label no longer fits a third of the row flat:
         # Superset drops the ones that collide and cuts the rest short
-        assert script.bar_params(spec, 7, "day_type_share", label_rotation=45)[
-            "xAxisLabelRotation"
-        ] == 45
+        assert (
+            script.bar_params(spec, 7, "day_type_share", label_rotation=45)["xAxisLabelRotation"]
+            == 45
+        )
         assert script.bar_params(spec, 7, "year")["xAxisLabelRotation"] == 0
 
     def test_the_day_part_bar_label_carries_the_hours_it_covers(self, script):
@@ -4058,6 +4091,17 @@ class TestAttachCharts:
 
         assert fake.rows["chart"][11]["dashboards"] == [30, 41]
 
+    def test_a_chart_linked_only_elsewhere_keeps_that_dashboard(self, script, fake):
+        # upsert matches a chart by name within its dataset, so a rebuild reuses
+        # one that someone moved to a dashboard of their own; the links have to be
+        # read for every chart this build places, not only those already on ours
+        fake.seed("chart", id=11, slice_name="a", dashboards=[{"id": 41}])
+        client = make_client(script, fake)
+
+        script.attach_charts(client, 30, [11], client.dashboards_of_charts([11]))
+
+        assert fake.rows["chart"][11]["dashboards"] == [30, 41]
+
     def test_no_charts_no_calls(self, script, fake):
         client = make_client(script, fake)
         script.attach_charts(client, 30, [], {})
@@ -4650,8 +4694,9 @@ class TestBuildDashboard:
         # every chart is linked to the dashboard
         assert all(c["dashboards"] == [76] for c in charts)
         assert method_counts(superset.calls, "dataset") == {"GET": 7, "POST": 7, "PUT": 7}
-        # 59 lookups + 1 for the dashboard's charts, which nothing here made stale
-        assert method_counts(superset.calls, "chart") == {"GET": 60, "POST": 59, "PUT": 59}
+        # 59 lookups, 1 for the links of the charts this build places and 1 for
+        # the dashboard's own charts, which nothing here made stale
+        assert method_counts(superset.calls, "chart") == {"GET": 61, "POST": 59, "PUT": 59}
         assert method_counts(superset.calls, "dashboard") == {"GET": 1, "POST": 1, "PUT": 1}
 
     def test_spot_price_dashboard_keeps_its_names_layout_and_formats(self, script, superset, spot):
@@ -4837,8 +4882,9 @@ class TestBuildDashboard:
 
         assert {r: sorted(rows) for r, rows in superset.rows.items()} == first_ids
         assert method_counts(superset.calls, "dataset") == {"GET": 7, "PUT": 7}
-        # a rebuild places the same charts, so the extra GET finds nothing stale
-        assert method_counts(superset.calls, "chart") == {"GET": 60, "PUT": 118}
+        # a rebuild places the same charts, so the links read back unchanged and
+        # the dashboard's own charts hold nothing stale
+        assert method_counts(superset.calls, "chart") == {"GET": 61, "PUT": 118}
         assert method_counts(superset.calls, "dashboard") == {"GET": 1, "PUT": 1}
         (dashboard,) = superset.rows["dashboard"].values()
         run_filter, day_filter, _, feature_filter, baseline_filter = json.loads(
@@ -4962,9 +5008,10 @@ class TestMain:
         assert len(superset.rows["chart"]) == 119
         assert method_counts(superset.calls, "database") == {"GET": 1}
         # one find, one create and one attach per chart, the catalogue's included
-        # 119 lookups + one per dashboard for its charts (the two task ones and
-        # the catalogue), none of them stale here
-        assert method_counts(superset.calls, "chart") == {"GET": 122, "POST": 119, "PUT": 119}
+        # 119 lookups, then per dashboard one read of the placed charts' links
+        # (the two task ones and the catalogue) and, for the task ones, one of
+        # the dashboard's own charts; none of them stale here
+        assert method_counts(superset.calls, "chart") == {"GET": 124, "POST": 119, "PUT": 119}
 
     def test_task_flag_selects_one_dashboard(self, script, superset, monkeypatch):
         run_main(script, superset, monkeypatch, ["--url", BASE, "--task", "demand"])
