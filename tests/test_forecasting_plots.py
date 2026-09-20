@@ -252,12 +252,12 @@ class TestPermutationImportancePlot:
         assert list(bars.error_x.array) == [0.0, 0.1, 0.5]
         assert bars.error_x.symmetric is True
 
-    def test_hover_shows_the_spread_the_permuted_mae_and_the_share(self, importance_fig):
+    def test_hover_shows_the_spread_the_permuted_mae_and_the_importance_pct(self, importance_fig):
         (bars,) = importance_fig.data
         assert bars.hovertemplate == (
             "%{y}<br>ΔMAE %{x:,.4~r} ± %{customdata[0]:,.4~r} JPY/kWh"
             "<br>MAE %{customdata[1]:,.4~r} → %{customdata[2]:,.4~r} shuffled"
-            "<br>Share of the total ΔMAE: %{customdata[3]:.1f} %<extra></extra>"
+            "<br>Importance: %{customdata[3]:.1f} % of the run's MAE<extra></extra>"
         )
         # importance_std, mae, permuted_mae, importance_pct of the top bar.
         assert list(bars.customdata[-1]) == [0.5, 2.0, 5.0, 150.0]
