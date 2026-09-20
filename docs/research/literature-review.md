@@ -27,8 +27,10 @@ electricity load at a scale like ours. The rules of that search:
   same system as ours, or a widely used reference.
 - **Free to read.** Only works whose full text is free, legally and without a
   login: open access at the publisher, J-STAGE free access, or the authors' copy
-  on arXiv, a university repository or their own page. The second link of a row
-  is that free copy; its label says when it is not the published version.
+  on arXiv, a university repository or their own page. A row links the work's
+  record, its DOI as a rule, and the free copy; where the record itself is the
+  free text there is one link. The free copy's label says when it is not the
+  published version.
   Some publishers (MDPI, ScienceDirect) refuse scripts but open in a browser.
 - **Checked.** Every record was compared with its DOI registration and every
   free link was opened on 2026-09-20.
