@@ -104,6 +104,59 @@ def _colorscale(ramp: list[str]) -> list[list]:
     return [[i / (len(ramp) - 1), color] for i, color in enumerate(ramp)]
 
 
+# A feature expression can run to 185 characters. Left whole, the tick labels
+# take the width the bars need — in MLflow's artifact pane the bars collapse to
+# a sliver — so long ones are cut in the middle, which keeps the function at the
+# head and the arguments that tell two features apart at the tail.
+TICK_LABEL_MAX_CHARS = 56
+TICK_LABEL_STEP_CHARS = 8
+
+
+def _elide(text: str, max_chars: int) -> str:
+    """Shorten ``text`` to ``max_chars`` by cutting its middle out.
+
+    Parameters
+    ----------
+    text : str
+    max_chars : int
+        Budget including the ellipsis. Text within it is returned unchanged.
+
+    Returns
+    -------
+    str
+    """
+    if len(text) <= max_chars:
+        return text
+    keep = max_chars - 1
+    head = keep - keep // 2
+    return f"{text[:head]}…{text[len(text) - keep // 2 :]}"
+
+
+def _tick_labels(labels: list[str], max_chars: int = TICK_LABEL_MAX_CHARS) -> list[str]:
+    """Elide the labels, growing the budget until they are as distinct as the originals.
+
+    Two expressions that differ only in their middle (``rank=1`` against
+    ``rank=2``) elide to the same text at a short budget. The budget grows until
+    they can be told apart, or until nothing is elided.
+
+    Parameters
+    ----------
+    labels : list of str
+    max_chars : int, optional
+        The budget to start from.
+
+    Returns
+    -------
+    list of str
+    """
+    longest = max((len(label) for label in labels), default=0)
+    while True:
+        elided = [_elide(label, max_chars) for label in labels]
+        if len(set(elided)) == len(set(labels)) or max_chars >= longest:
+            return elided
+        max_chars += TICK_LABEL_STEP_CHARS
+
+
 def error_heatmaps(task: TaskSpec, result: BacktestResult, title: str) -> go.Figure:
     """Build stacked interactive year x time_code heatmaps for MAE and MAPE.
 
@@ -214,10 +267,12 @@ def permutation_importance_plot(
 
     The mean ΔMAE over the repeats per feature, error bars = its standard
     deviation. Interactive so that a long feature list stays readable: the
-    figure grows 28 px per feature, the labels set the left margin themselves
-    and the width is the viewer's, and each bar's hover carries its spread,
-    its permuted MAE and its importance % (the ΔMAE over the run's MAE, as
-    ``importance_pct`` and the dashboard's Importance % column give it).
+    figure grows 28 px per feature and the width is the viewer's; a tick label
+    longer than ``TICK_LABEL_MAX_CHARS`` is cut in the middle, so the bars keep
+    their share of a narrow pane; and each bar's hover carries the whole
+    expression, its spread, its permuted MAE and its importance % (the ΔMAE
+    over the run's MAE, as ``importance_pct`` and the dashboard's Importance %
+    column give it).
 
     Parameters
     ----------
@@ -234,12 +289,15 @@ def permutation_importance_plot(
     plotly.graph_objects.Figure
     """
     df = summary.df.sort_values("importance_mae", ascending=True, ignore_index=True)
-    names = (df["feature"] if label is None else df["feature"].map(label)).to_list()
+    # The categories are the physical names, which are unique whatever two
+    # expressions elide to; the tick text is what the reader sees.
+    features = df["feature"].to_list()
+    labels = features if label is None else df["feature"].map(label).to_list()
     unit = task.unit
     fig = go.Figure(
         go.Bar(
             x=df["importance_mae"].to_list(),
-            y=names,
+            y=features,
             orientation="h",
             marker=dict(color=SEQUENTIAL_BLUES[7], cornerradius=4),
             error_x=dict(
@@ -250,12 +308,18 @@ def permutation_importance_plot(
                 thickness=1,
                 width=4,
             ),
-            customdata=df[["importance_std", "mae", "permuted_mae", "importance_pct"]].to_numpy(),
+            customdata=[
+                [label_text, *row]
+                for label_text, row in zip(
+                    labels,
+                    df[["importance_std", "mae", "permuted_mae", "importance_pct"]].to_numpy(),
+                )
+            ],
             hovertemplate=(
-                "%{y}<br>ΔMAE %{x:,.4~r} ± %{customdata[0]:,.4~r} "
+                "%{customdata[0]}<br>ΔMAE %{x:,.4~r} ± %{customdata[1]:,.4~r} "
                 + unit
-                + "<br>MAE %{customdata[1]:,.4~r} → %{customdata[2]:,.4~r} shuffled"
-                + "<br>Importance: %{customdata[3]:.1f} % of the run's MAE<extra></extra>"
+                + "<br>MAE %{customdata[2]:,.4~r} → %{customdata[3]:,.4~r} shuffled"
+                + "<br>Importance: %{customdata[4]:.1f} % of the run's MAE<extra></extra>"
             ),
         )
     )
@@ -286,7 +350,10 @@ def permutation_importance_plot(
         # Plotly draws the first category at the bottom: ascending importance
         # puts the most important feature on top.
         categoryorder="array",
-        categoryarray=names,
+        categoryarray=features,
+        tickmode="array",
+        tickvals=features,
+        ticktext=_tick_labels(labels),
         automargin=True,
         showgrid=False,
         tickfont=dict(color=INK_SECONDARY),
