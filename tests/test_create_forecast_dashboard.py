@@ -806,7 +806,7 @@ left join @ACCURACY_TABLE@ f
   and c.time_code = f.time_code
   and c.area_key = f.area_key
 """
-PERIOD_GATE = "\n  {% if not period %}and 1 = 0{% endif %}"
+PERIOD_GATE = "\n  {% if not (day and period) %}and 1 = 0{% endif %}"
 
 
 def final_select_names(sql: str) -> list[str]:
@@ -1823,6 +1823,13 @@ class TestDashboardSpecs:
             demand.explanation_period_dataset_sql.replace(PERIOD_GATE, "")
             == demand.explanation_dataset_sql
         )
+
+    def test_the_period_gate_wants_a_day_as_well(self, spec):
+        # the Day filter is optional, and the period predicate alone left one time
+        # code of every day in the run: 729 days and 77,274 rows on e212, which the
+        # tiles would have averaged and called a single period
+        assert PERIOD_GATE == "\n  {% if not (day and period) %}and 1 = 0{% endif %}"
+        assert PERIOD_GATE in spec.explanation_period_dataset_sql
 
     def test_the_explanation_pin_is_exact_because_a_cte_ranks_on_it(self, spec):
         # the prefix alone is not enough here: two runs sharing eight characters
@@ -3921,7 +3928,7 @@ class TestTabBuilders:
         ]
         assert [[s["header"] for s in subtab["sections"]] for subtab in tab.subtabs] == [
             [None],
-            ["One period — pick a Period (and a Day) to fill this tab"],
+            ["One period — pick a Day and a Period to fill this tab"],
             [script.IMPORTANCE_SECTION_HEADER],
         ]
         assert_sections_are_consistent(tab)
@@ -4556,7 +4563,7 @@ class TestBuildDashboard:
         ]
         assert position["TAB-1-1"]["children"] == ["HEADER-1-1-0", "ROW-1-1-0-0", "ROW-1-1-0-1"]
         assert position["HEADER-1-1-0"]["meta"]["text"] == (
-            "One period — pick a Period (and a Day) to fill this tab"
+            "One period — pick a Day and a Period to fill this tab"
         )
         assert position["ROW-1-1-0-0"]["children"] == [f"CHART-{i}" for i in range(40, 44)]
         assert position["ROW-1-1-0-1"]["children"] == ["CHART-44"]
