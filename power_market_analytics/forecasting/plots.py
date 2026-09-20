@@ -12,10 +12,8 @@ from __future__ import annotations
 
 from typing import Callable
 
-import matplotlib.pyplot as plt
 import pandas as pd
 import plotly.graph_objects as go
-from matplotlib.figure import Figure
 from plotly.subplots import make_subplots
 
 from power_market_analytics.common.metrics import mae, mape
@@ -211,11 +209,15 @@ def permutation_importance_plot(
     summary: PermutationImportanceSummary,
     title: str,
     label: Callable[[str], str] | None = None,
-) -> Figure:
+) -> go.Figure:
     """Horizontal bars of each feature's permutation importance, largest on top.
 
-    A matplotlib figure (logged as a PNG next to the SHAP plots): the mean
-    ΔMAE over the repeats per feature, error bars = its standard deviation.
+    The mean ΔMAE over the repeats per feature, error bars = its standard
+    deviation. Interactive so that a long feature list stays readable: the
+    figure grows 28 px per feature, the labels set the left margin themselves
+    and the width is the viewer's, and each bar's hover carries its spread,
+    its permuted MAE and its importance % (the ΔMAE over the run's MAE, as
+    ``importance_pct`` and the dashboard's Importance % column give it).
 
     Parameters
     ----------
@@ -229,33 +231,64 @@ def permutation_importance_plot(
 
     Returns
     -------
-    matplotlib.figure.Figure
-        The caller closes it after logging.
+    plotly.graph_objects.Figure
     """
     df = summary.df.sort_values("importance_mae", ascending=True, ignore_index=True)
-    fig, ax = plt.subplots(figsize=(8, 0.45 * len(df) + 1.8), dpi=150)
-    fig.patch.set_facecolor(SURFACE)
-    ax.set_facecolor(SURFACE)
-    ax.barh(
-        df["feature"] if label is None else df["feature"].map(label),
-        df["importance_mae"],
-        xerr=df["importance_std"],
-        color=SEQUENTIAL_BLUES[7],
-        ecolor=INK_SECONDARY,
-        capsize=3,
+    names = (df["feature"] if label is None else df["feature"].map(label)).to_list()
+    unit = task.unit
+    fig = go.Figure(
+        go.Bar(
+            x=df["importance_mae"].to_list(),
+            y=names,
+            orientation="h",
+            marker=dict(color=SEQUENTIAL_BLUES[7], cornerradius=4),
+            error_x=dict(
+                type="data",
+                symmetric=True,
+                array=df["importance_std"].to_list(),
+                color=INK_SECONDARY,
+                thickness=1,
+                width=4,
+            ),
+            customdata=df[["importance_std", "mae", "permuted_mae", "importance_pct"]].to_numpy(),
+            hovertemplate=(
+                "%{y}<br>ΔMAE %{x:,.4~r} ± %{customdata[0]:,.4~r} "
+                + unit
+                + "<br>MAE %{customdata[1]:,.4~r} → %{customdata[2]:,.4~r} shuffled"
+                + "<br>Importance: %{customdata[3]:.1f} % of the run's MAE<extra></extra>"
+            ),
+        )
     )
-    ax.axvline(0, color=INK_MUTED, linewidth=0.8)
-    ax.set_xlabel(
-        f"ΔMAE ({task.unit}) when the feature is shuffled; error bars = std over "
-        f"{int(df['n_repeats'].iloc[0])} repeats",
-        fontsize=9,
-        color=INK_SECONDARY,
+    fig.update_layout(
+        title=dict(text=title, font=dict(color=INK_PRIMARY, size=16), x=0.01),
+        paper_bgcolor=SURFACE,
+        plot_bgcolor=SURFACE,
+        font=dict(family=FONT_FAMILY, color=INK_SECONDARY, size=12),
+        height=140 + 28 * len(df),
+        margin=dict(l=10, r=40, t=90, b=60),
+        bargap=0.25,
     )
-    ax.set_title(title, fontsize=10, color=INK_PRIMARY, loc="left")
-    ax.tick_params(axis="both", labelsize=8, colors=INK_SECONDARY)
-    ax.xaxis.grid(True, color="#e6e5e1", linewidth=0.8)
-    ax.set_axisbelow(True)
-    for side in ("top", "right"):
-        ax.spines[side].set_visible(False)
-    fig.tight_layout()
+    fig.update_xaxes(
+        title=dict(
+            text=(
+                f"ΔMAE ({unit}) when the feature is shuffled; error bars = std over "
+                f"{int(df['n_repeats'].iloc[0])} repeats"
+            ),
+            font=dict(color=INK_SECONDARY),
+        ),
+        gridcolor="#e6e5e1",
+        zeroline=True,
+        zerolinecolor=INK_MUTED,
+        zerolinewidth=1,
+        tickfont=dict(color=INK_SECONDARY),
+    )
+    fig.update_yaxes(
+        # Plotly draws the first category at the bottom: ascending importance
+        # puts the most important feature on top.
+        categoryorder="array",
+        categoryarray=names,
+        automargin=True,
+        showgrid=False,
+        tickfont=dict(color=INK_SECONDARY),
+    )
     return fig

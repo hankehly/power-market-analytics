@@ -276,7 +276,7 @@ class TestBacktestScript:
         assert {
             "permutation_importance.csv",
             "permutation_importance_repeats.csv",
-            "permutation_importance_plot.png",
+            "permutation_importance_plot.html",
         } <= artifact_names(run.info.run_id)
         importance = published_importance_rows(spark, run.info.run_id)
         assert list(importance.columns) == [
