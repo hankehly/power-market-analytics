@@ -7,7 +7,7 @@ Date: 2026-09-05. Status: **implemented** on 2026-09-05. Branch:
 
 Add one column to `dim_date`: `holiday_degree`, a double from 0 to 1 that grades how much
 of a non-working day each date is. It is the 休日度合い of the 新日本製鐵 patent JP 4448226 B2
-(伊勢・藤崎, filed 2000; [P-008](../../research/papers.md#p-008)), expressed with this warehouse's
+(伊勢・藤崎, filed 2000; [P-008](../../research/literature-review.md#p-008)), expressed with this warehouse's
 holiday calendar. The demand model can then read the degree, or a window of it, as a
 feature instead of the 0/1 holiday flag.
 
@@ -87,7 +87,7 @@ above, failing on any row whose degree differs.
 
 - Column description in `dim_date.yml`.
 - The `dim_date` block in `docs/README.md` and the `dim_date` bullet in `CLAUDE.md`.
-- Patent source and methodology: [P-008](../../research/papers.md#p-008).
+- Patent source and methodology: [P-008](../../research/literature-review.md#p-008).
 
 No Python changes: the demand loader selects named columns, and the test fixture's
 three-column `dim_date` still satisfies it.

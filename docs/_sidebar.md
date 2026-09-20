@@ -14,7 +14,7 @@
   - [Forecast analysis](Forecast-Analysis.md)
   - [Feature naming](Feature-Naming.md)
   - [Research](research/README.md)
-  - [Papers](research/papers.md)
+  - [Literature review](research/literature-review.md)
   - [Demand — scope defaults](research/demand/README.md)
   - [Spot price — scope defaults](research/spot_price/README.md)
 - [Development and code review](Development.md)
