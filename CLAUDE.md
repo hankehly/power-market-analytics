@@ -627,7 +627,7 @@
   temperature and humidity through the `discomfort_index` macro —
   `0.81 T + 0.01 H (0.99 T − 14.3) + 46.3`, 木内 2001's formula, which is the U.S. Weather
   Bureau's °F relative-humidity form written for °C and not a JMA statistic
-  (`docs/research/papers.md`); the index of the two means, not the mean of the stations'
+  (`docs/research/literature-review.md`); the index of the two means, not the mean of the stations'
   indexes (they differ by 0.03 on average and 0.42 at most over Tokyo and Kansai in 2025);
   in no preset yet; and `cum_popw_forecast_solar_radiation_mjm2`, feature candidate #151's
   second half, the weighted forecast radiation added up from hour 1 through each hour of the
@@ -736,7 +736,7 @@
   Tests fail on a leftover generic name, a name repeated within a year, or a 天皇誕生日 off its
   era's date (a new emperor).
   `holiday_degree` (double, since 2026-09-05) is the graded 休日度合い of patent JP 4448226 B2
-  (新日本製鐵; `docs/research/papers.md`): the largest of 1.0 on a Sunday / 祝日, 0.8 on a
+  (新日本製鐵; `docs/research/literature-review.md`): the largest of 1.0 on a Sunday / 祝日, 0.8 on a
   Saturday, 0.8 on the first day of 年末年始 (12/30) / ゴールデンウィーク (4/29) / お盆 (8/13) and
   1.0 on their other days, 0.5 on one working day sandwiched between off days
   (`not is_business_day` on both sides) and 0.3 on each of two, else 0; design
@@ -1284,7 +1284,14 @@
   classification were removed on 2026-09-19 and are not recorded anywhere). What each kind is, when it
   closes, the Project's fields and the batch rule:
   [docs/research/README.md](docs/research/README.md). The repo keeps each task's scope
-  defaults (`docs/research/<task>/README.md`), the papers index (`docs/research/papers.md`)
+  defaults (`docs/research/<task>/README.md`), the literature review
+  (`docs/research/literature-review.md`, `papers.md` until 2026-09-20: one reference table
+  with stable `P-XXX` IDs and a Topic column, and a four-part breakdown of every source,
+  written from its full text in plain words, at most 130 words from P-011 on — every
+  whitespace-separated word of the four parts, not counting the four part labels and the
+  `**Appraisal:**` marker; the
+  researcher's rules for a new entry: reputable sources first, journals and research papers,
+  and only a work whose full text is free to read, its free link checked)
   and the figures (`docs/research/<task>/assets/`, embedded in issues by raw URL on `main`).
   Since 2026-09-19; until then the records were `O-XXX` / `R-XXX` / `E-XXX` files under
   `docs/research/<task>/`, migrated as issues whose titles keep the ID, task-qualified
