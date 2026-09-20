@@ -357,6 +357,7 @@ class TestSupersetClient:
 
 # --------------------------------------------------------------------------- specs
 SPOT_DATASET_SQL = """\
+{% set run = filter_values('run_label') %}
 select
   f.date_key,
   f.trade_datetime,
@@ -417,9 +418,11 @@ from pma_curated.fct_spot_price_forecast_accuracy f
 join pma_curated.dim_area a on f.area_key = a.area_key
 join pma_curated.dim_half_hour p on f.time_code = p.time_code
 join pma_curated.dim_date d on f.date_key = d.date_key
+{% if run %}where f.run_id like '{{ run[0][-8:] | replace("'", "''") }}%'{% endif %}
 """
 
 DEMAND_DATASET_SQL = """\
+{% set run = filter_values('run_label') %}
 select
   f.date_key,
   f.trade_datetime,
@@ -478,6 +481,7 @@ from pma_curated.fct_demand_forecast_accuracy f
 join pma_curated.dim_area a on f.area_key = a.area_key
 join pma_curated.dim_half_hour p on f.time_code = p.time_code
 join pma_curated.dim_date d on f.date_key = d.date_key
+{% if run %}where f.run_id like '{{ run[0][-8:] | replace("'", "''") }}%'{% endif %}
 """
 
 COMMON_COLUMNS_HEAD = [
@@ -727,12 +731,12 @@ join pma_curated.dim_area a on f.area_key = a.area_key
 candidate as (
 select *, count(*) over () as candidate_periods
 from runs
-where {{% if candidate %}}run_label = '{{{{ candidate[0] | replace("'", "''") }}}}'{{% else %}}1 = 0{{% endif %}}
+where {{% if candidate %}}run_label = '{{{{ candidate[0] | replace("'", "''") }}}}' and run_id like '{{{{ candidate[0][-8:] | replace("'", "''") }}}}%'{{% else %}}1 = 0{{% endif %}}
 ),
 baseline as (
 select *
 from runs
-where {{% if baseline %}}run_label = '{{{{ baseline[0] | replace("'", "''") }}}}'{{% else %}}1 = 0{{% endif %}}
+where {{% if baseline %}}run_label = '{{{{ baseline[0] | replace("'", "''") }}}}' and run_id like '{{{{ baseline[0][-8:] | replace("'", "''") }}}}%'{{% else %}}1 = 0{{% endif %}}
 ),
 matched as (
 select
@@ -947,12 +951,12 @@ join pma_curated.dim_area a on c.area_key = a.area_key
 candidate as (
 select *
 from runs
-where {{% if candidate %}}run_label = '{{{{ candidate[0] | replace("'", "''") }}}}'{{% else %}}1 = 0{{% endif %}}
+where {{% if candidate %}}run_label = '{{{{ candidate[0] | replace("'", "''") }}}}' and run_id like '{{{{ candidate[0][-8:] | replace("'", "''") }}}}%'{{% else %}}1 = 0{{% endif %}}
 ),
 baseline as (
 select *
 from runs
-where {{% if baseline %}}run_label = '{{{{ baseline[0] | replace("'", "''") }}}}'{{% else %}}1 = 0{{% endif %}}
+where {{% if baseline %}}run_label = '{{{{ baseline[0] | replace("'", "''") }}}}' and run_id like '{{{{ baseline[0][-8:] | replace("'", "''") }}}}%'{{% else %}}1 = 0{{% endif %}}
 ),
 periods as (
 select c.date_key, c.trade_datetime, c.time_code, c.area_key, c.run_id, b.run_id as baseline_run_id
@@ -1198,6 +1202,26 @@ class TestDashboardSpecs:
         assert spec.dataset_sql.count(f"  {label} as baseline_run_label,\n") == 1
         assert f"  {script.RUN_LABEL_SQL.format(f='c', a='a')} as run_label,\n" in (
             spec.explanation_dataset_sql
+        )
+
+    def test_run_pin_reads_the_run_id_prefix_off_the_labels_tail(self, script):
+        assert script.run_pin_sql("run", "f.run_id") == (
+            "f.run_id like '{{ run[0][-8:] | replace(\"'\", \"''\") }}%'"
+        )
+
+    def test_the_label_ends_with_the_prefix_the_pin_reads(self, script):
+        # The pin takes the label's last RUN_ID_PREFIX_LENGTH characters for the
+        # run id's prefix, so the label must end with exactly that substring.
+        label = script.RUN_LABEL_SQL.format(f="f", a="a")
+        assert label.endswith(f"' | ', substring(f.run_id, 1, {script.RUN_ID_PREFIX_LENGTH})\n  )")
+
+    def test_analysis_sql_pins_the_run_only_when_the_filter_has_a_value(self, spec):
+        sql = spec.dataset_sql
+        assert sql.startswith("{% set run = filter_values('run_label') %}\nselect\n")
+        assert sql.endswith(
+            "join pma_curated.dim_date d on f.date_key = d.date_key\n"
+            "{% if run %}where f.run_id like '{{ run[0][-8:] | replace(\"'\", \"''\") }}%'"
+            "{% endif %}\n"
         )
 
     def test_dataset_columns_follow_the_sql(self, spot, demand):
@@ -1529,6 +1553,21 @@ class TestDashboardSpecs:
         assert sql.count("{% else %}1 = 0{% endif %}") == 2
         assert "count(*) over () as candidate_periods" in sql
         assert "join baseline b\n  on b.date_key = c.date_key" in sql
+
+    @pytest.mark.parametrize(
+        "sql_of", ["comparison_dataset_sql", "explanation_comparison_dataset_sql"]
+    )
+    def test_comparison_sql_pins_each_run_id_so_the_scan_is_pruned(self, spec, sql_of):
+        # The label is built text, which Spark cannot push into the parquet scan;
+        # the run id's prefix beside it can.
+        sql = getattr(spec, sql_of)
+        for variable in ("candidate", "baseline"):
+            assert (
+                f"where {{% if {variable} %}}run_label = "
+                f"'{{{{ {variable}[0] | replace(\"'\", \"''\") }}}}' "
+                f"and run_id like '{{{{ {variable}[0][-8:] | replace(\"'\", \"''\") }}}}%'"
+                "{% else %}1 = 0{% endif %}"
+            ) in sql
 
     def test_comparison_band_expression_matches_the_analysis_dataset(self, spec):
         # The Compare tab's bands must be the Accuracy tab's bands: the same
