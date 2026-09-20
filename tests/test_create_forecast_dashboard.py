@@ -373,29 +373,6 @@ class TestSupersetClient:
 
 
 # --------------------------------------------------------------------------- specs
-# The day tables' Explain link, as plain text with @TOKENS@: an anchor whose href
-# sets the Run and Day native filters (rison, URL-encoded) and opens the
-# Explanation tab. @RUN@ and @DAY@ are SQL string expressions escaped for rison;
-# inside a SQL literal a quote is doubled, so ''' closes or opens a literal that
-# ends or starts with a quote.
-EXPLAIN_LINK_SQL = (
-    "concat('<a href=\"/superset/dashboard/@SLUG@/?native_filters=', url_encode(concat("
-    "'(NATIVE_FILTER-run:(extraFormData:(filters:!((col:run_label,op:IN,val:!(''', "
-    "@RUN@, "
-    "''')))),filterState:(label:''', "
-    "@RUN@, "
-    "''',validateStatus:!f,value:!(''', "
-    "@RUN@, "
-    "''')),id:NATIVE_FILTER-run,ownState:()),"
-    "NATIVE_FILTER-day:(extraFormData:(filters:!((col:trade_date_label,op:IN,val:!(''', "
-    "@DAY@, "
-    "''')))),filterState:(label:''', "
-    "@DAY@, "
-    "''',validateStatus:!f,value:!(''', "
-    "@DAY@, "
-    "''')),id:NATIVE_FILTER-day,ownState:()))'"
-    ")), '#TAB-1\">Explain</a>')"
-)
 # The rison the link must carry, RUN and DAY being the two escaped values.
 EXPLAIN_LINK_RISON = (
     "(NATIVE_FILTER-run:(extraFormData:(filters:!((col:run_label,op:IN,val:!('RUN')))),"
@@ -413,17 +390,38 @@ concat(
     ' | ', substring(f.run_id, 1, 8)
   )"""
 
+#: Superset rewrites the dataset SQL before it reaches Spark, and an escaped-quote
+#: literal (four apostrophes, one apostrophe of value) comes out of that rewrite as
+#: an empty string, so the rison lost every quote and the link filtered nothing.
+#: chr(39) survives it.
+SQL_QUOTE = "chr(39)"
+
 
 def rison_escaped(value: str) -> str:
     """``value`` (a SQL string expression) escaped for a rison string: ! then '."""
-    return f"replace(replace({value}, '!', '!!'), '''', '!''')"
+    return f"replace(replace({value}, '!', '!!'), {SQL_QUOTE}, concat('!', {SQL_QUOTE}))"
+
+
+def rison_literal(text: str) -> list[str]:
+    """``text`` as concat arguments, each apostrophe its own ``chr(39)``."""
+    pieces = []
+    for i, chunk in enumerate(text.split("'")):
+        if i:
+            pieces.append(SQL_QUOTE)
+        if chunk:
+            pieces.append(f"'{chunk}'")
+    return pieces
 
 
 def explain_link_sql(slug: str, run_label: str, day_label: str) -> str:
+    values = {"RUN": rison_escaped(run_label), "DAY": rison_escaped(day_label)}
+    pieces = []
+    for piece in re.split(r"(RUN|DAY)", EXPLAIN_LINK_RISON):
+        pieces.extend([values[piece]] if piece in values else rison_literal(piece))
     return (
-        EXPLAIN_LINK_SQL.replace("@SLUG@", slug)
-        .replace("@RUN@", rison_escaped(run_label))
-        .replace("@DAY@", rison_escaped(day_label))
+        f"concat('<a href=\"/superset/dashboard/{slug}/?native_filters=', "
+        f"url_encode(concat({', '.join(pieces)})), "
+        f"'#TAB-1\">Explain</a>')"
     )
 
 
@@ -1442,13 +1440,28 @@ class TestExplainLink:
         for piece in pieces:
             if piece in values:
                 rison += values[piece]
+            elif piece == SQL_QUOTE:
+                rison += "'"
             else:
-                # a SQL literal: its quotes off, its doubled quotes single
+                # a plain SQL literal, and it carries no apostrophe of its own
                 assert piece[0] == piece[-1] == "'"
-                rison += piece[1:-1].replace("''", "'")
+                assert "''" not in piece
+                rison += piece[1:-1]
         assert rison == EXPLAIN_LINK_RISON
         # Run and Day three times each: the filter's value, its label and its state
         assert [values.get(p) for p in pieces if p in values] == ["RUN"] * 3 + ["DAY"] * 3
+
+    def test_no_escaped_quote_literal_survives_supersets_rewrite(self, script, spec):
+        # Superset rewrites the dataset SQL on its way to Spark and turns an
+        # escaped-quote literal into an empty string, which silently emptied the
+        # rison's quotes and made every link filter nothing. Checked against the
+        # running Superset: chr(39) comes through, the escaped literal does not.
+        for sql in (script.explain_link_sql("s", "r", "d"), spec.dataset_sql):
+            assert "''''" not in sql
+        assert script.SQL_QUOTE == "chr(39)"
+        assert script.rison_escape_sql("x") == (
+            "replace(replace(x, '!', '!!'), chr(39), concat('!', chr(39)))"
+        )
 
     def test_the_anchor_is_the_key_the_layout_gives_the_explanation_tab(self, script, demand):
         assert script.EXPLANATION_TAB_KEY == "TAB-1"
@@ -2721,6 +2734,7 @@ class TestChartParams:
         assert p["page_length"] == 25
         assert p["include_search"] is True
         assert p["column_config"] == {
+            "feature_expression": {"customColumnName": "Feature"},
             "Feature value": {"d3NumberFormat": ",.2~f"},
             f"Contribution ({spec.unit})": {"d3NumberFormat": spec.contribution_format},
         }
@@ -2750,17 +2764,29 @@ class TestChartParams:
         assert p["page_length"] == 25
         assert p["include_search"] is True
         assert p["column_config"] == {
+            "feature_expression": {"customColumnName": "Feature"},
             "Rank": {"d3NumberFormat": ",d"},
             f"Contribution ({spec.unit})": {"d3NumberFormat": spec.contribution_format},
             f"Mean |contribution| ({spec.unit})": {"d3NumberFormat": spec.number_format},
         }
         assert p["extra_form_data"] == {}
 
+    def test_the_by_period_charts_share_an_axis_no_feature_can_be_named(self, script, spec):
+        # The three charts stack, so they must share an x axis. It cannot be
+        # time_code: that is a model feature as well as a column, and a series
+        # named like the pivot's index makes Superset fail with "cannot insert
+        # time_code, already exists". period_label is the dataset's own.
+        assert [
+            script.feature_value_by_period_params(spec, 7)["x_axis"],
+            script.feature_contribution_by_period_params(spec, 7)["x_axis"],
+            script.contribution_by_period_params(spec, 7)["x_axis"],
+        ] == ["period_label", "period_label", "period_label"]
+
     def test_feature_value_by_period_is_a_line_on_its_own_truncated_axis(self, script, spec):
         p = script.feature_value_by_period_params(spec, 7)
         assert p["datasource"] == "7__table"
         assert p["viz_type"] == "echarts_timeseries_line"
-        assert p["x_axis"] == "time_code"
+        assert p["x_axis"] == "period_label"
         assert p["time_grain_sqla"] is None
         assert p["metrics"] == [script.sql_metric("avg(feature_value)", "Feature value")]
         assert p["groupby"] == []
@@ -2771,22 +2797,24 @@ class TestChartParams:
         assert p["rich_tooltip"] is True
         assert p["y_axis_format"] == "SMART_NUMBER"
         assert p["y_axis_title"] == "Feature value"
-        assert p["y_axis_title_margin"] == 30
+        assert p["y_axis_title_margin"] == 60
         # a feature's level is far from zero; the shape over the day is what is read
         assert p["truncateYAxis"] is True
         assert p["y_axis_bounds"] == [None, None]
         assert "yAxisIndex" not in p
         assert p["extra_form_data"] == {}
 
-    def test_feature_contribution_by_period_is_the_time_code_bar_of_one_feature(self, script, spec):
+    def test_feature_contribution_by_period_is_the_per_period_bar_of_one_feature(
+        self, script, spec
+    ):
         p = script.feature_contribution_by_period_params(spec, 7)
         overridden = {"metrics", "adhoc_filters", "row_limit"}
-        plain = script.bar_params(spec, 7, "time_code")
+        plain = script.bar_params(spec, 7, "period_label")
         assert {k: v for k, v in p.items() if k not in overridden} == {
             k: v for k, v in plain.items() if k not in overridden
         }
         assert p["viz_type"] == "echarts_timeseries_bar"
-        assert p["x_axis"] == "time_code"
+        assert p["x_axis"] == "period_label"
         assert p["metrics"] == [spec.contribution_metric]
         assert p["groupby"] == []
         assert p["adhoc_filters"] == [script.NOT_BASE_FILTER]
@@ -2853,6 +2881,7 @@ class TestChartParams:
         assert p["page_length"] == 25
         assert p["include_search"] is True
         assert p["column_config"] == {
+            "feature_expression": {"customColumnName": "Feature"},
             f"MAE ({spec.unit})": {"d3NumberFormat": spec.number_format},
             f"Permuted MAE ({spec.unit})": {"d3NumberFormat": spec.number_format},
             f"ΔMAE ({spec.unit})": {"d3NumberFormat": spec.signed_number_format},
@@ -2866,7 +2895,7 @@ class TestChartParams:
         p = script.contribution_by_period_params(spec, 7)
         assert p["datasource"] == "7__table"
         assert p["viz_type"] == "mixed_timeseries"
-        assert p["x_axis"] == "time_code"
+        assert p["x_axis"] == "period_label"
         assert p["time_grain_sqla"] is None
         # Query A: one stacked series per top-ten feature and one for Other features
         # (the base row filtered out)
