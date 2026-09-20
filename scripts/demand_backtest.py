@@ -18,7 +18,6 @@ their permutation feature importance to ``pma_ml.demand_forecast_importance``.
 
 import argparse
 
-import matplotlib.pyplot as plt
 import mlflow
 import pandas as pd
 from loguru import logger
@@ -222,8 +221,7 @@ def main(argv: list[str] | None = None) -> None:
                 title=f"Permutation importance — {label}, {args.area}",
                 label=strategy.feature_label,
             )
-            mlflow.log_figure(figure, "permutation_importance_plot.png")
-            plt.close(figure)
+            mlflow.log_figure(figure, "permutation_importance_plot.html")
         for stem, frame in strategy.diagnostics(demand, run).items():
             log_dataframe(frame, f"{stem}.csv")
         heatmaps = error_heatmaps(
