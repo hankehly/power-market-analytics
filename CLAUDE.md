@@ -187,7 +187,7 @@
   warehouse (and, for the LightGBM strategies, their TreeSHAP contributions to
   `pma_ml.spot_price_forecast_contribution` and their permutation feature importance to
   `pma_ml.spot_price_forecast_importance` (`--importance-repeats`, default 5) — build
-  `+fct_spot_price_forecast_accuracy +fct_spot_price_forecast_contribution
+  `+fct_spot_price_forecast_accuracy +fct_spot_price_forecast_contribution_summary
   +fct_spot_price_forecast_importance` afterwards). `--start-date/--end-date` pin the
   first training row — set all three identically for a feature experiment and its matched
   baseline. Feast's retrieval needs a UTC Spark session (the devcontainer's), so the spot
@@ -238,9 +238,10 @@
   `--drop VIEW:COLUMN …` with `--name`, `--days` (default 365), `--start-date` /
   `--end-date`, `--train-start`, `--importance-repeats`. Logs to the MLflow experiment
   `demand`, publishes to `pma_ml.demand_forecast`, then `just dbt build --select
-  +fct_demand_forecast_accuracy +fct_demand_forecast_contribution
+  +fct_demand_forecast_accuracy +fct_demand_forecast_contribution_summary
   +fct_demand_forecast_importance` (the second selector materialises the run's TreeSHAP
-  contributions for the dashboard's Explanation tab, the third its permutation feature
+  contributions and their run-level summary for the dashboard's Explanation tab — the
+  summary's `+` rebuilds the contribution fact —, the third its permutation feature
   importance for that tab's Feature importance section — `--importance-repeats`, default 5;
   the first is what its Run filter reads). Feast's retrieval needs a UTC Spark session (the
   devcontainer's), so the demand backtests run in the devcontainer only.
@@ -312,35 +313,72 @@
   `DashboardSpec` (dataset SQL, unit, formats, band/calibration columns) drives one shared set of
   chart/layout builders; charts are matched by name *within their dataset*, so both dashboards
   share chart names. Rerun after `docker compose down -v` or after editing a spec.
-  Each dashboard has five virtual datasets — `<task>_forecast_analysis` (the accuracy mart),
+  Each dashboard has seven virtual datasets — `<task>_forecast_analysis` (the accuracy mart),
   `<task>_forecast_explanation` (`fct_<task>_forecast_contribution` joined to the accuracy mart:
-  one row per period × component, so AVG-only metrics), `<task>_forecast_comparison` and
-  `<task>_forecast_explanation_comparison` (both for the Compare tab) and
-  `<task>_forecast_importance` (`fct_<task>_forecast_importance` joined to `dim_area`: one row
-  per feature × repeat, run grain, `main_dttm_col` = `published_at`) — and three top-level tabs:
-  **Accuracy** (KPI tiles, error structure, calibration & distribution, runs & drilldown),
+  one row per period × component), `<task>_forecast_explanation_period` (the same SQL, with no
+  rows unless a Period is picked), `<task>_forecast_contribution_summary` (the run-level
+  `fct_<task>_forecast_contribution_summary`, base row left out), `<task>_forecast_comparison`
+  and `<task>_forecast_explanation_comparison` (both for the Compare tab) and
+  `<task>_forecast_importance` (`fct_<task>_forecast_importance` joined to `dim_area` and to the
+  summary for the feature's mean |SHAP|: one row per feature × repeat, run grain,
+  `main_dttm_col` = `published_at`) — and three top-level tabs:
+  **Accuracy** (KPI tiles, error structure, calibration & distribution, drilldown),
   **Explanation** and **Compare**, each built by its own `build_<tab>_tab` function
-  returning a `DashboardTab` (charts by name in creation order + layout sections) that
-  `build_dashboard` wires into filters and cross-filters. In **Explanation**, a **Day** native
-  filter (scoped to that tab's per-day charts and to the Compare tab's
-  explanation-vs-baseline section; cascades from Run,
+  returning a `DashboardTab` (charts by name in creation order + layout sections, or sub-tabs)
+  that `build_dashboard` wires into filters and cross-filters.
+  **The filters are pinned inside the dataset SQL** (since 2026-09-20): the Run filter is on
+  `run_label`, text the SQL builds, which Spark cannot push into the parquet scan, so every
+  chart read the whole fact (20 M contribution rows; the Explanation tab took 46 s on `e212`).
+  The datasets now read the filter with Jinja `filter_values()` and add
+  `run_id like '<the label's last 8 characters>%'` (`run_pin_sql`; `RUN_LABEL_SQL` ends with
+  that prefix, and a test ties the two), and the explanation datasets pin the Day
+  (`date_key`) and the Period (`time_code`) the same way. Superset still applies its own
+  filter on the label, so a pin only makes the scan smaller; without a value there is no pin.
+  One day of `e212`: 3.27 s → 0.56 s per chart query; an Accuracy tile 1.18 s → 0.40 s.
+  **Accuracy**: no run leaderboard since 2026-09-20; the 30-minute detail draws `Error
+  (forecast − actual)` as a third series on the same axis (it starts at zero, same unit), so
+  the hover popup lists it; **Worst days** has an **Explain** link per row
+  (`explain_link_sql`: `/superset/dashboard/<slug>/?native_filters=<Run and Day as
+  rison>#TAB-1`, HTML in the dataset column `explain_link`), which opens the Explanation tab
+  on that Run and Day. Superset has no click-to-navigate, and a cross-filter would arrive
+  after the ranking below, so the day tables no longer cross-filter the Explanation tab:
+  there the Day filter is the only way a day is chosen.
+  **Explanation** is three sub-tabs (`build_position_json` takes `subtabs`), so only the open
+  one runs its queries. Its filters: **Day** (scoped to the Day overview and Single period
+  charts and to the Compare tab's explanation-vs-baseline section; cascades from Run,
   defaults to the default run's last day; empty = the run's mean decomposition; every value is
-  a mean per period) drives base / forecast / actual / net-effect tiles, a `waterfall` of the
-  mean per-period feature contributions (the base is a tile, not a bar: Superset's value axis
-  always includes zero; bars sort by label, hence the `00 base`, `01 time_code`…
-  `component_label` prefix), the component table and **Contributions by period**, a Mixed Chart:
-  the features' contributions stacked per `time_code` (base row filtered out, so the bars sit at
-  the contributions' scale around zero) with two lines on the same axis — `Forecast − base`, the
-  signed sum of the bars (a stack of mixed signs has no visible edge for it), and
-  `Actual − base`; the gap between the lines is the period's error. Both line metrics read the
-  base off the period's base row, so the chart's query B is unfiltered. At the bottom of the
-  tab, the **Feature importance** section (the run, not the Day: outside the Day filter and the
-  day tables' cross-filters — `RUN_LEVEL_CHART_NAMES`) shows **Permutation importance** —
-  horizontal bars of ΔMAE per feature, the MAE increase when that feature's column is shuffled
-  across the run's scored periods (`avg(permuted_mae) − avg(mae)`, mean over the repeats) —
-  next to **Mean |SHAP| by feature** on the explanation dataset (base row excluded), and the
-  **Feature importance table** (MAE, permuted MAE, ΔMAE, std over repeats, importance %).
-  Correlated features share importance; the section header says so.
+  a mean per period), **Period** (`27 13:00–13:30`, optional, cascades from Run and Day) and
+  **Feature** (`feature_pick`, `001 <expression>` by mean |SHAP| rank, from the summary
+  dataset; required, opens on the first; scoped to the two feature-by-period charts).
+  *Day overview*: a preset has a hundred features, so the `waterfall` and **Contributions by
+  period** draw the `TOP_COMPONENTS` = 10 features with the largest mean |contribution| in the
+  selection and one `Other features` group. The ranking is a CTE of the dataset over the
+  pinned rows (`selection_rank`; `component_group` = the short label, the stacked series, so a
+  feature keeps its colour when its rank changes; `component_group_label` = rank-prefixed,
+  the waterfall's x, which sorts by label), and both charts use
+  `sum(contribution) / count(distinct trade_datetime)`, the mean per period of a group's
+  total. Chart marks use a short label (`short_label_sql`: 34 characters, `…`, the last 21; a
+  rank is appended should two collide), tables the full expression. **Contributions by
+  period** is a Mixed Chart: the groups stacked per `time_code` (base row filtered out) with
+  two lines on the same axis — `Forecast − base`, the signed sum of the bars, and
+  `Actual − base`; the gap between the lines is the period's error; both line metrics read
+  the base off the period's base row, so query B is unfiltered. Under it, at the same width,
+  **Feature value by period** (a line) and **Feature contribution by period** (bars) draw the
+  Feature filter's feature — two charts, one axis each, not one chart with two scales — and
+  **All features** lists every feature of the selection (rank, contribution, mean
+  |contribution| and its share; searchable): what `Other features` hides.
+  *Single period*: the base / forecast / actual / net-effect tiles and **Feature values &
+  contributions** on the period dataset — empty until a Period is picked, because a feature's
+  value means something for one period only and Superset cannot hide a chart on a condition.
+  *Feature importance* (the run, not the Day — `RUN_LEVEL_CHART_NAMES`): **Permutation
+  importance** — ΔMAE per feature when its column is shuffled across the run's scored periods
+  (`avg(permuted_mae) − avg(mae)`, mean over the repeats) — and **Mean |SHAP| by feature** on
+  the summary dataset, the top `TOP_FEATURE_BARS` = 20 each (a filter on `importance_rank` /
+  `feature_rank`, computed in the dataset), full width, and the **Feature importance table**
+  (every feature: MAE, permuted MAE, ΔMAE, std over repeats, importance %, mean |SHAP|;
+  searchable, by ΔMAE). Correlated features share importance; the section header says so.
+  No table or waterfall stops at 100 rows any more (`row_limit` 1000): `e212` has 106
+  components, and the old limit dropped six without saying so.
   **Compare** — a third virtual dataset `<task>_forecast_comparison` (the accuracy mart self-joined
   on day × time code × area: the Run filter's run as the candidate against a **Baseline** native
   filter's run, both pinned inside the dataset SQL with Superset Jinja `filter_values()`, so
@@ -349,8 +387,8 @@
   ΔWAPE; blue = candidate better, orange = worse), matched coverage / days / share of days lower /
   median daily ΔMAE, diverging Better / Worse bars of ΔMAE % by time code, day part, day type, day
   of week, actual band and year, ΔMAE % heatmaps (blue-white-yellow, ±30 %), daily ΔMAE bars, the
-  cumulative error reduction, Most improved / Most worsened days tables (full width; cross-filtering
-  the detail charts, the Explanation tab and the explanation-vs-baseline section; the holiday name
+  cumulative error reduction, Most improved / Most worsened days tables (full width; an Explain link per row;
+  cross-filtering the detail chart and the explanation-vs-baseline section; the holiday name
   is blank on non-holidays rather than `dim_date`'s "Not Applicable"), an **Explanation vs
   baseline** section and a three-line 30-minute detail.
   That section reads the fourth dataset, `<task>_forecast_explanation_comparison`: the
@@ -378,13 +416,14 @@
   datasets' `feature_expression` column read `dim_feature` at query time, so an edited
   expression needs `just dbt build --select dim_feature`, not a dashboard rebuild.
   Run labels are `published_at | area | strategy | run_id prefix` (`RUN_LABEL_SQL`, one
-  definition); the leaderboard shows each run's first / last day and day count. Runs
+  definition). Runs
   published before 2026-08-26 have no contributions and show an empty tab until re-run. After a
   backtest run, the three marts must be rebuilt before the dashboards make sense — `just dbt
-  build --select +fct_<task>_forecast_accuracy +fct_<task>_forecast_contribution
-  +fct_<task>_forecast_importance`; `+fct_<task>_forecast_contribution` alone does not refresh
+  build --select +fct_<task>_forecast_accuracy +fct_<task>_forecast_contribution_summary
+  +fct_<task>_forecast_importance` (the summary's `+` rebuilds the contribution fact);
+  `+fct_<task>_forecast_contribution_summary` alone does not refresh
   the accuracy mart (which the Run filter reads) nor the forecast fact the additivity test joins
-  to, and the Run filter then never lists the new run. Clicking a date in **Worst days** (Accuracy tab) or in **Most improved days** / **Most worsened days** (Compare tab) cross-filters the Explanation tab (and the 30-minute detail charts) to that day — cross-filters persist across tabs, and it combines with the Day filter, so clear Day (or pick the same day) first.
+  to, and the Run filter then never lists the new run.
 - Host-side dbt also works: `cd dbt && DBT_THRIFT_HOST=localhost uv run dbt <cmd>`.
 - Anything that creates a SparkSession MUST run in the devcontainer (metastore/warehouse only
   resolve on the compose network); plain python and dbt work from the host too.
@@ -779,7 +818,12 @@
   tag `contribution_table`) → `stg/std_ml__<task>_forecast_contribution` (+ `trade_datetime`,
   `is_base`) → `fct_<task>_forecast_contribution` (grain run × period × area × component;
   singular tests: one base row per period, Σ contributions = the forecast within 1e-6) → Superset
-  dataset `<task>_forecast_explanation`.
+  dataset `<task>_forecast_explanation`. Since 2026-09-20 the aggregate fact
+  `fct_<task>_forecast_contribution_summary` (grain run × area × component: `n_periods`, the mean
+  contribution, the mean absolute contribution = mean |SHAP|, and `feature_rank` by it, null on
+  the base row; singular test: its base row's `n_periods` equals the fact's base-row count per
+  run) serves the dashboards' run-level charts, which would otherwise add up the period-grain
+  fact — 3.7 M rows for `e212` — on every view.
 - Diagnostics: `ForecastStrategy.diagnostics(history, run)` (default `{}`) returns per-run frames
   keyed by artifact stem; both backtest scripts call it after publishing and log each frame as
   `<stem>.csv`, and an implementation may log metrics inside it. No registered strategy
