@@ -15,7 +15,12 @@ electricity load at a scale like ours. The rules of that search:
 
 - **Scale.** The load of a whole power system: a country, a TSO or ISO area, a
   utility territory, a province. Not households, buildings, feeders or
-  microgrids. Short-term above all: a day ahead, hourly or finer.
+  microgrids. Short-term above all: a day ahead, hourly or finer. A study that
+  also treats a smaller scale is listed for its system-level case. One entry
+  has no such case and is an exception: Kanda and Quintana Veguillas (2019),
+  the winning entry of GEFCom2017's final match, forecasts 161 delivery-point
+  meters of one U.S. utility. It is kept as the winner of the field's
+  reference competition on hierarchical load forecasting.
 - **Source.** Peer-reviewed journals and research papers first. A preprint, a
   report or a society-magazine article is listed only when it stands out: the
   same system as ours, or a widely used reference.
