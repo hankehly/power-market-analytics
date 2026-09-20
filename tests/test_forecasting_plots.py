@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import pytest
-from matplotlib.container import BarContainer
 
 from power_market_analytics.common.metrics import mae, mape
 from power_market_analytics.forecasting.frames import (
@@ -226,41 +224,77 @@ def make_summary() -> PermutationImportanceSummary:
     )
 
 
+@pytest.fixture(scope="module")
+def importance_fig() -> go.Figure:
+    return permutation_importance_plot(TASK, make_summary(), title="lightgbm, tokyo")
+
+
 class TestPermutationImportancePlot:
-    def test_horizontal_bars_largest_on_top_with_std_error_bars(self):
-        fig = permutation_importance_plot(TASK, make_summary(), title="lightgbm, tokyo")
-        try:
-            (ax,) = fig.axes
-            # barh draws bottom-up: ascending order puts the most important feature on top.
-            assert [t.get_text() for t in ax.get_yticklabels()] == [
-                "month",
-                "time_code",
-                "lag_1d_price",
-            ]
-            assert [bar.get_width() for bar in ax.patches] == [0.0, 1.0, 3.0]
-            # the bars and, because of xerr, their error-bar container
-            (bars,) = [c for c in ax.containers if isinstance(c, BarContainer)]
-            assert bars.errorbar is not None
-            assert ax.get_title(loc="left") == "lightgbm, tokyo"
-            assert ax.get_xlabel() == (
-                "ΔMAE (JPY/kWh) when the feature is shuffled; error bars = std over 5 repeats"
-            )
-        finally:
-            plt.close(fig)
+    def test_one_horizontal_bar_trace_largest_on_top(self, importance_fig):
+        assert isinstance(importance_fig, go.Figure)
+        (bars,) = importance_fig.data
+        assert bars.type == "bar"
+        assert bars.orientation == "h"
+        # Plotly draws the first category at the bottom, so ascending importance
+        # puts the most important feature on top.
+        assert list(bars.y) == ["month", "time_code", "lag_1d_price"]
+        assert list(bars.x) == [0.0, 1.0, 3.0]
+        assert importance_fig.layout.yaxis.categoryorder == "array"
+        assert list(importance_fig.layout.yaxis.categoryarray) == [
+            "month",
+            "time_code",
+            "lag_1d_price",
+        ]
+
+    def test_error_bars_are_the_std_over_the_repeats(self, importance_fig):
+        (bars,) = importance_fig.data
+        assert bars.error_x.type == "data"
+        assert list(bars.error_x.array) == [0.0, 0.1, 0.5]
+        assert bars.error_x.symmetric is True
+
+    def test_hover_shows_the_spread_the_permuted_mae_and_the_share(self, importance_fig):
+        (bars,) = importance_fig.data
+        assert bars.hovertemplate == (
+            "%{y}<br>ΔMAE %{x:,.4~r} ± %{customdata[0]:,.4~r} JPY/kWh"
+            "<br>MAE %{customdata[1]:,.4~r} → %{customdata[2]:,.4~r} shuffled"
+            "<br>Share of the total ΔMAE: %{customdata[3]:.1f} %<extra></extra>"
+        )
+        # importance_std, mae, permuted_mae, importance_pct of the top bar.
+        assert list(bars.customdata[-1]) == [0.5, 2.0, 5.0, 150.0]
+
+    def test_axis_title_names_the_unit_and_the_repeat_count(self, importance_fig):
+        assert importance_fig.layout.xaxis.title.text == (
+            "ΔMAE (JPY/kWh) when the feature is shuffled; error bars = std over 5 repeats"
+        )
+
+    def test_layout_title_palette_and_zero_line(self, importance_fig):
+        assert importance_fig.layout.title.text == "lightgbm, tokyo"
+        (bars,) = importance_fig.data
+        assert bars.marker.color == SEQUENTIAL_BLUES[7]
+        assert importance_fig.layout.paper_bgcolor == "#fcfcfb"
+        assert importance_fig.layout.plot_bgcolor == "#fcfcfb"
+        assert importance_fig.layout.xaxis.zeroline is True
+        assert importance_fig.layout.yaxis.automargin is True
+
+    def test_height_grows_per_feature_and_the_width_is_the_viewer_s(self, importance_fig):
+        assert importance_fig.layout.height == 140 + 28 * 3
+        one_feature = permutation_importance_plot(
+            TASK, PermutationImportanceSummary.from_df(make_summary().df.head(1)), "t"
+        )
+        assert one_feature.layout.height == 140 + 28
+        assert importance_fig.layout.width is None
 
     def test_bars_show_the_label_of_each_feature(self):
         labels = {"lag_1d_price": "LAG(area_price_jpy_kwh, 1d)"}
         fig = permutation_importance_plot(
             TASK, make_summary(), "t", label=lambda feature: labels.get(feature, feature)
         )
-        try:
-            assert [t.get_text() for t in fig.axes[0].get_yticklabels()] == [
-                "month",
-                "time_code",
-                "LAG(area_price_jpy_kwh, 1d)",
-            ]
-        finally:
-            plt.close(fig)
+        assert list(fig.data[0].y) == ["month", "time_code", "LAG(area_price_jpy_kwh, 1d)"]
+        assert list(fig.layout.yaxis.categoryarray) == [
+            "month",
+            "time_code",
+            "LAG(area_price_jpy_kwh, 1d)",
+        ]
 
     def test_unit_comes_from_the_task(self):
         import dataclasses
@@ -268,7 +302,5 @@ class TestPermutationImportancePlot:
         fig = permutation_importance_plot(
             dataclasses.replace(TASK, unit="kWh"), make_summary(), "t"
         )
-        try:
-            assert fig.axes[0].get_xlabel().startswith("ΔMAE (kWh)")
-        finally:
-            plt.close(fig)
+        assert fig.layout.xaxis.title.text.startswith("ΔMAE (kWh)")
+        assert "kWh" in fig.data[0].hovertemplate
