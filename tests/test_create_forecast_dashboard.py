@@ -2659,6 +2659,9 @@ class TestChartParams:
             spec.error_col,
         ]
         assert p["metrics"][2] == spec.error_metric
+        # the hover lists the three; their sum would be nonsense
+        assert p["rich_tooltip"] is True
+        assert p["showTooltipTotal"] is False
         # one axis, starting at zero, in the forecast's unit: the error needs no second scale
         assert p["truncateYAxis"] is False
         assert "yAxisIndex" not in p
