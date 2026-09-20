@@ -21,7 +21,7 @@ assignees: []
 
 ## Follows from
 
-<!-- The observation, investigation or paper it follows from: an issue number, or a docs/research/papers.md row; or a dash. -->
+<!-- The observation, investigation or paper it follows from: an issue number, or a docs/research/literature-review.md row; or a dash. -->
 
 ## Expression
 

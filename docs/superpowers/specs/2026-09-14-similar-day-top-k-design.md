@@ -6,7 +6,7 @@ Branch: `feature/similar-day-top-k`.
 ## 1. Goal
 
 Make the demand task's similar-day features follow Park, Song and Kwon (2020), the
-paper the selector comes from (`docs/research/papers.md`). Today the job picks one day
+paper the selector comes from (`docs/research/literature-review.md`). Today the job picks one day
 from D − 364 ± 30. After this change:
 
 1. **The candidates are the paper's blended pool:** the 30 days before the delivery

@@ -201,7 +201,7 @@ with
   ),
 
   -- 休日度合い (holiday degree) after JP 4448226 B2 (新日本製鐵, 2000; see
-  -- docs/research/papers.md and the design in
+  -- docs/research/literature-review.md and the design in
   -- docs/superpowers/specs/2026-09-05-dim-date-holiday-degree-design.md):
   -- three graded values per day, the largest wins.
   -- Type 1, calendar: 1.0 on a Sunday or a 国民の祝日 (the seed), 0.8 on a

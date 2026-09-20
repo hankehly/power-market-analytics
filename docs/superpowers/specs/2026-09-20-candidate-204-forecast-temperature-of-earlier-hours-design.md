@@ -123,7 +123,7 @@ Facts for the experiment to weigh, not a verdict on the candidate.
   unchanged.
 - `just feature-views`, the fixture's columns in `tests/conftest.py`,
   `docs/Feature-Naming.md`, `CLAUDE.md`. Wang, Liu and Hong (2016), the paper the issue
-  cites, gets its row in `docs/research/papers.md`.
+  cites, gets its row in `docs/research/literature-review.md`.
 
 ## 6. Out of scope
 
