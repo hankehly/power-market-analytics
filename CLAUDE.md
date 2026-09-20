@@ -321,9 +321,15 @@
   and `<task>_forecast_explanation_comparison` (both for the Compare tab) and
   `<task>_forecast_importance` (`fct_<task>_forecast_importance` joined to `dim_area` and to the
   summary for the feature's mean |SHAP|: one row per feature × repeat, run grain,
-  `main_dttm_col` = `published_at`) — and three top-level tabs:
-  **Accuracy** (KPI tiles, error structure, calibration & distribution, drilldown),
-  **Explanation** and **Compare**, each built by its own `build_<tab>_tab` function
+  `main_dttm_col` = `published_at`) — and two top-level tabs since 2026-09-20,
+  **Accuracy** (KPI tiles, error structure, calibration & distribution, drilldown) and
+  **Explanation**. **Compare** is built but not placed (`BUILD_COMPARE_TAB = False`, the
+  researcher's call): it takes 29 s where Accuracy takes 4 and Explanation 7, keeping its
+  charts on one tab over two self-joined datasets, and its delta waterfall still draws a bar
+  per component. Its builder, datasets and charts all stay, so setting the flag True and
+  rebuilding puts it back; while it is False the Baseline filter goes with it, and so does
+  the day tables' drill into the explanation-vs-baseline section. Each tab is built by its
+  own `build_<tab>_tab` function
   returning a `DashboardTab` (charts by name in creation order + layout sections, or sub-tabs)
   that `build_dashboard` wires into filters and cross-filters.
   **The filters are pinned inside the dataset SQL** (since 2026-09-20): the Run filter is on
@@ -345,12 +351,14 @@
   `y_axis_bounds` would take the band back but drops a negative error from the popup with
   it, since Superset leaves a clipped point out of the hover. The two categorical bars
   carry what a bar per category hides: `MAE by day part` labels each bar with the hours it
-  covers (`DAY_PART_HOURS_SQL`, from `dim_half_hour`, not from the periods a run scored)
-  and `MAE by day type` with that type's share of the run's periods
+  covers (`DAY_PART_HOURS_SQL`, from `dim_half_hour`, not from the periods a run scored;
+  the hours lead the label so the bars run in clock order, which the day part's name would
+  not) and `MAE by day type` with that type's share of the run's periods
   (`day_type_share_sql`; Tokyo `e212` is 65 % weekday, 27 % weekend, 8 % holiday, so three
   equal bars would invite chasing a holiday gain worth a twelfth of the data). Both labels
   are too long to sit flat in a third of a row, so those bars turn theirs 45°
-  (`bar_params(label_rotation=…)`); the Compare tab's ΔMAE % bars use the same two columns.
+  (`bar_params(label_rotation=…)`); the Compare tab's ΔMAE % bars use the same two columns
+  when it is built.
   **Worst days** has an **Explain** link per row
   (`explain_link_sql`: `/superset/dashboard/<slug>/?native_filters=<Run and Day as
   rison>#TAB-1`, HTML in the dataset column `explain_link`, the table's

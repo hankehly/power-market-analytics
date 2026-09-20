@@ -150,6 +150,14 @@ filter, over the periods both runs scored. It holds delta tiles, diverging
 reduction, most-improved / most-worsened day tables, the SHAP contribution
 deltas per feature against the baseline, and a three-line detail.
 
+That tab is not on the dashboards at the moment. It takes about 29 seconds to
+load, where the other two take 4 and 7, and it has not had the treatment that
+made them quick. Everything it needs is still in the builder; put it back by
+setting `BUILD_COMPARE_TAB` to True in
+`scripts/create_forecast_dashboard.py` and rebuilding. Until then, the
+run-against-run numbers come from `compare_<task>_runs.py`, which also has the
+bootstrap confidence interval over days.
+
 The two dashboards are the same layout with the same chart names. Only the
 quantity shows through, JPY/kWh against kWh, with demand values SI-formatted as
 `1.098M`. "MAE by actual price band" becomes "… actual demand band" (fixed
