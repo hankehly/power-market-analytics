@@ -108,6 +108,38 @@ concat(
     ' | ', substring({f}.run_id, 1, 8)
   )"""
 
+# The label is text the dataset SQL builds, and Spark cannot push a filter on
+# built text into the parquet scan: a chart filtered on run_label alone reads
+# the whole fact (20 M contribution rows on 2026-09-20). So the datasets also
+# pin the run on the fact's own run_id, read off the label's tail — the label
+# ends with the run id's first RUN_ID_PREFIX_LENGTH characters, and a prefix
+# ``like`` does reach the scan. Superset still applies the label filter to the
+# rows that come back, so a pin can only make the scan smaller; it never
+# decides which rows a chart shows.
+RUN_ID_PREFIX_LENGTH = 8
+RUN_FILTER_JINJA = "{% set run = filter_values('run_label') %}"
+
+
+def run_pin_sql(variable: str, column: str) -> str:
+    """The Jinja-templated predicate pinning ``column`` to the run a filter's label names.
+
+    Parameters
+    ----------
+    variable : str
+        The Jinja variable holding the filter's values (``filter_values(...)``);
+        the caller guards the predicate with ``{% if <variable> %}``.
+    column : str
+        The fact's ``run_id`` column, qualified as the SQL needs it.
+
+    Returns
+    -------
+    str
+        ``<column> like '<the label's last RUN_ID_PREFIX_LENGTH characters>%'``.
+    """
+    tail = f"{variable}[0][-{RUN_ID_PREFIX_LENGTH}:]"
+    return f"{column} like '{{{{ {tail} | replace(\"'\", \"''\") }}}}%'"
+
+
 # A feature's label on every chart: its expression from the feature dimension
 # (LAG(demand_kwh, 2d)), or the stored name where the dimension has no row (the
 # SHAP base, time_code). The facts keep the column name; only the label reads
@@ -249,8 +281,12 @@ def issue_time_sql(issue_offset: pd.Timedelta) -> str:
 
 # Shared skeleton of every task's virtual dataset: calendar / delivery-period
 # / area context, the run label, then the task's value and error columns
-# (in the task's display unit) and the unit-free percentage errors.
+# (in the task's display unit) and the unit-free percentage errors. The Run
+# filter's run is pinned on run_id when the filter has a value (see
+# RUN_ID_PREFIX_LENGTH); the Run and Baseline filters' own option queries carry
+# no value, so they still list every run.
 DATASET_SQL_TEMPLATE = """\
+{run_filter_jinja}
 select
   f.date_key,
   f.trade_datetime,
@@ -287,6 +323,7 @@ from {accuracy_table} f
 join pma_curated.dim_area a on f.area_key = a.area_key
 join pma_curated.dim_half_hour p on f.time_code = p.time_code
 join pma_curated.dim_date d on f.date_key = d.date_key
+{{% if run %}}where {run_pin}{{% endif %}}
 """
 
 # (column_name, generic type, is temporal) for the shared head of the select
@@ -459,12 +496,12 @@ join pma_curated.dim_area a on f.area_key = a.area_key
 candidate as (
 select *, count(*) over () as candidate_periods
 from runs
-where {% if candidate %}run_label = '{{ candidate[0] | replace("'", "''") }}'{% else %}1 = 0{% endif %}
+where {% if candidate %}run_label = '{{ candidate[0] | replace("'", "''") }}' and $candidate_pin{% else %}1 = 0{% endif %}
 ),
 baseline as (
 select *
 from runs
-where {% if baseline %}run_label = '{{ baseline[0] | replace("'", "''") }}'{% else %}1 = 0{% endif %}
+where {% if baseline %}run_label = '{{ baseline[0] | replace("'", "''") }}' and $baseline_pin{% else %}1 = 0{% endif %}
 ),
 matched as (
 select
@@ -577,12 +614,12 @@ join pma_curated.dim_area a on c.area_key = a.area_key
 candidate as (
 select *
 from runs
-where {% if candidate %}run_label = '{{ candidate[0] | replace("'", "''") }}'{% else %}1 = 0{% endif %}
+where {% if candidate %}run_label = '{{ candidate[0] | replace("'", "''") }}' and $candidate_pin{% else %}1 = 0{% endif %}
 ),
 baseline as (
 select *
 from runs
-where {% if baseline %}run_label = '{{ baseline[0] | replace("'", "''") }}'{% else %}1 = 0{% endif %}
+where {% if baseline %}run_label = '{{ baseline[0] | replace("'", "''") }}' and $baseline_pin{% else %}1 = 0{% endif %}
 ),
 periods as (
 select c.date_key, c.trade_datetime, c.time_code, c.area_key, c.run_id, b.run_id as baseline_run_id
@@ -871,9 +908,11 @@ class DashboardSpec:
     def dataset_sql(self) -> str:
         """The virtual dataset's SQL: the shared template around this task's columns."""
         return DATASET_SQL_TEMPLATE.format(
+            run_filter_jinja=RUN_FILTER_JINJA,
             value_columns_sql=self.value_columns_sql,
             accuracy_table=self.accuracy_table,
             run_label_sql=RUN_LABEL_SQL.format(f="f", a="a"),
+            run_pin=run_pin_sql("run", "f.run_id"),
         )
 
     @property
@@ -974,6 +1013,8 @@ class DashboardSpec:
         """The comparison dataset's SQL: the shared Jinja template around this task's block."""
         return COMPARISON_DATASET_SQL_TEMPLATE.substitute(
             run_label_sql=RUN_LABEL_SQL.format(f="f", a="a"),
+            candidate_pin=run_pin_sql("candidate", "run_id"),
+            baseline_pin=run_pin_sql("baseline", "run_id"),
             accuracy_table=self.accuracy_table,
             comparison_value_columns_sql=self.comparison_value_columns_sql,
             value_select_sql="\n".join(
@@ -1015,6 +1056,8 @@ class DashboardSpec:
         task's value block."""
         return EXPLANATION_COMPARISON_DATASET_SQL_TEMPLATE.substitute(
             run_label_sql=RUN_LABEL_SQL.format(f="c", a="a"),
+            candidate_pin=run_pin_sql("candidate", "run_id"),
+            baseline_pin=run_pin_sql("baseline", "run_id"),
             feature_expression_sql=FEATURE_EXPRESSION_SQL.format(e="e", name="m.component"),
             feature_join_sql=FEATURE_JOIN_SQL.format(e="e", name="m.component"),
             contribution_table=self.contribution_table,
