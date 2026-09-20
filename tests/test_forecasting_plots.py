@@ -15,8 +15,11 @@ from power_market_analytics.forecasting.frames import (
 from power_market_analytics.forecasting.plots import (
     SEQUENTIAL_AQUAS,
     SEQUENTIAL_BLUES,
+    TICK_LABEL_MAX_CHARS,
     _colorscale,
+    _elide,
     _period_label,
+    _tick_labels,
     error_heatmaps,
     metric_by_year_time_code,
     permutation_importance_plot,
@@ -42,6 +45,45 @@ class TestPeriodLabel:
     )
     def test_half_hour_window_with_en_dash(self, time_code, label):
         assert _period_label(time_code) == label
+
+
+class TestElide:
+    def test_text_within_the_budget_is_untouched(self):
+        assert _elide("LAG(demand_kwh, 7d)", 56) == "LAG(demand_kwh, 7d)"
+
+    def test_the_middle_is_cut_so_both_ends_survive(self):
+        text = "EWA(demand_kwh, gap=2d, window=5, step=1d, halflife=1)"
+        out = _elide(text, 32)
+        assert out == "EWA(demand_kwh, …1d, halflife=1)"
+        assert len(out) == 32
+
+
+class TestTickLabels:
+    def test_short_labels_are_left_alone(self):
+        labels = ["time_code", "month", "LAG(demand_kwh, 7d)"]
+        assert _tick_labels(labels) == labels
+
+    def test_the_budget_grows_until_the_elisions_are_as_distinct_as_the_labels(self):
+        # Same head, same tail, differing only where the starting budget cuts.
+        head, tail = "ROLLING_MEAN(demand_kwh, gap=2d, ", ") by day_type, holidays=last_year"
+        pair = [f"{head}window=28{tail}", f"{head}window=14{tail}"]
+        assert _elide(pair[0], TICK_LABEL_MAX_CHARS) == _elide(pair[1], TICK_LABEL_MAX_CHARS)
+
+        out = _tick_labels(pair)
+        assert len(set(out)) == 2
+
+    def test_a_label_that_needs_no_eliding_keeps_a_neighbour_from_growing(self):
+        # One long label among short ones is elided; the short ones are untouched.
+        long_label = "SIMILAR_DAY(power_usage_demand_kwh, gap=(2d, 335d), rank=1) / 2"
+        out = _tick_labels(["month", long_label])
+        assert out[0] == "month"
+        assert len(out[1]) == TICK_LABEL_MAX_CHARS
+
+    def test_identical_labels_do_not_make_the_budget_grow_for_ever(self):
+        same = ["X" * 200, "X" * 200]
+        out = _tick_labels(same)
+        assert out[0] == out[1]
+        assert len(out[0]) <= 200
 
 
 class TestColorscale:
@@ -236,7 +278,8 @@ class TestPermutationImportancePlot:
         assert bars.type == "bar"
         assert bars.orientation == "h"
         # Plotly draws the first category at the bottom, so ascending importance
-        # puts the most important feature on top.
+        # puts the most important feature on top. The bars carry the physical
+        # names, which are unique; the tick text carries what people read.
         assert list(bars.y) == ["month", "time_code", "lag_1d_price"]
         assert list(bars.x) == [0.0, 1.0, 3.0]
         assert importance_fig.layout.yaxis.categoryorder == "array"
@@ -255,12 +298,12 @@ class TestPermutationImportancePlot:
     def test_hover_shows_the_spread_the_permuted_mae_and_the_importance_pct(self, importance_fig):
         (bars,) = importance_fig.data
         assert bars.hovertemplate == (
-            "%{y}<br>ΔMAE %{x:,.4~r} ± %{customdata[0]:,.4~r} JPY/kWh"
-            "<br>MAE %{customdata[1]:,.4~r} → %{customdata[2]:,.4~r} shuffled"
-            "<br>Importance: %{customdata[3]:.1f} % of the run's MAE<extra></extra>"
+            "%{customdata[0]}<br>ΔMAE %{x:,.4~r} ± %{customdata[1]:,.4~r} JPY/kWh"
+            "<br>MAE %{customdata[2]:,.4~r} → %{customdata[3]:,.4~r} shuffled"
+            "<br>Importance: %{customdata[4]:.1f} % of the run's MAE<extra></extra>"
         )
-        # importance_std, mae, permuted_mae, importance_pct of the top bar.
-        assert list(bars.customdata[-1]) == [0.5, 2.0, 5.0, 150.0]
+        # label, importance_std, mae, permuted_mae, importance_pct of the top bar.
+        assert list(bars.customdata[-1]) == ["lag_1d_price", 0.5, 2.0, 5.0, 150.0]
 
     def test_axis_title_names_the_unit_and_the_repeat_count(self, importance_fig):
         assert importance_fig.layout.xaxis.title.text == (
@@ -284,17 +327,43 @@ class TestPermutationImportancePlot:
         assert one_feature.layout.height == 140 + 28
         assert importance_fig.layout.width is None
 
-    def test_bars_show_the_label_of_each_feature(self):
+    def test_ticks_show_the_label_of_each_feature_over_the_physical_names(self):
         labels = {"lag_1d_price": "LAG(area_price_jpy_kwh, 1d)"}
         fig = permutation_importance_plot(
             TASK, make_summary(), "t", label=lambda feature: labels.get(feature, feature)
         )
-        assert list(fig.data[0].y) == ["month", "time_code", "LAG(area_price_jpy_kwh, 1d)"]
-        assert list(fig.layout.yaxis.categoryarray) == [
+        # The categories stay the physical names, which are unique whatever two
+        # expressions elide to; only what the reader sees is the expression.
+        assert list(fig.data[0].y) == ["month", "time_code", "lag_1d_price"]
+        assert fig.layout.yaxis.tickmode == "array"
+        assert list(fig.layout.yaxis.tickvals) == ["month", "time_code", "lag_1d_price"]
+        assert list(fig.layout.yaxis.ticktext) == [
             "month",
             "time_code",
             "LAG(area_price_jpy_kwh, 1d)",
         ]
+        assert [row[0] for row in fig.data[0].customdata] == [
+            "month",
+            "time_code",
+            "LAG(area_price_jpy_kwh, 1d)",
+        ]
+
+    def test_long_expressions_are_elided_in_the_tick_text_not_the_hover(self):
+        long_name = (
+            "SIMILAR_DAY(power_usage_demand_kwh, gap=(2d, 335d), "
+            "window=(30, 60), rank=1, holidays=last_year) / 2"
+        )
+        fig = permutation_importance_plot(
+            TASK,
+            make_summary(),
+            "t",
+            label=lambda feature: long_name if feature == "lag_1d_price" else feature,
+        )
+        (elided,) = [t for t in fig.layout.yaxis.ticktext if t.startswith("SIMILAR_DAY")]
+        assert len(elided) < len(long_name)
+        assert "…" in elided
+        # The hover keeps every character of it.
+        assert [row[0] for row in fig.data[0].customdata][-1] == long_name
 
     def test_unit_comes_from_the_task(self):
         import dataclasses
