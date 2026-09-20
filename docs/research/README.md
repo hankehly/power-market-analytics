@@ -11,7 +11,7 @@ artifacts.
 |---|---|
 | Observations, investigations, feature candidates, experiments | [Issues](https://github.com/hankehly/power-market-analytics/issues), one label per kind, ranked in the [Load Forecasting](https://github.com/users/hankehly/projects/3) Project |
 | Each task's scope defaults and the tooling that reports segments | [`demand/README.md`](research/demand/README.md), [`spot_price/README.md`](research/spot_price/README.md) |
-| The literature: sources the research cites, and candidates not yet read | [`literature-review.md`](research/literature-review.md), reference table and source breakdowns |
+| The literature: the sources the research cites, and other work on load forecasting at our scale that it has not drawn on yet | [`literature-review.md`](research/literature-review.md), a reference table and a breakdown of every source, written from its full text |
 | Figures an issue embeds | `docs/research/<task>/assets/`, embedded by their raw URL on `main`; named `<issue number>-<slug>.png`, except the figures migrated on 2026-09-19, which keep their `R-XXX-E-XXX-…` and `O-XXX-…` names |
 | The feature list a run used | its preset: the `feature_preset` and `feature_refs` params of the MLflow run |
 | What a run did | MLflow (`just open mlflow`) |
