@@ -248,7 +248,11 @@
   have been read is not independent evidence however the window is drawn. The
   holdout is 14 days today and grows with the data; a `--holdout` run that stops
   before it is allowed, logs `reads_unseen_holdout=False` and warns that its days
-  were already scored. `--start-date` and `--end-date` default to it,
+  were already scored. Such a run also *starts* at the holdout, not at
+  `eval_start`: a confirmation run measures the holdout alone, and beginning at
+  the window would average 730 days that are not independent into a handful that
+  are, while still reporting `reads_unseen_holdout`. Pass `--start-date` to score
+  the window and the holdout together. `--start-date` and `--end-date` default to it,
   so two runs months apart score the same days without either remembering to say
   so, and `--days` counts back from its end rather than from the newest data. The
   pin is a ceiling, not an equality: a warehouse that stops before `eval_end`

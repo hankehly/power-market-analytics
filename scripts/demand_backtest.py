@@ -95,7 +95,9 @@ def main(argv: list[str] | None = None) -> None:
             "confirmation run: the holdout is what keeps the window's numbers "
             "honest, and a run that reads it is logged as having done so. Days "
             f"before {HOLDOUT_OPENS.date()} were scored by runs made before the "
-            "window was pinned, so they are not independent evidence."
+            "window was pinned, so they are not independent evidence. Without "
+            "--start-date or --days the run begins at the holdout rather than at "
+            "the window, so its metrics measure the holdout alone."
         ),
     )
     parser.add_argument(
@@ -188,6 +190,15 @@ def main(argv: list[str] | None = None) -> None:
             start_date = args.start_date
         elif args.days is not None:
             start_date = end_date - pd.DateOffset(days=args.days - 1)
+        elif end_date >= HOLDOUT_OPENS:
+            # A confirmation run measures the holdout, not the window plus a few
+            # new days: starting at EVAL_START would drown the unseen suffix in
+            # 730 days that are not independent, while still reporting
+            # reads_unseen_holdout. Pass --start-date to score both.
+            start_date = HOLDOUT_OPENS
+        elif end_date > EVAL_END:
+            # Past the window but short of the opening: the already-scored gap.
+            start_date = EVAL_END + pd.Timedelta(days=1)
         else:
             start_date = max(EVAL_START, demand.df["trade_date"].min())
         if start_date > end_date:
