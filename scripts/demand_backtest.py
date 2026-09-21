@@ -228,16 +228,30 @@ def main(argv: list[str] | None = None) -> None:
         result = run.result
 
         per_day = daily_metrics(result)
+        # Publishing comes first because it is what marks the holdout spent: the
+        # boundary is read off this table. Logging the errors before it would let
+        # a failed publish leave them visible in MLflow with nothing recording
+        # that the days were scored, so a retry would call them unseen again.
+        records = build_forecast_records(
+            TASK, result, run_id=mlflow_run.info.run_id, strategy=label, area_code=args.area
+        )
+        publish_forecast_records(TASK, records)
+        mlflow.set_tag("warehouse_table", TASK.forecast_table)
 
+        # The flags read the days actually scored, not the days asked for: a run
+        # whose holdout targets all raised ForecastUnavailableError read no
+        # holdout error, and the boundary it leaves behind says so.
+        last_scored = pd.Timestamp(result.df["trade_date"].max())
         mlflow.log_params(
             {
                 "strategy": label,
                 "area": args.area,
                 "start_date": str(start_date.date()),
                 "end_date": str(end_date.date()),
+                "last_scored_date": str(last_scored.date()),
                 "eval_window": f"{EVAL_START.date()}..{EVAL_END.date()}",
-                "reads_holdout": end_date > EVAL_END,
-                "reads_unseen_holdout": end_date >= unseen_from,
+                "reads_holdout": last_scored > EVAL_END,
+                "reads_unseen_holdout": last_scored >= unseen_from,
                 "holdout_opens": str(unseen_from.date()),
                 "n_days": per_day["trade_date"].nunique(),
                 "n_predictions": len(result),
@@ -246,11 +260,6 @@ def main(argv: list[str] | None = None) -> None:
         )
         log_dataframe(per_day, "daily_errors.csv")
         log_dataframe(result.df, "predictions.csv")
-        records = build_forecast_records(
-            TASK, result, run_id=mlflow_run.info.run_id, strategy=label, area_code=args.area
-        )
-        publish_forecast_records(TASK, records)
-        mlflow.set_tag("warehouse_table", TASK.forecast_table)
         contributions = strategy.contributions()
         if contributions is None:
             logger.info("{}: strategy produces no contributions; nothing to publish", label)
