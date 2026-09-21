@@ -30,6 +30,7 @@ BASELINE_RUN_ID = "0123456789abcdef0123456789abcdef"
 SHORT_RUN_ID = "ffffffff00000000ffffffff00000000"
 BASELINE_LABEL = "2026-08-17 09:00 | tokyo | lightgbm | 01234567"
 SHORT_LABEL = "2026-08-17 18:00 | tokyo | lightgbm | ffffffff"
+DEFAULT_FEATURE_LABEL = "001 SIMILAR_DAY(power_usage_demand_kwh, gap=(2d, 335d))"
 # What the fake SQL Lab returns for the runs query: newest first; the second
 # row is a short test window, the third the newest run with the same window.
 RUN_ROWS = [
@@ -59,21 +60,77 @@ RUN_ROWS = [
     },
 ]
 
-# The exact rison the client must send for an equality lookup: one or more
-# ``(col:NAME,opr:eq,value:VALUE)`` filters, strings quoted, ints bare.
+# What the fake SQL Lab returns for the top-feature query: one row per run, the
+# feature its contributions rank first.
+TOP_FEATURE_ROWS = [
+    {"run_id": DEFAULT_RUN_ID, "feature_pick": DEFAULT_FEATURE_LABEL},
+    {"run_id": BASELINE_RUN_ID, "feature_pick": "001 LAG(demand_kwh, 7d)"},
+]
+
+# The exact rison the client must send for a lookup: one or more
+# ``(col:NAME,opr:OP,value:VALUE)`` filters, strings quoted, ints bare. ``eq``
+# compares the column; ``rel_m_m`` asks for the rows whose many-to-many column
+# holds a row of that id (the charts of a dashboard).
 FILTERS_Q_RE = re.compile(r"\(filters:!\((.*)\),page_size:100\)")
-FILTER_RE = re.compile(r"\(col:(\w+),opr:eq,value:('[^']*'|\d+)\)")
+FILTER_RE = re.compile(r"\(col:(\w+),opr:(eq|rel_m_m|in),value:('[^']*'|\d+|!\([\d,]*\))\)")
 
 
-def parse_filters(q: str) -> dict[str, str | int] | None:
-    """Parse the ``q`` rison into ``{column: value}``; None if malformed."""
+#: A parsed filter's value: a quoted string, a bare int, or ``in``'s list of them.
+FilterValue = str | int | list[int]
+
+
+def parse_filters(q: str) -> list[tuple[str, str, FilterValue]] | None:
+    """Parse the ``q`` rison into ``[(column, operator, value), ...]``; None if malformed."""
     m = FILTERS_Q_RE.fullmatch(q)
     if m is None:
         return None
     parts = FILTER_RE.findall(m.group(1))
-    if ",".join(f"(col:{c},opr:eq,value:{v})" for c, v in parts) != m.group(1):
+    if ",".join(f"(col:{c},opr:{o},value:{v})" for c, o, v in parts) != m.group(1):
         return None
-    return {c: v[1:-1] if v.startswith("'") else int(v) for c, v in parts}
+    values: list[tuple[str, str, FilterValue]] = []
+    for column, operator, value in parts:
+        parsed: FilterValue
+        if value.startswith("'"):
+            parsed = value[1:-1]
+        elif value.startswith("!("):
+            parsed = [int(v) for v in value[2:-1].split(",") if v]
+        else:
+            parsed = int(value)
+        values.append((column, operator, parsed))
+    return values
+
+
+def as_api_row(row: dict) -> dict:
+    """A stored row as the list endpoint returns it.
+
+    Superset's write takes dashboard ids (``{"dashboards": [30]}``) and its read
+    gives the related rows back (``[{"id": 30, ...}]``), so the fake renders the
+    many-to-many column the way a caller reading it will find it.
+    """
+    related = row.get("dashboards")
+    if related is None:
+        return row
+    return {
+        **row,
+        "dashboards": [d if isinstance(d, dict) else {"id": d} for d in related],
+    }
+
+
+def row_matches(row: dict, column: str, operator: str, value) -> bool:
+    """Whether a fake row satisfies one parsed filter.
+
+    A many-to-many column holds ids as written (Superset's PUT takes
+    ``{"dashboards": [30]}``) or the related rows as read back (its GET returns
+    ``[{"id": 30, ...}]``), so both shapes count.
+    """
+    if operator == "eq":
+        return row.get(column) == value
+    if operator == "in":
+        return row.get(column) in value
+    return any(
+        (related.get("id") if isinstance(related, dict) else related) == value
+        for related in row.get(column) or []
+    )
 
 
 class FakeResponse:
@@ -168,9 +225,9 @@ class FakeSupersetSession:
             if filters is None:
                 return FakeResponse({"message": "bad rison"}, 400)
             result = [
-                row
+                as_api_row(row)
                 for row in self.rows[m.group(1)].values()
-                if all(row.get(col) == value for col, value in filters.items())
+                if all(row_matches(row, col, operator, value) for col, operator, value in filters)
             ]
             return FakeResponse({"count": len(result), "result": result})
         return FakeResponse({"message": "Not found"}, 404)
@@ -179,7 +236,9 @@ class FakeSupersetSession:
         if path == "/api/v1/security/login":
             return FakeResponse({"access_token": "tok"})
         if path == "/api/v1/sqllab/execute/":
-            return FakeResponse({"data": RUN_ROWS})
+            assert payload is not None
+            rows = TOP_FEATURE_ROWS if "s.feature_rank = 1" in payload["sql"] else RUN_ROWS
+            return FakeResponse({"data": rows})
         m = re.fullmatch(r"/api/v1/(dataset|chart|dashboard)/", path)
         if m:
             assert payload is not None
@@ -356,7 +415,86 @@ class TestSupersetClient:
 
 
 # --------------------------------------------------------------------------- specs
+# The rison the link must carry, RUN and DAY being the two escaped values.
+EXPLAIN_LINK_RISON = (
+    "(NATIVE_FILTER-run:(extraFormData:(filters:!((col:run_label,op:IN,val:!('RUN')))),"
+    "filterState:(label:'RUN',validateStatus:!f,value:!('RUN')),"
+    "id:NATIVE_FILTER-run,ownState:()),"
+    "NATIVE_FILTER-day:(extraFormData:(filters:!((col:trade_date_label,op:IN,val:!('DAY')))),"
+    "filterState:(label:'DAY',validateStatus:!f,value:!('DAY')),"
+    "id:NATIVE_FILTER-day,ownState:()))"
+)
+RUN_LABEL_F = """\
+concat(
+    date_format(f.published_at, 'yyyy-MM-dd HH:mm'),
+    ' | ', a.area_code,
+    ' | ', f.strategy,
+    ' | ', substring(f.run_id, 1, 8)
+  )"""
+
+#: Superset rewrites the dataset SQL before it reaches Spark, and an escaped-quote
+#: literal (four apostrophes, one apostrophe of value) comes out of that rewrite as
+#: an empty string, so the rison lost every quote and the link filtered nothing.
+#: chr(39) survives it.
+SQL_QUOTE = "chr(39)"
+
+
+def rison_escaped(value: str) -> str:
+    """``value`` (a SQL string expression) escaped for a rison string: ! then '."""
+    return f"replace(replace({value}, '!', '!!'), {SQL_QUOTE}, concat('!', {SQL_QUOTE}))"
+
+
+def rison_literal(text: str) -> list[str]:
+    """``text`` as concat arguments, each apostrophe its own ``chr(39)``."""
+    pieces = []
+    for i, chunk in enumerate(text.split("'")):
+        if i:
+            pieces.append(SQL_QUOTE)
+        if chunk:
+            pieces.append(f"'{chunk}'")
+    return pieces
+
+
+def explain_link_sql(slug: str, run_label: str, day_label: str) -> str:
+    values = {"RUN": rison_escaped(run_label), "DAY": rison_escaped(day_label)}
+    pieces = []
+    for piece in re.split(r"(RUN|DAY)", EXPLAIN_LINK_RISON):
+        pieces.extend([values[piece]] if piece in values else rison_literal(piece))
+    return (
+        f"concat('<a href=\"/superset/dashboard/{slug}/?native_filters=', "
+        f"url_encode(concat({', '.join(pieces)})), "
+        f"'#TAB-1\">Explain</a>')"
+    )
+
+
+def sql_arguments(body: str) -> list[str]:
+    """The top-level, comma-separated arguments of a SQL call's body, as written.
+
+    Commas inside a quoted literal (a doubled quote stays inside it) or inside
+    parentheses do not split.
+    """
+    arguments, current, depth, quoted, i = [], "", 0, False, 0
+    while i < len(body):
+        char = body[i]
+        if quoted and char == "'" and body[i + 1 : i + 2] == "'":
+            current += "''"
+            i += 2
+            continue
+        if char == "'":
+            quoted = not quoted
+        elif not quoted and char in "()":
+            depth += 1 if char == "(" else -1
+        if char == "," and not quoted and depth == 0:
+            arguments.append(current.strip())
+            current = ""
+        else:
+            current += char
+        i += 1
+    return [*arguments, current.strip()]
+
+
 SPOT_DATASET_SQL = """\
+{% set run = filter_values('run_label') %}
 select
   f.date_key,
   f.trade_datetime,
@@ -365,6 +503,7 @@ select
   f.time_code,
   p.hour_of_day,
   p.day_part,
+  concat(h.day_part_start, '–', h.day_part_end, ' ', p.day_part) as day_part_hours,
   p.is_daytime,
   d.fiscal_year,
   d.day_name,
@@ -374,6 +513,7 @@ select
     when d.is_weekend then 'Weekend'
     else 'Weekday'
   end as day_type,
+  concat(case when d.is_holiday then 'Holiday' when d.is_weekend then 'Weekend' else 'Weekday' end, ' (', cast(cast(round(cast(100 as double) * count(*) over (partition by f.run_id, case when d.is_holiday then 'Holiday' when d.is_weekend then 'Weekend' else 'Weekday' end) / count(*) over (partition by f.run_id)) as int) as string), '% of periods)') as day_type_share,
   d.is_weekend,
   d.is_holiday,
   d.is_business_day,
@@ -396,6 +536,7 @@ select
   f.published_at,
   f.forecast_issued_ts,
   f.horizon_hours,
+  @EXPLAIN_LINK@ as explain_link,
   f.forecast_price_jpy_kwh,
   f.actual_price_jpy_kwh,
   cast(round(f.actual_price_jpy_kwh, 0) as int) as actual_price_round_jpy,
@@ -417,9 +558,24 @@ from pma_curated.fct_spot_price_forecast_accuracy f
 join pma_curated.dim_area a on f.area_key = a.area_key
 join pma_curated.dim_half_hour p on f.time_code = p.time_code
 join pma_curated.dim_date d on f.date_key = d.date_key
-"""
+join (
+  select
+    day_part,
+    min(period_start_time) as day_part_start,
+    max(period_end_time) as day_part_end
+  from pma_curated.dim_half_hour
+  group by day_part
+) h on h.day_part = p.day_part
+{% if run %}where f.run_id like '{{ run[0][-8:] | replace("'", "''") }}%'{% endif %}
+""".replace(
+    "@EXPLAIN_LINK@",
+    explain_link_sql(
+        "spot-price-forecast-analysis", RUN_LABEL_F, "date_format(f.date_key, 'yyyy-MM-dd')"
+    ),
+)
 
 DEMAND_DATASET_SQL = """\
+{% set run = filter_values('run_label') %}
 select
   f.date_key,
   f.trade_datetime,
@@ -428,6 +584,7 @@ select
   f.time_code,
   p.hour_of_day,
   p.day_part,
+  concat(h.day_part_start, '–', h.day_part_end, ' ', p.day_part) as day_part_hours,
   p.is_daytime,
   d.fiscal_year,
   d.day_name,
@@ -437,6 +594,7 @@ select
     when d.is_weekend then 'Weekend'
     else 'Weekday'
   end as day_type,
+  concat(case when d.is_holiday then 'Holiday' when d.is_weekend then 'Weekend' else 'Weekday' end, ' (', cast(cast(round(cast(100 as double) * count(*) over (partition by f.run_id, case when d.is_holiday then 'Holiday' when d.is_weekend then 'Weekend' else 'Weekday' end) / count(*) over (partition by f.run_id)) as int) as string), '% of periods)') as day_type_share,
   d.is_weekend,
   d.is_holiday,
   d.is_business_day,
@@ -459,6 +617,7 @@ select
   f.published_at,
   f.forecast_issued_ts,
   f.horizon_hours,
+  @EXPLAIN_LINK@ as explain_link,
   f.forecast_demand_kwh / 1000 as forecast_demand_mwh,
   f.actual_demand_kwh / 1000 as actual_demand_mwh,
   cast(round(f.actual_demand_kwh / 1000, -3) as int) as actual_demand_round_mwh,
@@ -478,7 +637,21 @@ from pma_curated.fct_demand_forecast_accuracy f
 join pma_curated.dim_area a on f.area_key = a.area_key
 join pma_curated.dim_half_hour p on f.time_code = p.time_code
 join pma_curated.dim_date d on f.date_key = d.date_key
-"""
+join (
+  select
+    day_part,
+    min(period_start_time) as day_part_start,
+    max(period_end_time) as day_part_end
+  from pma_curated.dim_half_hour
+  group by day_part
+) h on h.day_part = p.day_part
+{% if run %}where f.run_id like '{{ run[0][-8:] | replace("'", "''") }}%'{% endif %}
+""".replace(
+    "@EXPLAIN_LINK@",
+    explain_link_sql(
+        "demand-forecast-analysis", RUN_LABEL_F, "date_format(f.date_key, 'yyyy-MM-dd')"
+    ),
+)
 
 COMMON_COLUMNS_HEAD = [
     ("date_key", "DATE", True),
@@ -488,11 +661,13 @@ COMMON_COLUMNS_HEAD = [
     ("time_code", "INT", False),
     ("hour_of_day", "INT", False),
     ("day_part", "STRING", False),
+    ("day_part_hours", "STRING", False),
     ("is_daytime", "BOOLEAN", False),
     ("fiscal_year", "INT", False),
     ("day_name", "STRING", False),
     ("day_of_week", "STRING", False),
     ("day_type", "STRING", False),
+    ("day_type_share", "STRING", False),
     ("is_weekend", "BOOLEAN", False),
     ("is_holiday", "BOOLEAN", False),
     ("is_business_day", "BOOLEAN", False),
@@ -505,6 +680,7 @@ COMMON_COLUMNS_HEAD = [
     ("published_at", "TIMESTAMP", True),
     ("forecast_issued_ts", "TIMESTAMP", True),
     ("horizon_hours", "DOUBLE", False),
+    ("explain_link", "STRING", False),
 ]
 SPOT_COLUMNS = COMMON_COLUMNS_HEAD + [
     ("forecast_price_jpy_kwh", "DOUBLE", False),
@@ -527,12 +703,60 @@ DEMAND_COLUMNS = COMMON_COLUMNS_HEAD + [
     ("abs_pct_error", "DOUBLE", False),
 ]
 
-EXPLANATION_SQL_HEAD = """\
+# The explanation dataset, as plain text with @TOKENS@ (the SQL carries Jinja braces).
+# The period dataset is the same SQL with one more line in the pinned CTE: no
+# rows unless the Period filter has a value.
+EXPLANATION_SQL = """\
+{% set run = filter_values('run_label') %}
+{% set day = filter_values('trade_date_label') %}
+{% set period = filter_values('period_label') %}
+with pinned as (
+select c.*
+from @CONTRIBUTION_TABLE@ c
+join pma_curated.dim_area a on c.area_key = a.area_key
+where {% if run %}c.run_id like '{{ run[0][-8:] | replace("'", "''") }}%' and concat(
+    date_format(c.published_at, 'yyyy-MM-dd HH:mm'),
+    ' | ', a.area_code,
+    ' | ', c.strategy,
+    ' | ', substring(c.run_id, 1, 8)
+  ) = '{{ run[0] | replace("'", "''") }}'{% else %}1 = 1{% endif %}
+  {% if day %}and c.date_key = date '{{ day[0] | replace("'", "''") }}'{% endif %}
+  {% if period %}and c.time_code = {{ period[0][:2] | int }}{% endif %}@GATE@
+),
+ranked as (
+select
+  k.component,
+  row_number() over (order by avg(abs(k.@FACT_COL@)) desc, k.component) as selection_rank
+from pinned k
+where not k.is_base
+group by k.component
+),
+labelled as (
+select
+  r.component,
+  r.selection_rank,
+  case when length(coalesce(e.feature_expression, r.component)) > 56 then concat(substring(coalesce(e.feature_expression, r.component), 1, 34), '…', substring(coalesce(e.feature_expression, r.component), -21)) else coalesce(e.feature_expression, r.component) end as short_label
+from ranked r
+left join pma_curated.dim_feature e on e.feature_name = r.component
+),
+grouped as (
+select
+  l.component,
+  l.selection_rank,
+  case
+    when l.selection_rank > 10 then 'Other features'
+    when count(*) over (partition by l.selection_rank <= 10, l.short_label) > 1
+      then concat(l.short_label, ' #', cast(l.selection_rank as string))
+    else l.short_label
+  end as component_group
+from labelled l
+)
 select
   c.date_key,
   date_format(c.date_key, 'yyyy-MM-dd') as trade_date_label,
   c.trade_datetime,
   c.time_code,
+  concat(lpad(cast(c.time_code as string), 2, '0'), ' ', p.period_start_time, '–', p.period_end_time) as period_label,
   p.hour_of_day,
   p.day_part,
   d.day_name,
@@ -555,56 +779,91 @@ select
   c.component,
   coalesce(e.feature_expression, c.component) as feature_expression,
   c.component_order,
-  concat(lpad(cast(c.component_order as string), 2, '0'), ' ', coalesce(e.feature_expression, c.component)) as component_label,
   c.is_base,
+  g.selection_rank,
+  case when c.is_base then 'base' else g.component_group end as component_group,
+  case
+    when c.is_base then '00 base'
+    when g.selection_rank > 10 then '11 Other features'
+    else concat(lpad(cast(g.selection_rank as string), 2, '0'), ' ', g.component_group)
+  end as component_group_label,
+  concat(lpad(cast(s.feature_rank as string), 3, '0'), ' ', coalesce(e.feature_expression, c.component)) as feature_pick,
   c.feature_value,
-"""
-
-
-def explanation_sql_tail(contribution_table: str, accuracy_table: str) -> str:
-    return f"""\
-from {contribution_table} c
+@VALUES@
+from pinned c
 join pma_curated.dim_area a on c.area_key = a.area_key
 join pma_curated.dim_half_hour p on c.time_code = p.time_code
 join pma_curated.dim_date d on c.date_key = d.date_key
+left join grouped g on g.component = c.component
 left join pma_curated.dim_feature e on e.feature_name = c.component
-left join {accuracy_table} f
+left join @SUMMARY_TABLE@ s
+  on s.run_id = c.run_id
+  and s.area_key = c.area_key
+  and s.component = c.component
+left join @ACCURACY_TABLE@ f
   on c.run_id = f.run_id
   and c.date_key = f.date_key
   and c.time_code = f.time_code
   and c.area_key = f.area_key
 """
+PERIOD_GATE = "\n  {% if not (day and period) %}and 1 = 0{% endif %}"
 
 
-SPOT_EXPLANATION_SQL = (
-    EXPLANATION_SQL_HEAD
-    + """\
+def final_select_names(sql: str) -> list[str]:
+    """Output column names of a dataset SQL's final select list, in order.
+
+    The final select is what follows the last CTE (or the Jinja header); a plain
+    ``alias.column`` line gives its column, any other line its ``as <name>``.
+    """
+    final = sql.rsplit("\n)\nselect\n", 1)[-1].split("\nfrom ", 1)[0]
+    names = []
+    for line in final.splitlines():
+        if m := re.fullmatch(r"\s+[a-z]\.(\w+),?", line):
+            names.append(m.group(1))
+        elif m := re.search(r"\bas (\w+),?$", line):
+            names.append(m.group(1))
+    return names
+
+
+def explanation_sql(task: str, fact_col: str, values: str, gate: str = "") -> str:
+    return (
+        EXPLANATION_SQL.replace(
+            "@CONTRIBUTION_TABLE@", f"pma_curated.fct_{task}_forecast_contribution"
+        )
+        .replace("@SUMMARY_TABLE@", f"pma_curated.fct_{task}_forecast_contribution_summary")
+        .replace("@ACCURACY_TABLE@", f"pma_curated.fct_{task}_forecast_accuracy")
+        .replace("@FACT_COL@", fact_col)
+        .replace("@VALUES@", values)
+        .replace("@GATE@", gate)
+    )
+
+
+SPOT_EXPLANATION_VALUES = """\
   c.contribution_price_jpy_kwh,
   f.forecast_price_jpy_kwh,
-  f.actual_price_jpy_kwh
-"""
-    + explanation_sql_tail(
-        "pma_curated.fct_spot_price_forecast_contribution",
-        "pma_curated.fct_spot_price_forecast_accuracy",
-    )
-)
-DEMAND_EXPLANATION_SQL = (
-    EXPLANATION_SQL_HEAD
-    + """\
+  f.actual_price_jpy_kwh"""
+DEMAND_EXPLANATION_VALUES = """\
   c.contribution_demand_kwh / 1000 as contribution_mwh,
   f.forecast_demand_kwh / 1000 as forecast_demand_mwh,
-  f.actual_demand_kwh / 1000 as actual_demand_mwh
-"""
-    + explanation_sql_tail(
-        "pma_curated.fct_demand_forecast_contribution",
-        "pma_curated.fct_demand_forecast_accuracy",
-    )
+  f.actual_demand_kwh / 1000 as actual_demand_mwh"""
+SPOT_EXPLANATION_SQL = explanation_sql(
+    "spot_price", "contribution_price_jpy_kwh", SPOT_EXPLANATION_VALUES
+)
+DEMAND_EXPLANATION_SQL = explanation_sql(
+    "demand", "contribution_demand_kwh", DEMAND_EXPLANATION_VALUES
+)
+SPOT_EXPLANATION_PERIOD_SQL = explanation_sql(
+    "spot_price", "contribution_price_jpy_kwh", SPOT_EXPLANATION_VALUES, PERIOD_GATE
+)
+DEMAND_EXPLANATION_PERIOD_SQL = explanation_sql(
+    "demand", "contribution_demand_kwh", DEMAND_EXPLANATION_VALUES, PERIOD_GATE
 )
 EXPLANATION_COLUMNS_HEAD = [
     ("date_key", "DATE", True),
     ("trade_date_label", "STRING", False),
     ("trade_datetime", "TIMESTAMP", True),
     ("time_code", "INT", False),
+    ("period_label", "STRING", False),
     ("hour_of_day", "INT", False),
     ("day_part", "STRING", False),
     ("day_name", "STRING", False),
@@ -618,8 +877,11 @@ EXPLANATION_COLUMNS_HEAD = [
     ("component", "STRING", False),
     ("feature_expression", "STRING", False),
     ("component_order", "INT", False),
-    ("component_label", "STRING", False),
     ("is_base", "BOOLEAN", False),
+    ("selection_rank", "INT", False),
+    ("component_group", "STRING", False),
+    ("component_group_label", "STRING", False),
+    ("feature_pick", "STRING", False),
     ("feature_value", "DOUBLE", False),
 ]
 SPOT_EXPLANATION_COLUMNS = EXPLANATION_COLUMNS_HEAD + [
@@ -633,7 +895,19 @@ DEMAND_EXPLANATION_COLUMNS = EXPLANATION_COLUMNS_HEAD + [
     ("actual_demand_mwh", "DOUBLE", False),
 ]
 
-IMPORTANCE_SQL_HEAD = """\
+IMPORTANCE_SQL = """\
+with ranked as (
+select
+  i.run_id,
+  i.area_key,
+  i.feature,
+  row_number() over (
+    partition by i.run_id, i.area_key
+    order by avg(i.@PERMUTED@) - avg(i.@MAE@) desc, i.feature
+  ) as importance_rank
+from @IMPORTANCE_TABLE@ i
+group by i.run_id, i.area_key, i.feature
+)
 select
   a.area_code,
   a.area_name_en,
@@ -649,36 +923,116 @@ select
   i.feature,
   coalesce(e.feature_expression, i.feature) as feature_expression,
   i.feature_order,
-  concat(lpad(cast(i.feature_order as string), 2, '0'), ' ', coalesce(e.feature_expression, i.feature)) as feature_label,
+  r.importance_rank,
+  concat(lpad(cast(r.importance_rank as string), 3, '0'), ' ', case when length(coalesce(e.feature_expression, i.feature)) > 56 then concat(substring(coalesce(e.feature_expression, i.feature), 1, 34), '…', substring(coalesce(e.feature_expression, i.feature), -21)) else coalesce(e.feature_expression, i.feature) end) as feature_short,
   i.repeat_index,
   i.n_periods,
-"""
-
-
-def importance_sql_tail(importance_table: str) -> str:
-    return f"""\
-from {importance_table} i
+@VALUES@
+from @IMPORTANCE_TABLE@ i
+join ranked r
+  on r.run_id = i.run_id
+  and r.area_key = i.area_key
+  and r.feature = i.feature
 join pma_curated.dim_area a on i.area_key = a.area_key
 left join pma_curated.dim_feature e on e.feature_name = i.feature
+left join @SUMMARY_TABLE@ s
+  on s.run_id = i.run_id
+  and s.area_key = i.area_key
+  and s.component = i.feature
 """
 
 
-SPOT_IMPORTANCE_SQL = (
-    IMPORTANCE_SQL_HEAD
-    + """\
+def importance_sql(task: str, mae: str, values: str) -> str:
+    return (
+        IMPORTANCE_SQL.replace("@IMPORTANCE_TABLE@", f"pma_curated.fct_{task}_forecast_importance")
+        .replace("@SUMMARY_TABLE@", f"pma_curated.fct_{task}_forecast_contribution_summary")
+        .replace("@PERMUTED@", f"permuted_{mae}")
+        .replace("@MAE@", mae)
+        .replace("@VALUES@", values)
+    )
+
+
+SPOT_IMPORTANCE_SQL = importance_sql(
+    "spot_price",
+    "mae_price_jpy_kwh",
+    """\
   i.mae_price_jpy_kwh,
-  i.permuted_mae_price_jpy_kwh
-"""
-    + importance_sql_tail("pma_curated.fct_spot_price_forecast_importance")
+  i.permuted_mae_price_jpy_kwh,
+  s.mean_abs_contribution_price_jpy_kwh""",
 )
-DEMAND_IMPORTANCE_SQL = (
-    IMPORTANCE_SQL_HEAD
-    + """\
+DEMAND_IMPORTANCE_SQL = importance_sql(
+    "demand",
+    "mae_demand_kwh",
+    """\
   i.mae_demand_kwh / 1000 as mae_mwh,
-  i.permuted_mae_demand_kwh / 1000 as permuted_mae_mwh
-"""
-    + importance_sql_tail("pma_curated.fct_demand_forecast_importance")
+  i.permuted_mae_demand_kwh / 1000 as permuted_mae_mwh,
+  s.mean_abs_contribution_demand_kwh / 1000 as mean_abs_contribution_mwh""",
 )
+
+# The summary dataset: the run-level contribution summary, base row left out.
+SUMMARY_SQL = """\
+select
+  a.area_code,
+  a.area_name_en,
+  s.run_id,
+  concat(
+    date_format(s.published_at, 'yyyy-MM-dd HH:mm'),
+    ' | ', a.area_code,
+    ' | ', s.strategy,
+    ' | ', substring(s.run_id, 1, 8)
+  ) as run_label,
+  s.strategy,
+  s.published_at,
+  s.component,
+  coalesce(e.feature_expression, s.component) as feature_expression,
+  s.feature_rank,
+  concat(lpad(cast(s.feature_rank as string), 3, '0'), ' ', case when length(coalesce(e.feature_expression, s.component)) > 56 then concat(substring(coalesce(e.feature_expression, s.component), 1, 34), '…', substring(coalesce(e.feature_expression, s.component), -21)) else coalesce(e.feature_expression, s.component) end) as feature_short,
+  concat(lpad(cast(s.feature_rank as string), 3, '0'), ' ', coalesce(e.feature_expression, s.component)) as feature_pick,
+  s.n_periods,
+@VALUES@
+from @SUMMARY_TABLE@ s
+join pma_curated.dim_area a on s.area_key = a.area_key
+left join pma_curated.dim_feature e on e.feature_name = s.component
+where not s.is_base
+"""
+SPOT_SUMMARY_SQL = SUMMARY_SQL.replace(
+    "@SUMMARY_TABLE@", "pma_curated.fct_spot_price_forecast_contribution_summary"
+).replace(
+    "@VALUES@",
+    """\
+  s.mean_contribution_price_jpy_kwh,
+  s.mean_abs_contribution_price_jpy_kwh""",
+)
+DEMAND_SUMMARY_SQL = SUMMARY_SQL.replace(
+    "@SUMMARY_TABLE@", "pma_curated.fct_demand_forecast_contribution_summary"
+).replace(
+    "@VALUES@",
+    """\
+  s.mean_contribution_demand_kwh / 1000 as mean_contribution_mwh,
+  s.mean_abs_contribution_demand_kwh / 1000 as mean_abs_contribution_mwh""",
+)
+SUMMARY_COLUMNS_HEAD = [
+    ("area_code", "STRING", False),
+    ("area_name_en", "STRING", False),
+    ("run_id", "STRING", False),
+    ("run_label", "STRING", False),
+    ("strategy", "STRING", False),
+    ("published_at", "TIMESTAMP", True),
+    ("component", "STRING", False),
+    ("feature_expression", "STRING", False),
+    ("feature_rank", "INT", False),
+    ("feature_short", "STRING", False),
+    ("feature_pick", "STRING", False),
+    ("n_periods", "BIGINT", False),
+]
+SPOT_SUMMARY_COLUMNS = SUMMARY_COLUMNS_HEAD + [
+    ("mean_contribution_price_jpy_kwh", "DOUBLE", False),
+    ("mean_abs_contribution_price_jpy_kwh", "DOUBLE", False),
+]
+DEMAND_SUMMARY_COLUMNS = SUMMARY_COLUMNS_HEAD + [
+    ("mean_contribution_mwh", "DOUBLE", False),
+    ("mean_abs_contribution_mwh", "DOUBLE", False),
+]
 IMPORTANCE_COLUMNS_HEAD = [
     ("area_code", "STRING", False),
     ("area_name_en", "STRING", False),
@@ -689,17 +1043,20 @@ IMPORTANCE_COLUMNS_HEAD = [
     ("feature", "STRING", False),
     ("feature_expression", "STRING", False),
     ("feature_order", "INT", False),
-    ("feature_label", "STRING", False),
+    ("importance_rank", "INT", False),
+    ("feature_short", "STRING", False),
     ("repeat_index", "INT", False),
     ("n_periods", "INT", False),
 ]
 SPOT_IMPORTANCE_COLUMNS = IMPORTANCE_COLUMNS_HEAD + [
     ("mae_price_jpy_kwh", "DOUBLE", False),
     ("permuted_mae_price_jpy_kwh", "DOUBLE", False),
+    ("mean_abs_contribution_price_jpy_kwh", "DOUBLE", False),
 ]
 DEMAND_IMPORTANCE_COLUMNS = IMPORTANCE_COLUMNS_HEAD + [
     ("mae_mwh", "DOUBLE", False),
     ("permuted_mae_mwh", "DOUBLE", False),
+    ("mean_abs_contribution_mwh", "DOUBLE", False),
 ]
 IMPORTANCE_CHART_NAMES = [
     "Permutation importance",
@@ -727,12 +1084,12 @@ join pma_curated.dim_area a on f.area_key = a.area_key
 candidate as (
 select *, count(*) over () as candidate_periods
 from runs
-where {{% if candidate %}}run_label = '{{{{ candidate[0] | replace("'", "''") }}}}'{{% else %}}1 = 0{{% endif %}}
+where {{% if candidate %}}run_label = '{{{{ candidate[0] | replace("'", "''") }}}}' and run_id like '{{{{ candidate[0][-8:] | replace("'", "''") }}}}%'{{% else %}}1 = 0{{% endif %}}
 ),
 baseline as (
 select *
 from runs
-where {{% if baseline %}}run_label = '{{{{ baseline[0] | replace("'", "''") }}}}'{{% else %}}1 = 0{{% endif %}}
+where {{% if baseline %}}run_label = '{{{{ baseline[0] | replace("'", "''") }}}}' and run_id like '{{{{ baseline[0][-8:] | replace("'", "''") }}}}%'{{% else %}}1 = 0{{% endif %}}
 ),
 matched as (
 select
@@ -766,6 +1123,7 @@ select
   m.time_code,
   p.hour_of_day,
   p.day_part,
+  concat(h.day_part_start, '–', h.day_part_end, ' ', p.day_part) as day_part_hours,
   d.day_name,
   concat(d.day_of_week_iso, ' ', substring(d.day_name, 1, 3)) as day_of_week,
   case
@@ -773,6 +1131,7 @@ select
     when d.is_weekend then 'Weekend'
     else 'Weekday'
   end as day_type,
+  concat(case when d.is_holiday then 'Holiday' when d.is_weekend then 'Weekend' else 'Weekday' end, ' (', cast(cast(round(cast(100 as double) * count(*) over (partition by case when d.is_holiday then 'Holiday' when d.is_weekend then 'Weekend' else 'Weekday' end) / count(*) over ()) as int) as string), '% of periods)') as day_type_share,
   case when d.is_holiday then d.holiday_name_ja else '' end as holiday_name_ja,
   m.area_code,
   m.area_name_en,
@@ -784,6 +1143,7 @@ select
   m.baseline_run_label,
   m.baseline_strategy,
   m.candidate_periods,
+  {explain_link} as explain_link,
 {value_select}
   avg(m.{abs}) over (partition by m.date_key) as daily_{abs},
   avg(m.baseline_{abs}) over (partition by m.date_key) as daily_baseline_{abs},
@@ -792,6 +1152,14 @@ select
 from matched m
 join pma_curated.dim_half_hour p on m.time_code = p.time_code
 join pma_curated.dim_date d on m.date_key = d.date_key
+join (
+  select
+    day_part,
+    min(period_start_time) as day_part_start,
+    max(period_end_time) as day_part_end
+  from pma_curated.dim_half_hour
+  group by day_part
+) h on h.day_part = p.day_part
 """
 SPOT_COMPARISON_VALUES = """\
   c.forecast_price_jpy_kwh,
@@ -855,23 +1223,31 @@ DEMAND_COMPARISON_VALUE_NAMES = [
 ]
 
 
-def comparison_sql(accuracy_table: str, values: str, names: list[str], abs_col: str) -> str:
+def comparison_sql(
+    slug: str, accuracy_table: str, values: str, names: list[str], abs_col: str
+) -> str:
     return (
         COMPARISON_SQL_HEAD.format(accuracy_table=accuracy_table)
         + values
         + COMPARISON_SQL_TAIL.format(
-            value_select="\n".join(f"  m.{name}," for name in names), abs=abs_col
+            explain_link=explain_link_sql(
+                slug, "m.run_label", "date_format(m.date_key, 'yyyy-MM-dd')"
+            ),
+            value_select="\n".join(f"  m.{name}," for name in names),
+            abs=abs_col,
         )
     )
 
 
 SPOT_COMPARISON_SQL = comparison_sql(
+    "spot-price-forecast-analysis",
     "pma_curated.fct_spot_price_forecast_accuracy",
     SPOT_COMPARISON_VALUES,
     SPOT_COMPARISON_VALUE_NAMES,
     "abs_error_jpy_kwh",
 )
 DEMAND_COMPARISON_SQL = comparison_sql(
+    "demand-forecast-analysis",
     "pma_curated.fct_demand_forecast_accuracy",
     DEMAND_COMPARISON_VALUES,
     DEMAND_COMPARISON_VALUE_NAMES,
@@ -885,9 +1261,11 @@ COMPARISON_COLUMNS_HEAD = [
     ("time_code", "INT", False),
     ("hour_of_day", "INT", False),
     ("day_part", "STRING", False),
+    ("day_part_hours", "STRING", False),
     ("day_name", "STRING", False),
     ("day_of_week", "STRING", False),
     ("day_type", "STRING", False),
+    ("day_type_share", "STRING", False),
     ("holiday_name_ja", "STRING", False),
     ("area_code", "STRING", False),
     ("area_name_en", "STRING", False),
@@ -899,6 +1277,7 @@ COMPARISON_COLUMNS_HEAD = [
     ("baseline_run_label", "STRING", False),
     ("baseline_strategy", "STRING", False),
     ("candidate_periods", "BIGINT", False),
+    ("explain_link", "STRING", False),
 ]
 SPOT_COMPARISON_COLUMNS = (
     COMPARISON_COLUMNS_HEAD
@@ -947,12 +1326,12 @@ join pma_curated.dim_area a on c.area_key = a.area_key
 candidate as (
 select *
 from runs
-where {{% if candidate %}}run_label = '{{{{ candidate[0] | replace("'", "''") }}}}'{{% else %}}1 = 0{{% endif %}}
+where {{% if candidate %}}run_label = '{{{{ candidate[0] | replace("'", "''") }}}}' and run_id like '{{{{ candidate[0][-8:] | replace("'", "''") }}}}%'{{% else %}}1 = 0{{% endif %}}
 ),
 baseline as (
 select *
 from runs
-where {{% if baseline %}}run_label = '{{{{ baseline[0] | replace("'", "''") }}}}'{{% else %}}1 = 0{{% endif %}}
+where {{% if baseline %}}run_label = '{{{{ baseline[0] | replace("'", "''") }}}}' and run_id like '{{{{ baseline[0][-8:] | replace("'", "''") }}}}%'{{% else %}}1 = 0{{% endif %}}
 ),
 periods as (
 select c.date_key, c.trade_datetime, c.time_code, c.area_key, c.run_id, b.run_id as baseline_run_id
@@ -1123,6 +1502,62 @@ DEMAND_EXPLANATION_COMPARISON_COLUMNS = EXPLANATION_COMPARISON_COLUMNS_HEAD + [
 ]
 
 
+class TestExplainLink:
+    def test_the_generated_expression(self, script):
+        assert script.explain_link_sql(
+            "demand-forecast-analysis", "m.run_label", "date_format(m.date_key, 'yyyy-MM-dd')"
+        ) == explain_link_sql(
+            "demand-forecast-analysis", "m.run_label", "date_format(m.date_key, 'yyyy-MM-dd')"
+        )
+
+    def test_the_literal_pieces_spell_the_rison_around_the_escaped_values(self, script):
+        sql = script.explain_link_sql("some-slug", "r", "d")
+        head, encoded, tail = sql_arguments(sql.removeprefix("concat(").removesuffix(")"))
+        assert head == "'<a href=\"/superset/dashboard/some-slug/?native_filters='"
+        assert tail == "'#TAB-1\">Explain</a>'"
+        assert encoded.startswith("url_encode(concat(") and encoded.endswith("))")
+        pieces = sql_arguments(encoded.removeprefix("url_encode(concat(").removesuffix("))"))
+        values = {rison_escaped("r"): "RUN", rison_escaped("d"): "DAY"}
+        rison = ""
+        for piece in pieces:
+            if piece in values:
+                rison += values[piece]
+            elif piece == SQL_QUOTE:
+                rison += "'"
+            else:
+                # a plain SQL literal, and it carries no apostrophe of its own
+                assert piece[0] == piece[-1] == "'"
+                assert "''" not in piece
+                rison += piece[1:-1]
+        assert rison == EXPLAIN_LINK_RISON
+        # Run and Day three times each: the filter's value, its label and its state
+        assert [values.get(p) for p in pieces if p in values] == ["RUN"] * 3 + ["DAY"] * 3
+
+    def test_no_escaped_quote_literal_survives_supersets_rewrite(self, script, spec):
+        # Superset rewrites the dataset SQL on its way to Spark and turns an
+        # escaped-quote literal into an empty string, which silently emptied the
+        # rison's quotes and made every link filter nothing. Checked against the
+        # running Superset: chr(39) comes through, the escaped literal does not.
+        for sql in (script.explain_link_sql("s", "r", "d"), spec.dataset_sql):
+            assert "''''" not in sql
+        assert script.SQL_QUOTE == "chr(39)"
+        assert script.rison_escape_sql("x") == (
+            "replace(replace(x, '!', '!!'), chr(39), concat('!', chr(39)))"
+        )
+
+    def test_the_anchor_is_the_key_the_layout_gives_the_explanation_tab(self, script, demand):
+        assert script.EXPLANATION_TAB_KEY == "TAB-1"
+        fake = FakeSupersetSession()
+        fake.seed("database", id=3, database_name="Spark Thriftserver")
+        script.build_dashboard(make_client(script, fake), 3, demand)
+        (dashboard,) = fake.rows["dashboard"].values()
+        position = json.loads(dashboard["position_json"])
+        assert position[script.EXPLANATION_TAB_KEY]["meta"]["text"] == "Explanation"
+        assert script.explain_link_sql("s", "r", "d").endswith(
+            f", '#{script.EXPLANATION_TAB_KEY}\">Explain</a>')"
+        )
+
+
 class TestDashboardSpecs:
     def test_registry_lists_spot_price_then_demand_keyed_by_task(self, script):
         assert list(script.DASHBOARDS) == ["spot_price", "demand"]
@@ -1200,6 +1635,26 @@ class TestDashboardSpecs:
             spec.explanation_dataset_sql
         )
 
+    def test_run_pin_reads_the_run_id_prefix_off_the_labels_tail(self, script):
+        assert script.run_pin_sql("run", "f.run_id") == (
+            "f.run_id like '{{ run[0][-8:] | replace(\"'\", \"''\") }}%'"
+        )
+
+    def test_the_label_ends_with_the_prefix_the_pin_reads(self, script):
+        # The pin takes the label's last RUN_ID_PREFIX_LENGTH characters for the
+        # run id's prefix, so the label must end with exactly that substring.
+        label = script.RUN_LABEL_SQL.format(f="f", a="a")
+        assert label.endswith(f"' | ', substring(f.run_id, 1, {script.RUN_ID_PREFIX_LENGTH})\n  )")
+
+    def test_analysis_sql_pins_the_run_only_when_the_filter_has_a_value(self, spec):
+        sql = spec.dataset_sql
+        assert sql.startswith("{% set run = filter_values('run_label') %}\nselect\n")
+        assert sql.endswith(
+            ") h on h.day_part = p.day_part\n"
+            "{% if run %}where f.run_id like '{{ run[0][-8:] | replace(\"'\", \"''\") }}%'"
+            "{% endif %}\n"
+        )
+
     def test_dataset_columns_follow_the_sql(self, spot, demand):
         assert spot.dataset_columns == SPOT_COLUMNS
         assert demand.dataset_columns == DEMAND_COLUMNS
@@ -1224,6 +1679,8 @@ class TestDashboardSpecs:
         assert spot.mae_metric == script.avg_metric("abs_error_jpy_kwh", "MAE (JPY/kWh)")
         assert demand.mae_metric == script.avg_metric("abs_error_mwh", "MAE (MWh)")
         assert spot.bias_metric == script.avg_metric("error_jpy_kwh", "Bias")
+        assert spot.error_metric == script.avg_metric("error_jpy_kwh", "Error (forecast − actual)")
+        assert demand.error_metric["column"]["column_name"] == "error_mwh"
         assert demand.bias_metric["column"]["column_name"] == "error_mwh"
         assert spot.rmse_metric["sqlExpression"] == "sqrt(avg(power(error_jpy_kwh, 2)))"
         assert demand.rmse_metric["sqlExpression"] == "sqrt(avg(power(error_mwh, 2)))"
@@ -1334,24 +1791,74 @@ class TestDashboardSpecs:
         assert demand.contribution_table == "pma_curated.fct_demand_forecast_contribution"
         assert demand.contribution_col == "contribution_mwh"
         assert demand.contribution_format == "+,.0f"
+        # The ranking runs on the fact's own column, before any rescaling
+        assert spot.contribution_fact_col == "contribution_price_jpy_kwh"
+        assert demand.contribution_fact_col == "contribution_demand_kwh"
+        assert spot.explanation_period_dataset_name == "spot_price_forecast_explanation_period"
+        assert demand.explanation_period_dataset_name == "demand_forecast_explanation_period"
+
+    def test_short_label_keeps_the_head_and_the_tail(self, script):
+        assert (script.SHORT_LABEL_HEAD, script.SHORT_LABEL_TAIL) == (34, 21)
+        assert script.short_label_sql("x") == (
+            "case when length(x) > 56 then concat(substring(x, 1, 34), '…', "
+            "substring(x, -21)) else x end"
+        )
 
     def test_explanation_dataset_sql(self, spot, demand):
         assert spot.explanation_dataset_sql == SPOT_EXPLANATION_SQL
         assert demand.explanation_dataset_sql == DEMAND_EXPLANATION_SQL
+
+    def test_the_top_components_and_the_other_group_come_from_the_constants(self, script, spec):
+        assert (script.TOP_COMPONENTS, script.OTHER_FEATURES) == (10, "Other features")
+        sql = spec.explanation_dataset_sql
+        assert "when l.selection_rank > 10 then 'Other features'" in sql
+        assert "when g.selection_rank > 10 then '11 Other features'" in sql
+
+    def test_period_dataset_is_the_explanation_sql_with_no_rows_without_a_period(
+        self, spot, demand
+    ):
+        assert spot.explanation_period_dataset_sql == SPOT_EXPLANATION_PERIOD_SQL
+        assert demand.explanation_period_dataset_sql == DEMAND_EXPLANATION_PERIOD_SQL
+        assert (
+            demand.explanation_period_dataset_sql.replace(PERIOD_GATE, "")
+            == demand.explanation_dataset_sql
+        )
+
+    def test_the_period_gate_wants_a_day_as_well(self, spec):
+        # the Day filter is optional, and the period predicate alone left one time
+        # code of every day in the run: 729 days and 77,274 rows on e212, which the
+        # tiles would have averaged and called a single period
+        assert PERIOD_GATE == "\n  {% if not (day and period) %}and 1 = 0{% endif %}"
+        assert PERIOD_GATE in spec.explanation_period_dataset_sql
+
+    def test_the_explanation_pin_is_exact_because_a_cte_ranks_on_it(self, spec):
+        # the prefix alone is not enough here: two runs sharing eight characters
+        # would both reach `ranked`, and the top ten is then taken over the pair.
+        # Measured on the warehouse by widening the pin until it admitted 7 runs:
+        # none of the true top ten kept its own rank.
+        sql = spec.explanation_dataset_sql
+        assert "join pma_curated.dim_area a on c.area_key = a.area_key\nwhere {% if run %}" in sql
+        assert "c.run_id like '{{ run[0][-8:] | replace(\"'\", \"''\") }}%' and concat(" in sql
+        assert "  ) = '{{ run[0] | replace(\"'\", \"''\") }}'{% else %}1 = 1{% endif %}" in sql
+
+    def test_explanation_pins_read_the_three_filters(self, spec):
+        sql = spec.explanation_dataset_sql
+        assert sql.startswith(
+            "{% set run = filter_values('run_label') %}\n"
+            "{% set day = filter_values('trade_date_label') %}\n"
+            "{% set period = filter_values('period_label') %}\n"
+        )
+        # Without a Run value the SQL reads everything, as before the pins
+        assert "{% else %}1 = 1{% endif %}" in sql
 
     def test_explanation_columns_follow_the_sql(self, spot, demand):
         assert spot.explanation_dataset_columns == SPOT_EXPLANATION_COLUMNS
         assert demand.explanation_dataset_columns == DEMAND_EXPLANATION_COLUMNS
 
     def test_explanation_columns_match_the_sql_select_list_in_order(self, spec):
-        select_list = spec.explanation_dataset_sql.split("\nfrom ", 1)[0].splitlines()[1:]
-        output_names = []
-        for line in select_list:
-            if m := re.fullmatch(r"\s+[cfpda]\.(\w+),?", line):
-                output_names.append(m.group(1))
-            elif m := re.search(r"\bas (\w+),?$", line):
-                output_names.append(m.group(1))
+        output_names = final_select_names(spec.explanation_dataset_sql)
         assert [name for name, _, _ in spec.explanation_dataset_columns] == output_names
+        assert final_select_names(spec.explanation_period_dataset_sql) == output_names
         assert [n for n, _, is_dttm in spec.explanation_dataset_columns if is_dttm] == [
             "date_key",
             "trade_datetime",
@@ -1379,6 +1886,21 @@ class TestDashboardSpecs:
         )
         assert demand.net_effect_metric["label"] == "Net feature effect"
         assert demand.net_effect_metric["optionName"] == "metric_net_feature_effect"
+
+    def test_grouped_contribution_is_the_mean_per_period_of_the_groups_total(
+        self, script, spot, demand
+    ):
+        # a group of several features (Other features) needs the sum; for one feature
+        # the sum over its periods divided by their count is the plain average
+        assert demand.grouped_contribution_metric == script.sql_metric(
+            "sum(contribution_mwh) / count(distinct trade_datetime)",
+            "Contribution (MWh)",
+            option_name="grouped_contribution",
+        )
+        assert spot.grouped_contribution_metric["sqlExpression"] == (
+            "sum(contribution_price_jpy_kwh) / count(distinct trade_datetime)"
+        )
+        assert spot.grouped_contribution_metric["label"] == spot.contribution_metric["label"]
 
     def test_minus_base_metrics_read_the_base_row_of_the_same_period(self, script, spot, demand):
         # Same quantity as the net effect, labelled for the by-period chart's legend
@@ -1418,18 +1940,53 @@ class TestDashboardSpecs:
         assert spot.importance_dataset_sql == SPOT_IMPORTANCE_SQL
         assert demand.importance_dataset_sql == DEMAND_IMPORTANCE_SQL
 
+    def test_importance_ranks_on_the_facts_own_columns(self, spot, demand):
+        assert (spot.importance_mae_fact_col, spot.importance_permuted_mae_fact_col) == (
+            "mae_price_jpy_kwh",
+            "permuted_mae_price_jpy_kwh",
+        )
+        assert (demand.importance_mae_fact_col, demand.importance_permuted_mae_fact_col) == (
+            "mae_demand_kwh",
+            "permuted_mae_demand_kwh",
+        )
+
+    def test_summary_identity(self, spot, demand):
+        assert spot.summary_dataset_name == "spot_price_forecast_contribution_summary"
+        assert spot.summary_table == "pma_curated.fct_spot_price_forecast_contribution_summary"
+        assert spot.mean_abs_contribution_col == "mean_abs_contribution_price_jpy_kwh"
+        assert demand.summary_dataset_name == "demand_forecast_contribution_summary"
+        assert demand.summary_table == "pma_curated.fct_demand_forecast_contribution_summary"
+        assert demand.mean_abs_contribution_col == "mean_abs_contribution_mwh"
+
+    def test_summary_dataset_sql(self, spot, demand):
+        assert spot.summary_dataset_sql == SPOT_SUMMARY_SQL
+        assert demand.summary_dataset_sql == DEMAND_SUMMARY_SQL
+
+    def test_summary_columns_follow_the_sql(self, spot, demand):
+        assert spot.summary_dataset_columns == SPOT_SUMMARY_COLUMNS
+        assert demand.summary_dataset_columns == DEMAND_SUMMARY_COLUMNS
+
+    def test_summary_columns_match_the_sql_select_list_in_order(self, spec):
+        output_names = final_select_names(spec.summary_dataset_sql)
+        assert [name for name, _, _ in spec.summary_dataset_columns] == output_names
+
+    def test_feature_pick_has_one_definition(self, script, spec):
+        # The Feature filter lists the summary dataset's feature_pick and filters the
+        # explanation dataset's: the two must build the same text.
+        pick = script.FEATURE_PICK_SQL.format(
+            s="s", expression="coalesce(e.feature_expression, {name})"
+        )
+        assert f"  {pick.format(name='s.component')} as feature_pick,\n" in spec.summary_dataset_sql
+        assert f"  {pick.format(name='c.component')} as feature_pick,\n" in (
+            spec.explanation_dataset_sql
+        )
+
     def test_importance_columns_follow_the_sql(self, spot, demand):
         assert spot.importance_dataset_columns == SPOT_IMPORTANCE_COLUMNS
         assert demand.importance_dataset_columns == DEMAND_IMPORTANCE_COLUMNS
 
     def test_importance_columns_match_the_sql_select_list_in_order(self, spec):
-        select_list = spec.importance_dataset_sql.split("\nfrom ", 1)[0].splitlines()[1:]
-        output_names = []
-        for line in select_list:
-            if m := re.fullmatch(r"\s+[ia]\.(\w+),?", line):
-                output_names.append(m.group(1))
-            elif m := re.search(r"\bas (\w+),?$", line):
-                output_names.append(m.group(1))
+        output_names = final_select_names(spec.importance_dataset_sql)
         assert [name for name, _, _ in spec.importance_dataset_columns] == output_names
         assert [n for n, _, is_dttm in spec.importance_dataset_columns if is_dttm] == [
             "published_at"
@@ -1457,13 +2014,14 @@ class TestDashboardSpecs:
             "avg(permuted_mae_price_jpy_kwh) - avg(mae_price_jpy_kwh)"
         )
         assert spot.importance_metric["label"] == "ΔMAE (JPY/kWh)"
-        # on the explanation dataset: the attribution counterpart of the importance bars
+        # the attribution counterpart of the importance bars, read off the run-level
+        # summary (and its copy on the importance dataset): already a mean per feature
         assert spot.mean_abs_shap_metric == script.sql_metric(
-            "avg(abs(contribution_price_jpy_kwh))",
+            "avg(mean_abs_contribution_price_jpy_kwh)",
             "Mean |SHAP| (JPY/kWh)",
             option_name="mean_abs_shap",
         )
-        assert demand.mean_abs_shap_metric["sqlExpression"] == "avg(abs(contribution_mwh))"
+        assert demand.mean_abs_shap_metric["sqlExpression"] == "avg(mean_abs_contribution_mwh)"
 
     def test_comparison_identity(self, spot, demand):
         assert spot.comparison_dataset_name == "spot_price_forecast_comparison"
@@ -1529,6 +2087,21 @@ class TestDashboardSpecs:
         assert sql.count("{% else %}1 = 0{% endif %}") == 2
         assert "count(*) over () as candidate_periods" in sql
         assert "join baseline b\n  on b.date_key = c.date_key" in sql
+
+    @pytest.mark.parametrize(
+        "sql_of", ["comparison_dataset_sql", "explanation_comparison_dataset_sql"]
+    )
+    def test_comparison_sql_pins_each_run_id_so_the_scan_is_pruned(self, spec, sql_of):
+        # The label is built text, which Spark cannot push into the parquet scan;
+        # the run id's prefix beside it can.
+        sql = getattr(spec, sql_of)
+        for variable in ("candidate", "baseline"):
+            assert (
+                f"where {{% if {variable} %}}run_label = "
+                f"'{{{{ {variable}[0] | replace(\"'\", \"''\") }}}}' "
+                f"and run_id like '{{{{ {variable}[0][-8:] | replace(\"'\", \"''\") }}}}%'"
+                "{% else %}1 = 0{% endif %}"
+            ) in sql
 
     def test_comparison_band_expression_matches_the_analysis_dataset(self, spec):
         # The Compare tab's bands must be the Accuracy tab's bands: the same
@@ -1949,9 +2522,14 @@ class TestRunDefaults:
 
         defaults = script.run_defaults(client, 3, spec)
 
-        assert defaults == script.RunDefaults(DEFAULT_LABEL, DEFAULT_LAST_DAY, BASELINE_LABEL)
-        (call,) = fake.calls_after_login()
-        method, url, payload, params = call
+        assert defaults == script.RunDefaults(
+            DEFAULT_LABEL, DEFAULT_LAST_DAY, BASELINE_LABEL, DEFAULT_FEATURE_LABEL
+        )
+        runs_call, feature_call = fake.calls_after_login()
+        # the second query reads the newest run's first-ranked feature
+        assert "s.feature_rank = 1" in feature_call[2]["sql"]
+        assert f"from {spec.summary_table} s" in feature_call[2]["sql"]
+        method, url, payload, params = runs_call
         assert (method, url, params) == ("POST", f"{BASE}/api/v1/sqllab/execute/", None)
         assert payload["database_id"] == 3
         assert payload["runAsync"] is False
@@ -1970,7 +2548,9 @@ class TestRunDefaults:
             SHORT_LABEL
         )
         assert script.run_defaults(client, 3, spot, baseline_run=BASELINE_RUN_ID) == (
-            script.RunDefaults(DEFAULT_LABEL, DEFAULT_LAST_DAY, BASELINE_LABEL)
+            script.RunDefaults(
+                DEFAULT_LABEL, DEFAULT_LAST_DAY, BASELINE_LABEL, DEFAULT_FEATURE_LABEL
+            )
         )
 
     def test_unknown_baseline_run_warns_and_keeps_the_rule(self, script, fake, spot, monkeypatch):
@@ -1985,9 +2565,17 @@ class TestRunDefaults:
         assert warnings[0][1] == "nope"
 
     def test_no_run_shares_the_newest_window(self, script, spot):
+        # the canned answer serves both queries, so it carries no feature either
         fake = FakeSupersetSession(sqllab=FakeResponse({"data": RUN_ROWS[:2]}))
         defaults = script.run_defaults(make_client(script, fake), 3, spot)
-        assert defaults == script.RunDefaults(DEFAULT_LABEL, DEFAULT_LAST_DAY, None)
+        assert defaults == script.RunDefaults(DEFAULT_LABEL, DEFAULT_LAST_DAY, None, None)
+
+    def test_an_unreadable_summary_costs_only_the_feature_default(self, script, fake, spot):
+        # a warehouse that never published contributions has no summary table;
+        # the Run, Day and Baseline defaults must still apply
+        fake.overrides[("POST", "/api/v1/sqllab/execute/")] = FakeResponse({"data": RUN_ROWS})
+        defaults = script.run_defaults(make_client(script, fake), 3, spot)
+        assert defaults == script.RunDefaults(DEFAULT_LABEL, DEFAULT_LAST_DAY, BASELINE_LABEL, None)
 
     def test_none_on_http_error(self, script, spot):
         fake = FakeSupersetSession(sqllab=FakeResponse({"message": "boom"}, 500))
@@ -2130,57 +2718,16 @@ class TestChartParams:
         assert p["row_limit"] == 100000
         assert p["x_axis_title"] == f"Signed error ({spec.unit}; + = over-forecast)"
 
-    def test_leaderboard(self, script, spec):
-        p = script.leaderboard_params(spec, 7)
-        mae_label = f"MAE ({spec.unit})"
-        assert p["datasource"] == "7__table"
-        assert p["viz_type"] == "table"
-        assert p["query_mode"] == "aggregate"
-        assert p["groupby"] == ["run_label", "strategy"]
-        assert [m["label"] for m in p["metrics"]] == [
-            "Periods",
-            "First day",
-            "Last day",
-            "Days",
-            mae_label,
-            "Bias",
-            "RMSE",
-            "WAPE",
-        ]
-        assert p["metrics"][0]["sqlExpression"] == "count(*)"
-        assert p["metrics"][0]["optionName"] == "metric_periods"
-        assert p["metrics"][1]["sqlExpression"] == "date_format(min(date_key), 'yyyy-MM-dd')"
-        assert p["metrics"][2]["sqlExpression"] == "date_format(max(date_key), 'yyyy-MM-dd')"
-        assert p["metrics"][3]["sqlExpression"] == "count(distinct date_key)"
-        assert p["metrics"][4] == spec.mae_metric
-        assert p["metrics"][6] == spec.rmse_metric
-        assert p["metrics"][7] == spec.wape_metric
-        assert p["timeseries_limit_metric"] == spec.mae_metric
-        assert p["order_desc"] is False  # best MAE first
-        assert p["row_limit"] == 100
-        assert p["column_config"] == {
-            "Periods": {"d3NumberFormat": ",d"},
-            "Days": {"d3NumberFormat": ",d"},
-            mae_label: {"d3NumberFormat": spec.number_format},
-            "Bias": {"d3NumberFormat": spec.signed_number_format},
-            "RMSE": {"d3NumberFormat": spec.number_format},
-            "WAPE": {"d3NumberFormat": ".1%"},
-        }
-
-    def test_leaderboard_formats_per_spec(self, script, spot, demand):
-        assert script.leaderboard_params(spot, 7)["column_config"]["Bias"] == {
-            "d3NumberFormat": "+,.3f"
-        }
-        assert script.leaderboard_params(demand, 7)["column_config"]["MAE (MWh)"] == {
-            "d3NumberFormat": ",.1f"
-        }
-
     def test_worst_days(self, script, spec):
         p = script.worst_days_params(spec, 7)
         mae_label = f"MAE ({spec.unit})"
         assert p["datasource"] == "7__table"
         assert p["viz_type"] == "table"
-        assert p["groupby"] == ["date_key", "day_of_week", "day_type"]
+        # the Explain link first; the table must render it as HTML, under a
+        # heading that is not the column's name
+        assert p["groupby"] == ["explain_link", "date_key", "day_of_week", "day_type"]
+        assert p["allow_render_html"] is True
+        assert p["column_config"]["explain_link"] == {"customColumnName": "Explain"}
         assert [m["label"] for m in p["metrics"]] == [
             mae_label,
             "Bias",
@@ -2194,6 +2741,7 @@ class TestChartParams:
         assert p["row_limit"] == 20
         assert p["table_timestamp_format"] == "%Y-%m-%d"
         assert p["column_config"] == {
+            "explain_link": {"customColumnName": "Explain"},
             mae_label: {"d3NumberFormat": spec.number_format},
             "Bias": {"d3NumberFormat": spec.signed_number_format},
             "Max |error|": {"d3NumberFormat": spec.worst_days_max_format},
@@ -2214,11 +2762,23 @@ class TestChartParams:
         assert p["viz_type"] == "echarts_timeseries_line"
         assert p["x_axis"] == "trade_datetime"
         assert p["zoomable"] is True
-        assert [m["label"] for m in p["metrics"]] == ["Forecast", "Actual"]
+        assert [m["label"] for m in p["metrics"]] == [
+            "Forecast",
+            "Actual",
+            "Error (forecast − actual)",
+        ]
         assert [m["column"]["column_name"] for m in p["metrics"]] == [
             spec.forecast_col,
             spec.actual_col,
+            spec.error_col,
         ]
+        assert p["metrics"][2] == spec.error_metric
+        # the hover lists the three; their sum would be nonsense
+        assert p["rich_tooltip"] is True
+        assert p["showTooltipTotal"] is False
+        # one axis, starting at zero, in the forecast's unit: the error needs no second scale
+        assert p["truncateYAxis"] is False
+        assert "yAxisIndex" not in p
         assert p["row_limit"] == 100000
         assert p["seriesType"] == "line"
         assert p["time_range"] == "No filter"
@@ -2229,9 +2789,10 @@ class TestChartParams:
         p = script.waterfall_params(spec, 7)
         assert p["datasource"] == "7__table"
         assert p["viz_type"] == "waterfall"
-        assert p["x_axis"] == "component_label"
+        # the selection's top ten and Other features, in rank order (the chart sorts by label)
+        assert p["x_axis"] == "component_group_label"
         assert p["groupby"] == []
-        assert p["metric"] == spec.contribution_metric
+        assert p["metric"] == spec.grouped_contribution_metric
         assert p["adhoc_filters"] == [script.NOT_BASE_FILTER]
         assert p["show_total"] is True
         assert p["total_label"] == "Net effect"
@@ -2240,9 +2801,10 @@ class TestChartParams:
         assert p["show_value"] is True
         assert p["show_legend"] is True
         assert p["x_ticks_layout"] == "auto"
+        assert p["x_axis_label"] == "Feature (largest mean |contribution| first)"
         assert p["y_axis_format"] == spec.axis_format
         assert p["y_axis_label"] == spec.unit
-        assert p["row_limit"] == 100
+        assert p["row_limit"] == 1000
         assert p["extra_form_data"] == {}
 
     def test_not_base_filter_is_a_sql_where_clause(self, script):
@@ -2253,51 +2815,165 @@ class TestChartParams:
             "filterOptionName": "filter_not_is_base",
         }
 
+    def test_top_feature_bar_filters_cut_on_a_rank_of_the_dataset(self, script):
+        assert script.TOP_FEATURE_BARS == 20
+        assert script.TOP_IMPORTANCE_FILTER == {
+            "expressionType": "SQL",
+            "sqlExpression": "importance_rank <= 20",
+            "clause": "WHERE",
+            "filterOptionName": "filter_top_importance",
+        }
+        assert script.TOP_MEAN_ABS_SHAP_FILTER == {
+            "expressionType": "SQL",
+            "sqlExpression": "feature_rank <= 20",
+            "clause": "WHERE",
+            "filterOptionName": "filter_top_mean_abs_shap",
+        }
+
     def test_feature_table(self, script, spec):
         p = script.feature_table_params(spec, 7)
         assert p["datasource"] == "7__table"
         assert p["viz_type"] == "table"
         assert p["query_mode"] == "aggregate"
-        assert p["groupby"] == ["component_label"]
-        order, value, contribution = p["metrics"]
-        assert order == script.sql_metric("min(component_order)", "Order")
+        assert p["groupby"] == ["feature_expression"]
+        value, contribution = p["metrics"]  # no Order column
         assert value == script.sql_metric("avg(feature_value)", "Feature value")
         assert contribution == spec.contribution_metric
-        assert p["timeseries_limit_metric"] == order
-        assert p["order_desc"] is False
+        # largest |contribution| first; the ordering metric is not a column
+        assert p["timeseries_limit_metric"] == script.sql_metric(
+            f"max(abs({spec.contribution_col}))", "|Contribution|", option_name="abs_contribution"
+        )
+        assert p["timeseries_limit_metric"] not in p["metrics"]
+        assert p["order_desc"] is True
         assert p["adhoc_filters"] == []  # the base row stays: the column sums to the forecast
+        assert p["row_limit"] == 1000
+        assert p["server_pagination"] is False
+        assert p["page_length"] == 25
+        assert p["include_search"] is True
         assert p["column_config"] == {
-            "Order": {"d3NumberFormat": ",d"},
+            "feature_expression": {"customColumnName": "Feature"},
             "Feature value": {"d3NumberFormat": ",.2~f"},
             f"Contribution ({spec.unit})": {"d3NumberFormat": spec.contribution_format},
         }
+        assert p["extra_form_data"] == {}
+
+    def test_all_features_table(self, script, spec):
+        p = script.all_features_table_params(spec, 7)
+        assert p["datasource"] == "7__table"
+        assert p["viz_type"] == "table"
+        assert p["query_mode"] == "aggregate"
+        assert p["groupby"] == ["feature_expression"]
+        rank, contribution, mean_abs = p["metrics"]
+        assert rank == script.sql_metric("min(selection_rank)", "Rank")
+        assert contribution == spec.contribution_metric
+        assert mean_abs == script.sql_metric(
+            f"avg(abs({spec.contribution_col}))",
+            f"Mean |contribution| ({spec.unit})",
+            option_name="mean_abs_contribution",
+        )
+        # its share of the column total: what Other features hides is read here
+        assert p["percent_metrics"] == [mean_abs]
+        assert p["adhoc_filters"] == [script.NOT_BASE_FILTER]
+        assert p["timeseries_limit_metric"] == rank
+        assert p["order_desc"] is False
+        assert p["row_limit"] == 1000
+        assert p["server_pagination"] is False
+        assert p["page_length"] == 25
+        assert p["include_search"] is True
+        assert p["column_config"] == {
+            "feature_expression": {"customColumnName": "Feature"},
+            "Rank": {"d3NumberFormat": ",d"},
+            f"Contribution ({spec.unit})": {"d3NumberFormat": spec.contribution_format},
+            f"Mean |contribution| ({spec.unit})": {"d3NumberFormat": spec.number_format},
+        }
+        assert p["extra_form_data"] == {}
+
+    def test_the_by_period_charts_share_an_axis_no_feature_can_be_named(self, script, spec):
+        # The three charts stack, so they must share an x axis. It cannot be
+        # time_code: that is a model feature as well as a column, and a series
+        # named like the pivot's index makes Superset fail with "cannot insert
+        # time_code, already exists". period_label is the dataset's own.
+        assert [
+            script.feature_value_by_period_params(spec, 7)["x_axis"],
+            script.feature_contribution_by_period_params(spec, 7)["x_axis"],
+            script.contribution_by_period_params(spec, 7)["x_axis"],
+        ] == ["period_label", "period_label", "period_label"]
+
+    def test_feature_value_by_period_is_a_line_on_its_own_truncated_axis(self, script, spec):
+        p = script.feature_value_by_period_params(spec, 7)
+        assert p["datasource"] == "7__table"
+        assert p["viz_type"] == "echarts_timeseries_line"
+        assert p["x_axis"] == "period_label"
+        assert p["time_grain_sqla"] is None
+        assert p["metrics"] == [script.sql_metric("avg(feature_value)", "Feature value")]
+        assert p["groupby"] == []
+        assert p["adhoc_filters"] == [script.NOT_BASE_FILTER]
+        assert p["row_limit"] == 10000
+        assert (p["markerEnabled"], p["markerSize"]) == (True, 6)
+        assert p["show_legend"] is False
+        assert p["rich_tooltip"] is True
+        assert p["y_axis_format"] == "SMART_NUMBER"
+        assert p["y_axis_title"] == "Feature value"
+        assert p["y_axis_title_margin"] == 60
+        # a feature's level is far from zero; the shape over the day is what is read
+        assert p["truncateYAxis"] is True
+        assert p["y_axis_bounds"] == [None, None]
+        assert "yAxisIndex" not in p
+        assert p["extra_form_data"] == {}
+
+    def test_feature_contribution_by_period_is_the_per_period_bar_of_one_feature(
+        self, script, spec
+    ):
+        p = script.feature_contribution_by_period_params(spec, 7)
+        overridden = {"metrics", "adhoc_filters", "row_limit"}
+        plain = script.bar_params(spec, 7, "period_label")
+        assert {k: v for k, v in p.items() if k not in overridden} == {
+            k: v for k, v in plain.items() if k not in overridden
+        }
+        assert p["viz_type"] == "echarts_timeseries_bar"
+        assert p["x_axis"] == "period_label"
+        assert p["metrics"] == [spec.contribution_metric]
+        assert p["groupby"] == []
+        assert p["adhoc_filters"] == [script.NOT_BASE_FILTER]
+        assert p["row_limit"] == 10000
+        assert p["show_legend"] is False
+        assert p["rich_tooltip"] is True
+        assert p["y_axis_format"] == spec.axis_format
+        assert p["y_axis_title"] == spec.unit
+        assert p["y_axis_title_margin"] == 30
+        assert p["truncateYAxis"] is False
+        assert p["extra_form_data"] == {}
 
     def test_importance_bar_is_horizontal_sorted_by_the_delta(self, script, spec):
         p = script.importance_bar_params(spec, 7)
         assert p["datasource"] == "7__table"
         assert p["viz_type"] == "echarts_timeseries_bar"
         assert p["orientation"] == "horizontal"
-        # one bar per feature, labelled with its expression
-        assert p["x_axis"] == "feature_expression"
+        # one bar per feature, labelled with its rank and short label
+        assert p["x_axis"] == "feature_short"
         assert p["metrics"] == [spec.importance_metric]
         # ascending on a horizontal bar puts the largest importance on top
         assert p["x_axis_sort"] == spec.importance_metric["label"]
         assert p["x_axis_sort_asc"] is True
-        assert p["adhoc_filters"] == []
+        # the top 20, cut on the dataset's own rank
+        assert p["adhoc_filters"] == [script.TOP_IMPORTANCE_FILTER]
+        assert p["row_limit"] == 1000
         assert p["y_axis_format"] == spec.axis_format
         assert p["y_axis_title"] == f"ΔMAE ({spec.unit}) when the feature is shuffled"
         assert p["show_legend"] is False
         assert p["extra_form_data"] == {}
 
-    def test_mean_abs_shap_bar_reads_the_explanation_dataset_without_the_base(self, script, spec):
+    def test_mean_abs_shap_bar_reads_the_summary_dataset(self, script, spec):
         p = script.mean_abs_shap_params(spec, 7)
         assert p["datasource"] == "7__table"
         assert p["viz_type"] == "echarts_timeseries_bar"
         assert p["orientation"] == "horizontal"
-        assert p["x_axis"] == "feature_expression"
+        assert p["x_axis"] == "feature_short"
         assert p["metrics"] == [spec.mean_abs_shap_metric]
         assert p["x_axis_sort"] == spec.mean_abs_shap_metric["label"]
-        assert p["adhoc_filters"] == [script.NOT_BASE_FILTER]
+        # the summary dataset has no base row; the top 20 by its own rank
+        assert p["adhoc_filters"] == [script.TOP_MEAN_ABS_SHAP_FILTER]
+        assert p["row_limit"] == 1000
         assert p["y_axis_title"] == f"Mean |SHAP| ({spec.unit})"
 
     def test_importance_table(self, script, spec):
@@ -2305,26 +2981,30 @@ class TestChartParams:
         assert p["datasource"] == "7__table"
         assert p["viz_type"] == "table"
         assert p["query_mode"] == "aggregate"
-        assert p["groupby"] == ["feature_label"]
-        order, mae, permuted, delta, std, pct = p["metrics"]
-        assert order == script.sql_metric("min(feature_order)", "Order")
-        assert (mae, permuted, delta, std, pct) == (
+        assert p["groupby"] == ["feature_expression"]
+        assert p["metrics"] == [  # no Order column; the mean |SHAP| last
             spec.importance_mae_metric,
             spec.permuted_mae_metric,
             spec.importance_metric,
             spec.importance_std_metric,
             spec.importance_pct_metric,
-        )
-        assert p["timeseries_limit_metric"] == order
-        assert p["order_desc"] is False
-        assert p["adhoc_filters"] == []
+            spec.mean_abs_shap_metric,
+        ]
+        assert p["timeseries_limit_metric"] == spec.importance_metric
+        assert p["order_desc"] is True  # largest ΔMAE first
+        assert p["adhoc_filters"] == []  # every feature
+        assert p["row_limit"] == 1000
+        assert p["server_pagination"] is False
+        assert p["page_length"] == 25
+        assert p["include_search"] is True
         assert p["column_config"] == {
-            "Order": {"d3NumberFormat": ",d"},
+            "feature_expression": {"customColumnName": "Feature"},
             f"MAE ({spec.unit})": {"d3NumberFormat": spec.number_format},
             f"Permuted MAE ({spec.unit})": {"d3NumberFormat": spec.number_format},
             f"ΔMAE ({spec.unit})": {"d3NumberFormat": spec.signed_number_format},
             f"Std over repeats ({spec.unit})": {"d3NumberFormat": spec.number_format},
             "Importance %": {"d3NumberFormat": "+.1f"},
+            f"Mean |SHAP| ({spec.unit})": {"d3NumberFormat": spec.number_format},
         }
         assert p["extra_form_data"] == {}
 
@@ -2332,11 +3012,12 @@ class TestChartParams:
         p = script.contribution_by_period_params(spec, 7)
         assert p["datasource"] == "7__table"
         assert p["viz_type"] == "mixed_timeseries"
-        assert p["x_axis"] == "time_code"
+        assert p["x_axis"] == "period_label"
         assert p["time_grain_sqla"] is None
-        # Query A: one stacked bar per feature (the base row filtered out)
-        assert p["metrics"] == [spec.contribution_metric]
-        assert p["groupby"] == ["component_label"]
+        # Query A: one stacked series per top-ten feature and one for Other features
+        # (the base row filtered out)
+        assert p["metrics"] == [spec.grouped_contribution_metric]
+        assert p["groupby"] == ["component_group"]
         assert p["adhoc_filters"] == [script.NOT_BASE_FILTER]
         assert p["seriesType"] == "bar"
         assert p["stack"] is True
@@ -2368,7 +3049,54 @@ class TestChartParams:
             "Actual": "#222222",
             "Better": "#1FA8C9",
             "Worse": "#FF7F44",
+            "Error (forecast − actual)": "rgba(0, 0, 0, 0)",
+            "Other features": "#B2B2B2",
         }
+        assert script.OTHER_FEATURES in script.LABEL_COLORS
+
+    def test_the_detail_error_is_in_the_hover_but_drawn_in_nothing(self, script, spec):
+        # Superset cannot put a metric in the tooltip alone, and a third line
+        # over the forecast and the actual distracts; an invisible series is the
+        # one lever it offers, and the axis is pinned so its negatives cannot
+        # stretch the chart
+        assert script.LABEL_COLORS["Error (forecast − actual)"] == script.INVISIBLE
+        p = script.detail_params(spec, 7)
+        assert p["metrics"][2]["label"] == "Error (forecast − actual)"
+
+    def test_the_day_type_bar_label_carries_its_share_of_the_periods(self, script):
+        # three equal bars read as three equal weights, when a run is about two
+        # thirds weekday and under a tenth holiday
+        share = script.day_type_share_sql("d", run_column="f.run_id")
+        assert share.startswith("concat(case when d.is_holiday then 'Holiday'")
+        assert share.endswith("'% of periods)')")
+        assert "count(*) over (partition by f.run_id, case when d.is_holiday" in share
+        assert "count(*) over (partition by f.run_id)" in share
+        # a decimal literal would truncate the division
+        assert "cast(100 as double)" in share
+        # one selection: the share is over the whole dataset
+        assert "count(*) over ()" in script.day_type_share_sql("d")
+
+    def test_the_two_long_labelled_bars_turn_their_labels(self, script, spec):
+        # a day type or day part label no longer fits a third of the row flat:
+        # Superset drops the ones that collide and cuts the rest short
+        assert (
+            script.bar_params(spec, 7, "day_type_share", label_rotation=45)["xAxisLabelRotation"]
+            == 45
+        )
+        assert script.bar_params(spec, 7, "year")["xAxisLabelRotation"] == 0
+
+    def test_the_day_part_bar_label_carries_the_hours_it_covers(self, script):
+        # the hours lead the label so the bars sort in clock order: the chart
+        # sorts by its x axis, and the name alone would put Daytime first
+        assert script.DAY_PART_HOURS_SQL.format(p="p") == (
+            "concat(h.day_part_start, '–', h.day_part_end, ' ', p.day_part)"
+        )
+        # the range comes from dim_half_hour, not from the periods a run scored
+        join = script.DAY_PART_HOURS_JOIN_SQL.format(p="p")
+        assert "from pma_curated.dim_half_hour" in join
+        assert "min(period_start_time) as day_part_start" in join
+        assert "max(period_end_time) as day_part_end" in join
+        assert join.endswith("h on h.day_part = p.day_part")
 
     def test_delta_big_number_colours_the_value_by_sign(self, script, demand):
         p = script.delta_big_number_params(7, demand.delta_mae_metric, "MWh", "+,.1f")
@@ -2447,7 +3175,14 @@ class TestChartParams:
         assert p["datasource"] == "7__table"
         assert p["viz_type"] == "table"
         assert p["query_mode"] == "aggregate"
-        assert p["groupby"] == ["date_key", "day_of_week", "day_type", "holiday_name_ja"]
+        assert p["groupby"] == [
+            "explain_link",
+            "date_key",
+            "day_of_week",
+            "day_type",
+            "holiday_name_ja",
+        ]
+        assert p["allow_render_html"] is True
         assert p["metrics"] == [
             spec.baseline_mae_metric,
             spec.candidate_mae_metric,
@@ -2460,6 +3195,7 @@ class TestChartParams:
         assert p["server_page_length"] == 10
         assert p["table_timestamp_format"] == "%Y-%m-%d"
         assert p["column_config"] == {
+            "explain_link": {"customColumnName": "Explain"},
             f"Baseline MAE ({spec.unit})": {"d3NumberFormat": spec.number_format},
             f"Candidate MAE ({spec.unit})": {"d3NumberFormat": spec.number_format},
             "ΔMAE": {"d3NumberFormat": spec.signed_number_format},
@@ -2482,6 +3218,9 @@ class TestChartParams:
     def test_delta_waterfall_overrides_the_explanation_waterfall(self, script, spec):
         p = script.delta_waterfall_params(spec, 7)
         plain = script.waterfall_params(spec, 7)
+        # every component of either run, in the candidate's feature order: the
+        # explanation-comparison dataset has no selection rank
+        assert p["x_axis"] == "component_label"
         assert p["metric"] == spec.delta_contribution_metric
         assert p["adhoc_filters"] == [script.NOT_BASE_FILTER]
         assert p["increase_label"] == "Higher than baseline"
@@ -2490,7 +3229,15 @@ class TestChartParams:
         assert p["x_axis_label"] == (
             "Component (candidate feature order; baseline-only features last)"
         )
-        overridden = {"metric", "increase_label", "decrease_label", "total_label", "x_axis_label"}
+        assert p["row_limit"] == 1000
+        overridden = {
+            "x_axis",
+            "metric",
+            "increase_label",
+            "decrease_label",
+            "total_label",
+            "x_axis_label",
+        }
         assert {k: v for k, v in p.items() if k not in overridden} == {
             k: v for k, v in plain.items() if k not in overridden
         }
@@ -2509,7 +3256,7 @@ class TestChartParams:
         assert p["timeseries_limit_metric"] == order
         assert p["order_desc"] is False
         assert p["adhoc_filters"] == []  # the base row stays: Δ base is a line of the table
-        assert p["row_limit"] == 100
+        assert p["row_limit"] == 1000
         assert p["column_config"] == {
             "Order": {"d3NumberFormat": ",d"},
             baseline["label"]: {"d3NumberFormat": spec.contribution_format},
@@ -2525,11 +3272,9 @@ class TestChartParams:
             lambda: script.heatmap_params(spec, 12, "time_code"),
             lambda: script.calibration_params(spec, 12),
             lambda: script.histogram_params(spec, 12),
-            lambda: script.leaderboard_params(spec, 12),
             lambda: script.worst_days_params(spec, 12),
             lambda: script.detail_params(spec, 12),
             lambda: script.feature_table_params(spec, 12),
-            lambda: script.importance_bar_params(spec, 12),
             lambda: script.importance_table_params(spec, 12),
             lambda: script.delta_big_number_params(12, spec.delta_mae_metric, "x", "+,.1f"),
             lambda: script.delta_bar_params(spec, 12, "day_part"),
@@ -2754,6 +3499,149 @@ class TestBuildPositionJson:
         assert position["HEADER-1-0"]["meta"]["text"] == "H2"
         assert position["CHART-3"]["parents"] == ["ROOT_ID", "TABS-0", "TAB-1", "ROW-1-0-0"]
 
+    def test_a_tab_with_subtabs_nests_a_tabs_container(self, script, spot):
+        plain = {"title": "Accuracy", "sections": [{"header": "Sec", "rows": [[(1, "A", 12, 24)]]}]}
+        nested = {
+            "title": "Explanation",
+            "subtabs": [
+                {
+                    "title": "Day overview",
+                    "sections": [{"header": None, "rows": [[(2, "B", 6, 30), (3, "C", 6, 30)]]}],
+                },
+                {
+                    "title": "Feature importance",
+                    "sections": [
+                        {"header": "Imp", "rows": [[(4, "D", 12, 60)], [(5, "E", 12, 50)]]},
+                        {"header": None, "rows": [[(6, "F", 12, 10)]]},
+                    ],
+                },
+            ],
+        }
+        row_meta = {"background": "BACKGROUND_TRANSPARENT"}
+        tab_meta = {"defaultText": "Tab title", "placeholder": "Tab title"}
+        outer = ["ROOT_ID", "TABS-0", "TAB-1"]
+        first = [*outer, "TABS-1", "TAB-1-0"]
+        second = [*outer, "TABS-1", "TAB-1-1"]
+
+        position = script.build_position_json(spot.dashboard_title, [plain, nested])
+
+        # a plain tab's components are exactly what they are without a nested neighbour
+        alone = script.build_position_json(spot.dashboard_title, [plain])
+        assert {k: v for k, v in position.items() if k in alone and k != "TABS-0"} == {
+            k: v for k, v in alone.items() if k != "TABS-0"
+        }
+        assert position["TABS-0"]["children"] == ["TAB-0", "TAB-1"]
+        assert {k: v for k, v in position.items() if k not in alone} == {
+            "TAB-1": {
+                "type": "TAB",
+                "id": "TAB-1",
+                "children": ["TABS-1"],
+                "parents": ["ROOT_ID", "TABS-0"],
+                "meta": {"text": "Explanation", **tab_meta},
+            },
+            "TABS-1": {
+                "type": "TABS",
+                "id": "TABS-1",
+                "children": ["TAB-1-0", "TAB-1-1"],
+                "parents": outer,
+                "meta": {},
+            },
+            "TAB-1-0": {
+                "type": "TAB",
+                "id": "TAB-1-0",
+                "children": ["ROW-1-0-0-0"],
+                "parents": [*outer, "TABS-1"],
+                "meta": {"text": "Day overview", **tab_meta},
+            },
+            "ROW-1-0-0-0": {
+                "type": "ROW",
+                "id": "ROW-1-0-0-0",
+                "children": ["CHART-2", "CHART-3"],
+                "parents": first,
+                "meta": row_meta,
+            },
+            "CHART-2": {
+                "type": "CHART",
+                "id": "CHART-2",
+                "children": [],
+                "parents": [*first, "ROW-1-0-0-0"],
+                "meta": {"chartId": 2, "width": 6, "height": 30, "sliceName": "B"},
+            },
+            "CHART-3": {
+                "type": "CHART",
+                "id": "CHART-3",
+                "children": [],
+                "parents": [*first, "ROW-1-0-0-0"],
+                "meta": {"chartId": 3, "width": 6, "height": 30, "sliceName": "C"},
+            },
+            "TAB-1-1": {
+                "type": "TAB",
+                "id": "TAB-1-1",
+                "children": ["HEADER-1-1-0", "ROW-1-1-0-0", "ROW-1-1-0-1", "ROW-1-1-1-0"],
+                "parents": [*outer, "TABS-1"],
+                "meta": {"text": "Feature importance", **tab_meta},
+            },
+            "HEADER-1-1-0": {
+                "type": "HEADER",
+                "id": "HEADER-1-1-0",
+                "children": [],
+                "parents": second,
+                "meta": {
+                    "text": "Imp",
+                    "headerSize": "MEDIUM_HEADER",
+                    "background": "BACKGROUND_TRANSPARENT",
+                },
+            },
+            "ROW-1-1-0-0": {
+                "type": "ROW",
+                "id": "ROW-1-1-0-0",
+                "children": ["CHART-4"],
+                "parents": second,
+                "meta": row_meta,
+            },
+            "CHART-4": {
+                "type": "CHART",
+                "id": "CHART-4",
+                "children": [],
+                "parents": [*second, "ROW-1-1-0-0"],
+                "meta": {"chartId": 4, "width": 12, "height": 60, "sliceName": "D"},
+            },
+            "ROW-1-1-0-1": {
+                "type": "ROW",
+                "id": "ROW-1-1-0-1",
+                "children": ["CHART-5"],
+                "parents": second,
+                "meta": row_meta,
+            },
+            "CHART-5": {
+                "type": "CHART",
+                "id": "CHART-5",
+                "children": [],
+                "parents": [*second, "ROW-1-1-0-1"],
+                "meta": {"chartId": 5, "width": 12, "height": 50, "sliceName": "E"},
+            },
+            "ROW-1-1-1-0": {
+                "type": "ROW",
+                "id": "ROW-1-1-1-0",
+                "children": ["CHART-6"],
+                "parents": second,
+                "meta": row_meta,
+            },
+            "CHART-6": {
+                "type": "CHART",
+                "id": "CHART-6",
+                "children": [],
+                "parents": [*second, "ROW-1-1-1-0"],
+                "meta": {"chartId": 6, "width": 12, "height": 10, "sliceName": "F"},
+            },
+        }
+
+    def test_the_first_tab_cannot_nest_subtabs(self, script, spot):
+        # its TABS-0 container would overwrite the root's
+        nested = {"title": "T", "subtabs": [{"title": "U", "sections": []}]}
+        with pytest.raises(ValueError, match="TABS-0"):
+            script.build_position_json(spot.dashboard_title, [nested])
+
     def test_dashboard_header_carries_the_title(self, script, demand):
         position = script.build_position_json(demand.dashboard_title, [])
         assert position["HEADER_ID"]["meta"] == {"text": "Demand Forecast Analysis"}
@@ -2763,20 +3651,31 @@ class TestBuildPositionJson:
 
 
 # --------------------------------------------------------------------------- native filters
+def native_filters(script, **overrides):
+    """``build_native_filters`` with one distinct excluded list per filter."""
+    arguments = {
+        "dataset_id": 10,
+        "run_excluded": [27],
+        "default_run_label": DEFAULT_LABEL,
+        "explanation_dataset_id": 11,
+        "day_excluded": [12, 13],
+        "default_day_label": DEFAULT_LAST_DAY,
+        "period_excluded": [12, 13, 15],
+        "summary_dataset_id": 16,
+        "feature_excluded": [12, 13, 15, 17],
+        "default_feature_label": DEFAULT_FEATURE_LABEL,
+        "baseline_excluded": [12, 13, 14],
+        "default_baseline_label": BASELINE_LABEL,
+    }
+    return script.build_native_filters(**{**arguments, **overrides})
+
+
 class TestBuildNativeFilters:
     def test_explicit_defaults_apply_on_load(self, script):
-        run, day, baseline = script.build_native_filters(
-            dataset_id=10,
-            run_excluded=[27],
-            default_run_label=DEFAULT_LABEL,
-            explanation_dataset_id=11,
-            day_excluded=[12, 13],
-            default_day_label=DEFAULT_LAST_DAY,
-            baseline_excluded=[12, 13, 14],
-            default_baseline_label=BASELINE_LABEL,
-        )
-        assert [f["type"] for f in (run, day, baseline)] == ["NATIVE_FILTER"] * 3
-        assert [f["filterType"] for f in (run, day, baseline)] == ["filter_select"] * 3
+        filters = native_filters(script)
+        run, day, period, feature, baseline = filters
+        assert [f["type"] for f in filters] == ["NATIVE_FILTER"] * 5
+        assert [f["filterType"] for f in filters] == ["filter_select"] * 5
 
         assert run["id"] == "NATIVE_FILTER-run"
         assert run["name"] == "Run"
@@ -2787,10 +3686,13 @@ class TestBuildNativeFilters:
             },
             "filterState": {"value": [DEFAULT_LABEL], "label": DEFAULT_LABEL},
         }
+        # defaultToFirstItem rides alongside the explicit default, not instead of
+        # it: the default is what applies on load, the setting is what re-resolves
+        # a cascading filter when its parent changes
         assert run["controlValues"] == {
             "multiSelect": False,
             "enableEmptyFilter": True,
-            "defaultToFirstItem": False,
+            "defaultToFirstItem": True,
             "inverseSelection": False,
             "searchAllOptions": False,
             "sortAscending": False,
@@ -2810,15 +3712,17 @@ class TestBuildNativeFilters:
         assert day["controlValues"] == {
             "multiSelect": False,
             "enableEmptyFilter": False,
-            "defaultToFirstItem": False,
+            "defaultToFirstItem": True,
             "inverseSelection": False,
             "searchAllOptions": False,
             "sortAscending": False,
         }
         assert day["cascadeParentIds"] == ["NATIVE_FILTER-run"]
         assert day["scope"] == {"rootPath": ["ROOT_ID"], "excluded": [12, 13]}
-        assert "Worst days" in day["description"]
-        assert "Most improved days" in day["description"]
+        assert day["description"] == (
+            "Delivery day explained (empty = the run's mean decomposition); "
+            "the Explain links of the day tables set it"
+        )
 
         assert baseline["id"] == "NATIVE_FILTER-baseline"
         assert baseline["name"] == "Baseline"
@@ -2829,6 +3733,9 @@ class TestBuildNativeFilters:
             },
             "filterState": {"value": [BASELINE_LABEL], "label": BASELINE_LABEL},
         }
+        # Baseline is the one filter that keeps the setting off: it cascades from
+        # nothing, and a first item picked for the reader would compare two runs
+        # nobody chose
         assert baseline["controlValues"] == {
             "multiSelect": False,
             "enableEmptyFilter": True,
@@ -2841,15 +3748,69 @@ class TestBuildNativeFilters:
         assert baseline["scope"] == {"rootPath": ["ROOT_ID"], "excluded": [12, 13, 14]}
         assert "Compare tab" in baseline["description"]
 
+    def test_period_is_optional_and_empty_until_picked(self, script):
+        _, _, period, _, _ = native_filters(script)
+        assert period["id"] == "NATIVE_FILTER-period"
+        assert period["name"] == "Period"
+        # the explanation dataset's label, '27 13:00–13:30': it sorts by time code
+        assert period["targets"] == [{"column": {"name": "period_label"}, "datasetId": 11}]
+        assert period["defaultDataMask"] == {"extraFormData": {}, "filterState": {}}
+        assert period["controlValues"] == {
+            "multiSelect": False,
+            "enableEmptyFilter": False,
+            "defaultToFirstItem": False,
+            "inverseSelection": False,
+            "searchAllOptions": False,
+            "sortAscending": True,
+        }
+        assert period["cascadeParentIds"] == ["NATIVE_FILTER-run", "NATIVE_FILTER-day"]
+        assert period["scope"] == {"rootPath": ["ROOT_ID"], "excluded": [12, 13, 15]}
+        assert period["description"] == (
+            "Half-hour period (empty = the whole day); "
+            "the Single period tab stays empty until one is picked"
+        )
+
+    def test_feature_is_required_and_opens_on_the_runs_first_feature(self, script):
+        _, _, _, feature, _ = native_filters(script)
+        assert feature["id"] == "NATIVE_FILTER-feature"
+        assert feature["name"] == "Feature"
+        # listed from the summary dataset (a row per feature), applied to the
+        # explanation dataset's column of the same name and text
+        assert feature["targets"] == [{"column": {"name": "feature_pick"}, "datasetId": 16}]
+        # an applied default, not a staged one: the mask is what filters the two
+        # charts on load, where staging alone leaves them averaging every feature
+        # until someone clicks Apply
+        assert feature["defaultDataMask"] == {
+            "extraFormData": {
+                "filters": [{"col": "feature_pick", "op": "IN", "val": [DEFAULT_FEATURE_LABEL]}]
+            },
+            "filterState": {"value": [DEFAULT_FEATURE_LABEL], "label": DEFAULT_FEATURE_LABEL},
+        }
+        # and defaultToFirstItem on top of it, so a switch to a run that ranks
+        # another feature first re-resolves the value instead of keeping one the
+        # new run has no row for
+        assert feature["controlValues"] == {
+            "multiSelect": False,
+            "enableEmptyFilter": True,
+            "defaultToFirstItem": True,
+            "inverseSelection": False,
+            "searchAllOptions": False,
+            "sortAscending": True,
+        }
+        assert feature["cascadeParentIds"] == ["NATIVE_FILTER-run"]
+        assert feature["scope"] == {"rootPath": ["ROOT_ID"], "excluded": [12, 13, 15, 17]}
+        assert feature["description"] == (
+            "The feature the two Feature … by period charts draw; "
+            "listed by mean |SHAP| rank, so it opens on the run's first"
+        )
+
     def test_no_defaults_fall_back_to_first_item_except_baseline(self, script):
-        run, day, baseline = script.build_native_filters(
-            dataset_id=10,
+        run, day, period, feature, baseline = native_filters(
+            script,
             run_excluded=[],
             default_run_label=None,
-            explanation_dataset_id=11,
-            day_excluded=[],
             default_day_label=None,
-            baseline_excluded=[],
+            default_feature_label=None,
             default_baseline_label=None,
         )
         assert run["defaultDataMask"] == {"extraFormData": {}, "filterState": {}}
@@ -2857,9 +3818,25 @@ class TestBuildNativeFilters:
         assert run["scope"] == {"rootPath": ["ROOT_ID"], "excluded": []}
         assert day["defaultDataMask"] == {"extraFormData": {}, "filterState": {}}
         assert day["controlValues"]["defaultToFirstItem"] is True
+        # Period never takes an explicit default; Feature falls back to staging
+        # the first option when the run has no contributions to rank
+        assert period["controlValues"]["defaultToFirstItem"] is False
+        assert feature["defaultDataMask"] == {"extraFormData": {}, "filterState": {}}
+        assert feature["controlValues"]["defaultToFirstItem"] is True
         # No baseline: the Compare tab stays on "No data" until one is picked
         assert baseline["defaultDataMask"] == {"extraFormData": {}, "filterState": {}}
         assert baseline["controlValues"]["defaultToFirstItem"] is False
+
+    def test_the_explain_link_names_the_run_and_day_filters(self, script):
+        run, day, _, _, _ = native_filters(script)
+        for native_filter, value in ((run, "{run}"), (day, "{day}")):
+            filter_id = native_filter["id"]
+            column = native_filter["targets"][0]["column"]["name"]
+            assert (
+                f"{filter_id}:(extraFormData:(filters:!((col:{column},op:IN,val:!('{value}'))))"
+                in script.EXPLAIN_LINK_RISON
+            )
+            assert f"id:{filter_id},ownState:()" in script.EXPLAIN_LINK_RISON
 
 
 # --------------------------------------------------------------------------- tab builders
@@ -2877,7 +3854,9 @@ def recording_factory():
 
 def assert_sections_are_consistent(tab) -> None:
     """Every row spans the 12-column grid and names the tab's own charts."""
-    for section in tab.sections:
+    sections = [*tab.sections, *(s for subtab in tab.subtabs or [] for s in subtab["sections"])]
+    assert sections
+    for section in sections:
         for row in section["rows"]:
             assert sum(width for _, _, width, _ in row) == 12
             for chart_id, name, _, _ in row:
@@ -2889,6 +3868,13 @@ class TestTabBuilders:
         tab = script.DashboardTab("T", {"b": 2, "a": 1}, [{"header": None, "rows": []}])
         assert tab.chart_ids == [2, 1]
         assert tab.layout == {"title": "T", "sections": [{"header": None, "rows": []}]}
+        assert tab.subtabs is None
+
+    def test_dashboard_tab_with_subtabs_lays_them_out_instead_of_sections(self, script):
+        subtabs = [{"title": "U", "sections": [{"header": None, "rows": []}]}]
+        tab = script.DashboardTab("T", {"a": 1}, [], subtabs)
+        assert tab.chart_ids == [1]
+        assert tab.layout == {"title": "T", "subtabs": subtabs}
 
     def test_chart_adder_records_into_the_shared_dict(self, script):
         chart, created = recording_factory()
@@ -2904,30 +3890,71 @@ class TestTabBuilders:
         tab = script.build_accuracy_tab(chart, demand, 10)
         assert tab.title == "Accuracy"
         assert list(tab.charts) == EXPECTED_DEMAND_CHART_NAMES
-        assert tab.chart_ids == list(range(101, 120))
+        assert tab.chart_ids == list(range(101, 119))
+        assert "Run leaderboard" not in tab.charts
         assert {on for _, on in created} == {10}
         assert [s["header"] for s in tab.sections] == [
             None,
             "Error structure",
             "Calibration & distribution",
-            "Runs & drilldown",
+            "Drilldown",
         ]
         assert_sections_are_consistent(tab)
 
     def test_explanation_tab(self, script, spot):
         chart, created = recording_factory()
-        tab = script.build_explanation_tab(chart, spot, 11, 14)
+        tab = script.build_explanation_tab(chart, spot, 11, 12, 13, 16)
         assert tab.title == "Explanation"
-        assert list(tab.charts) == EXPLANATION_CHART_NAMES + IMPORTANCE_CHART_NAMES
-        assert tab.chart_ids == list(range(101, 111))
-        # the importance bars and table read the importance dataset; mean |SHAP| the explanation one
-        assert [on for _, on in created] == [11] * 7 + [14, 11, 14]
+        assert list(tab.charts) == (
+            DAY_OVERVIEW_CHART_NAMES + SINGLE_PERIOD_CHART_NAMES + IMPORTANCE_CHART_NAMES
+        )
+        assert tab.chart_ids == list(range(101, 114))
+        # Day overview on the explanation dataset, Single period on the period dataset;
+        # the importance bars and table on the importance dataset, mean |SHAP| on the summary
+        assert [on for _, on in created] == [11] * 5 + [12] * 5 + [16, 13, 16]
         assert list(script.RUN_LEVEL_CHART_NAMES) == IMPORTANCE_CHART_NAMES
-        assert [s["header"] for s in tab.sections] == [None, script.IMPORTANCE_SECTION_HEADER]
+        assert list(script.FEATURE_BY_PERIOD_CHART_NAMES) == [
+            "Feature value by period",
+            "Feature contribution by period",
+        ]
+        assert set(script.FEATURE_BY_PERIOD_CHART_NAMES) <= set(DAY_OVERVIEW_CHART_NAMES)
+        # three sub-tabs instead of sections: only the open one queries
+        assert tab.sections == []
+        assert tab.layout == {"title": "Explanation", "subtabs": tab.subtabs}
+        assert [subtab["title"] for subtab in tab.subtabs] == [
+            "Day overview",
+            "Single period",
+            "Feature importance",
+        ]
+        assert [[s["header"] for s in subtab["sections"]] for subtab in tab.subtabs] == [
+            [None],
+            ["One period — pick a Day and a Period to fill this tab"],
+            [script.IMPORTANCE_SECTION_HEADER],
+        ]
         assert_sections_are_consistent(tab)
-        assert [[name for _, name, _, _ in row] for row in tab.sections[1]["rows"]] == [
-            ["Permutation importance", "Mean |SHAP| by feature"],
-            ["Feature importance table"],
+        day_overview, single_period, importance = (
+            subtab["sections"][0]["rows"] for subtab in tab.subtabs
+        )
+        assert [[(name, w, h) for _, name, w, h in row] for row in day_overview] == [
+            [("SHAP waterfall", 12, 46)],
+            [("Contributions by period", 12, 44)],
+            [("Feature value by period", 12, 28)],
+            [("Feature contribution by period", 12, 28)],
+            [("All features", 12, 50)],
+        ]
+        assert [[(name, w, h) for _, name, w, h in row] for row in single_period] == [
+            [
+                ("Base value", 3, 24),
+                ("Forecast (selection)", 3, 24),
+                ("Actual (selection)", 3, 24),
+                ("Net feature effect", 3, 24),
+            ],
+            [("Feature values & contributions", 12, 60)],
+        ]
+        assert [[(name, w, h) for _, name, w, h in row] for row in importance] == [
+            [("Permutation importance", 12, 60)],
+            [("Mean |SHAP| by feature", 12, 60)],
+            [("Feature importance table", 12, 50)],
         ]
 
     def test_compare_tab_spans_both_comparison_datasets(self, script, demand):
@@ -2998,15 +4025,8 @@ class TestUpsertDashboard:
     def test_creates_then_writes_layout_and_metadata(self, script, fake, spec):
         client = make_client(script, fake)
         position = {"DASHBOARD_VERSION_KEY": "v2", "ROOT_ID": {"children": ["GRID_ID"]}}
-        filters = script.build_native_filters(
-            dataset_id=10,
-            run_excluded=[27],
-            default_run_label=None,
-            explanation_dataset_id=11,
-            day_excluded=[],
-            default_day_label=None,
-            baseline_excluded=[],
-            default_baseline_label=None,
+        filters = native_filters(
+            script, default_run_label=None, default_day_label=None, default_baseline_label=None
         )
 
         dashboard_id = script.upsert_dashboard(
@@ -3072,7 +4092,7 @@ class TestAttachCharts:
         fake.seed("chart", id=12, slice_name="b")
         client = make_client(script, fake)
 
-        script.attach_charts(client, 30, [11, 12])
+        script.attach_charts(client, 30, [11, 12], {})
 
         assert fake.calls_after_login() == [
             ("PUT", f"{BASE}/api/v1/chart/11", {"dashboards": [30]}, None),
@@ -3081,10 +4101,66 @@ class TestAttachCharts:
         assert fake.rows["chart"][11]["dashboards"] == [30]
         assert fake.rows["chart"][12]["dashboards"] == [30]
 
+    def test_a_chart_keeps_the_other_dashboards_it_is_on(self, script, fake):
+        # the write replaces the whole many-to-many list, so the others go back too
+        fake.seed("chart", id=11, slice_name="a", dashboards=[{"id": 30}, {"id": 41}])
+        client = make_client(script, fake)
+
+        script.attach_charts(client, 30, [11], {11: [41, 30]})
+
+        assert fake.rows["chart"][11]["dashboards"] == [30, 41]
+
+    def test_a_chart_linked_only_elsewhere_keeps_that_dashboard(self, script, fake):
+        # upsert matches a chart by name within its dataset, so a rebuild reuses
+        # one that someone moved to a dashboard of their own; the links have to be
+        # read for every chart this build places, not only those already on ours
+        fake.seed("chart", id=11, slice_name="a", dashboards=[{"id": 41}])
+        client = make_client(script, fake)
+
+        script.attach_charts(client, 30, [11], client.dashboards_of_charts([11]))
+
+        assert fake.rows["chart"][11]["dashboards"] == [30, 41]
+
     def test_no_charts_no_calls(self, script, fake):
         client = make_client(script, fake)
-        script.attach_charts(client, 30, [])
+        script.attach_charts(client, 30, [], {})
         assert fake.calls_after_login() == []
+
+
+class TestDetachStaleCharts:
+    """A chart an earlier build left on the dashboard still renders, at the foot of
+    the first tab, because Superset appends what the layout does not place."""
+
+    def test_detaches_only_the_charts_this_build_no_longer_places(self, script, fake):
+        fake.seed("chart", id=11, slice_name="live", dashboards=[{"id": 30}])
+        fake.seed("chart", id=12, slice_name="stale", dashboards=[{"id": 30}])
+        fake.seed("chart", id=13, slice_name="elsewhere", dashboards=[{"id": 31}])
+        client = make_client(script, fake)
+
+        assert script.detach_stale_charts(client, 30, [11], {11: [30], 12: [30]}) == [12]
+
+        assert fake.rows["chart"][12]["dashboards"] == []
+        assert fake.rows["chart"][11]["dashboards"] == [{"id": 30}]
+        assert fake.rows["chart"][13]["dashboards"] == [{"id": 31}]
+
+    def test_a_stale_chart_keeps_the_other_dashboards_it_is_on(self, script, fake):
+        # the chart/dashboard link is many-to-many and the PUT replaces the whole
+        # list, so a chart someone also put on their own dashboard must come back
+        # with that one still on it
+        fake.seed("chart", id=12, slice_name="stale", dashboards=[{"id": 30}, {"id": 41}])
+        client = make_client(script, fake)
+
+        assert script.detach_stale_charts(client, 30, [], {12: [30, 41]}) == [12]
+
+        assert fake.rows["chart"][12]["dashboards"] == [41]
+
+    def test_nothing_stale_puts_nothing(self, script, fake):
+        fake.seed("chart", id=11, slice_name="live", dashboards=[{"id": 30}])
+        client = make_client(script, fake)
+
+        assert script.detach_stale_charts(client, 30, [11], {11: [30]}) == []
+
+        assert [call for call in fake.calls_after_login() if call[0] == "PUT"] == []
 
 
 # --------------------------------------------------------------------------- build_dashboard / main
@@ -3105,7 +4181,6 @@ COMMON_CHART_NAMES_HEAD = [
 ]
 COMMON_CHART_NAMES_TAIL = [
     "Error distribution",
-    "Run leaderboard",
     "Worst days",
     "Forecast vs actual (30-min detail)",
 ]
@@ -3119,15 +4194,21 @@ EXPECTED_DEMAND_CHART_NAMES = (
     + ["MAE by actual demand band", "Calibration: forecast vs actual demand level"]
     + COMMON_CHART_NAMES_TAIL
 )
-EXPLANATION_CHART_NAMES = [
+DAY_OVERVIEW_CHART_NAMES = [
+    "SHAP waterfall",
+    "Contributions by period",
+    "Feature value by period",
+    "Feature contribution by period",
+    "All features",
+]
+SINGLE_PERIOD_CHART_NAMES = [
     "Base value",
     "Forecast (selection)",
     "Actual (selection)",
     "Net feature effect",
-    "SHAP waterfall",
     "Feature values & contributions",
-    "Contributions by period",
 ]
+EXPLANATION_CHART_NAMES = DAY_OVERVIEW_CHART_NAMES + SINGLE_PERIOD_CHART_NAMES
 COMPARISON_CHART_NAMES_HEAD = [
     "Baseline MAE",
     "Candidate MAE",
@@ -3160,6 +4241,13 @@ SPOT_COMPARISON_CHART_NAMES = (
 DEMAND_COMPARISON_CHART_NAMES = (
     COMPARISON_CHART_NAMES_HEAD + ["ΔMAE % by actual demand band"] + COMPARISON_CHART_NAMES_TAIL
 )
+#: Each task's comparison chart names, for the tests that take either spec.
+COMPARISON_CHART_NAMES = {
+    "spot_price": SPOT_COMPARISON_CHART_NAMES,
+    "demand": DEMAND_COMPARISON_CHART_NAMES,
+}
+#: The signed format each task puts on the Compare tab's delta tiles.
+SIGNED_FORMATS = {"spot_price": "+,.3f", "demand": "+,.1f"}
 EXPLANATION_VS_BASELINE_CHART_NAMES = [
     "Δ base value vs baseline",
     "Δ net feature effect vs baseline",
@@ -3201,16 +4289,8 @@ EXPECTED_ACCURACY_TAB_CHILDREN = [
     "HEADER-0-3",
     "ROW-0-3-0",
     "ROW-0-3-1",
-    "ROW-0-3-2",
 ]
-EXPECTED_EXPLANATION_TAB_CHILDREN = [
-    "ROW-1-0-0",
-    "ROW-1-0-1",
-    "ROW-1-0-2",
-    "HEADER-1-1",
-    "ROW-1-1-0",
-    "ROW-1-1-1",
-]
+EXPECTED_EXPLANATION_TAB_CHILDREN = ["TABS-1"]  # the sub-tabs' container
 
 
 def bind_fake_session(script, fake: FakeSupersetSession, monkeypatch) -> None:
@@ -3252,17 +4332,26 @@ class TestBuildDashboard:
 
         dashboard_id = script.build_dashboard(client, 3, demand)
 
-        # datasets: analysis, explanation, comparison, explanation comparison, importance
-        analysis, explanation, comparison, explanation_comparison, importance = superset.rows[
-            "dataset"
-        ].values()
+        # datasets: analysis, explanation, period, summary, comparison, explanation
+        # comparison, importance
+        (
+            analysis,
+            explanation,
+            period,
+            summary,
+            comparison,
+            explanation_comparison,
+            importance,
+        ) = superset.rows["dataset"].values()
         assert (
             analysis["id"],
             explanation["id"],
+            period["id"],
+            summary["id"],
             comparison["id"],
             explanation_comparison["id"],
             importance["id"],
-        ) == (10, 11, 12, 13, 14)
+        ) == (10, 11, 12, 13, 14, 15, 16)
         assert analysis["table_name"] == "demand_forecast_analysis"
         assert analysis["sql"] == DEMAND_DATASET_SQL
         assert analysis["main_dttm_col"] == "trade_datetime"
@@ -3273,6 +4362,20 @@ class TestBuildDashboard:
         assert explanation["sql"] == DEMAND_EXPLANATION_SQL
         assert [(c["column_name"], c["type"], c["is_dttm"]) for c in explanation["columns"]] == (
             DEMAND_EXPLANATION_COLUMNS
+        )
+        # the period dataset: the explanation's columns, no rows without a Period
+        assert period["table_name"] == "demand_forecast_explanation_period"
+        assert period["sql"] == DEMAND_EXPLANATION_PERIOD_SQL
+        assert period["main_dttm_col"] == "trade_datetime"
+        assert [(c["column_name"], c["type"], c["is_dttm"]) for c in period["columns"]] == (
+            DEMAND_EXPLANATION_COLUMNS
+        )
+        # the summary dataset is run grain, like the importance one
+        assert summary["table_name"] == "demand_forecast_contribution_summary"
+        assert summary["sql"] == DEMAND_SUMMARY_SQL
+        assert summary["main_dttm_col"] == "published_at"
+        assert [(c["column_name"], c["type"], c["is_dttm"]) for c in summary["columns"]] == (
+            DEMAND_SUMMARY_COLUMNS
         )
         assert comparison["table_name"] == "demand_forecast_comparison"
         assert comparison["sql"] == DEMAND_COMPARISON_SQL
@@ -3295,24 +4398,23 @@ class TestBuildDashboard:
         dataset_puts = [
             c
             for c in superset.calls
-            if c[0] == "PUT"
-            and c[1] in {f"{BASE}/api/v1/dataset/{i}" for i in (10, 11, 12, 13, 14)}
+            if c[0] == "PUT" and c[1] in {f"{BASE}/api/v1/dataset/{i}" for i in range(10, 17)}
         ]
-        assert [c[3] for c in dataset_puts] == [{"override_columns": "true"}] * 5
+        assert [c[3] for c in dataset_puts] == [{"override_columns": "true"}] * 7
 
-        # charts, in creation order: 19 analysis, 7 explanation, 3 importance (the mean |SHAP|
-        # one on the explanation dataset), 23 comparison, 5 explanation vs baseline
+        # charts, in creation order: 18 analysis, 5 day overview, 5 single period (on the
+        # period dataset), 3 importance (the mean |SHAP| one on the summary dataset).
+        # The Compare tab's 23 comparison and 5 explanation-vs-baseline charts are not
+        # built while BUILD_COMPARE_TAB is False, though both its datasets still are.
         charts = list(superset.rows["chart"].values())
         assert [c["slice_name"] for c in charts] == (
-            EXPECTED_DEMAND_CHART_NAMES
-            + EXPLANATION_CHART_NAMES
-            + IMPORTANCE_CHART_NAMES
-            + DEMAND_COMPARISON_CHART_NAMES
-            + EXPLANATION_VS_BASELINE_CHART_NAMES
+            EXPECTED_DEMAND_CHART_NAMES + EXPLANATION_CHART_NAMES + IMPORTANCE_CHART_NAMES
         )
-        assert [c["id"] for c in charts] == list(range(15, 72))
+        assert [c["id"] for c in charts] == list(range(17, 48))
         for c, dataset_id in zip(
-            charts, [10] * 19 + [11] * 7 + [14, 11, 14] + [12] * 23 + [13] * 5, strict=True
+            charts,
+            [10] * 18 + [11] * 5 + [12] * 5 + [16, 13, 16],
+            strict=True,
         ):
             assert c["datasource_id"] == dataset_id
             assert json.loads(c["params"])["datasource"] == f"{dataset_id}__table"
@@ -3326,225 +4428,172 @@ class TestBuildDashboard:
         assert by_name["WAPE"]["y_axis_format"] == ".1%"
         assert by_name["P90 abs error"]["metric"] == demand.p90_metric
         assert by_name["MAE by year and month"]["x_axis"] == "month"
+        # the two categorical bars carry their weight and their hours
+        assert by_name["MAE by day type"]["x_axis"] == "day_type_share"
+        assert by_name["MAE by day part"]["x_axis"] == "day_part_hours"
         assert by_name["MAE by actual demand band"]["x_axis"] == "actual_demand_band"
         assert by_name["Error distribution"]["column"] == "error_mwh"
-        assert by_name["Run leaderboard"]["viz_type"] == "table"
+        assert "Run leaderboard" not in by_name
+        assert by_name["Worst days"]["groupby"][0] == "explain_link"
+        assert by_name["Forecast vs actual (30-min detail)"]["metrics"][2] == (demand.error_metric)
         assert by_name["Base value"]["metric"] == demand.base_value_metric
         assert by_name["Contributions by period"]["viz_type"] == "mixed_timeseries"
         assert by_name["Permutation importance"]["metrics"] == [demand.importance_metric]
-        assert by_name["Mean |SHAP| by feature"]["adhoc_filters"] == [script.NOT_BASE_FILTER]
-        assert by_name["Feature importance table"]["groupby"] == ["feature_label"]
-        # the Compare tab
-        assert by_name["Baseline MAE"]["metric"] == demand.baseline_mae_metric
-        assert by_name["Baseline MAE"]["subheader"] == "MWh; the Baseline run, matched periods"
-        assert by_name["Candidate MAE"]["metric"] == demand.candidate_mae_metric
-        assert by_name["Candidate MAE"]["subheader"] == "MWh; the Run, matched periods"
-        assert by_name["ΔMAE vs baseline"]["metric"] == demand.delta_mae_metric
-        assert by_name["ΔMAE vs baseline"]["subheader"] == "MWh; − = candidate better"
-        assert by_name["ΔMAE vs baseline"]["y_axis_format"] == "+,.1f"
-        assert by_name["ΔMAE vs baseline"]["conditional_formatting"][0]["column"] == "ΔMAE"
-        assert by_name["ΔMAE % vs baseline"]["metric"] == demand.delta_mae_pct_metric
-        assert by_name["ΔMAE % vs baseline"]["subheader"] == "%; − = candidate better"
-        assert by_name["ΔMAE % vs baseline"]["y_axis_format"] == "+,.1f"
-        assert by_name["Δ|bias| vs baseline"]["metric"] == demand.delta_abs_bias_metric
-        assert by_name["Δ|bias| vs baseline"]["subheader"] == "MWh; − = candidate less biased"
-        assert by_name["ΔWAPE vs baseline"]["metric"] == demand.delta_wape_metric
-        assert by_name["ΔWAPE vs baseline"]["y_axis_format"] == "+.2%"
-        assert by_name["Matched coverage"]["metric"] == demand.matched_coverage_metric
-        assert by_name["Matched coverage"]["y_axis_format"] == ".1%"
-        assert by_name["Matched coverage"]["subheader"] == (
-            "share of the candidate's periods the baseline also scored"
+        assert by_name["SHAP waterfall"]["x_axis"] == "component_group_label"
+        assert by_name["Contributions by period"]["groupby"] == ["component_group"]
+        assert by_name["Feature value by period"]["viz_type"] == "echarts_timeseries_line"
+        assert by_name["Feature contribution by period"]["viz_type"] == "echarts_timeseries_bar"
+        assert by_name["All features"]["percent_metrics"][0]["label"] == (
+            "Mean |contribution| (MWh)"
         )
-        assert "conditional_formatting" not in by_name["Matched coverage"]
-        assert by_name["Matched days"]["metric"] == demand.matched_days_metric
-        assert by_name["Matched days"]["y_axis_format"] == ",d"
-        assert by_name["Days candidate lower"]["metric"] == demand.days_candidate_lower_metric
-        assert by_name["Days candidate lower"]["y_axis_format"] == ".1%"
-        assert by_name["Median daily ΔMAE"]["metric"] == demand.median_daily_delta_metric
-        assert by_name["Median daily ΔMAE"]["conditional_formatting"][1]["operator"] == ">"
-        assert by_name["ΔMAE % by time code"]["x_axis"] == "time_code"
-        assert by_name["ΔMAE % by day part"]["x_axis"] == "day_part"
-        assert by_name["ΔMAE % by day type"]["x_axis"] == "day_type"
-        assert by_name["ΔMAE % by day of week"]["x_axis"] == "day_of_week"
-        assert by_name["ΔMAE % by actual demand band"]["x_axis"] == "actual_demand_band"
-        assert by_name["ΔMAE % by year"]["x_axis"] == "year"
-        assert by_name["ΔMAE % by year and month"]["viz_type"] == "heatmap_v2"
-        assert by_name["ΔMAE % by year and month"]["x_axis"] == "month"
-        assert by_name["ΔMAE % by year and time code"]["x_axis"] == "time_code"
-        assert by_name["Daily ΔMAE"]["x_axis"] == "date_key"
-        assert by_name["Daily ΔMAE"]["zoomable"] is True
-        assert by_name["Cumulative error reduction"]["rolling_type"] == "cumsum"
-        assert by_name["Most improved days"]["order_desc"] is False
-        assert by_name["Most worsened days"]["order_desc"] is True
-        assert [
-            m["label"]
-            for m in by_name["Candidate vs baseline vs actual (30-min detail)"]["metrics"]
-        ] == ["Actual", "Candidate", "Baseline"]
+        assert by_name["Feature values & contributions"]["order_desc"] is True
+        assert by_name["Permutation importance"]["adhoc_filters"] == [script.TOP_IMPORTANCE_FILTER]
+        assert by_name["Mean |SHAP| by feature"]["adhoc_filters"] == [
+            script.TOP_MEAN_ABS_SHAP_FILTER
+        ]
+        assert by_name["Mean |SHAP| by feature"]["metrics"] == [demand.mean_abs_shap_metric]
+        assert by_name["Feature importance table"]["groupby"] == ["feature_expression"]
+        # no Compare chart is created: its builder is still in the code and still
+        # tested by TestTabBuilders, but build_dashboard never calls it
+        assert set(by_name).isdisjoint(
+            DEMAND_COMPARISON_CHART_NAMES + EXPLANATION_VS_BASELINE_CHART_NAMES
+        )
 
         # dashboard
         (dashboard,) = superset.rows["dashboard"].values()
-        assert dashboard_id == dashboard["id"] == 72
+        assert dashboard_id == dashboard["id"] == 48
         assert dashboard["dashboard_title"] == "Demand Forecast Analysis"
         assert dashboard["slug"] == "demand-forecast-analysis"
         assert dashboard["published"] is True
         metadata = json.loads(dashboard["json_metadata"])
         assert set(metadata) == EXPECTED_JSON_METADATA_KEYS
         assert metadata["label_colors"] == script.LABEL_COLORS
-        run_filter, day_filter, baseline_filter = metadata["native_filter_configuration"]
-        analysis_ids = list(range(15, 34))
-        explanation_ids = list(range(34, 41))
-        importance_ids = [41, 42, 43]
-        comparison_ids = list(range(44, 67))
-        explained_vs_baseline_ids = list(range(67, 72))
-        leaderboard_id = superset.id_of("chart", "slice_name", "Run leaderboard")
-        assert leaderboard_id == 31
+        # four filters: the Baseline one goes with the tab it belongs to
+        run_filter, day_filter, period_filter, feature_filter = metadata[
+            "native_filter_configuration"
+        ]
+        analysis_ids = list(range(17, 35))
+        importance_ids = [45, 46, 47]
+        feature_by_period_ids = [37, 38]
         assert run_filter["targets"] == [{"column": {"name": "run_label"}, "datasetId": 10}]
-        assert run_filter["scope"]["excluded"] == [leaderboard_id]
+        # no leaderboard any more: the Run filter applies to every chart
+        assert run_filter["scope"]["excluded"] == []
         assert run_filter["defaultDataMask"]["filterState"]["value"] == [DEFAULT_LABEL]
-        assert run_filter["controlValues"]["defaultToFirstItem"] is False
-        # Day applies to the Explanation tab's per-day charts only ...
+        assert run_filter["controlValues"]["defaultToFirstItem"] is True
+        # Day applies to the Day overview and Single period sub-tabs; the run-level
+        # feature-importance sub-tab is out, and so is the whole Accuracy tab. The
+        # Compare tab's explanation-vs-baseline section was its third scope and is
+        # gone with the tab.
         assert day_filter["targets"] == [{"column": {"name": "trade_date_label"}, "datasetId": 11}]
-        # ... and the Compare tab's explanation-vs-baseline section; the run-level
-        # feature-importance section is out
-        assert day_filter["scope"]["excluded"] == analysis_ids + importance_ids + comparison_ids
-        assert set(explained_vs_baseline_ids).isdisjoint(day_filter["scope"]["excluded"])
+        assert day_filter["scope"]["excluded"] == analysis_ids + importance_ids
         assert day_filter["cascadeParentIds"] == ["NATIVE_FILTER-run"]
         assert day_filter["defaultDataMask"]["filterState"]["value"] == [DEFAULT_LAST_DAY]
-        # Baseline applies to the Compare tab only, reading its options off the analysis dataset
-        assert baseline_filter["targets"] == [
-            {"column": {"name": "baseline_run_label"}, "datasetId": 10}
+        # Period: the same two sub-tabs, nothing on Accuracy
+        assert period_filter["targets"] == [{"column": {"name": "period_label"}, "datasetId": 11}]
+        assert period_filter["scope"]["excluded"] == analysis_ids + importance_ids
+        assert period_filter["defaultDataMask"] == {"extraFormData": {}, "filterState": {}}
+        # Feature: listed from the summary dataset, applied to the two by-period charts only
+        assert feature_filter["targets"] == [{"column": {"name": "feature_pick"}, "datasetId": 13}]
+        assert feature_filter["scope"]["excluded"] == [
+            i for i in range(17, 48) if i not in feature_by_period_ids
         ]
-        assert baseline_filter["scope"]["excluded"] == (
-            analysis_ids + explanation_ids + importance_ids
-        )
-        assert baseline_filter["defaultDataMask"]["filterState"]["value"] == [BASELINE_LABEL]
-        assert baseline_filter["controlValues"]["enableEmptyFilter"] is True
+        assert [by_name[n]["datasource"] for n in script.FEATURE_BY_PERIOD_CHART_NAMES] == [
+            "11__table"
+        ] * 2
 
         position = json.loads(dashboard["position_json"])
         assert position["HEADER_ID"]["meta"]["text"] == "Demand Forecast Analysis"
         chart_keys = sorted(k for k in position if k.startswith("CHART-"))
-        assert chart_keys == sorted(f"CHART-{i}" for i in range(15, 72))
+        assert chart_keys == sorted(f"CHART-{i}" for i in range(17, 48))
         assert position["ROOT_ID"]["children"] == ["TABS-0"]
-        assert position["TABS-0"]["children"] == ["TAB-0", "TAB-1", "TAB-2"]
-        assert [position[t]["meta"]["text"] for t in ("TAB-0", "TAB-1", "TAB-2")] == [
+        assert position["TABS-0"]["children"] == ["TAB-0", "TAB-1"]
+        assert [position[t]["meta"]["text"] for t in ("TAB-0", "TAB-1")] == [
             "Accuracy",
             "Explanation",
-            "Compare",
         ]
-        assert position["HEADER-1-1"]["meta"]["text"] == script.IMPORTANCE_SECTION_HEADER
         assert position["TAB-0"]["children"] == EXPECTED_ACCURACY_TAB_CHILDREN
         assert position["TAB-1"]["children"] == EXPECTED_EXPLANATION_TAB_CHILDREN
-        assert position["TAB-2"]["children"] == EXPECTED_COMPARE_TAB_CHILDREN
+        # nothing of the Compare tab is laid out
+        assert "TAB-2" not in position
+        assert set(position).isdisjoint(EXPECTED_COMPARE_TAB_CHILDREN)
         assert [
             position[h]["meta"]["text"] for h in ("HEADER-0-1", "HEADER-0-2", "HEADER-0-3")
-        ] == ["Error structure", "Calibration & distribution", "Runs & drilldown"]
-        assert [
-            position[h]["meta"]["text"]
-            for h in ("HEADER-2-1", "HEADER-2-2", "HEADER-2-3", "HEADER-2-4")
-        ] == [
-            "Where the candidate wins (ΔMAE % vs baseline)",
-            "Day by day",
-            "Explanation vs baseline (SHAP; mean per period of the Day, or of the run when Day is"
-            " empty)",
-            "Detail",
-        ]
-        assert position["ROW-0-0-0"]["children"] == [f"CHART-{i}" for i in range(15, 21)]
-        assert position["CHART-15"]["meta"] == {
-            "chartId": 15,
+        ] == ["Error structure", "Calibration & distribution", "Drilldown"]
+        assert position["ROW-0-0-0"]["children"] == [f"CHART-{i}" for i in range(17, 23)]
+        assert position["CHART-17"]["meta"] == {
+            "chartId": 17,
             "width": 2,
             "height": 24,
             "sliceName": "Overall MAE",
         }
-        assert position["ROW-0-2-0"]["children"] == ["CHART-28", "CHART-29"]
-        assert (position["CHART-28"]["meta"]["width"], position["CHART-29"]["meta"]["width"]) == (
+        assert position["ROW-0-2-0"]["children"] == ["CHART-30", "CHART-31"]
+        assert (position["CHART-30"]["meta"]["width"], position["CHART-31"]["meta"]["width"]) == (
             5,
             7,
         )
-        assert position["ROW-0-3-0"]["children"] == [f"CHART-{leaderboard_id}"]
-        assert position["CHART-33"]["meta"]["height"] == 60  # 30-min detail
-        assert position["ROW-1-0-0"]["children"] == [f"CHART-{i}" for i in range(34, 38)]
-        assert position["ROW-1-0-1"]["children"] == ["CHART-38", "CHART-39"]
-        assert position["ROW-1-0-2"]["children"] == ["CHART-40"]
-        assert position["CHART-40"]["parents"] == ["ROOT_ID", "TABS-0", "TAB-1", "ROW-1-0-2"]
-        # the feature-importance section: bars side by side, then the full-width table
-        assert position["ROW-1-1-0"]["children"] == ["CHART-41", "CHART-42"]
-        assert position["CHART-41"]["meta"] == {
-            "chartId": 41,
-            "width": 6,
-            "height": 40,
+        assert position["ROW-0-3-0"]["children"] == ["CHART-33"]  # Worst days
+        assert position["CHART-34"]["meta"]["height"] == 60  # 30-min detail
+        # the Explanation tab: one nested tabs container, three sub-tabs
+        assert position["TABS-1"]["type"] == "TABS"
+        assert position["TABS-1"]["parents"] == ["ROOT_ID", "TABS-0", "TAB-1"]
+        assert position["TABS-1"]["children"] == ["TAB-1-0", "TAB-1-1", "TAB-1-2"]
+        assert [position[t]["meta"]["text"] for t in position["TABS-1"]["children"]] == [
+            "Day overview",
+            "Single period",
+            "Feature importance",
+        ]
+        assert position["TAB-1-0"]["children"] == [f"ROW-1-0-0-{r}" for r in range(5)]
+        assert [position[f"ROW-1-0-0-{r}"]["children"] for r in range(5)] == [
+            [f"CHART-{i}"] for i in range(35, 40)
+        ]
+        assert position["CHART-37"]["meta"] == {
+            "chartId": 37,
+            "width": 12,
+            "height": 28,
+            "sliceName": "Feature value by period",
+        }
+        assert position["CHART-38"]["meta"]["height"] == 28  # aligned under it
+        assert position["CHART-39"]["parents"] == [
+            "ROOT_ID",
+            "TABS-0",
+            "TAB-1",
+            "TABS-1",
+            "TAB-1-0",
+            "ROW-1-0-0-4",
+        ]
+        assert position["TAB-1-1"]["children"] == ["HEADER-1-1-0", "ROW-1-1-0-0", "ROW-1-1-0-1"]
+        assert position["HEADER-1-1-0"]["meta"]["text"] == (
+            "One period — pick a Day and a Period to fill this tab"
+        )
+        assert position["ROW-1-1-0-0"]["children"] == [f"CHART-{i}" for i in range(40, 44)]
+        assert position["ROW-1-1-0-1"]["children"] == ["CHART-44"]
+        # the feature-importance sub-tab: each chart on a full-width row
+        assert position["TAB-1-2"]["children"] == [
+            "HEADER-1-2-0",
+            "ROW-1-2-0-0",
+            "ROW-1-2-0-1",
+            "ROW-1-2-0-2",
+        ]
+        assert position["HEADER-1-2-0"]["meta"]["text"] == script.IMPORTANCE_SECTION_HEADER
+        assert position["ROW-1-2-0-0"]["children"] == ["CHART-45"]
+        assert position["CHART-45"]["meta"] == {
+            "chartId": 45,
+            "width": 12,
+            "height": 60,
             "sliceName": "Permutation importance",
         }
-        assert position["ROW-1-1-1"]["children"] == ["CHART-43"]
-        assert position["CHART-43"]["meta"]["width"] == 12
-        # Compare tab rows
-        assert position["ROW-2-0-0"]["children"] == [f"CHART-{i}" for i in range(44, 50)]
-        assert position["CHART-44"]["meta"] == {
-            "chartId": 44,
-            "width": 2,
-            "height": 24,
-            "sliceName": "Baseline MAE",
-        }
-        assert position["ROW-2-0-1"]["children"] == [f"CHART-{i}" for i in range(50, 54)]
-        assert position["CHART-50"]["meta"]["width"] == 3
-        assert position["ROW-2-1-0"]["children"] == ["CHART-54"]
-        assert (position["CHART-54"]["meta"]["width"], position["CHART-54"]["meta"]["height"]) == (
-            12,
-            36,
-        )
-        assert position["ROW-2-1-1"]["children"] == ["CHART-55", "CHART-56", "CHART-57"]
-        assert position["CHART-55"]["meta"]["width"] == 4
-        assert position["ROW-2-1-2"]["children"] == ["CHART-58", "CHART-59"]
-        assert position["CHART-58"]["meta"] == {
-            "chartId": 58,
-            "width": 6,
-            "height": 36,
-            "sliceName": "ΔMAE % by actual demand band",
-        }
-        assert position["ROW-2-1-3"]["children"] == ["CHART-60"]
-        assert position["CHART-60"]["meta"]["height"] == 46
-        assert position["ROW-2-1-4"]["children"] == ["CHART-61"]
-        assert position["CHART-61"]["meta"]["height"] == 50
-        assert position["ROW-2-2-0"]["children"] == ["CHART-62"]
-        assert position["CHART-62"]["meta"]["height"] == 44
-        assert position["ROW-2-2-1"]["children"] == ["CHART-63"]
-        assert position["CHART-63"]["meta"]["height"] == 40
-        # the day tables are stacked full width so every column is visible
-        assert position["ROW-2-2-2"]["children"] == ["CHART-64"]
-        assert (position["CHART-64"]["meta"]["width"], position["CHART-64"]["meta"]["height"]) == (
-            12,
-            40,
-        )
-        assert position["ROW-2-2-3"]["children"] == ["CHART-65"]
-        assert position["CHART-65"]["meta"]["sliceName"] == "Most worsened days"
-        assert position["CHART-65"]["meta"]["width"] == 12
-        # explanation vs baseline: three tiles, then the waterfall and the table
-        assert position["ROW-2-3-0"]["children"] == ["CHART-67", "CHART-68", "CHART-69"]
-        assert position["CHART-67"]["meta"] == {
-            "chartId": 67,
-            "width": 4,
-            "height": 24,
-            "sliceName": "Δ base value vs baseline",
-        }
-        # the waterfall and its table each take a full-width row (a five-column
-        # table clips at half width)
-        assert position["ROW-2-3-1"]["children"] == ["CHART-70"]
-        assert (position["CHART-70"]["meta"]["width"], position["CHART-70"]["meta"]["height"]) == (
-            12,
-            46,
-        )
-        assert position["ROW-2-3-2"]["children"] == ["CHART-71"]
-        assert (position["CHART-71"]["meta"]["width"], position["CHART-71"]["meta"]["height"]) == (
-            12,
-            40,
-        )
-        assert position["ROW-2-4-0"]["children"] == ["CHART-66"]
-        assert position["CHART-66"]["meta"]["height"] == 60
-        assert position["CHART-66"]["parents"] == ["ROOT_ID", "TABS-0", "TAB-2", "ROW-2-4-0"]
+        assert position["ROW-1-2-0-1"]["children"] == ["CHART-46"]
+        assert position["ROW-1-2-0-2"]["children"] == ["CHART-47"]
+        assert position["CHART-47"]["meta"]["width"] == 12
 
         # every chart is linked to the dashboard
-        assert all(c["dashboards"] == [72] for c in charts)
-        assert method_counts(superset.calls, "dataset") == {"GET": 5, "POST": 5, "PUT": 5}
-        assert method_counts(superset.calls, "chart") == {"GET": 57, "POST": 57, "PUT": 57}
+        assert all(c["dashboards"] == [48] for c in charts)
+        # both comparison datasets are still registered, so the dataset calls
+        # do not move with the tab
+        assert method_counts(superset.calls, "dataset") == {"GET": 7, "POST": 7, "PUT": 7}
+        # 31 lookups, 1 for the links of the charts this build places and 1 for
+        # the dashboard's own charts, which nothing here made stale
+        assert method_counts(superset.calls, "chart") == {"GET": 33, "POST": 31, "PUT": 31}
         assert method_counts(superset.calls, "dashboard") == {"GET": 1, "POST": 1, "PUT": 1}
 
     def test_spot_price_dashboard_keeps_its_names_layout_and_formats(self, script, superset, spot):
@@ -3552,13 +4601,26 @@ class TestBuildDashboard:
 
         script.build_dashboard(client, 3, spot)
 
-        analysis, explanation, comparison, explanation_comparison, importance = superset.rows[
-            "dataset"
-        ].values()
+        (
+            analysis,
+            explanation,
+            period,
+            summary,
+            comparison,
+            explanation_comparison,
+            importance,
+        ) = superset.rows["dataset"].values()
         assert analysis["table_name"] == "spot_price_forecast_analysis"
         assert analysis["sql"] == SPOT_DATASET_SQL
         assert explanation["table_name"] == "spot_price_forecast_explanation"
         assert explanation["sql"] == SPOT_EXPLANATION_SQL
+        assert period["table_name"] == "spot_price_forecast_explanation_period"
+        assert period["sql"] == SPOT_EXPLANATION_PERIOD_SQL
+        assert summary["table_name"] == "spot_price_forecast_contribution_summary"
+        assert summary["sql"] == SPOT_SUMMARY_SQL
+        assert [(c["column_name"], c["type"], c["is_dttm"]) for c in summary["columns"]] == (
+            SPOT_SUMMARY_COLUMNS
+        )
         assert comparison["table_name"] == "spot_price_forecast_comparison"
         assert explanation_comparison["table_name"] == "spot_price_forecast_explanation_comparison"
         assert explanation_comparison["sql"] == SPOT_EXPLANATION_COMPARISON_SQL
@@ -3567,11 +4629,7 @@ class TestBuildDashboard:
         assert importance["sql"] == SPOT_IMPORTANCE_SQL
         charts = list(superset.rows["chart"].values())
         assert [c["slice_name"] for c in charts] == (
-            EXPECTED_SPOT_CHART_NAMES
-            + EXPLANATION_CHART_NAMES
-            + IMPORTANCE_CHART_NAMES
-            + SPOT_COMPARISON_CHART_NAMES
-            + EXPLANATION_VS_BASELINE_CHART_NAMES
+            EXPECTED_SPOT_CHART_NAMES + EXPLANATION_CHART_NAMES + IMPORTANCE_CHART_NAMES
         )
         by_name = {c["slice_name"]: json.loads(c["params"]) for c in charts}
         assert by_name["Overall MAE"]["subheader"] == "JPY/kWh"
@@ -3585,23 +4643,32 @@ class TestBuildDashboard:
         assert by_name["Net feature effect"]["y_axis_format"] == "+,.3f"
         assert by_name["SHAP waterfall"]["y_axis_format"] == ",.2f"
         assert by_name["Permutation importance"]["y_axis_format"] == ",.2f"
-        assert by_name["ΔMAE vs baseline"]["y_axis_format"] == "+,.3f"
-        assert by_name["Daily ΔMAE"]["y_axis_format"] == "+,.2f"
+        # the spot Compare charts are not built either: the flag is per build, not per task
+        assert set(by_name).isdisjoint(
+            SPOT_COMPARISON_CHART_NAMES + EXPLANATION_VS_BASELINE_CHART_NAMES
+        )
         (dashboard,) = superset.rows["dashboard"].values()
         assert dashboard["dashboard_title"] == "Spot Price Forecast Analysis"
         assert dashboard["slug"] == "spot-price-forecast-analysis"
         position = json.loads(dashboard["position_json"])
         assert position["HEADER_ID"]["meta"]["text"] == "Spot Price Forecast Analysis"
-        assert position["TABS-0"]["children"] == ["TAB-0", "TAB-1", "TAB-2"]
+        assert position["TABS-0"]["children"] == ["TAB-0", "TAB-1"]
         assert position["TAB-0"]["children"] == EXPECTED_ACCURACY_TAB_CHILDREN
         assert position["TAB-1"]["children"] == EXPECTED_EXPLANATION_TAB_CHILDREN
-        assert position["TAB-2"]["children"] == EXPECTED_COMPARE_TAB_CHILDREN
-        assert position["ROW-0-3-0"]["children"] == ["CHART-31"]  # Run leaderboard
-        run_filter, _, baseline_filter = json.loads(dashboard["json_metadata"])[
-            "native_filter_configuration"
+        assert set(position).isdisjoint(EXPECTED_COMPARE_TAB_CHILDREN)
+        assert position["ROW-0-3-0"]["children"] == ["CHART-33"]  # Worst days
+        assert position["HEADER-0-3"]["meta"]["text"] == "Drilldown"
+        assert position["TABS-1"]["children"] == ["TAB-1-0", "TAB-1-1", "TAB-1-2"]
+        filters = json.loads(dashboard["json_metadata"])["native_filter_configuration"]
+        assert [f["id"] for f in filters] == [
+            "NATIVE_FILTER-run",
+            "NATIVE_FILTER-day",
+            "NATIVE_FILTER-period",
+            "NATIVE_FILTER-feature",
         ]
-        assert run_filter["scope"]["excluded"] == [31]
-        assert baseline_filter["scope"]["excluded"] == list(range(15, 44))
+        run_filter, _, _, feature_filter = filters
+        assert run_filter["scope"]["excluded"] == []
+        assert feature_filter["targets"] == [{"column": {"name": "feature_pick"}, "datasetId": 13}]
 
     def test_two_dashboards_coexist_with_their_own_datasets_and_charts(
         self, script, superset, spot, demand
@@ -3611,7 +4678,7 @@ class TestBuildDashboard:
         spot_id = script.build_dashboard(client, 3, spot)
         demand_id = script.build_dashboard(client, 3, demand)
 
-        assert (spot_id, demand_id) == (72, 135)  # 5 datasets + 57 charts + dashboard, twice
+        assert (spot_id, demand_id) == (48, 87)  # 7 datasets + 31 charts + dashboard, twice
         spot_ds = superset.id_of("dataset", "table_name", "spot_price_forecast_analysis")
         spot_ex = superset.id_of("dataset", "table_name", "spot_price_forecast_explanation")
         spot_cmp = superset.id_of("dataset", "table_name", "spot_price_forecast_comparison")
@@ -3619,6 +4686,10 @@ class TestBuildDashboard:
             "dataset", "table_name", "spot_price_forecast_explanation_comparison"
         )
         spot_imp = superset.id_of("dataset", "table_name", "spot_price_forecast_importance")
+        spot_per = superset.id_of("dataset", "table_name", "spot_price_forecast_explanation_period")
+        spot_sum = superset.id_of(
+            "dataset", "table_name", "spot_price_forecast_contribution_summary"
+        )
         demand_ds = superset.id_of("dataset", "table_name", "demand_forecast_analysis")
         demand_ex = superset.id_of("dataset", "table_name", "demand_forecast_explanation")
         demand_cmp = superset.id_of("dataset", "table_name", "demand_forecast_comparison")
@@ -3626,52 +4697,66 @@ class TestBuildDashboard:
             "dataset", "table_name", "demand_forecast_explanation_comparison"
         )
         demand_imp = superset.id_of("dataset", "table_name", "demand_forecast_importance")
+        demand_per = superset.id_of("dataset", "table_name", "demand_forecast_explanation_period")
+        demand_sum = superset.id_of("dataset", "table_name", "demand_forecast_contribution_summary")
         assert (
             spot_ds,
             spot_ex,
+            spot_per,
+            spot_sum,
             spot_cmp,
             spot_xc,
             spot_imp,
             demand_ds,
             demand_ex,
+            demand_per,
+            demand_sum,
             demand_cmp,
             demand_xc,
             demand_imp,
-        ) == (10, 11, 12, 13, 14, 73, 74, 75, 76, 77)
-        assert len(superset.rows["chart"]) == 114
-        explanation_names = EXPLANATION_CHART_NAMES + ["Mean |SHAP| by feature"]
+        ) == (10, 11, 12, 13, 14, 15, 16, 49, 50, 51, 52, 53, 54, 55)
+        assert len(superset.rows["chart"]) == 62
         importance_names = ["Permutation importance", "Feature importance table"]
         assert [c["slice_name"] for c in charts_of(superset, spot_ds)] == EXPECTED_SPOT_CHART_NAMES
-        assert [c["slice_name"] for c in charts_of(superset, spot_ex)] == explanation_names
+        assert [c["slice_name"] for c in charts_of(superset, spot_ex)] == DAY_OVERVIEW_CHART_NAMES
+        assert [c["slice_name"] for c in charts_of(superset, spot_per)] == SINGLE_PERIOD_CHART_NAMES
+        assert [c["slice_name"] for c in charts_of(superset, spot_sum)] == [
+            "Mean |SHAP| by feature"
+        ]
         assert [c["slice_name"] for c in charts_of(superset, spot_imp)] == importance_names
-        assert [
-            c["slice_name"] for c in charts_of(superset, spot_cmp)
-        ] == SPOT_COMPARISON_CHART_NAMES
         assert [c["slice_name"] for c in charts_of(superset, demand_ds)] == (
             EXPECTED_DEMAND_CHART_NAMES
         )
-        assert [c["slice_name"] for c in charts_of(superset, demand_ex)] == explanation_names
-        assert [c["slice_name"] for c in charts_of(superset, demand_imp)] == importance_names
+        assert [c["slice_name"] for c in charts_of(superset, demand_ex)] == DAY_OVERVIEW_CHART_NAMES
         assert [
-            c["slice_name"] for c in charts_of(superset, demand_cmp)
-        ] == DEMAND_COMPARISON_CHART_NAMES
-        for dataset_id in (spot_xc, demand_xc):
-            assert [c["slice_name"] for c in charts_of(superset, dataset_id)] == (
-                EXPLANATION_VS_BASELINE_CHART_NAMES
-            )
+            c["slice_name"] for c in charts_of(superset, demand_per)
+        ] == SINGLE_PERIOD_CHART_NAMES
+        assert [c["slice_name"] for c in charts_of(superset, demand_sum)] == [
+            "Mean |SHAP| by feature"
+        ]
+        assert [c["slice_name"] for c in charts_of(superset, demand_imp)] == importance_names
+        # both tasks register their two comparison datasets and put no chart on them
+        for dataset_id in (spot_cmp, spot_xc, demand_cmp, demand_xc):
+            assert charts_of(superset, dataset_id) == []
         for dashboard_id, dataset_ids in (
-            (spot_id, (spot_ds, spot_ex, spot_cmp, spot_xc, spot_imp)),
-            (demand_id, (demand_ds, demand_ex, demand_cmp, demand_xc, demand_imp)),
+            (spot_id, (spot_ds, spot_ex, spot_per, spot_sum, spot_cmp, spot_xc, spot_imp)),
+            (
+                demand_id,
+                (demand_ds, demand_ex, demand_per, demand_sum, demand_cmp, demand_xc, demand_imp),
+            ),
         ):
             for dataset_id in dataset_ids:
                 assert all(
                     c["dashboards"] == [dashboard_id] for c in charts_of(superset, dataset_id)
                 )
             metadata = json.loads(superset.rows["dashboard"][dashboard_id]["json_metadata"])
-            run_filter, day_filter, baseline_filter = metadata["native_filter_configuration"]
+            run_filter, day_filter, period_filter, feature_filter = metadata[
+                "native_filter_configuration"
+            ]
             assert run_filter["targets"][0]["datasetId"] == dataset_ids[0]
             assert day_filter["targets"][0]["datasetId"] == dataset_ids[1]
-            assert baseline_filter["targets"][0]["datasetId"] == dataset_ids[0]
+            assert period_filter["targets"][0]["datasetId"] == dataset_ids[1]
+            assert feature_filter["targets"][0]["datasetId"] == dataset_ids[3]
             position = json.loads(superset.rows["dashboard"][dashboard_id]["position_json"])
             chart_ids = sorted(int(k[6:]) for k in position if k.startswith("CHART-"))
             assert chart_ids == sorted(c["id"] for d in dataset_ids for c in charts_of(superset, d))
@@ -3687,23 +4772,44 @@ class TestBuildDashboard:
         script.build_dashboard(client, 3, demand)
 
         assert {r: sorted(rows) for r, rows in superset.rows.items()} == first_ids
-        assert method_counts(superset.calls, "dataset") == {"GET": 5, "PUT": 5}
-        assert method_counts(superset.calls, "chart") == {"GET": 57, "PUT": 114}
+        assert method_counts(superset.calls, "dataset") == {"GET": 7, "PUT": 7}
+        # a rebuild places the same charts, so the links read back unchanged and
+        # the dashboard's own charts hold nothing stale
+        assert method_counts(superset.calls, "chart") == {"GET": 33, "PUT": 62}
         assert method_counts(superset.calls, "dashboard") == {"GET": 1, "PUT": 1}
         (dashboard,) = superset.rows["dashboard"].values()
-        run_filter, day_filter, baseline_filter = json.loads(dashboard["json_metadata"])[
-            "native_filter_configuration"
-        ]
+        filters = json.loads(dashboard["json_metadata"])["native_filter_configuration"]
+        run_filter, day_filter, _, feature_filter = filters
+        assert "NATIVE_FILTER-baseline" not in [f["id"] for f in filters]
+        assert feature_filter["controlValues"]["defaultToFirstItem"] is True
         assert run_filter["defaultDataMask"] == {"extraFormData": {}, "filterState": {}}
         assert run_filter["controlValues"]["defaultToFirstItem"] is True
-        assert run_filter["scope"]["excluded"] == [31]
+        assert run_filter["scope"]["excluded"] == []
         assert day_filter["defaultDataMask"] == {"extraFormData": {}, "filterState": {}}
         assert day_filter["controlValues"]["defaultToFirstItem"] is True
-        assert baseline_filter["defaultDataMask"] == {"extraFormData": {}, "filterState": {}}
-        assert baseline_filter["controlValues"]["defaultToFirstItem"] is False
-        assert all(c["dashboards"] == [72] for c in superset.rows["chart"].values())
+        assert all(c["dashboards"] == [48] for c in superset.rows["chart"].values())
 
-    def test_day_tables_cross_filter_the_detail_charts_and_the_explanation_tab(
+    def test_a_rebuild_detaches_a_chart_an_earlier_build_left_behind(
+        self, script, superset, demand
+    ):
+        # Superset renders an attached chart the layout does not place, at the
+        # foot of the first tab, so a dropped or moved chart would still show.
+        client = make_client(script, superset)
+        dashboard_id = script.build_dashboard(client, 3, demand)
+        stale = superset.seed("chart", slice_name="Run leaderboard", dashboards=[dashboard_id])
+
+        script.build_dashboard(client, 3, demand)
+
+        assert superset.rows["chart"][stale]["dashboards"] == []
+        placed = json.loads(superset.rows["dashboard"][dashboard_id]["position_json"])
+        assert f"CHART-{stale}" not in placed
+        assert all(
+            c["dashboards"] == [dashboard_id]
+            for chart_id, c in superset.rows["chart"].items()
+            if chart_id != stale
+        )
+
+    def test_day_tables_cross_filter_the_detail_charts_but_not_the_explanation_tab(
         self, script, superset, demand
     ):
         client = make_client(script, superset)
@@ -3711,42 +4817,206 @@ class TestBuildDashboard:
         (dashboard,) = superset.rows["dashboard"].values()
         configuration = json.loads(dashboard["json_metadata"])["chart_configuration"]
         worst_days = superset.id_of("chart", "slice_name", "Worst days")
-        improved = superset.id_of("chart", "slice_name", "Most improved days")
-        worsened = superset.id_of("chart", "slice_name", "Most worsened days")
         detail = superset.id_of("chart", "slice_name", "Forecast vs actual (30-min detail)")
-        compare_detail = superset.id_of(
-            "chart", "slice_name", "Candidate vs baseline vs actual (30-min detail)"
+        # the Explanation tab takes its day from the Day filter alone (the Explain
+        # links set it), so a click in a day table never reaches it
+        explanation_tab = list(range(35, 48))
+        assert (worst_days, detail) == (33, 34)
+        # Worst days is the only emitter left: the Compare tab's two day tables,
+        # and the explanation-vs-baseline section they also drilled into, are not built
+        assert list(configuration) == ["33"]
+        assert configuration["33"]["crossFilters"]["chartsInScope"] == [detail]
+        assert configuration["33"]["crossFilters"]["scope"]["excluded"] == [
+            i for i in range(17, 48) if i != detail
+        ]
+        for emitter in configuration.values():
+            assert set(explanation_tab).isdisjoint(emitter["crossFilters"]["chartsInScope"])
+
+    def test_build_compare_tab_false_leaves_two_tabs_and_four_filters(
+        self, script, superset, demand
+    ):
+        # the whole contract of the flag, in one place: set it True and this is
+        # the test that says what comes back
+        assert script.BUILD_COMPARE_TAB is False
+        client = make_client(script, superset)
+
+        script.build_dashboard(client, 3, demand)
+
+        (dashboard,) = superset.rows["dashboard"].values()
+        position = json.loads(dashboard["position_json"])
+        assert position["TABS-0"]["children"] == ["TAB-0", "TAB-1"]
+        assert [position[t]["meta"]["text"] for t in ("TAB-0", "TAB-1")] == [
+            "Accuracy",
+            "Explanation",
+        ]
+        filters = json.loads(dashboard["json_metadata"])["native_filter_configuration"]
+        assert [f["name"] for f in filters] == ["Run", "Day", "Period", "Feature"]
+        # no Compare chart is created, so none can be placed
+        compare_names = set(DEMAND_COMPARISON_CHART_NAMES + EXPLANATION_VS_BASELINE_CHART_NAMES)
+        assert compare_names.isdisjoint(c["slice_name"] for c in superset.rows["chart"].values())
+        placed = {position[k]["meta"]["sliceName"] for k in position if k.startswith("CHART-")}
+        assert compare_names.isdisjoint(placed)
+
+    def test_the_flag_puts_the_compare_tab_back(self, script, superset, spec, monkeypatch):
+        """Everything ``BUILD_COMPARE_TAB = True`` restores, for either task.
+
+        The tab's builder, its two datasets and its charts all still ship; this
+        is the description of what a rebuild then places.
+        """
+        monkeypatch.setattr(script, "BUILD_COMPARE_TAB", True)
+        client = make_client(script, superset)
+
+        dashboard_id = script.build_dashboard(client, 3, spec)
+
+        charts = list(superset.rows["chart"].values())
+        assert [c["id"] for c in charts] == list(range(17, 76))
+        # 28 more charts after the 31 of the other two tabs: 23 comparison ones
+        # on the comparison dataset, then 5 on the explanation-comparison one
+        assert [c["slice_name"] for c in charts[31:]] == (
+            COMPARISON_CHART_NAMES[spec.task] + EXPLANATION_VS_BASELINE_CHART_NAMES
         )
-        # the Explanation tab's per-day charts (not its feature-importance section)
-        # plus the Compare tab's explanation-vs-baseline section
-        explained = [*range(34, 41), *range(67, 72)]
-        assert (worst_days, improved, worsened, detail, compare_detail) == (32, 64, 65, 33, 66)
-        assert list(configuration) == ["32", "64", "65"]
-        assert configuration["32"]["crossFilters"]["chartsInScope"] == [
-            detail,
-            *explained,
-            compare_detail,
+        assert [c["datasource_id"] for c in charts[31:]] == [14] * 23 + [15] * 5
+        by_name = {c["slice_name"]: json.loads(c["params"]) for c in charts}
+        # the three tiles in the task's own unit take its signed format
+        assert spec.signed_number_format == SIGNED_FORMATS[spec.task]
+        for name in ("ΔMAE vs baseline", "Δ|bias| vs baseline", "Median daily ΔMAE"):
+            assert by_name[name]["y_axis_format"] == spec.signed_number_format
+        assert by_name["Daily ΔMAE"]["y_axis_format"] == "+" + spec.axis_format
+        # the rest are unit-free, so they read the same on both dashboards
+        assert by_name["ΔMAE % vs baseline"]["y_axis_format"] == "+,.1f"
+        assert by_name["ΔWAPE vs baseline"]["y_axis_format"] == "+.2%"
+        assert by_name["Matched coverage"]["y_axis_format"] == ".1%"
+        assert by_name["Matched days"]["y_axis_format"] == ",d"
+        assert by_name["Days candidate lower"]["y_axis_format"] == ".1%"
+
+        (dashboard,) = superset.rows["dashboard"].values()
+        assert dashboard_id == dashboard["id"] == 76
+        metadata = json.loads(dashboard["json_metadata"])
+        # the Baseline filter comes back last, and reaches the Compare tab alone
+        filters = metadata["native_filter_configuration"]
+        assert [f["name"] for f in filters] == ["Run", "Day", "Period", "Feature", "Baseline"]
+        baseline_filter = filters[-1]
+        assert baseline_filter["targets"] == [
+            {"column": {"name": "baseline_run_label"}, "datasetId": 10}
         ]
-        assert configuration["32"]["crossFilters"]["scope"]["excluded"] == [
-            i for i in range(15, 72) if i not in (detail, *explained, compare_detail)
+        assert baseline_filter["scope"]["excluded"] == list(range(17, 48))
+        assert baseline_filter["controlValues"]["defaultToFirstItem"] is False
+        # Day reaches the explanation-vs-baseline section again; Period does not
+        _, day_filter, period_filter, *_ = filters
+        assert set(range(71, 76)).isdisjoint(day_filter["scope"]["excluded"])
+        assert period_filter["scope"]["excluded"] == (
+            list(range(17, 35)) + [45, 46, 47] + list(range(48, 76))
+        )
+
+        position = json.loads(dashboard["position_json"])
+        assert position["TABS-0"]["children"] == ["TAB-0", "TAB-1", "TAB-2"]
+        assert position["TAB-2"]["meta"]["text"] == "Compare"
+        assert position["TAB-2"]["children"] == EXPECTED_COMPARE_TAB_CHILDREN
+        assert [
+            position[h]["meta"]["text"]
+            for h in ("HEADER-2-1", "HEADER-2-2", "HEADER-2-3", "HEADER-2-4")
+        ] == [
+            "Where the candidate wins (ΔMAE % vs baseline)",
+            "Day by day",
+            "Explanation vs baseline (SHAP; mean per period of the Day, or of the run when Day is"
+            " empty)",
+            "Detail",
         ]
-        for emitter in ("64", "65"):
+        # the tiles, then the four matched-window numbers
+        assert position["ROW-2-0-0"]["children"] == [f"CHART-{i}" for i in range(48, 54)]
+        assert position["CHART-48"]["meta"] == {
+            "chartId": 48,
+            "width": 2,
+            "height": 24,
+            "sliceName": "Baseline MAE",
+        }
+        assert position["ROW-2-0-1"]["children"] == [f"CHART-{i}" for i in range(54, 58)]
+        assert position["CHART-54"]["meta"]["width"] == 3
+        assert position["ROW-2-1-0"]["children"] == ["CHART-58"]
+        assert (position["CHART-58"]["meta"]["width"], position["CHART-58"]["meta"]["height"]) == (
+            12,
+            36,
+        )
+        assert position["ROW-2-1-1"]["children"] == ["CHART-59", "CHART-60", "CHART-61"]
+        assert position["CHART-59"]["meta"]["width"] == 4
+        assert position["ROW-2-1-2"]["children"] == ["CHART-62", "CHART-63"]
+        assert position["CHART-62"]["meta"] == {
+            "chartId": 62,
+            "width": 6,
+            "height": 36,
+            "sliceName": spec.delta_band_chart_title,
+        }
+        assert position["ROW-2-1-3"]["children"] == ["CHART-64"]
+        assert position["CHART-64"]["meta"]["height"] == 46
+        assert position["ROW-2-1-4"]["children"] == ["CHART-65"]
+        assert position["CHART-65"]["meta"]["height"] == 50
+        assert position["ROW-2-2-0"]["children"] == ["CHART-66"]
+        assert position["CHART-66"]["meta"]["height"] == 44
+        assert position["ROW-2-2-1"]["children"] == ["CHART-67"]
+        assert position["CHART-67"]["meta"]["height"] == 40
+        # the day tables are stacked full width so every column is visible
+        assert position["ROW-2-2-2"]["children"] == ["CHART-68"]
+        assert (position["CHART-68"]["meta"]["width"], position["CHART-68"]["meta"]["height"]) == (
+            12,
+            40,
+        )
+        assert position["ROW-2-2-3"]["children"] == ["CHART-69"]
+        assert position["CHART-69"]["meta"]["sliceName"] == "Most worsened days"
+        assert position["CHART-69"]["meta"]["width"] == 12
+        # explanation vs baseline: three tiles, then the waterfall and the table
+        assert position["ROW-2-3-0"]["children"] == ["CHART-71", "CHART-72", "CHART-73"]
+        assert position["CHART-71"]["meta"] == {
+            "chartId": 71,
+            "width": 4,
+            "height": 24,
+            "sliceName": "Δ base value vs baseline",
+        }
+        # the waterfall and its table each take a full-width row (a five-column
+        # table clips at half width)
+        assert position["ROW-2-3-1"]["children"] == ["CHART-74"]
+        assert (position["CHART-74"]["meta"]["width"], position["CHART-74"]["meta"]["height"]) == (
+            12,
+            46,
+        )
+        assert position["ROW-2-3-2"]["children"] == ["CHART-75"]
+        assert (position["CHART-75"]["meta"]["width"], position["CHART-75"]["meta"]["height"]) == (
+            12,
+            40,
+        )
+        assert position["ROW-2-4-0"]["children"] == ["CHART-70"]
+        assert position["CHART-70"]["meta"]["height"] == 60
+        assert position["CHART-70"]["parents"] == ["ROOT_ID", "TABS-0", "TAB-2", "ROW-2-4-0"]
+
+        # the day tables emit cross-filters into the explanation-vs-baseline
+        # section and the Compare detail again; Worst days gains the same targets
+        configuration = metadata["chart_configuration"]
+        explained_vs_baseline = list(range(71, 76))
+        assert list(configuration) == ["33", "68", "69"]
+        assert configuration["33"]["crossFilters"]["chartsInScope"] == [
+            34,
+            70,
+            *explained_vs_baseline,
+        ]
+        for emitter in ("68", "69"):
             assert configuration[emitter]["crossFilters"]["chartsInScope"] == [
-                compare_detail,
-                *explained,
+                70,
+                *explained_vs_baseline,
             ]
             assert configuration[emitter]["crossFilters"]["scope"]["excluded"] == [
-                i for i in range(15, 72) if i not in (compare_detail, *explained)
+                i for i in range(17, 76) if i not in (70, *explained_vs_baseline)
             ]
 
-    def test_baseline_run_override_reaches_the_baseline_filter(self, script, superset, demand):
+    def test_no_baseline_filter_is_built_while_the_compare_tab_is_off(
+        self, script, superset, demand
+    ):
+        # --baseline-run still resolves to a run label (TestRunDefaults), but the
+        # only filter that read it went with the tab
         client = make_client(script, superset)
         script.build_dashboard(client, 3, demand, baseline_run="ffff")
         (dashboard,) = superset.rows["dashboard"].values()
-        _, _, baseline_filter = json.loads(dashboard["json_metadata"])[
-            "native_filter_configuration"
-        ]
-        assert baseline_filter["defaultDataMask"]["filterState"]["value"] == [SHORT_LABEL]
+        filters = json.loads(dashboard["json_metadata"])["native_filter_configuration"]
+        assert [f["name"] for f in filters] == ["Run", "Day", "Period", "Feature"]
+        assert not any(SHORT_LABEL in json.dumps(f) for f in filters)
 
 
 class TestMain:
@@ -3769,11 +5039,15 @@ class TestMain:
         assert [d["table_name"] for d in superset.rows["dataset"].values()] == [
             "spot_price_forecast_analysis",
             "spot_price_forecast_explanation",
+            "spot_price_forecast_explanation_period",
+            "spot_price_forecast_contribution_summary",
             "spot_price_forecast_comparison",
             "spot_price_forecast_explanation_comparison",
             "spot_price_forecast_importance",
             "demand_forecast_analysis",
             "demand_forecast_explanation",
+            "demand_forecast_explanation_period",
+            "demand_forecast_contribution_summary",
             "demand_forecast_comparison",
             "demand_forecast_explanation_comparison",
             "demand_forecast_importance",
@@ -3782,10 +5056,13 @@ class TestMain:
             "feature_values_all",
             "feature_catalogue",
         ]
-        assert len(superset.rows["chart"]) == 115
+        assert len(superset.rows["chart"]) == 63
         assert method_counts(superset.calls, "database") == {"GET": 1}
         # one find, one create and one attach per chart, the catalogue's included
-        assert method_counts(superset.calls, "chart") == {"GET": 115, "POST": 115, "PUT": 115}
+        # 63 lookups, then per dashboard one read of the placed charts' links
+        # (the two task ones and the catalogue) and, for the task ones, one of
+        # the dashboard's own charts; none of them stale here
+        assert method_counts(superset.calls, "chart") == {"GET": 68, "POST": 63, "PUT": 63}
 
     def test_task_flag_selects_one_dashboard(self, script, superset, monkeypatch):
         run_main(script, superset, monkeypatch, ["--url", BASE, "--task", "demand"])
@@ -3797,6 +5074,8 @@ class TestMain:
         assert [d["table_name"] for d in superset.rows["dataset"].values()] == [
             "demand_forecast_analysis",
             "demand_forecast_explanation",
+            "demand_forecast_explanation_period",
+            "demand_forecast_contribution_summary",
             "demand_forecast_comparison",
             "demand_forecast_explanation_comparison",
             "demand_forecast_importance",
@@ -3804,12 +5083,11 @@ class TestMain:
             "feature_values_all",
             "feature_catalogue",
         ]
+        # the two comparison datasets are registered; no chart is built on them
         assert [c["slice_name"] for c in superset.rows["chart"].values()] == (
             EXPECTED_DEMAND_CHART_NAMES
             + EXPLANATION_CHART_NAMES
             + IMPORTANCE_CHART_NAMES
-            + DEMAND_COMPARISON_CHART_NAMES
-            + EXPLANATION_VS_BASELINE_CHART_NAMES
             + ["Features"]
         )
 
@@ -3860,7 +5138,7 @@ class TestMain:
             None,
         )
         assert superset.headers["Referer"] == "http://env-superset:9999"
-        assert len(superset.rows["chart"]) == 115
+        assert len(superset.rows["chart"]) == 63
 
     def test_builtin_defaults_when_env_is_unset(self, monkeypatch):
         for var in ("SUPERSET_URL", "SUPERSET_ADMIN_USER", "SUPERSET_ADMIN_PASSWORD"):
@@ -3890,18 +5168,28 @@ class TestMain:
             None,
         )
         assert superset.headers["Referer"] == "http://cli:1"
-        assert len(superset.rows["chart"]) == 58
+        assert len(superset.rows["chart"]) == 32
 
     def test_baseline_run_flag_is_passed_to_every_dashboard(self, script, superset, monkeypatch):
+        # the flag still reaches every build; the filter that read it is only
+        # built with the Compare tab, so the dashboard shows nothing of it
+        passed: list[str | None] = []
+        build = script.build_dashboard
+
+        def recording_build(client, database_id, spec, baseline_run=None):
+            passed.append(baseline_run)
+            return build(client, database_id, spec, baseline_run=baseline_run)
+
+        monkeypatch.setattr(script, "build_dashboard", recording_build)
         run_main(
             script,
             superset,
             monkeypatch,
             ["--url", BASE, "--task", "demand", "--baseline-run", "ffffffff"],
         )
+        assert passed == ["ffffffff"]
         dashboard, catalogue = superset.rows["dashboard"].values()
         assert catalogue["dashboard_title"] == "Feature Catalogue"
-        _, _, baseline_filter = json.loads(dashboard["json_metadata"])[
-            "native_filter_configuration"
-        ]
-        assert baseline_filter["defaultDataMask"]["filterState"]["value"] == [SHORT_LABEL]
+        filters = json.loads(dashboard["json_metadata"])["native_filter_configuration"]
+        assert [f["name"] for f in filters] == ["Run", "Day", "Period", "Feature"]
+        assert not any(SHORT_LABEL in json.dumps(f) for f in filters)
