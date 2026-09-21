@@ -740,7 +740,7 @@ class TestBacktestScript:
         # scored. Reaching only into them is allowed, but it is not evidence.
         script = import_script("demand_backtest")
         monkeypatch.setattr(script, "EVAL_END", pd.Timestamp("2024-05-10"))
-        monkeypatch.setattr(script, "HOLDOUT_OPENS", pd.Timestamp("2024-06-01"))
+        monkeypatch.setattr(script, "holdout_opens", lambda task: pd.Timestamp("2024-06-01"))
         with captured_logs("WARNING") as messages:
             script.main(["--end-date", "2024-05-20", "--holdout", "--shap-nsamples", "20"])
         params = last_run().data.params
@@ -757,7 +757,7 @@ class TestBacktestScript:
         script = import_script("demand_backtest")
         monkeypatch.setattr(script, "EVAL_START", pd.Timestamp("2024-04-01"))
         monkeypatch.setattr(script, "EVAL_END", pd.Timestamp("2024-05-10"))
-        monkeypatch.setattr(script, "HOLDOUT_OPENS", pd.Timestamp("2024-05-25"))
+        monkeypatch.setattr(script, "holdout_opens", lambda task: pd.Timestamp("2024-05-25"))
         script.main(["--end-date", "2024-05-28", "--holdout", "--shap-nsamples", "20"])
         params = last_run().data.params
         assert params["start_date"] == "2024-05-25"
@@ -769,7 +769,7 @@ class TestBacktestScript:
     ):
         script = import_script("demand_backtest")
         monkeypatch.setattr(script, "EVAL_END", pd.Timestamp("2024-05-10"))
-        monkeypatch.setattr(script, "HOLDOUT_OPENS", pd.Timestamp("2024-05-25"))
+        monkeypatch.setattr(script, "holdout_opens", lambda task: pd.Timestamp("2024-05-25"))
         script.main(
             [
                 "--start-date",

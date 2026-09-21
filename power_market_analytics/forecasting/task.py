@@ -52,11 +52,12 @@ class TaskSpec:
         Both None leaves a task unpinned, and its backtest ends at the last day
         in the data.
     holdout_start : pandas.Timestamp or None
-        The first day no run has ever scored, when that is later than the day
-        after ``eval_end``: runs made before the window was pinned scored past
-        it, and a day whose errors have been read is not independent evidence
-        however the window is drawn. None means the holdout opens the day after
-        ``eval_end``. Read through ``holdout_opens``.
+        A floor for the first unseen day, when the day after ``eval_end`` is too
+        early: runs made before the window was pinned scored past it. None means
+        the floor is the day after ``eval_end``. It is only a floor — a day a run
+        has scored is no longer unseen, so
+        ``forecasting.holdout.holdout_opens`` moves the boundary past whatever
+        the accuracy mart already holds. Read it through that, not through this.
     """
 
     name: str

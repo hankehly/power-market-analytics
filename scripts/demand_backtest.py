@@ -24,6 +24,7 @@ from loguru import logger
 
 from power_market_analytics.common.tracking import MAPE_METRIC_NAME, log_dataframe, task_run
 from power_market_analytics.forecasting.backtest import daily_metrics, run_backtest
+from power_market_analytics.forecasting.holdout import holdout_opens
 from power_market_analytics.forecasting.importance import DEFAULT_N_REPEATS, DEFAULT_SEED
 from power_market_analytics.forecasting.lgbm import DEFAULT_TRAIN_WINDOW_DAYS
 from power_market_analytics.forecasting.plots import error_heatmaps, permutation_importance_plot
@@ -41,9 +42,9 @@ from power_market_analytics.tasks.demand.strategies import STRATEGIES, build_str
 
 #: The task's pinned evaluation window; the days after it are the holdout.
 EVAL_START, EVAL_END = TASK.eval_window
-#: The first day no run has ever scored. Later than EVAL_END + 1 where runs made
-#: before the window was pinned already read past it.
-HOLDOUT_OPENS = TASK.holdout_opens
+#: The floor for the first unseen day, before what the warehouse has scored is
+#: taken into account; the effective boundary is holdout_opens(TASK) per run.
+HOLDOUT_FLOOR = TASK.holdout_opens
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -94,7 +95,7 @@ def main(argv: list[str] | None = None) -> None:
             "Allow scoring past the pinned evaluation window. Only for a "
             "confirmation run: the holdout is what keeps the window's numbers "
             "honest, and a run that reads it is logged as having done so. Days "
-            f"before {HOLDOUT_OPENS.date()} were scored by runs made before the "
+            f"before {HOLDOUT_FLOOR.date()} were scored by runs made before the "
             "window was pinned, so they are not independent evidence. Without "
             "--start-date or --days the run begins at the holdout rather than at "
             "the window, so its metrics measure the holdout alone."
@@ -158,6 +159,10 @@ def main(argv: list[str] | None = None) -> None:
     ) as mlflow_run:
         demand = load_area_demand(area_code=args.area)
         last_day = demand.df["trade_date"].max()
+        # Derived, not configured: a day a run has scored is no longer unseen, so
+        # the boundary moves as the holdout is spent. The first confirmation run
+        # consumes the days it scores, and the next one is told so.
+        unseen_from = holdout_opens(TASK)
         # The pinned window is the default on both ends, so two runs months apart
         # score the same delivery days without either remembering to say so. It is
         # a ceiling, not an equality: a warehouse that does not reach eval_end
@@ -177,25 +182,25 @@ def main(argv: list[str] | None = None) -> None:
                 )
         if end_date > last_day:
             parser.error(f"--end-date {end_date.date()} is after the last day in the data")
-        if end_date > EVAL_END and end_date < HOLDOUT_OPENS:
+        if end_date > EVAL_END and end_date < unseen_from:
             logger.warning(
                 "this run reads {}..{}, which runs made before the window was pinned "
                 "already scored: the holdout opens {}, and days before it are not "
                 "independent evidence",
                 (EVAL_END + pd.Timedelta(days=1)).date(),
                 end_date.date(),
-                HOLDOUT_OPENS.date(),
+                unseen_from.date(),
             )
         if args.start_date is not None:
             start_date = args.start_date
         elif args.days is not None:
             start_date = end_date - pd.DateOffset(days=args.days - 1)
-        elif end_date >= HOLDOUT_OPENS:
+        elif end_date >= unseen_from:
             # A confirmation run measures the holdout, not the window plus a few
             # new days: starting at EVAL_START would drown the unseen suffix in
             # 730 days that are not independent, while still reporting
             # reads_unseen_holdout. Pass --start-date to score both.
-            start_date = HOLDOUT_OPENS
+            start_date = unseen_from
         elif end_date > EVAL_END:
             # Past the window but short of the opening: the already-scored gap.
             start_date = EVAL_END + pd.Timedelta(days=1)
@@ -232,8 +237,8 @@ def main(argv: list[str] | None = None) -> None:
                 "end_date": str(end_date.date()),
                 "eval_window": f"{EVAL_START.date()}..{EVAL_END.date()}",
                 "reads_holdout": end_date > EVAL_END,
-                "reads_unseen_holdout": end_date >= HOLDOUT_OPENS,
-                "holdout_opens": str(HOLDOUT_OPENS.date()),
+                "reads_unseen_holdout": end_date >= unseen_from,
+                "holdout_opens": str(unseen_from.date()),
                 "n_days": per_day["trade_date"].nunique(),
                 "n_predictions": len(result),
                 "n_days_skipped": len(run.skipped_days),

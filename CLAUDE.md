@@ -243,8 +243,12 @@
   reads until a confirmation run. The holdout does not open the day after
   `eval_end`, though: 49 runs scored past it before the window existed — 43
   through 2026-08-17 and 3 through 2026-09-05 — and the split of their per-day
-  errors was read while deciding to pin at all, so `holdout_start` puts the
-  first unseen day at **2026-09-06** (`TASK.holdout_opens`). A day whose errors
+  errors was read while deciding to pin at all, so `holdout_start` floors the
+  first unseen day at **2026-09-06**. That is only a floor: the effective
+  boundary is `forecasting.holdout.holdout_opens(TASK)`, which moves it past the
+  last day in `fct_demand_forecast_accuracy`, because a day a run has scored is
+  no longer unseen. So the first confirmation run spends the days it scores and
+  the next one is told so — the boundary is derived, never maintained by hand. A day whose errors
   have been read is not independent evidence however the window is drawn. The
   holdout is 14 days today and grows with the data; a `--holdout` run that stops
   before it is allowed, logs `reads_unseen_holdout=False` and warns that its days
