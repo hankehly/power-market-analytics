@@ -116,15 +116,28 @@ run filter. Rerunning it is safe, so it is how everything is rebuilt after a
 
 Each dashboard opens on the newest run with KPI tiles (MAE, bias, RMSE,
 RMSE/MAE, WAPE, P90), error-structure heatmaps and day-type slices, calibration
-and error-distribution views, a cross-run leaderboard, a worst-days drill list
-and a zoomable 30-minute forecast-vs-actual detail. Clicking a row of the drill
-list cross-filters the dashboard to that day.
+and error-distribution views, a worst-days drill list and a zoomable 30-minute
+forecast-vs-actual detail whose hover popup also shows the error. Clicking a row
+of the drill list cross-filters the detail to that day, and the row's
+**Explain** link opens the Explanation tab on that day.
 
-An **Explanation** tab decomposes a day's forecast into per-feature SHAP
-contributions. At its foot sits the run's **Feature importance**: the
-permutation importance of each feature next to its mean |SHAP|. Permutation
-importance is the MAE increase when that feature's column is shuffled across
-the run, computed with scikit-learn over the walk-forward models.
+An **Explanation** tab decomposes a forecast into per-feature SHAP
+contributions, in three sub-tabs. **Day overview** explains the day picked in
+the **Day** filter: a waterfall and a by-period stack of the ten features that
+move the forecast most, with every other feature folded into one *Other
+features* group; two charts of one feature's value and contribution over the
+day, the feature picked in the **Feature** filter; and a searchable table of
+every feature, which is where the folded ones are read. **Single period** shows
+one period's base, forecast, actual and every feature's value and contribution;
+it stays empty until the **Period** filter has a value. **Feature importance**
+holds the run's permutation importance and mean |SHAP|, the top twenty features
+as bars and every feature in a table. Permutation importance is the MAE increase
+when that feature's column is shuffled across the run, computed with
+scikit-learn over the walk-forward models.
+
+The Run, Day and Period filters are also written into each dataset's SQL as
+predicates on the fact's own columns. A filter on the run label alone cannot
+reach the parquet scan, and every chart would read every run.
 
 Every chart labels a feature by its expression (`LAG(demand_kwh, 2d)`), read
 from `dim_feature`; the stored rows keep the column name. The
@@ -136,6 +149,14 @@ filter, over the periods both runs scored. It holds delta tiles, diverging
 ΔMAE % bars by segment, ΔMAE % heatmaps, daily ΔMAE, the cumulative error
 reduction, most-improved / most-worsened day tables, the SHAP contribution
 deltas per feature against the baseline, and a three-line detail.
+
+That tab is not on the dashboards at the moment. It takes about 29 seconds to
+load, where the other two take 4 and 7, and it has not had the treatment that
+made them quick. Everything it needs is still in the builder; put it back by
+setting `BUILD_COMPARE_TAB` to True in
+`scripts/create_forecast_dashboard.py` and rebuilding. Until then, the
+run-against-run numbers come from `compare_<task>_runs.py`, which also has the
+bootstrap confidence interval over days.
 
 The two dashboards are the same layout with the same chart names. Only the
 quantity shows through, JPY/kWh against kWh, with demand values SI-formatted as

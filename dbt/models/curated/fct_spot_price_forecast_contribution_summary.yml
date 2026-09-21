@@ -1,0 +1,102 @@
+models:
+  - name: fct_spot_price_forecast_contribution_summary
+    config:
+      contract:
+        enforced: true
+    description: >
+      Aggregate fact built from fct_spot_price_forecast_contribution. Grain:
+      one row per MLflow run x area x component (run_id x area_key x
+      component), where component is the model's base value ('base',
+      is_base) or one model feature. Each row holds the component's mean
+      contribution and its mean absolute contribution (mean |SHAP|) over the
+      run's explained periods; n_periods says how many periods that is.
+      feature_rank orders the features of a run by mean |SHAP|, largest
+      first, ties to the component name; it is null on the base row. The
+      fact exists so the forecast dashboards' run-level charts — the mean
+      |SHAP| bars, the Feature filter's options and the importance table's
+      Mean |SHAP| column — do not aggregate the period-grain fact on every
+      view. The two means add across the components of one run only: the
+      mean contributions sum to the run's mean forecast. Never add or
+      average them across runs. Drill across to
+      fct_spot_price_forecast_importance on (run_id, area_key, component =
+      feature) and to fct_spot_price_forecast_accuracy on (run_id,
+      area_key). Only runs with rows in the contribution fact (the LightGBM
+      strategies) have rows here; previous_day has none.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - run_id
+              - area_key
+              - component
+    columns:
+      - name: run_id
+        data_type: string
+        description: MLflow run id (experiment spot_price); one run per backtest.
+        data_tests:
+          - not_null
+      - name: area_key
+        data_type: int
+        description: JEPX area of the run (dim_area).
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_area')
+                field: area_key
+      - name: strategy
+        data_type: string
+        description: The run's strategy label; one value per run.
+        data_tests:
+          - not_null
+      - name: published_at
+        data_type: timestamp
+        description: When the run's rows were written to the warehouse (naive JST); one value per run.
+        data_tests:
+          - not_null
+      - name: component
+        data_type: string
+        description: "'base' (the model's expected value) or a feature's physical name; a degenerate dimension."
+        data_tests:
+          - not_null
+      - name: component_order
+        data_type: int
+        description: 0 on the base row, then the feature's place in the model's feature order (1..n).
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+      - name: is_base
+        data_type: boolean
+        description: True on the base row, false on a feature's row.
+        data_tests:
+          - not_null
+      - name: feature_rank
+        data_type: int
+        description: The feature's rank within the run and area by mean |SHAP|, 1 = largest, ties to the component name; null on the base row.
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 1
+      - name: n_periods
+        data_type: bigint
+        description: Explained periods of the run and area that the means cover; the same on every component of a run.
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 1
+      - name: mean_contribution_price_jpy_kwh
+        data_type: double
+        description: Mean signed contribution per period, JPY/kWh; on the base row the mean base value.
+        data_tests:
+          - not_null
+      - name: mean_abs_contribution_price_jpy_kwh
+        data_type: double
+        description: Mean absolute contribution per period (mean |SHAP|), JPY/kWh.
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
