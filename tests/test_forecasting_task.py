@@ -106,35 +106,61 @@ class TestTaskSpec:
         )
         assert spec.eval_window == (pd.Timestamp("2024-04-01"), pd.Timestamp("2026-03-31"))
 
-    def test_the_holdout_opens_the_day_after_the_window_by_default(self):
+    def test_a_task_may_reserve_no_holdout(self):
         spec = make_spec(
             eval_start=pd.Timestamp("2024-04-01"), eval_end=pd.Timestamp("2026-03-31")
         )
-        assert spec.holdout_opens == pd.Timestamp("2026-04-01")
+        assert spec.holdout_start is None and spec.holdout_end is None
+        with pytest.raises(ValueError, match="no holdout is reserved"):
+            _ = spec.holdout_window
 
-    def test_holdout_start_moves_the_opening_past_days_already_scored(self):
+    def test_a_reserved_holdout_returns_both_ends(self):
         spec = make_spec(
             eval_start=pd.Timestamp("2024-04-01"),
             eval_end=pd.Timestamp("2026-03-31"),
             holdout_start=pd.Timestamp("2026-09-06"),
+            holdout_end=pd.Timestamp("2027-03-31"),
         )
-        assert spec.holdout_opens == pd.Timestamp("2026-09-06")
+        assert spec.holdout_window == (
+            pd.Timestamp("2026-09-06"),
+            pd.Timestamp("2027-03-31"),
+        )
 
-    def test_holdout_start_must_follow_the_window(self):
+    def test_a_holdout_is_reserved_at_both_ends_or_neither(self):
+        for field in ("holdout_start", "holdout_end"):
+            with pytest.raises(
+                ValueError, match="reserve both holdout_start and holdout_end, or neither"
+            ):
+                make_spec(
+                    eval_start=pd.Timestamp("2024-04-01"),
+                    eval_end=pd.Timestamp("2026-03-31"),
+                    **{field: pd.Timestamp("2026-09-06")},
+                )
+
+    def test_a_reserved_holdout_needs_a_pinned_window(self):
+        with pytest.raises(ValueError, match="a reserved holdout needs a pinned eval_end"):
+            make_spec(
+                holdout_start=pd.Timestamp("2026-09-06"),
+                holdout_end=pd.Timestamp("2027-03-31"),
+            )
+
+    def test_a_holdout_must_follow_the_evaluation_window(self):
         with pytest.raises(ValueError, match="holdout_start 2026-03-31 must follow eval_end"):
             make_spec(
                 eval_start=pd.Timestamp("2024-04-01"),
                 eval_end=pd.Timestamp("2026-03-31"),
                 holdout_start=pd.Timestamp("2026-03-31"),
+                holdout_end=pd.Timestamp("2027-03-31"),
             )
 
-    def test_holdout_start_needs_a_pinned_window(self):
-        with pytest.raises(ValueError, match="holdout_start needs a pinned eval_end"):
-            make_spec(holdout_start=pd.Timestamp("2026-09-06"))
-
-    def test_holdout_opens_refuses_an_unpinned_task(self):
-        with pytest.raises(ValueError, match="no evaluation window is pinned"):
-            _ = make_spec().holdout_opens
+    def test_a_holdout_must_not_run_backwards(self):
+        with pytest.raises(ValueError, match="holdout_end 2026-09-05 is before holdout_start"):
+            make_spec(
+                eval_start=pd.Timestamp("2024-04-01"),
+                eval_end=pd.Timestamp("2026-03-31"),
+                holdout_start=pd.Timestamp("2026-09-06"),
+                holdout_end=pd.Timestamp("2026-09-05"),
+            )
 
     def test_a_one_day_window_is_allowed(self):
         day = pd.Timestamp("2024-04-01")

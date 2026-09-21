@@ -736,40 +736,56 @@ class TestBacktestScript:
     def test_a_holdout_run_short_of_the_opening_says_the_days_were_seen(
         self, spark, curated_warehouse, feature_marts, monkeypatch
     ):
-        # Between eval_end and holdout_opens lie the days pre-pin runs already
-        # scored. Reaching only into them is allowed, but it is not evidence.
+        # Between eval_end and the reservation lie the days pre-pin runs already
+        # scored. Reaching them needs explicit dates, since --holdout alone covers
+        # the reservation; it is allowed, but it is not evidence.
         script = import_script("demand_backtest")
         monkeypatch.setattr(script, "EVAL_END", pd.Timestamp("2024-05-10"))
-        monkeypatch.setattr(script, "holdout_opens", lambda task: pd.Timestamp("2024-06-01"))
+        monkeypatch.setattr(script, "HOLDOUT_START", pd.Timestamp("2024-06-01"))
+        monkeypatch.setattr(script, "HOLDOUT_END", pd.Timestamp("2024-06-30"))
         with captured_logs("WARNING") as messages:
-            script.main(["--end-date", "2024-05-20", "--holdout", "--shap-nsamples", "20"])
+            script.main(
+                [
+                    "--start-date",
+                    "2024-05-15",
+                    "--end-date",
+                    "2024-05-20",
+                    "--holdout",
+                    "--shap-nsamples",
+                    "20",
+                ]
+            )
         params = last_run().data.params
         assert params["reads_holdout"] == "True"
         assert params["reads_unseen_holdout"] == "False"
-        assert params["holdout_opens"] == "2024-06-01"
-        assert any("already scored" in m for m in messages)
+        assert params["holdout_window"] == "2024-06-01..2024-06-30"
+        assert any("not independent evidence" in m for m in messages)
 
-    def test_a_holdout_run_measures_the_holdout_not_the_window_as_well(
+    def test_a_holdout_run_covers_the_reserved_window(
         self, spark, curated_warehouse, feature_marts, monkeypatch
     ):
-        # Without an explicit start it begins at the opening, so 730 window days
-        # cannot drown the handful of unseen ones in one average.
+        # Every run of one batch scores the same days, so a baseline and its
+        # candidate can be compared on them.
         script = import_script("demand_backtest")
         monkeypatch.setattr(script, "EVAL_START", pd.Timestamp("2024-04-01"))
         monkeypatch.setattr(script, "EVAL_END", pd.Timestamp("2024-05-10"))
-        monkeypatch.setattr(script, "holdout_opens", lambda task: pd.Timestamp("2024-05-25"))
-        script.main(["--end-date", "2024-05-28", "--holdout", "--shap-nsamples", "20"])
-        params = last_run().data.params
-        assert params["start_date"] == "2024-05-25"
-        assert params["end_date"] == "2024-05-28"
-        assert params["reads_unseen_holdout"] == "True"
+        monkeypatch.setattr(script, "HOLDOUT_START", pd.Timestamp("2024-05-25"))
+        monkeypatch.setattr(script, "HOLDOUT_END", pd.Timestamp("2024-05-28"))
+        # Twice over: the window does not move because the first run published.
+        for _ in range(2):
+            script.main(["--holdout", "--shap-nsamples", "20"])
+            params = last_run().data.params
+            assert params["start_date"] == "2024-05-25"
+            assert params["end_date"] == "2024-05-28"
+            assert params["holdout_window"] == "2024-05-25..2024-05-28"
+            assert params["reads_unseen_holdout"] == "True"
 
     def test_an_explicit_start_still_scores_the_window_and_the_holdout(
         self, spark, curated_warehouse, feature_marts, monkeypatch
     ):
         script = import_script("demand_backtest")
         monkeypatch.setattr(script, "EVAL_END", pd.Timestamp("2024-05-10"))
-        monkeypatch.setattr(script, "holdout_opens", lambda task: pd.Timestamp("2024-05-25"))
+        monkeypatch.setattr(script, "HOLDOUT_START", pd.Timestamp("2024-05-25"))
         script.main(
             [
                 "--start-date",
@@ -790,7 +806,7 @@ class TestBacktestScript:
         # holdout error, so the flags must not claim it did.
         script = import_script("demand_backtest")
         monkeypatch.setattr(script, "EVAL_END", pd.Timestamp("2024-05-20"))
-        monkeypatch.setattr(script, "holdout_opens", lambda task: pd.Timestamp("2024-05-25"))
+        monkeypatch.setattr(script, "HOLDOUT_START", pd.Timestamp("2024-05-25"))
         script.main(
             [
                 "--start-date",
@@ -857,6 +873,7 @@ class TestBacktestScript:
         script.main(["--shap-nsamples", "20"])
         params = last_run().data.params
         assert params["eval_window"] == "2024-04-01..2026-03-31"
+        assert params["holdout_window"] == "2026-09-06..2027-03-31"
         assert params["reads_holdout"] == "False"
         assert params["end_date"] == "2024-05-31"
         assert params["start_date"] == "2024-04-01"
