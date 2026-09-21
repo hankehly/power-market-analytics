@@ -106,6 +106,36 @@ class TestTaskSpec:
         )
         assert spec.eval_window == (pd.Timestamp("2024-04-01"), pd.Timestamp("2026-03-31"))
 
+    def test_the_holdout_opens_the_day_after_the_window_by_default(self):
+        spec = make_spec(
+            eval_start=pd.Timestamp("2024-04-01"), eval_end=pd.Timestamp("2026-03-31")
+        )
+        assert spec.holdout_opens == pd.Timestamp("2026-04-01")
+
+    def test_holdout_start_moves_the_opening_past_days_already_scored(self):
+        spec = make_spec(
+            eval_start=pd.Timestamp("2024-04-01"),
+            eval_end=pd.Timestamp("2026-03-31"),
+            holdout_start=pd.Timestamp("2026-09-06"),
+        )
+        assert spec.holdout_opens == pd.Timestamp("2026-09-06")
+
+    def test_holdout_start_must_follow_the_window(self):
+        with pytest.raises(ValueError, match="holdout_start 2026-03-31 must follow eval_end"):
+            make_spec(
+                eval_start=pd.Timestamp("2024-04-01"),
+                eval_end=pd.Timestamp("2026-03-31"),
+                holdout_start=pd.Timestamp("2026-03-31"),
+            )
+
+    def test_holdout_start_needs_a_pinned_window(self):
+        with pytest.raises(ValueError, match="holdout_start needs a pinned eval_end"):
+            make_spec(holdout_start=pd.Timestamp("2026-09-06"))
+
+    def test_holdout_opens_refuses_an_unpinned_task(self):
+        with pytest.raises(ValueError, match="no evaluation window is pinned"):
+            _ = make_spec().holdout_opens
+
     def test_a_one_day_window_is_allowed(self):
         day = pd.Timestamp("2024-04-01")
         spec = make_spec(eval_start=day, eval_end=day)

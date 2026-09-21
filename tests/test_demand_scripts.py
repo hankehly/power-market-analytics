@@ -9,10 +9,13 @@ store: fits/scores, logs the MLflow run and publishes to
 
 from __future__ import annotations
 
+import contextlib
+
 import mlflow
 import numpy as np
 import pandas as pd
 import pytest
+from loguru import logger
 from pyspark.sql import functions as F
 
 from tests.conftest import (
@@ -69,6 +72,18 @@ def published_importance_rows(spark, run_id: str) -> pd.DataFrame:
 
 
 # --------------------------------------------------------------------------- compare script
+
+
+
+@contextlib.contextmanager
+def captured_logs(level: str = "INFO"):
+    """Collect loguru messages at ``level`` and above (the repo's test idiom)."""
+    messages: list[str] = []
+    sink = logger.add(lambda m: messages.append(m.record["message"]), level=level)
+    try:
+        yield messages
+    finally:
+        logger.remove(sink)
 
 
 class TestCompareScript:
@@ -719,19 +734,37 @@ class TestBacktestScript:
         assert exc.value.code == 2
         assert last_run().info.status == "FAILED"
 
+    def test_a_holdout_run_short_of_the_opening_says_the_days_were_seen(
+        self, spark, curated_warehouse, feature_marts, monkeypatch
+    ):
+        # Between eval_end and holdout_opens lie the days pre-pin runs already
+        # scored. Reaching only into them is allowed, but it is not evidence.
+        script = import_script("demand_backtest")
+        monkeypatch.setattr(script, "EVAL_END", pd.Timestamp("2024-05-10"))
+        monkeypatch.setattr(script, "HOLDOUT_OPENS", pd.Timestamp("2024-06-01"))
+        with captured_logs("WARNING") as messages:
+            script.main(["--end-date", "2024-05-20", "--holdout", "--shap-nsamples", "20"])
+        params = last_run().data.params
+        assert params["reads_holdout"] == "True"
+        assert params["reads_unseen_holdout"] == "False"
+        assert params["holdout_opens"] == "2024-06-01"
+        assert any("already scored" in m for m in messages)
+
     def test_the_pin_caps_the_run_when_the_data_runs_past_it(
-        self, spark, curated_warehouse, feature_marts, monkeypatch, caplog
+        self, spark, curated_warehouse, feature_marts, monkeypatch
     ):
         # Production's case, which the fixture cannot reach on its own: the data
         # outlives the window, so the run stops at the pin and says nothing about
         # a short warehouse.
         script = import_script("demand_backtest")
         monkeypatch.setattr(script, "EVAL_END", pd.Timestamp("2024-05-20"))
-        script.main(["--shap-nsamples", "20"])
+        with captured_logs("WARNING") as messages:
+            script.main(["--shap-nsamples", "20"])
         params = last_run().data.params
         assert params["end_date"] == "2024-05-20"
         assert params["reads_holdout"] == "False"
-        assert "before the pinned window's" not in caplog.text
+        # caplog never sees loguru, so this has to read the sink or it proves nothing.
+        assert not [m for m in messages if "before the pinned window's" in m]
 
     def test_the_default_window_is_the_pin_capped_by_the_data(
         self, spark, curated_warehouse, feature_marts

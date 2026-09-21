@@ -40,6 +40,11 @@ TASK = TaskSpec(
     # is the holdout, which no experiment reads until a confirmation run.
     eval_start=pd.Timestamp("2024-04-01"),
     eval_end=pd.Timestamp("2026-03-31"),
+    # Not the day after eval_end: 49 runs scored past it before the window was
+    # pinned - 43 through 2026-08-17 and 3 through 2026-09-05 - and the split of
+    # those runs' per-day errors was read while deciding to pin at all. Nothing
+    # before 2026-09-06 is unseen, whatever the window says.
+    holdout_start=pd.Timestamp("2026-09-06"),
 )
 
 MLFLOW_EXPERIMENT = TASK.name
