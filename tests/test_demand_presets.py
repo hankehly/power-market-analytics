@@ -1,6 +1,6 @@
 """The demand presets: the twelve files of conf/presets/demand, pinned to their tuples.
 
-The eleven of 2026-09-19 keep the tuples they were registered with; ``e212``, ``e219``,
+The eleven of 2026-09-19 keep the tuples they were registered with; ``e212``, ``e219``, ``e221``,
 the joint test of experiment #212, is pinned to the 104 references it was
 written with on 2026-09-20.
 """
@@ -195,7 +195,7 @@ def test_the_eleven_files_resolve_to_the_tuples_registered_on_2026_09_19():
     assert {
         name: (p.base, p.features) for name, p in PRESETS.items() if name in EXPECTED
     } == EXPECTED
-    assert set(PRESETS) == set(EXPECTED) | {"e212", "e219"}
+    assert set(PRESETS) == set(EXPECTED) | {"e212", "e219", "e221"}
     assert all(p.task == "demand" for p in PRESETS.values())
     assert PRESETS["lightgbm"].feature_cols == (
         "time_code",
@@ -240,7 +240,7 @@ def test_types_and_categoricals_come_from_the_views():
     assert all(
         categorical_columns(preset) == (("day_type",) if "daytype" in name else ())
         for name, preset in PRESETS.items()
-        if name not in ("e212", "e219")  # e212's five are pinned below; e219 shares them
+        if name not in ("e212", "e219", "e221")  # e212's five are pinned below; the others share them
     )
 
 
