@@ -723,13 +723,27 @@ class TestBacktestScript:
         assert "reads the holdout, which opens after 2026-03-31" in message
         assert "--holdout" in message
 
-    def test_the_holdout_flag_lets_the_run_past_the_window(
-        self, spark, curated_warehouse, feature_marts
-    ):
-        # With the flag it is the data that stops it, not the window.
+    def test_an_end_date_past_the_reservation_is_refused(self, spark, capsys):
+        # Nothing is reserved past holdout_end, so --holdout does not reach there.
+        # Checked off the arguments alone, before a run exists.
         script = import_script("demand_backtest")
         with pytest.raises(SystemExit) as exc:
             script.main(["--end-date", "2030-01-01", "--holdout"])
+        assert exc.value.code == 2
+        message = capsys.readouterr().err
+        assert "past the reserved holdout, which ends 2027-03-31" in message
+        assert "reserve those days first" in message
+
+    def test_the_holdout_flag_lets_the_run_past_the_window(
+        self, spark, curated_warehouse, feature_marts
+    ):
+        # Inside the reservation but past the fixture's data, so the flag carries
+        # it through the window guard and the data is what stops it -- with a date
+        # past holdout_end the argument guard would exit before a run existed and
+        # last_run() would report the previous test's.
+        script = import_script("demand_backtest")
+        with pytest.raises(SystemExit) as exc:
+            script.main(["--end-date", "2026-09-10", "--holdout"])
         assert exc.value.code == 2
         assert last_run().info.status == "FAILED"
 
@@ -827,8 +841,8 @@ class TestBacktestScript:
     def test_the_forecasts_are_published_before_the_errors_are_logged(
         self, spark, curated_warehouse, feature_marts, monkeypatch
     ):
-        # The published rows are what mark the holdout spent, so a failed publish
-        # must not leave the errors visible with nothing recording the days.
+        # The warehouse rows are the durable record of the run, so a failed
+        # publish must not leave the errors in MLflow having outlived them.
         script = import_script("demand_backtest")
         order: list[str] = []
         publish = script.publish_forecast_records
