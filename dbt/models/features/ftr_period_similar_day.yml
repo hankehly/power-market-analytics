@@ -19,7 +19,8 @@ models:
       335 ... 394 days back, with its load public by the issue time, takes that day instead
       (similar_day_method same_holiday): rank 1 and the mean carry its load, and ranks 2 and 3,
       the distances, the candidate count and the fit cutoff are null. Any other special day is
-      ranked like an ordinary day (similarity). No day is ranked with weights that saw a load
+      ranked like an ordinary day (similarity); the job's --no-same-holiday flag ranks every
+      special day that way. No day is ranked with weights that saw a load
       that was not yet public: each fit runs at a cutoff on the pairs of the 730 days before it
       whose target load was public by then, and a day is ranked by the latest fit whose cutoff
       is on or before its issue time. A ranked day's available_at is the latest of D's MSM

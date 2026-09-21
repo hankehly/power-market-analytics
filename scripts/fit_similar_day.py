@@ -22,6 +22,7 @@ their inverse-distance weighted mean are written to ``pma_ml.similar_day``
 (``tasks/demand/similar_day_feature.py``). A special day whose same holiday
 last year lies in the pool's year-ago window, with that day's load public by
 the issue time, takes that day instead: rank 1 and the mean carry its load.
+``--no-same-holiday`` turns that off and ranks every special day from its pool.
 The pool has no flags. The
 ``ftr_period_similar_day`` mart passes the rows to Feast after ``dbt build``;
 the similar-day presets read rank 1. A re-run's rows win by ``published_at``
@@ -88,6 +89,15 @@ def main(argv: list[str] | None = None) -> None:
         default=SIMILAR_DAY_FIT_WINDOW_DAYS,
         help="Days of target days before its cutoff a fit sees.",
     )
+    parser.add_argument(
+        "--no-same-holiday",
+        dest="same_holiday",
+        action="store_false",
+        help=(
+            "Rank every special day from its pool instead of letting it take the "
+            "same holiday of last year."
+        ),
+    )
     args = parser.parse_args(argv)
     if args.refit_every_days < 1:
         parser.error(f"--refit-every-days must be >= 1, got {args.refit_every_days}")
@@ -113,6 +123,7 @@ def main(argv: list[str] | None = None) -> None:
             selector,
             weather.forecast.df["trade_date"].unique(),
             refit_every_days=args.refit_every_days,
+            same_holiday=args.same_holiday,
         )
         records = build_feature_records(
             scoring,
@@ -135,6 +146,7 @@ def main(argv: list[str] | None = None) -> None:
             {
                 "area": args.area,
                 "refit_every_days": args.refit_every_days,
+                "same_holiday": args.same_holiday,
                 "n_fits": len(scoring.fits),
                 "n_cutoffs_without_fit": len(scoring.cutoffs_without_fit),
                 "first_fit_cutoff": str(scoring.fits["fit_cutoff"].iloc[0]),
