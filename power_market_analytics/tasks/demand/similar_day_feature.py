@@ -172,6 +172,7 @@ def score_walk_forward(
     days: Iterable[pd.Timestamp],
     *,
     refit_every_days: int = DEFAULT_REFIT_EVERY_DAYS,
+    same_holiday: bool = True,
 ) -> WalkForwardScoring:
     """Score the scorable days among ``days``, refitting the weights as time passes.
 
@@ -181,6 +182,15 @@ def score_walk_forward(
     its load public by the issue time) are not ranked; every other day, special
     or not, is ranked from its pool, to ``SIMILAR_DAY_TOP_K`` days. That depth
     is a constant, not an argument, because the table's column names carry it.
+
+    With ``same_holiday=False`` no day takes its reference: every special day is
+    ranked from its pool like any other. The references are still computed and
+    still returned on ``WalkForwardScoring.special_days``, with
+    ``takes_reference`` false throughout, so the run's special-days artifact
+    still says which day each one would have taken. Nothing else moves: the
+    weight fits never see a special day as a target
+    (``SimilarDaySelector.training_pairs``) and a pair's distance is a function
+    of that pair alone, so ranking more days cannot change another day's ranks.
 
     The first fit runs at the first instant a fit is possible (when
     ``MIN_FIT_PAIRS`` pairs were public) and every ``refit_every_days`` after
@@ -202,6 +212,9 @@ def score_walk_forward(
         Candidate delivery days, e.g. every day with a forecast.
     refit_every_days : int, optional
         Days between two fits.
+    same_holiday : bool, optional
+        Whether a special day may take its same-holiday reference instead of
+        being ranked. False ranks every special day from its pool.
 
     Returns
     -------
@@ -226,6 +239,8 @@ def score_walk_forward(
         raise ValueError(f"no day can be scored: the first fit can run at {first}")
     span = scorable[issued >= first]
     special = selector.special_day_references(span)
+    if not same_holiday:
+        special = SpecialDayReferences.from_df(special.df.assign(takes_reference=False))
     ranked_days = span[~span.isin(special.same_holiday_days)]
     ranked_issued = issue_times(ranked_days)
     step = pd.Timedelta(days=refit_every_days)

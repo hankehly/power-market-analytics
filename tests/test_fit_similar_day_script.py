@@ -284,6 +284,27 @@ class TestFitScript:
         rows = published_rows(spark, run.info.run_id)
         assert RANKED_SPECIAL_DAY.date() not in set(rows["trade_date"])
 
+    def test_no_same_holiday_ranks_every_special_day(self, spark, script):
+        script.main(["--no-same-holiday"])
+        run = last_run()
+        params = run.data.params
+        assert params["same_holiday"] == "False"
+        assert params["n_days_same_holiday"] == "0"
+        assert params["n_days_ranked"] == params["n_days_scored"] == "81"
+        assert params["n_special_days_ranked"] == "2"
+        # The reference is still reported; the day just did not take it.
+        special = artifact(run.info.run_id, "similar_day_special_days.csv").set_index("trade_date")
+        took = special.loc[str(SAME_HOLIDAY_DAY.date())]
+        assert not bool(took["takes_reference"])
+        assert took["similar_day_method"] == METHOD_SIMILARITY
+        rows = published_rows(spark, run.info.run_id)
+        assert set(rows["similar_day_method"]) == {METHOD_SIMILARITY}
+        assert SAME_HOLIDAY_DAY.date() in set(rows["trade_date"])
+
+    def test_the_same_holiday_rule_is_on_by_default(self, spark, script):
+        script.main([])
+        assert last_run().data.params["same_holiday"] == "True"
+
     def test_cadence_reaches_the_job(self, spark, script):
         script.main(["--refit-every-days", "30"])
         run = last_run()

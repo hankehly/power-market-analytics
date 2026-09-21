@@ -239,6 +239,53 @@ class TestScoreWalkForward:
         assert SAME_HOLIDAY not in set(weekly.ranking.df["trade_date"])
         assert SAME_HOLIDAY not in weekly.fit_cutoff.index
 
+    def test_without_the_same_holiday_rule_every_special_day_is_ranked(self, weekly):
+        # The reference is still computed and still reported, but no day takes it.
+        scoring = score_walk_forward(
+            make_selector(), make_forecast().df["trade_date"].unique(), same_holiday=False
+        )
+        assert scoring.special_days.same_holiday_days.empty
+        special = scoring.special_days.df
+        assert special["trade_date"].tolist() == [SAME_HOLIDAY, LAST_SCORABLE]
+        assert special["takes_reference"].tolist() == [False, False]
+        assert special["last_year_date"].iloc[0] == SAME_HOLIDAY_REFERENCE
+        # The day the rule used to take is ranked from its pool like any other.
+        scored = scoring.selection.df["trade_date"]
+        assert scored.tolist() == pd.date_range("2024-02-09", LAST_SCORABLE).tolist()
+        assert SAME_HOLIDAY in set(scoring.ranking.df["trade_date"])
+        assert SAME_HOLIDAY in scoring.fit_cutoff.index
+        # Its rows are a ranked day's: three ranks and a pool of its own.
+        records = make_records(scoring)
+        rows = records.df[records.df["trade_date"] == SAME_HOLIDAY]
+        assert rows["similar_day_method"].eq(METHOD_SIMILARITY).all()
+        assert rows["similar_day_n_candidates"].gt(0).all()
+        assert rows[list(RANK_LOAD_COLS)].notna().all(axis=None)
+
+    def test_dropping_the_same_holiday_rule_moves_no_other_day(self, weekly):
+        # What the experiment on the rule rests on: the fits never see a special day
+        # as a target and a pair's distance is its own, so ranking one more day
+        # leaves every other day's ranks and weights untouched, to the bit.
+        scoring = score_walk_forward(
+            make_selector(), make_forecast().df["trade_date"].unique(), same_holiday=False
+        )
+        # Every fit is the same fit; only its tally of the days it served grows by
+        # the one day the rule used to take out.
+        tally = "n_days_scored"
+        pd.testing.assert_frame_equal(
+            scoring.fits.drop(columns=tally), weekly.fits.drop(columns=tally)
+        )
+        grew = scoring.fits[tally] - weekly.fits[tally]
+        assert grew.sum() == 1
+        served = weekly.fits["fit_cutoff"] <= issue_times(pd.DatetimeIndex([SAME_HOLIDAY]))[0]
+        assert grew[served].iloc[-1] == 1
+        for frame, before in (
+            (scoring.selection.df, weekly.selection.df),
+            (scoring.ranking.df, weekly.ranking.df),
+        ):
+            others = frame[frame["trade_date"] != SAME_HOLIDAY].reset_index(drop=True)
+            pd.testing.assert_frame_equal(others, before.reset_index(drop=True))
+        pd.testing.assert_series_equal(scoring.fit_cutoff.drop(SAME_HOLIDAY), weekly.fit_cutoff)
+
     def test_a_days_choice_is_the_fits_own(self, weekly):
         # Re-fit at the day's cutoff and rank the day again: the same choice.
         cutoff = weekly.fit_cutoff[D]
