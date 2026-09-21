@@ -78,7 +78,7 @@ models:
           meta:
             feature: true
             categorical: false
-            expression: "SIMILAR_DAY(power_usage_demand_kwh, gap=(2d, 335d), window=(30, 60), rank=1, holidays=last_year) / 2"
+            expression: "SIMILAR_DAY(power_usage_demand_kwh, gap=(2d, 335d), window=(30, 60), rank=1, holidays=same_holiday) / 2"
         data_tests:
           - not_null
       - name: similar_day_rank2_demand_kwh
@@ -89,7 +89,7 @@ models:
           meta:
             feature: true
             categorical: false
-            expression: "SIMILAR_DAY(power_usage_demand_kwh, gap=(2d, 335d), window=(30, 60), rank=2, holidays=last_year) / 2"
+            expression: "SIMILAR_DAY(power_usage_demand_kwh, gap=(2d, 335d), window=(30, 60), rank=2, holidays=same_holiday) / 2"
       - name: similar_day_rank3_demand_kwh
         data_type: double
         description: >
@@ -98,7 +98,7 @@ models:
           meta:
             feature: true
             categorical: false
-            expression: "SIMILAR_DAY(power_usage_demand_kwh, gap=(2d, 335d), window=(30, 60), rank=3, holidays=last_year) / 2"
+            expression: "SIMILAR_DAY(power_usage_demand_kwh, gap=(2d, 335d), window=(30, 60), rank=3, holidays=same_holiday) / 2"
       - name: wavg_similar_day_top3_demand_kwh
         data_type: double
         description: >
@@ -107,7 +107,7 @@ models:
           meta:
             feature: true
             categorical: false
-            expression: "SIMILAR_DAY_MEAN(power_usage_demand_kwh, gap=(2d, 335d), window=(30, 60), k=3, weight=inverse_distance, holidays=last_year) / 2"
+            expression: "SIMILAR_DAY_MEAN(power_usage_demand_kwh, gap=(2d, 335d), window=(30, 60), k=3, weight=inverse_distance, holidays=same_holiday) / 2"
         data_tests:
           - not_null
       - name: similar_day_rank1_reference_date

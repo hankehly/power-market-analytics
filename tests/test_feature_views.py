@@ -96,14 +96,14 @@ def test_the_similar_day_view_carries_the_ranks_their_mean_and_rank_1s_distance_
         **{
             f"similar_day_rank{rank}_demand_kwh": {
                 "categorical": "false",
-                "expression": f"SIMILAR_DAY({pool}, rank={rank}, holidays=last_year) / 2",
+                "expression": f"SIMILAR_DAY({pool}, rank={rank}, holidays=same_holiday) / 2",
             }
             for rank in (1, 2, 3)
         },
         "wavg_similar_day_top3_demand_kwh": {
             "categorical": "false",
             "expression": (
-                f"SIMILAR_DAY_MEAN({pool}, k=3, weight=inverse_distance, holidays=last_year) / 2"
+                f"SIMILAR_DAY_MEAN({pool}, k=3, weight=inverse_distance, holidays=same_holiday) / 2"
             ),
         },
         # Columns passed through keep their names as their expressions.
