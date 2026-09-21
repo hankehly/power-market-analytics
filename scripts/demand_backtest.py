@@ -39,6 +39,12 @@ from power_market_analytics.tasks.demand import MLFLOW_EXPERIMENT, TASK
 from power_market_analytics.tasks.demand.datasets import AREA_CODES, load_area_demand
 from power_market_analytics.tasks.demand.strategies import STRATEGIES, build_strategy
 
+#: The task's pinned evaluation window; the days after it are the holdout.
+EVAL_START, EVAL_END = TASK.eval_window
+#: The reserved holdout: the only days a confirmation run may score, shared by
+#: every run of one batch so a baseline and its candidate compare on them.
+HOLDOUT_START, HOLDOUT_END = TASK.holdout_window
+
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -56,20 +62,43 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--days",
         type=int,
-        default=365,
-        help="Backtest window length in delivery days, ending at --end-date.",
+        default=None,
+        help=(
+            "Backtest window length in delivery days, ending at --end-date; "
+            "ignored unless given, so the default is the task's pinned window."
+        ),
     )
     parser.add_argument(
         "--start-date",
         type=pd.Timestamp,
         default=None,
-        help="First delivery day to forecast (YYYY-MM-DD); overrides --days.",
+        help=(
+            "First delivery day to forecast (YYYY-MM-DD); overrides --days. "
+            f"Default: the task's pinned evaluation window, from {EVAL_START.date()}."
+        ),
     )
     parser.add_argument(
         "--end-date",
         type=pd.Timestamp,
         default=None,
-        help="Last delivery day to forecast (YYYY-MM-DD); default: the last day in the data.",
+        help=(
+            "Last delivery day to forecast (YYYY-MM-DD). Default: the end of the "
+            f"task's pinned evaluation window, {EVAL_END.date()}. A later day "
+            "reads the holdout and needs --holdout."
+        ),
+    )
+    parser.add_argument(
+        "--holdout",
+        action="store_true",
+        help=(
+            "Allow scoring past the pinned evaluation window. Only for a "
+            "confirmation run: the holdout is what keeps the window's numbers "
+            "honest, and a run that reads it is logged as having done so. The "
+            f"reserved holdout is {HOLDOUT_START.date()}..{HOLDOUT_END.date()}, and "
+            "a run may not score past it. Without --start-date or --days the run "
+            "covers exactly those days, so every run of one batch compares on the "
+            "same window."
+        ),
     )
     parser.add_argument(
         "--train-start",
@@ -113,6 +142,18 @@ def main(argv: list[str] | None = None) -> None:
         parser.error(f"--importance-repeats must be >= 1, got {args.importance_repeats}")
     if (args.add or args.drop) and not args.name:
         parser.error("--add / --drop change the preset's feature set: give the run a --name")
+    # Checked here, not after the data loads: it reads arguments and a constant, so
+    # it should fail before a Spark session is built.
+    if args.end_date is not None and args.end_date > EVAL_END and not args.holdout:
+        parser.error(
+            f"--end-date {args.end_date.date()} reads the holdout, which opens after "
+            f"{EVAL_END.date()}; pass --holdout for a confirmation run"
+        )
+    if args.end_date is not None and args.end_date > HOLDOUT_END:
+        parser.error(
+            f"--end-date {args.end_date.date()} is past the reserved holdout, which ends "
+            f"{HOLDOUT_END.date()}; reserve those days first"
+        )
     label = args.name or args.strategy
 
     with task_run(
@@ -122,14 +163,40 @@ def main(argv: list[str] | None = None) -> None:
     ) as mlflow_run:
         demand = load_area_demand(area_code=args.area)
         last_day = demand.df["trade_date"].max()
-        end_date = last_day if args.end_date is None else args.end_date
+        if args.end_date is not None:
+            end_date = args.end_date
+        else:
+            end_date = min(HOLDOUT_END if args.holdout else EVAL_END, last_day)
+            if last_day < (HOLDOUT_END if args.holdout else EVAL_END):
+                logger.warning(
+                    "the data ends {}, before {}: scoring to {} instead, so this run "
+                    "is not comparable with one over the whole window",
+                    last_day.date(),
+                    (HOLDOUT_END if args.holdout else EVAL_END).date(),
+                    end_date.date(),
+                )
         if end_date > last_day:
             parser.error(f"--end-date {end_date.date()} is after the last day in the data")
-        start_date = (
-            end_date - pd.DateOffset(days=args.days - 1)
-            if args.start_date is None
-            else args.start_date
-        )
+        if end_date > EVAL_END and end_date < HOLDOUT_START:
+            logger.warning(
+                "this run reads {}..{}, which lies between the evaluation window and "
+                "the reserved holdout at {}: runs made before the window was pinned "
+                "scored those days, so they are not independent evidence",
+                (EVAL_END + pd.Timedelta(days=1)).date(),
+                end_date.date(),
+                HOLDOUT_START.date(),
+            )
+        if args.start_date is not None:
+            start_date = args.start_date
+        elif args.days is not None:
+            start_date = end_date - pd.DateOffset(days=args.days - 1)
+        elif args.holdout:
+            # A confirmation run covers the reserved holdout, so every run of one
+            # batch scores the same days and starting at EVAL_START cannot drown
+            # them in 730 days that are not independent. --start-date scores both.
+            start_date = HOLDOUT_START
+        else:
+            start_date = max(EVAL_START, demand.df["trade_date"].min())
         if start_date > end_date:
             parser.error(f"start date {start_date.date()} is after end date {end_date.date()}")
 
@@ -152,13 +219,30 @@ def main(argv: list[str] | None = None) -> None:
         result = run.result
 
         per_day = daily_metrics(result)
+        # Publishing comes first so a failed publish takes the artifacts with
+        # it: the warehouse rows are the durable record of the run, and errors
+        # logged to MLflow without them would outlive what produced them.
+        records = build_forecast_records(
+            TASK, result, run_id=mlflow_run.info.run_id, strategy=label, area_code=args.area
+        )
+        publish_forecast_records(TASK, records)
+        mlflow.set_tag("warehouse_table", TASK.forecast_table)
 
+        # The flags read the days actually scored, not the days asked for: a run
+        # whose holdout targets all raised ForecastUnavailableError read no
+        # holdout error, and the boundary it leaves behind says so.
+        last_scored = pd.Timestamp(result.df["trade_date"].max())
         mlflow.log_params(
             {
                 "strategy": label,
                 "area": args.area,
                 "start_date": str(start_date.date()),
                 "end_date": str(end_date.date()),
+                "last_scored_date": str(last_scored.date()),
+                "eval_window": f"{EVAL_START.date()}..{EVAL_END.date()}",
+                "reads_holdout": last_scored > EVAL_END,
+                "reads_unseen_holdout": last_scored >= HOLDOUT_START,
+                "holdout_window": f"{HOLDOUT_START.date()}..{HOLDOUT_END.date()}",
                 "n_days": per_day["trade_date"].nunique(),
                 "n_predictions": len(result),
                 "n_days_skipped": len(run.skipped_days),
@@ -166,11 +250,6 @@ def main(argv: list[str] | None = None) -> None:
         )
         log_dataframe(per_day, "daily_errors.csv")
         log_dataframe(result.df, "predictions.csv")
-        records = build_forecast_records(
-            TASK, result, run_id=mlflow_run.info.run_id, strategy=label, area_code=args.area
-        )
-        publish_forecast_records(TASK, records)
-        mlflow.set_tag("warehouse_table", TASK.forecast_table)
         contributions = strategy.contributions()
         if contributions is None:
             logger.info("{}: strategy produces no contributions; nothing to publish", label)

@@ -67,3 +67,11 @@ tmp/
 
 # Subagent-driven-development scratch (ledgers, briefs, review packages)
 .superpowers/
+
+# Local Spark / MLflow scratch. A host-side SparkSession writes derby.log and
+# metastore_db/ beside the working directory, and a file-store MLflow client
+# writes mlflow.db; inside a worktree they are untracked and `git add -A` takes
+# them.
+derby.log
+metastore_db/
+mlflow.db

@@ -234,9 +234,60 @@
   keep them fresh with the JMA download + load scripts, since a stale window's last days are
   forecast with the temperature window null), the MSM forecasts of its stations in
   `fct_jma_msm_weather_forecast_hourly` (a delivery day without a forecast is forecast with
-  those features null) and `fct_census_population_jma_station`. Same flags as the spot script: `--add VIEW:COLUMN …` /
-  `--drop VIEW:COLUMN …` with `--name`, `--days` (default 365), `--start-date` /
-  `--end-date`, `--train-start`, `--importance-repeats`. Logs to the MLflow experiment
+  those features null) and `fct_census_population_jma_station`. Since 2026-09-21 the demand task pins an
+  **evaluation window** on its `TaskSpec` (`eval_start` / `eval_end`,
+  `TASK.eval_window`): **2024-04-01 … 2026-03-31**, fiscal years 2024 and 2025,
+  730 days. It opens where the configured 730-day training window is
+  first full — the target starts 2022-04-01, and a model trains on as much
+  history as exists, so earlier days are scorable but on a shorter window — and
+  the days after it are the **holdout**, which no experiment
+  reads until a confirmation run. The holdout is **reserved, not derived**: `holdout_start` /
+  `holdout_end` name it (`TASK.holdout_window`), today **2026-09-06 …
+  2027-03-31**. It opens after the last day any run had scored when the window
+  was pinned — 49 of them reached past `eval_end`, 3 as far as 2026-09-05 — and
+  runs to the end of FY2026. Only 14 of its days hold data today; the rest fill
+  as the data arrives.
+
+  Reserved rather than inferred from what has been scored, for three reasons.
+  Every run of one confirmation batch must share the same days, and a boundary
+  that moved as runs published would stop a baseline and its candidate being
+  compared at all. A value in the repository cannot be reset by dropping a
+  `pma_ml` table, which the rollout process does on a schema change. And a
+  constant cannot be raced by two runs starting at once. Once a batch has spent
+  the reservation, move both dates in a pull request.
+
+  A `--holdout` run covers exactly the reservation unless `--start-date` or
+  `--days` say otherwise, so a batch compares on one window; `--end-date` past
+  `holdout_end` is refused, since nothing is reserved there. A run reaching the
+  days between `eval_end` and `holdout_start` — which pre-pin runs scored — is
+  allowed with explicit dates and warns that they are not independent evidence.
+  `reads_holdout` and `reads_unseen_holdout` read the last day actually
+  scored (`last_scored_date`), not the day asked for, so a run whose holdout
+  targets all raised `ForecastUnavailableError` does not claim to have read
+  them. The forecasts are published before the error artifacts are logged,
+  because the published rows are the record that the days were scored. `--start-date` and `--end-date` default to it,
+  so two runs months apart score the same days without either remembering to say
+  so, and `--days` counts back from its end rather than from the newest data. The
+  pin is a ceiling, not an equality: a warehouse that stops before `eval_end`
+  scores what it has and logs a warning, and the default can never pass
+  `eval_end`. An explicit `--end-date` in the holdout is refused unless
+  `--holdout` is given, checked off the arguments before a Spark session exists;
+  every run logs `eval_window` and `reads_holdout`, so a run that read the
+  holdout is identifiable afterwards. The spot task is unpinned (both fields
+  None) and still ends at the last day in the data.
+  The baseline on the pinned window is `e212` run
+  `264840a26c8f48ac83b2cfe4ebb1c16c` (`e212-tokyo-pinned-window`, MAE 518,070 kWh,
+  MAPE 3.13 %, 730 days, 0 skipped), scored with no date arguments at all.
+  Runs before the pin used `2024-08-18 … 2026-08-17`, so they do not cover it,
+  and their numbers are not comparable with one on the pinned window.
+  Restricting an existing run to a **prefix** of the days it scored needs no
+  re-run — walk-forward means day D's forecast depends only on data through D-2
+  and refits anchor at the run's start — but a window that starts earlier does.
+  Same flags as the spot script: `--add VIEW:COLUMN …` /
+  `--drop VIEW:COLUMN …` with `--name`, `--days` (no default; the pinned window),
+  `--start-date` / `--end-date`, `--holdout` (logs `holdout_window`,
+  `reads_holdout`, `reads_unseen_holdout` and `last_scored_date`), `--train-start`,
+  `--importance-repeats`. Logs to the MLflow experiment
   `demand`, publishes to `pma_ml.demand_forecast`, then `just dbt build --select
   +fct_demand_forecast_accuracy +fct_demand_forecast_contribution_summary
   +fct_demand_forecast_importance` (the second selector materialises the run's TreeSHAP
