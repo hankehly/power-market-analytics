@@ -29,8 +29,8 @@ the warehouse, MLflow or the repository on 2026-09-21 — the query is named.
 *problem* in our data. This is the only one whose *fix* could also be measured without
 a new backtest — the correction is arithmetic on forecasts already stored — and it
 measures well: feeding the model the mean error of its own forecast for D-2 — public
-at D-1 09:30, absent from all 104 features — is worth **−2.19 %** MAE over the window
-and **−1.75 %** on a held-out year with the coefficient fixed in advance. Its partial
+at D-1 09:30, absent from all 104 features — is worth **−1.62 %** on a held-out year,
+with the coefficient chosen on the first year alone and applied untouched to the second. Its partial
 correlation with D's daily bias, controlling for the D-2 load level the model already
 has, is **0.240**, so it is new information rather than a re-encoding of a lag. Ten
 papers support the mechanism ([P-113](research/literature-review.md#p-113),
@@ -341,7 +341,7 @@ From the run's `permutation_importance.csv`:
 overstates a unique feature, which is exactly why the similar-day mean dominates — it is
 the only column of its kind.
 
-### 4.5 Two measurements that close families
+### 4.5 Two measurements that deprioritise families
 
 **Weather-forecast accuracy is not the binding constraint.** Over the window, the MSM
 temperature forecast at Tokyo's representative station s47662 has mean |hourly error|
@@ -350,19 +350,29 @@ temperature forecast at Tokyo's representative station s47662 has mean |hourly e
 - corr(daily demand bias, daily mean temperature forecast error) = **0.060**
 - corr(daily demand MAE, daily mean |temperature forecast error|) = **0.070**
 
-*Inferred:* weather-forecast accuracy explains under 0.5 % of the variance of our daily
-error. Every intervention whose mechanism is "get better weather into the model"
-— station selection, station combination, ensemble NWP — is bidding against that. (The
-test is single-station and linear; [#212](https://github.com/hankehly/power-market-analytics/issues/212)'s
-own analysis still found a −1.29 °C MSM cold bias contributed on 2025-07-21, so the
-statement is about the *average*, not about extremes.)
+*Inferred:* on this test, weather-forecast accuracy explains under 0.5 % of the variance
+of our daily error, so every intervention whose mechanism is "get better weather into the
+model" — station selection, station combination, ensemble NWP — is bidding against that.
 
-**Behind-the-meter solar reconstruction is not supported.** Correlation of the period
-error with the population-weighted forecast solar radiation at the same hour: Daytime
-0.018 (absolute error 0.023), Morning 0.047, Evening −0.001, Overnight −0.015. Nor is
-there a trend: daytime bias by half-year runs −74,208 / +10,056 / −119,120 / −65,375
-from 2024H2 to 2026H1. *Inferred:* the irradiance signal is already absorbed, and a
-growing hidden PV level would show as a drifting daytime bias, which it does not.
+**What this test does not establish.** It is one station's daily mean, compared by Pearson
+correlation. It does not test spatial representativeness across the area, a non-linear or
+seasonal response, intraday forecast error, or behaviour in extremes — and
+[#212](https://github.com/hankehly/power-market-analytics/issues/212)'s own analysis found
+a −1.29 °C MSM cold bias contributing on 2025-07-21, inside a heat wave. So this is
+grounds to **deprioritise** the spatial-weather family, which is how §6 and §7 gate it
+(`defer`), and not grounds to call it closed. §13 names the re-test that would reopen it.
+
+**Behind-the-meter solar reconstruction finds no support here.** Correlation of the
+period error with the population-weighted forecast solar radiation at the same hour:
+Daytime 0.018 (absolute error 0.023), Morning 0.047, Evening −0.001, Overnight −0.015.
+Nor is there a trend: daytime bias by half-year runs −74,208 / +10,056 / −119,120 /
+−65,375 from 2024H2 to 2026H1.
+
+*Inferred, with its limit stated:* the irradiance signal the model already holds appears
+to be absorbed, and a growing hidden PV level is not showing as a drifting daytime bias.
+Neither test refutes a latent gross-load / behind-the-meter split — a *stable* PV
+contribution would leave both flat — so this lowers the priority rather than settling the
+question. §7 gates it `defer` on that reading.
 
 ### 4.6 One measured, unexploited, operationally legal signal
 
@@ -378,9 +388,24 @@ have a D-2 residual:
 |---|---|---|---|---|---|---|
 | MAE | 509,959 | 502,195 | **498,789** | 498,806 | 501,659 | 513,221 |
 
-β = 0.20 gives **−2.19 %**, and the optimum is flat between 0.20 and 0.26. Split in
-half with β = 0.20 held fixed: year 1 **−2.62 %**, year 2 (holdout) **−1.75 %** — same
-sign, same order, both halves. That contrast is worth stating against the one other
+β = 0.20 gives **−2.19 %** over the whole window, and the optimum is flat between 0.20
+and 0.26. That sweep reads the whole window, so it cannot also serve as a test. The
+honest version selects β on the first year alone and applies it untouched to the second:
+
+| on year 1 only | base | β .05 | β .10 | β .15 | β .20 | **β .25** | β .30 |
+|---|---|---|---|---|---|---|---|
+| MAE | 522,274 | 517,241 | 513,291 | 510,411 | 508,606 | **507,779** | 508,091 |
+
+β = 0.25 wins on year 1. Applied to year 2 with nothing refitted: **497,739 → 489,679,
+−1.62 %** over 17,520 periods. That is the number to carry, not the −2.19 %.
+
+The held-out segment pattern is close to the in-window one but not identical: Holiday
+DJFM **−4.53 %**, Weekend JJAS −2.65 %, Weekday JJAS −2.60 %, Weekday shoulder −1.59 %,
+Weekend DJFM −0.06 %, and Holiday shoulder **+4.40 %** — worse. The gain concentrates in
+the hot and cold regimes, as the mechanism predicts; the shoulder seasons are where it
+does nothing, and on shoulder-season holidays it hurts.
+
+That contrast is worth stating against the one other
 recent candidate whose split has been published:
 [PR #223](https://github.com/hankehly/power-market-analytics/pull/223) shows `e219`
 beating `e212` by 2.5 % in the first year and **losing by 0.5 %** in the second. Rank 1
@@ -461,7 +486,7 @@ overlap column names it), **already represented** (§10.1), **already tested** (
 | **D4 Degree-hours / threshold exposure** | Population-weighted heating and cooling exposure above and below a base | P-092, P-085, P-090, P-091, P-096, P-136, P-040, P-043 | point MAE | MSM + census; **yes** | partially — [#152](https://github.com/hankehly/power-market-analytics/issues/152) / [#153](https://github.com/hankehly/power-market-analytics/issues/153) open | raw temperature + 不快指数; a GBM can find the break itself | hot spells, cold snaps | context papers, not day-ahead accuracy trials | mostly climate-impact studies with no forecast horizon | mart columns + preset | low |
 | **D5 Temperature anomaly against a climatological normal** | Express weather relative to a day-of-year normal | P-085, P-090, P-091 | point MAE | JMA normals, **not ingested** | absent | absolute values only | transition seasons | context papers | none is a day-ahead forecasting trial | [#218](https://github.com/hankehly/power-market-analytics/issues/218) is the open investigation | med |
 | **D6 Ensemble NWP spread** | Use a multi-member forecast's mean and spread | P-086, P-087, P-089, P-155 | point MAE / new capability | an ensemble NWP, **not ingested** | absent | one deterministic MSM run | extremes | P-087 reports gains from ensembles | our own corr is 0.060; P-155 found gridded features "added nothing reliable"; [#141](https://github.com/hankehly/power-market-analytics/issues/141) blocks later vintages | — (new source) | high |
-| **D7 Behind-the-meter PV reconstruction** | Estimate hidden PV, add it back, forecast gross, subtract | P-137, P-141, P-162 | point MAE | MSM radiation + a capacity estimate; **yes** | absent | `popw_forecast_solar_radiation_mjm2` and its cumulative sum are features | daytime | P-137 MAPE 1.63 → 1.46 % | observed weather, holidays excluded, the BTM capacity never validated — and **our own test is negative** (§4.5) | — (not supported) | high |
+| **D7 Behind-the-meter PV reconstruction** | Estimate hidden PV, add it back, forecast gross, subtract | P-137, P-141, P-162 | point MAE | MSM radiation + a capacity estimate, **not ingested**; **yes** once it is | absent | `popw_forecast_solar_radiation_mjm2` and its cumulative sum are features | daytime | P-137 MAPE 1.63 → 1.46 % | observed weather, holidays excluded, the BTM capacity never validated — and **our own tests find no support** (§4.5), though they cannot rule out a stable hidden level | a capacity-registry estimate first | high |
 
 ### Family 5 — Target and model form
 
@@ -516,7 +541,7 @@ forecast. What fails the legality gate is a mechanism that cannot be made legal 
 | D4 Degree-hours / threshold exposure | ✓ | ✓ | partly — a GBM can find the break point from raw temperature | ✓ | ✓ | ✓ | **pass** — already [#152](https://github.com/hankehly/power-market-analytics/issues/152) / [#153](https://github.com/hankehly/power-market-analytics/issues/153) |
 | D5 Climatological-normal anomaly | ✓ | ✓ | ✓ | ✓ | ✗ JMA normals are HTML tables, not ingested | ✓ | **defer** — [#218](https://github.com/hankehly/power-market-analytics/issues/218) |
 | D6 Ensemble NWP spread | ✓ in principle | ✓ | ✓ | ✓ | ✗ no ensemble ingested; [#141](https://github.com/hankehly/power-market-analytics/issues/141) blocks later vintages | ✓ | **set aside** |
-| D7 Behind-the-meter PV reconstruction | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | **set aside** — our own level *and* trend tests are negative (§4.5) |
+| D7 Behind-the-meter PV reconstruction | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | **defer** — both our tests are negative, but neither refutes a *stable* hidden PV level (§4.5) |
 | E1 Level-normalised target | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | **pass** |
 | E2 Correlation-aware pruning | ✓ | ✓ | ✓ nothing acts on the importance table today | ✓ | ✓ | ✓ | **pass** |
 | E3 DART boosting | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | **pass** |
@@ -540,7 +565,7 @@ forecast. What fails the legality gate is a mechanism that cannot be made legal 
 - **D1** defer: not illegal and not duplicated, but bidding against a measured correlation of 0.060 between our error and the weather forecast's.
 - **D5** defer: the normals are published as HTML tables with no download link; ingesting them is [#218](https://github.com/hankehly/power-market-analytics/issues/218)'s scope.
 - **D6** set aside: no ensemble NWP is ingested, and the one alternative vintage was already ruled illegal at 09:30 D-1.
-- **D7** set aside: refuted on our own data, twice — no correlation with irradiance, no trend in the daytime bias.
+- **D7** defer, not set aside: both our tests come back negative — no correlation with forecast irradiance, no trend in the daytime bias — but a stable behind-the-meter contribution would leave both flat, so they lower the priority without settling it.
 - **E4** other lane: it changes what the model estimates, which belongs with the quantile work in §8 rather than as a point-MAE experiment; §4.6 also measured that static recalibration of this kind transfers at −0.21 %.
 - **E5** defer: `time_code` is already a feature at permutation rank 4, and 48 models on a 730-day window is a large change for a partly-covered mechanism.
 - **E6** defer: it is not isolable in the matched backtest — it replaces TreeSHAP, the permutation importance and the contribution facts along with the model.
@@ -584,7 +609,7 @@ novelty, **LV** learning value, **FE** feasibility, **OB** ongoing burden.
 |---|---|---|---|---|
 | D1 | **Weather-station selection or re-weighting** | P-095, P-097, P-099, P-128 | **defer** | §4.5: corr(our daily bias, MSM temperature forecast error) = 0.060. We already population-weight every station in the area. P-095's own gain was 7.00 → 6.96 % MAPE; P-097 picked K on the test set; only P-099 uses real forecast temperature, and it re-fits 24 Reg-ARIMA models, not a GBM. Re-opens if the correlation re-tests materially higher (§13). |
 | D6 | **Weather-ensemble NWP features** | P-086, P-087, P-089, P-155 | **set aside** | We ingest one deterministic MSM run. There is no ensemble in the pipeline, and [#141](https://github.com/hankehly/power-market-analytics/issues/141) already established that no *later* MSM vintage is legal at 09:30 D-1. P-155 also reports that its gridded features "added nothing reliable". |
-| D7 | **Behind-the-meter PV reconstruction** | P-137, P-141, P-162 | **set aside** | §4.5 measured it directly: error against population-weighted forecast irradiance gives daytime r = 0.018, and the daytime bias shows no trend across four half-years. Both the level test and the trend test are negative. |
+| D7 | **Behind-the-meter PV reconstruction** | P-137, P-141, P-162 | **defer** | §4.5: error against population-weighted forecast irradiance gives daytime r = 0.018, and the daytime bias shows no trend across four half-years. Both tests are negative — but a *stable* hidden PV level would leave both flat, so they deprioritise rather than refute. A capacity-registry estimate would test it properly. |
 | C2 | **Holiday name / fine special-day categorical** | P-004, P-111, P-113, P-104, P-054 | **set aside** | [#143](https://github.com/hankehly/power-market-analytics/issues/143), 2026-09-15: a holiday name gives 48–96 rows per level against LightGBM's `min_data_per_group` of 100 (probed on the installed 4.7.0), so the tree never splits on it. P-111 also needs ≥ 7 years of training data; we run a 730-day window. |
 | C1 | **Weekday × holiday re-encoding** ("replacing dummies") | P-106 | **defer** | The diagnosis is solid — SHAP shows the model applying an unmodified weekday effect on holidays (§4.3) — and P-106 is the cleanest holiday study in the corpus. But the effect does not transfer: a per-(weekday, holiday) shift fitted on year 1 makes year 2's holidays **16.05 % worse**, and the per-weekday bias flips sign between years on three of seven weekdays on 3–4 observations each. Needs a stable estimate first. |
 | — | **Longer or season-matched training window** | P-090, P-091, P-094, P-004, P-005, P-062, P-022 | **defer** | Aimed at the same scarcity as #9, and the only measured support is indirect (§4.7). It also multiplies every future run's cost and interacts with rank 2 and #7, so it should follow them rather than precede them. |
@@ -614,9 +639,15 @@ have at all.
 | N8 | **Adaptive probabilistic forecasting** — online updates to a predictive distribution | [P-154](research/literature-review.md#p-154), [P-161](research/literature-review.md#p-161) | a distribution that follows a changing regime | Medium, heavily COVID-confounded: [P-161](research/literature-review.md#p-161)'s test period is 2019–2021 and [P-160](research/literature-review.md#p-160)'s case 2 gains come mostly from the lockdown break. Our window has no regime break — Q2 and Q4 MAE is steady at 350,000–406,000 across three years (§4.3) | 1 — needs N1 plus the online machinery | high | other lane |
 
 **Recommendation for this lane: N1, then N2.** They are one capability delivered in two
-steps, they reuse the whole existing pipeline — the feature marts, Feast retrieval, the
-`pma_ml` write-back, the accuracy mart, the Superset dashboards — and N2 is what makes
-N1 usable rather than merely available. N4 is the most valuable capability in the lane
+steps, and N2 is what makes N1 usable rather than merely available. What they reuse is
+the **feature and training plumbing** — the feature marts, Feast retrieval, the preset
+mechanism, the sliding-window refit — and that is the whole of the reuse claim. The
+layers *downstream* of the model all need new work: a quantile-keyed write-back (the
+`pma_ml` forecast table has one value per period, not one per τ), pinball loss and
+coverage as metrics beside MAE, a calibration check, and dashboard support for a fan
+rather than a line. §8's own row for N1 says "a new strategy class and a `pma_ml`
+table"; that is the honest scope, and an earlier draft of this paragraph overstated it
+as "the whole existing pipeline unchanged". N4 is the most valuable capability in the lane
 and has the best evidence behind it, but it is a second forecasting task, not an
 experiment, and it should not be started before N1 exists. N5 is the cheapest of the
 eight — the inputs are already in `ftr_day_actuals` and `ftr_day_msm`, and the peak read
@@ -655,8 +686,8 @@ shoulder seasons.
 
 **Why this, not the others.** It is the only intervention in this review with a
 *measured* effect on our own residual rather than a discounted number from another
-system (§4.6): β = 0.20 gives −2.19 % over the window, and with β held fixed at 0.20 it
-gives −2.62 % on the first year and **−1.75 % on a held-out second year**. The partial
+system (§4.6): with β selected on the first year alone (0.25) and applied untouched to
+the second, it gives **−1.62 % on a held-out year**. The partial
 correlation with D's daily bias, controlling for the D-2 load level the model already
 has as a feature, is **0.240** — so it is new information, not a re-encoding of a lag.
 And the contrast is sharp: a static per-decile calibration shift transfers at −0.21 %
@@ -710,9 +741,11 @@ features plus the one column. (Not the `34c506fb…` of
 [demand/README.md](research/demand/README.md); §12 item 6 explains the 0.13 % difference
 and why the newer one is the matched arm.)
 
-**The important segments.** Season × day type, because the measured gain is
-concentrated there: Holiday JJAS −4.4 %, Holiday DJFM −4.4 %, Weekday JJAS −3.2 %,
-Weekday DJFM −3.1 %, and neutral to +0.1 % in the shoulder seasons. Also the top-10 %
+**The important segments.** Season × day type, because the held-out gain is
+concentrated there and is not uniform: Holiday DJFM −4.53 %, Weekend JJAS −2.65 %,
+Weekday JJAS −2.60 %, Weekday shoulder −1.59 %, Weekend DJFM −0.06 %, and Holiday
+shoulder **+4.40 %**, which is worse. A run reproducing the overall −1.6 % without that
+shape has not reproduced the mechanism. Also the top-10 %
 demand days, where the bias is −433,641, and the by-month table, because the shape of
 the gain is as much the result as its size.
 
@@ -720,9 +753,9 @@ the gain is as much the result as its size.
 
 | Evidence | Decision |
 |---|---|
-| MAE ≤ −1.0 %, CI over days excludes zero, and the summer/winter concentration reproduces | **Keep.** It becomes the baseline, and the online-adaptation family (P-145, P-146, P-154, P-157, P-161) is worth its own investigation. |
+| MAE ≤ −1.0 %, CI over days excludes zero, and the hot/cold concentration reproduces | **Keep.** It becomes the baseline, and the online-adaptation family (P-145, P-146, P-154, P-157, P-161) is worth its own investigation. |
 | MAE improves but the CI includes zero, or the gain appears in the shoulder seasons instead | **Refine.** The mechanism is present but mis-specified — try the residual as a level shift rather than as a feature, or restrict it to a regime flag. |
-| MAE within ±0.3 % of baseline | **Reject**, and with real force: the cheapest member of the online-adaptation family failed on a signal we had already measured at −1.75 % out of sample, which says the model absorbs it through its lags once it can fit freely. The family drops to the bottom of the point-MAE lane. |
+| MAE within ±0.3 % of baseline | **Reject**, and with real force: the cheapest member of the online-adaptation family failed on a signal we had already measured at −1.62 % out of sample, which says the model absorbs it through its lags once it can fit freely. The family drops to the bottom of the point-MAE lane. |
 | MAE rises | **Reject.** Most likely the extra column displaced a correlated feature; note it and stop. |
 
 **Dependencies and risks.**
@@ -796,9 +829,10 @@ the survivors — for 2b that is the point of the experiment, not a diagnostic.
 
 | Evidence | Decision |
 |---|---|
-| MAE within ±0.3 % and the CI includes zero | **Keep the pruned preset.** A null is the win: the same accuracy on fewer columns, with an importance table that means something, and a precedent that the ΔMAE ≤ 0 list can be acted on. |
+| The **upper** bound of the CI on relative MAE change is below **+0.3 %** | **Keep the pruned preset.** This is a non-inferiority test, not a null one: a CI containing zero only says we failed to detect a difference, which is not the same as showing the harm is bounded. The win is the same accuracy on fewer columns, an importance table that means something, and a precedent that the ΔMAE ≤ 0 list can be acted on. |
+| The CI contains zero but its upper bound exceeds +0.3 % | **Inconclusive**, and say so rather than reading it as a pass. The window is too small to bound the harm; re-run on the pinned window or widen the drop list so the effect, if any, is larger than the noise. |
 | MAE falls, CI excludes zero | **Keep**, and pruning becomes standing practice after every batch experiment. |
-| MAE rises beyond +0.3 % | **Reject**, and it is worth as much: it says permutation importance on this correlated feature set does not identify removable columns, which closes P-003's and P-058's selection mechanism for us and stops a recurring temptation. |
+| The CI's **lower** bound exceeds +0.3 % | **Reject**, and it is worth as much: it says permutation importance on this correlated feature set does not identify removable columns, which closes P-003's and P-058's selection mechanism for us and stops a recurring temptation. |
 
 **Dependencies and risks.**
 
@@ -1106,8 +1140,8 @@ so the run should report them separately. Then the top-10 % demand days, since
 4. *[P-141](research/literature-review.md#p-141)'s gain is not separable.* Its method
    corrects for trend, weather **and** BTM PV at once and reports one number, so no
    part of its 1.1-point margin can be attributed to the weather correction alone. And
-   §4.5 measured that BTM PV reconstruction is not supported here at all (error against
-   forecast irradiance, daytime r = 0.018).
+   §4.5 found no support here for the BTM PV part (error against forecast irradiance,
+   daytime r = 0.018), though that test does not rule out a stable hidden contribution.
 
 **Why it is fifth.** It attacks the model's single most important input, which is the
 strongest argument for it — but that is also why it is last of the five. Ranks 1–4 each
@@ -1191,8 +1225,17 @@ that would re-propose them.
 | [#140](https://github.com/hankehly/power-market-analytics/issues/140) OCCTO's half-hourly forecast | Published from 2025-04-01 only, 538 days — too short to fit a bias correction. |
 ### 10.5 Papers that yield nothing testable here
 
-**Measured:** of the 162 sources, **155 contributed at least one intervention** to the
-catalogue and **seven contributed none**. The seven, each with its reason:
+Two different counts are easy to confuse here, so both are stated.
+
+**Extraction coverage.** Across the extraction pass over all 162 sources, **155 were
+cited by at least one extracted intervention** and **seven by none**. That is a property
+of the extraction, not of this document.
+
+**Citation coverage of this report.** Every one of the 162 P-IDs is named somewhere in
+this report. 132 are cited in the catalogue, the rankings or the rationales; the other
+30 are dispositioned by name in §10.6. None is unread and none is silently dropped.
+
+The seven that contributed nothing to the extraction, each with its reason:
 
 | Paper | Why nothing is extracted |
 |---|---|
@@ -1224,6 +1267,28 @@ a five-city average beats Nagoya alone is our population weighting, and
 is what `DISCOMFORT_INDEX(…)` and the population-weighted humidity column encode.
 [P-094](research/literature-review.md#p-094) is a 2030 scenario framework, and
 [P-070](research/literature-review.md#p-070) a 1998 survey of ANNSTLF adopters.
+### 10.6 The 30 sources this report does not cite
+
+Every one was read in the extraction pass and every one is accounted for. None yielded a
+mechanism that survived merging into a distinct entry — each is either a review whose
+content reaches the catalogue through the primary sources it surveys, or a study whose
+mechanism another paper originates and states more cleanly. They are listed so the
+coverage claim above is traceable rather than asserted.
+
+| Sources | Why they are not cited here |
+|---|---|
+| [P-012](research/literature-review.md#p-012), [P-013](research/literature-review.md#p-013), [P-015](research/literature-review.md#p-015), [P-017](research/literature-review.md#p-017), [P-018](research/literature-review.md#p-018), [P-020](research/literature-review.md#p-020) | Reviews, surveys and a dataset overview. Their mechanisms enter the catalogue through the primary sources they survey; §5 cites those instead. |
+| [P-023](research/literature-review.md#p-023), [P-033](research/literature-review.md#p-033) | Competition entries whose mechanisms are covered by the entries this report does cite ([P-022](research/literature-review.md#p-022), [P-034](research/literature-review.md#p-034), [P-035](research/literature-review.md#p-035)). |
+| [P-045](research/literature-review.md#p-045), [P-051](research/literature-review.md#p-051), [P-052](research/literature-review.md#p-052), [P-060](research/literature-review.md#p-060) | Statistical models whose mechanisms the catalogue carries under E1 and B5 from the sources that state them most directly. |
+| [P-061](research/literature-review.md#p-061), [P-064](research/literature-review.md#p-064), [P-065](research/literature-review.md#p-065), [P-066](research/literature-review.md#p-066) | Tree and ensemble studies duplicating E2 and A5, against weaker baselines than [P-058](research/literature-review.md#p-058) and [P-059](research/literature-review.md#p-059). |
+| [P-069](research/literature-review.md#p-069), [P-071](research/literature-review.md#p-071), [P-072](research/literature-review.md#p-072), [P-073](research/literature-review.md#p-073), [P-076](research/literature-review.md#p-076), [P-077](research/literature-review.md#p-077), [P-138](research/literature-review.md#p-138), [P-140](research/literature-review.md#p-140) | Neural-network architectures. E6 gates the whole class `defer`, and these add architecture variety rather than a separable mechanism. |
+| [P-093](research/literature-review.md#p-093) | Wind speed as a load-model input; `popw_forecast_wind_speed_ms` and its components are already `e212` features. |
+| [P-125](research/literature-review.md#p-125), [P-126](research/literature-review.md#p-126), [P-130](research/literature-review.md#p-130), [P-132](research/literature-review.md#p-132), [P-133](research/literature-review.md#p-133) | Japanese sources whose mechanisms are covered by [P-115](research/literature-review.md#p-115)–[P-123](research/literature-review.md#p-123) and [P-127](research/literature-review.md#p-127)–[P-129](research/literature-review.md#p-129), or which are contest accounts rather than methods. |
+
+*Inferred:* a source-by-source appendix for all 162 would be the fully auditable form.
+This is the compact version — the seven non-contributors named individually above, these
+30 grouped by reason, and the remaining 125 cited somewhere in §§5–10.
+
 ## 11. Recommended experiment sequence
 
 The repository's rules shape this as much as the ranking does: cheap related feature
@@ -1286,22 +1351,34 @@ fresh `e212` baseline run on the pinned window — one run, reused by all of the
 measurements in §4 stay valid as descriptions of the residual; the *baselines* named in
 §9 do not.
 
+**What it does not do.** It does not make step 1 a clean held-out test, and nothing in
+this report should be read as claiming so. The pinned window overlaps the already-mined
+one by roughly two thirds, so a fresh baseline on it is still a **development**
+comparison — what #223 buys is that the window stops drifting and that the days after
+2026-03-31 are sealed. The clean test is a later, one-time confirmation on those sealed
+days, and it is worth spending on whichever candidate survives development rather than
+on the first one run.
+
 ### Step 1 — the D-2 forecast residual (rank 1)
 
-One model-method change, on its own, against `943aab6d…`. The prespecified numbers are
-in §9.1: the post-processing proxy gives −2.19 % in sample and −1.75 % on a held-out
-year, so **−1.0 % or better** is the Keep threshold and the paired daily bootstrap CI
-must exclude zero. Run it before anything else because its result re-ranks the whole
-online-adaptation family either way.
+One model-method change, on its own, against **the fresh pinned-window `e212` run from
+step 0** — not `943aab6d…`, whose window step 0 supersedes. The prespecified numbers are
+in §9.1: the post-processing proxy gives **−1.62 %** on a held-out year with β chosen on
+the first year alone, so **−1.0 % or better** is the Keep threshold and the paired daily
+bootstrap CI must exclude zero. Run it before anything else because its result re-ranks
+the whole online-adaptation family either way.
 
 ### Step 2 — correlation-aware pruning (rank 2)
 
 A preset with a `drop` list only — no code, no mart, no new data. Two variants are
 worth one run each and they are not a batch, because they answer different questions:
 
-- **2a, the dead-weight drop**: drop the 17 features with ΔMAE ≤ 0. Hypothesis: MAE
-  does not rise. A null result is the valuable one — it says the ΔMAE table is
-  actionable and the preset can be kept lean.
+- **2a, the dead-weight drop**: drop the 17 features with ΔMAE ≤ 0. Hypothesis: the
+  upper bound on MAE harm is under +0.3 %. Note what this costs in independence: the 17
+  were chosen from `34c506fb…`'s importance table, on the same days the comparison would
+  score, so 2a is a development result by construction. Selecting the drop list from one
+  window and testing it on another — which #223 makes possible — is the stronger form,
+  and is worth the extra run if the first result is close.
 - **2b, the cluster drop**: drop within the high-|r| clusters of §4.4, keeping one
   representative each. Hypothesis: MAE does not rise and the surviving features'
   permutation importance becomes interpretable.
@@ -1430,7 +1507,7 @@ baseline evidence: §4 is measured, not assumed.
 7. *Every measurement is on one window, 2024-08-18 … 2026-08-17.* That is the window
    [PR #223](https://github.com/hankehly/power-market-analytics/pull/223) exists to stop
    us relying on, and its own evidence shows why: `e219`'s gain is −2.5 % in the first
-   year and +0.5 % in the second. My split-half checks (rank 1's −2.62 % / −1.75 %, the
+   year and +0.5 % in the second. My out-of-sample checks (rank 1's held-out −1.62 %, the
    calibration tests, the weekday × holiday reversal) are the same guard applied by hand,
    but they split one window rather than reaching a sealed holdout.
 8. *Kansai was not analysed.* Every residual number here is Tokyo. Whether a mechanism
