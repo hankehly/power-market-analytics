@@ -634,7 +634,7 @@ have at all.
 
 | # | Capability | Papers | What it adds | Evidence quality | Feasibility | Burden | Gate |
 |---|---|---|---|---|---|---|---|
-| N1 | **Quantile forecasts from the existing strategy** — refit the same features under LightGBM's `quantile` objective at several τ | [P-032](research/literature-review.md#p-032), [P-150](research/literature-review.md#p-150), [P-156](research/literature-review.md#p-156), [P-063](research/literature-review.md#p-063), [P-030](research/literature-review.md#p-030) | a predictive distribution per period, scored by pinball loss | Medium. Quantile regression for load is thoroughly established; P-156's load results are shown as curves only and use observed temperature, P-063's is linear and leaky | 2 — a new strategy class and a `pma_ml` table; the features, retrieval, publishing and dashboards are all reusable | low | other lane |
+| N1 | **Quantile forecasts from the existing strategy** — refit the same features under LightGBM's `quantile` objective at several τ | [P-032](research/literature-review.md#p-032), [P-150](research/literature-review.md#p-150), [P-156](research/literature-review.md#p-156), [P-063](research/literature-review.md#p-063), [P-030](research/literature-review.md#p-030) | a predictive distribution per period, scored by pinball loss | Medium. Quantile regression for load is thoroughly established; P-156's load results are shown as curves only and use observed temperature, P-063's is linear and leaky | 2 — the features, retrieval and training plumbing are reusable; **the downstream layers are not** — a new strategy class, a quantile-keyed `pma_ml` table (the current one holds one value per period, not one per τ), pinball and coverage metrics, a calibration check, and fan-chart dashboards | medium | other lane |
 | N2 | **Calibrated prediction intervals** — the quantiles above plus a coverage check and a reliability diagram | [P-148](research/literature-review.md#p-148), [P-156](research/literature-review.md#p-156), [P-046](research/literature-review.md#p-046), [P-147](research/literature-review.md#p-147), [P-029](research/literature-review.md#p-029) | stated coverage a user can rely on | Medium-high. [P-147](research/literature-review.md#p-147) shows why it matters: real operator errors are peaked, heavy-tailed and biased low, so a Gaussian interval is wrong, and our own kurtosis is 4.04 | 2 — an evaluation and a chart on top of N1 | low | other lane |
 | N3 | **Probabilistic combination of several models** — CQRA or QRA over sister forecasts | [P-151](research/literature-review.md#p-151), [P-149](research/literature-review.md#p-149), [P-027](research/literature-review.md#p-027), [P-028](research/literature-review.md#p-028) | a better distribution than any single model's | Medium. P-151 is clean across 9 ISO-NE series (pinball −4.39 % average) but never states its models' inputs; P-149 replaces the temperature forecast with the realized temperature, which flatters it against the one ex-ante benchmark | 2 — needs N1 first, then several runs | medium | other lane |
 | N4 | **Joint day-ahead distribution of demand and renewables** | [P-162](research/literature-review.md#p-162), [P-155](research/literature-review.md#p-155) | reserve sizing from the joint tails, not from demand alone | **Highest in this lane.** P-162 uses real HRRR forecasts, nine test months, proper scoring rules, and beats CAISO's own operational forecast by ~25 % RMSE; P-155 uses ECMWF-HRES day-ahead forecasts with p<0.001 | 1 — a second forecast target. We hold wind and solar generation in `fct_area_demand_generation_actual` (the `LAG(wind_solar_generation_kwh, …)` features read it), so the data exist, but a renewables model does not | high | other lane |
@@ -683,16 +683,16 @@ Papers: [P-113](research/literature-review.md#p-113),
 [P-035](research/literature-review.md#p-035),
 [P-154](research/literature-review.md#p-154).
 
-**The falsifiable hypothesis.** Giving the model the mean D-2 forecast error **of a
-named prior run** — information public at D-1 09:30 and absent from all 104 features —
-lowers Tokyo MAE by at least 1.0 %, with a paired daily bootstrap CI over days that
-excludes zero, and the gain concentrates in the hot and cold regimes rather than the
-shoulder seasons.
+**The falsifiable hypothesis.** Giving the model the D-2 residual of a **fixed reference
+predictor** — the similar-day top-3 mean against that day's actual, public at D-1 09:30
+and absent from all 104 features — lowers Tokyo MAE by at least 0.5 %, with a paired
+daily bootstrap CI over days that excludes zero, and the gain concentrates in the hot
+and cold regimes rather than the shoulder seasons.
 
-The wording is deliberate. The backtest retrieves its features before the walk and
-publishes its forecasts after it, so the candidate can only ever read a *prior* run's
-residuals, not its own; risk 3 below says what that costs and what a Keep would and
-would not establish.
+The threshold is 0.5 %, not 1.0 %, and the predictor is a fixed reference rather than
+the model itself. Both follow from what is buildable: the model's own residual measures
+better (−1.62 % against −1.04 % held out) but cannot cover a training window on this
+data, for the reason given under *the smallest valid change* below.
 
 **Why this, not the others.** It is the only intervention in this review with a
 *measured* effect on our own residual rather than a discounted number from another
@@ -733,20 +733,42 @@ The design that does work is the repository's existing Form B pattern, the one
 forecasts**. `pma_ml.demand_forecast` holds every published run's row-level forecasts, so
 a job can write the D-2 residual per delivery day to `pma_ml.<feature>`, a guarded
 staging model can read it, and a day-grain mart column can expose it to Feast with
-`available_at` = 00:30 on D-1 — legal, and defined for every historical day a prior run
-scored. The cost is honest: the residual is then a function of *which* run produced it,
-so the feature must name its source run the way `ftr_period_similar_day` names
-`similar_day_run_id`, and a backtest needs a prior run covering its training window.
+`available_at` = 00:30 on D-1.
 
-A cheaper fallback tests a weaker version: the residual of a *fixed reference predictor*
-— `LAG(demand_kwh, 7d)` or `wavg_similar_day_top3_demand_kwh` against the actual on D-2
-— which is a pure mart column with no recursion, computable for every day. It is what
-[P-128](research/literature-review.md#p-128)'s "nearby date comparison value" actually
-is. It does **not** reproduce the measurement in §4.6, which is of the model's own
-residual, and the report says so rather than treating the two as interchangeable.
+**But that design cannot cover a training window, and no pre-roll fixes it.**
+`demand_backtest.py` retrieves features from `start_date − (DEFAULT_TRAIN_WINDOW_DAYS +
+1)`, so a candidate whose evaluation opens on #223's 2024-04-01 needs residuals from
+2022-04-01. No run can supply them: the demand target itself starts 2022-04-01 and the
+sliding 730-day training window consumes the two years before it, which is why
+[#223](https://github.com/hankehly/power-market-analytics/pull/223) opens its window at
+2024-04-01 — *the first day that can be scored at all*. A model-residual column is
+therefore null across the whole first fit and fills in only as the walk advances, from
+0 % coverage to 100 % by the last fit. That is a structural limit of the design, not a
+scheduling oversight, and it is why the next paragraph is the primary proposal rather
+than a fallback.
+
+**So the buildable design is the residual of a fixed reference predictor.**
+`wavg_similar_day_top3_demand_kwh` or `LAG(demand_kwh, 7d)` against the actual on D-2 —
+a pure mart column, no recursion, no source run, defined for every historical day. It is
+what [P-128](research/literature-review.md#p-128)'s "nearby date comparison value"
+actually is. **Measured** on 2026-09-21, same method as §4.6 and same split: the
+similar-day reference's D-2 residual correlates 0.123 with our daily bias (against 0.249
+for the model's own), β = 0.12 wins on year 1, and applying it untouched to year 2 gives
+**497,739 → 492,580, −1.04 %**.
+
+| variant | corr with D's bias | held-out gain | buildable today |
+|---|---|---|---|
+| the model's own D-2 residual | 0.249 | −1.62 % | **no** — needs ~2 years of forecast history the data cannot provide |
+| the similar-day reference's D-2 residual | 0.123 | **−1.04 %** | **yes** — one mart column |
+
+Two thirds of the gain, for a fraction of the work and none of the coverage problem.
+That is what rank 1 proposes; the model-residual version is the follow-on once enough
+forecast history has accumulated for a training window to be covered, which on the
+pinned window is not before about 2028.
 
 **The matched baseline.** The fresh pinned-window `e212` run from step 0 — same
-`--train-start`, same 104 features plus the one column. Before #223 lands that would be
+`--train-start`, same 104 features plus the one column. This is the one step whose
+baseline is `e212`, because it is first; §11's advance rule governs the rest. Before #223 lands that would be
 `943aab6d21b14fe2877169dabc5d694b`, the `e212` preset on the old window against the
 *current* similar-day partition, and not the `34c506fb…` of
 [demand/README.md](research/demand/README.md) (§12 item 6 explains the 0.13 %
@@ -765,10 +787,20 @@ the gain is as much the result as its size.
 
 | Evidence | Decision |
 |---|---|
-| MAE ≤ −1.0 %, CI over days excludes zero, and the hot/cold concentration reproduces | **Keep**, as prior-run feedback. It becomes the baseline, the online-adaptation family (P-145, P-146, P-154, P-157, P-161) is worth its own investigation, and the self-consistent version — a pre-roll so the candidate reads its own residuals — becomes the next experiment rather than an assumption. |
-| MAE improves but the CI includes zero, or the gain appears in the shoulder seasons instead | **Refine.** The mechanism is present but mis-specified — try the residual as a level shift rather than as a feature, or restrict it to a regime flag. |
-| MAE within ±0.3 % of baseline | **Reject**, and with real force: the cheapest member of the online-adaptation family failed on a signal we had already measured at −1.62 % out of sample, which says the model absorbs it through its lags once it can fit freely. The family drops to the bottom of the point-MAE lane. |
-| MAE rises | **Reject.** Most likely the extra column displaced a correlated feature; note it and stop. |
+The branches are read in order and are mutually exclusive on ΔMAE, so every outcome has
+exactly one verdict.
+
+| ΔMAE (candidate − baseline, relative) | CI over days | Verdict |
+|---|---|---|
+| **≤ −0.5 %** | excludes zero | **Keep.** It becomes the baseline, the online-adaptation family (P-145, P-146, P-154, P-157, P-161) earns its own investigation, and the model-residual version becomes a scheduled follow-on rather than an assumption. |
+| **≤ −0.5 %** | includes zero | **Refine.** The size is there and the evidence is not; re-run on more days, or restrict the column to the hot and cold regimes where §4.6 measured the gain. |
+| **−0.5 % < ΔMAE < −0.1 %** | either | **Refine.** Directionally right, too small to carry a column. Try the residual as a post-processing level shift instead of a feature — but see risk 1 on the additivity test. |
+| **−0.1 % ≤ ΔMAE ≤ +0.3 %** | either | **Reject**, and with real force: the buildable member of the online-adaptation family failed on a signal measured at −1.04 % out of sample, which says the model absorbs it through its lags once it can fit freely. The family drops to the bottom of the point-MAE lane. |
+| **> +0.3 %** | either | **Reject.** Most likely the extra column displaced a correlated feature; note which and stop. |
+
+A gain that appears only in the shoulder seasons is a Refine whatever its size, because
+§4.6's held-out segment shape is part of the hypothesis: the mechanism is a regime
+effect, and a gain in the wrong regime is a different phenomenon wearing its clothes.
 
 **Dependencies and risks.**
 
@@ -776,33 +808,30 @@ the gain is as much the result as its size.
    test asserting Σ contributions = the forecast within 1e-6. A post-processing shift
    applied outside the model breaks it; implementing the residual as a **feature**
    keeps TreeSHAP additive and is the reason to prefer that form.
-2. *Warm-up, not just the first two days.* The naive reading — "only the first two
-   delivery days lack a residual" — is wrong, and it was wrong in an earlier draft of
-   this report. The training window reaches 730 days before the evaluation start, and the
-   run never forecast those days, so without persisted historical forecasts the column is
-   absent for the entire first fit. Whatever is missing must be null rather than zero — a
-   zero says "no error" — and LightGBM's NaN handling has been the repository's rule since
-   PR #110. The experiment must state what fraction of training rows carry the feature.
-3. *The experiment tests **prior-run** feedback, not self-consistent feedback.* This is
-   the sharpest limit of the persisted-source design and it changes what the run can
-   conclude. `demand_backtest.py` retrieves its `FeatureFrame` before the walk and
-   publishes the candidate's forecasts only after it, so every residual the candidate
-   reads belongs to the *named prior run* — never to itself. In production the D-2
-   forecast is the candidate's own, issued at D-3 09:30, and the loop is self-referential:
-   a correction applied on D-2 changes the residual fed on D. The experiment cannot
-   reproduce that without a pre-roll of the candidate over its own training window, which
-   is a second walk-forward and roughly doubles the cost.
+2. *Nulls at the edges, and they must stay null.* The reference-predictor column is
+   defined wherever the similar-day mart has a value, which is every day of the window,
+   so it has none of the model-residual variant's coverage problem. Where it is missing
+   it must be null rather than zero — a zero says "no error" — and LightGBM's NaN
+   handling has been the repository's rule since PR #110. The run should still report
+   what fraction of training rows carry the feature, because that number is the whole
+   difference between this variant and the one deferred.
+3. *This tests a reference predictor's error, not the model's own.* Two gaps follow and
+   both are stated rather than assumed. First, the measured signal is weaker — corr 0.123
+   against 0.249, held-out −1.04 % against −1.62 % — so a null result does **not** close
+   the model-residual version, only this proxy for it. Second, production's loop is
+   self-referential in a way neither variant reproduces: a correction applied on D-2
+   changes the residual fed on D. The reference predictor is immune to that (it does not
+   learn), which makes it the cleaner test of *whether regime feedback helps at all*, and
+   a worse model of what the deployed system would do.
 
-   So the hypothesis is stated as prior-run feedback and the decision rule reads on that
-   basis. A Keep says "the residual of a comparable model, read as of D-1 09:30, carries
-   usable signal" — which is enough to justify the self-consistent version as the next
-   experiment, not enough to claim it. A Reject is stronger, because prior-run feedback
-   is the easier case: the prior run's residuals are *more* informative than the
-   candidate's own would be once the candidate starts correcting them away.
+   So a Keep says "a D-2 error signal carries usable information at the 09:30 D-1
+   cutoff", which justifies the model-residual follow-on. A Reject is weaker than it
+   would be for the model's own residual, and the table above says so by naming the
+   −1.04 % rather than the −1.62 % in its Reject branch.
 4. *It could be absorbed.* The model has 104 features including seven demand lags. If
    the tree can already reconstruct the regime from those, the column adds nothing. That
-   is exactly what the ±0.3 % branch of the decision rule is for, and it is the honest
-   principal risk.
+   is exactly what the −0.1 % … +0.3 % branch of the decision rule is for, and it is the
+   honest principal risk.
 
 **Why it precedes rank 2.** Pruning is cheaper — a preset, no code — but it is
 value-neutral by design: its best outcome is "MAE unchanged, the preset is leaner".
@@ -1401,7 +1430,7 @@ own accumulated decisions for the same reason.
 **What this does to the runs below.** PR #223's window (2024-04-01 … 2026-03-31) is not
 the window every baseline in this report was measured on (2024-08-18 … 2026-08-17). Once
 it lands, `943aab6d…` is no longer a matched arm and each experiment below needs one
-fresh `e212` baseline run on the pinned window — one run, reused by all of them. The
+fresh `e212` baseline run on the pinned window to **open** the sequence. The
 measurements in §4 stay valid as descriptions of the residual; the *baselines* named in
 §9 do not.
 
@@ -1502,10 +1531,14 @@ combined run would credit reconciliation with DART's gain.
 
 ### How every step is reported
 
-`scripts/compare_demand_runs.py --baseline <the fresh pinned-window `e212` run>
---candidate <run>` after
+`scripts/compare_demand_runs.py --baseline <the current preset's own run> --candidate
+<run>` after
 `just dbt build --select +fct_demand_forecast_accuracy`, citing overall MAE, the paired
-daily bootstrap CI over days, and the segments named in each step's §9 entry. A result
+daily bootstrap CI over days, and the segments named in each step's §9 entry. **The
+baseline is whichever preset is current, not a fixed run id**: `e212`'s step-0 run for
+step 1, and after that whatever was last kept, on a run of its own. Reusing the step-0
+run throughout would report each candidate's effect as everything that changed since
+`e212` rather than its own increment. A result
 that improves one segment but not overall is reported as exactly that — a segment gain
 with a null overall — and is not promoted to an overall win. `--common-days` is used
 whenever the two runs skipped different delivery days.
