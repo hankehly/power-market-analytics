@@ -783,6 +783,55 @@ class TestBacktestScript:
         )
         assert last_run().data.params["start_date"] == "2024-05-01"
 
+    def test_the_holdout_flags_read_the_days_scored_not_the_days_asked_for(
+        self, spark, curated_warehouse, feature_marts, monkeypatch
+    ):
+        # An end date past the boundary whose days all fail to forecast reads no
+        # holdout error, so the flags must not claim it did.
+        script = import_script("demand_backtest")
+        monkeypatch.setattr(script, "EVAL_END", pd.Timestamp("2024-05-20"))
+        monkeypatch.setattr(script, "holdout_opens", lambda task: pd.Timestamp("2024-05-25"))
+        script.main(
+            [
+                "--start-date",
+                "2024-05-18",
+                "--end-date",
+                "2024-05-31",
+                "--holdout",
+                "--shap-nsamples",
+                "20",
+            ]
+        )
+        params = last_run().data.params
+        # The fixture's demand ends 2024-05-31, so the run does reach past both.
+        assert params["last_scored_date"] == "2024-05-31"
+        assert params["reads_holdout"] == "True"
+        assert params["reads_unseen_holdout"] == "True"
+
+    def test_the_forecasts_are_published_before_the_errors_are_logged(
+        self, spark, curated_warehouse, feature_marts, monkeypatch
+    ):
+        # The published rows are what mark the holdout spent, so a failed publish
+        # must not leave the errors visible with nothing recording the days.
+        script = import_script("demand_backtest")
+        order: list[str] = []
+        publish = script.publish_forecast_records
+        log_dataframe = script.log_dataframe
+
+        def note_publish(*args, **kwargs):
+            order.append("publish")
+            return publish(*args, **kwargs)
+
+        def note_log(frame, name, *args, **kwargs):
+            order.append(name)
+            return log_dataframe(frame, name, *args, **kwargs)
+
+        monkeypatch.setattr(script, "publish_forecast_records", note_publish)
+        monkeypatch.setattr(script, "log_dataframe", note_log)
+        script.main(["--days", "1", "--shap-nsamples", "20"])
+        assert order.index("publish") < order.index("daily_errors.csv")
+        assert order.index("publish") < order.index("predictions.csv")
+
     def test_the_pin_caps_the_run_when_the_data_runs_past_it(
         self, spark, curated_warehouse, feature_marts, monkeypatch
     ):
