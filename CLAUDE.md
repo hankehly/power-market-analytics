@@ -250,7 +250,11 @@
   every run logs `eval_window` and `reads_holdout`, so a run that read the
   holdout is identifiable afterwards. The spot task is unpinned (both fields
   None) and still ends at the last day in the data.
-  Runs before the pin used `2024-08-18 … 2026-08-17`, so they do not cover it.
+  The baseline on the pinned window is `e212` run
+  `264840a26c8f48ac83b2cfe4ebb1c16c` (`e212-tokyo-pinned-window`, MAE 518,070 kWh,
+  MAPE 3.13 %, 730 days, 0 skipped), scored with no date arguments at all.
+  Runs before the pin used `2024-08-18 … 2026-08-17`, so they do not cover it,
+  and their numbers are not comparable with one on the pinned window.
   Restricting an existing run to a **prefix** of the days it scored needs no
   re-run — walk-forward means day D's forecast depends only on data through D-2
   and refits anchor at the run's start — but a window that starts earlier does.
