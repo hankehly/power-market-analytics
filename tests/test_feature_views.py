@@ -78,7 +78,10 @@ def test_the_similar_day_source_breaks_ties_on_the_vintages_published_at():
     assert query.endswith(
         "time_code, similar_day_rank1_demand_kwh, similar_day_rank2_demand_kwh, "
         "similar_day_rank3_demand_kwh, wavg_similar_day_top3_demand_kwh, "
-        "similar_day_rank1_distance, similar_day_rank1_lag_days, available_at, "
+        "similar_day_rank1_distance, similar_day_rank1_lag_days, "
+        "similar_day_pool_rank1_demand_kwh, similar_day_pool_rank2_demand_kwh, "
+        "similar_day_pool_rank3_demand_kwh, wavg_similar_day_pool_top3_demand_kwh, "
+        "similar_day_pool_rank1_distance, similar_day_pool_rank1_lag_days, available_at, "
         "published_at from pma_features.ftr_period_similar_day"
     )
     assert views.FTR_PERIOD_SIMILAR_DAY_SOURCE.created_timestamp_column == "published_at"
@@ -115,6 +118,29 @@ def test_the_similar_day_view_carries_the_ranks_their_mean_and_rank_1s_distance_
             "categorical": "false",
             "expression": "similar_day_rank1_lag_days",
         },
+        # The same four, plus rank 1's distance and lag, from the pool ranking that
+        # runs on every day: holidays=similarity instead of holidays=same_holiday.
+        **{
+            f"similar_day_pool_rank{rank}_demand_kwh": {
+                "categorical": "false",
+                "expression": f"SIMILAR_DAY({pool}, rank={rank}, holidays=similarity) / 2",
+            }
+            for rank in (1, 2, 3)
+        },
+        "wavg_similar_day_pool_top3_demand_kwh": {
+            "categorical": "false",
+            "expression": (
+                f"SIMILAR_DAY_MEAN({pool}, k=3, weight=inverse_distance, holidays=similarity) / 2"
+            ),
+        },
+        "similar_day_pool_rank1_distance": {
+            "categorical": "false",
+            "expression": "similar_day_pool_rank1_distance",
+        },
+        "similar_day_pool_rank1_lag_days": {
+            "categorical": "false",
+            "expression": "similar_day_pool_rank1_lag_days",
+        },
     }
     assert list(fields) == [
         "similar_day_rank1_demand_kwh",
@@ -123,8 +149,15 @@ def test_the_similar_day_view_carries_the_ranks_their_mean_and_rank_1s_distance_
         "wavg_similar_day_top3_demand_kwh",
         "similar_day_rank1_distance",
         "similar_day_rank1_lag_days",
+        "similar_day_pool_rank1_demand_kwh",
+        "similar_day_pool_rank2_demand_kwh",
+        "similar_day_pool_rank3_demand_kwh",
+        "wavg_similar_day_pool_top3_demand_kwh",
+        "similar_day_pool_rank1_distance",
+        "similar_day_pool_rank1_lag_days",
     ]
     assert fields.pop("similar_day_rank1_lag_days").dtype == Int64
+    assert fields.pop("similar_day_pool_rank1_lag_days").dtype == Int64
     assert all(field.dtype == Float64 for field in fields.values())
 
 

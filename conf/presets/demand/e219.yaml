@@ -1,0 +1,20 @@
+description: >-
+  The Tokyo baseline e212 with the similar day ranked from its pool on every
+  day, holidays included, instead of copying the same holiday of last year:
+  the six ftr_period_similar_day features swapped for their holidays=similarity
+  twins. Experiment #219.
+base: e212
+drop:
+  - ftr_period_similar_day:similar_day_rank1_demand_kwh
+  - ftr_period_similar_day:similar_day_rank2_demand_kwh
+  - ftr_period_similar_day:similar_day_rank3_demand_kwh
+  - ftr_period_similar_day:wavg_similar_day_top3_demand_kwh
+  - ftr_period_similar_day:similar_day_rank1_distance
+  - ftr_period_similar_day:similar_day_rank1_lag_days
+add:
+  - ftr_period_similar_day:similar_day_pool_rank1_demand_kwh
+  - ftr_period_similar_day:similar_day_pool_rank2_demand_kwh
+  - ftr_period_similar_day:similar_day_pool_rank3_demand_kwh
+  - ftr_period_similar_day:wavg_similar_day_pool_top3_demand_kwh
+  - ftr_period_similar_day:similar_day_pool_rank1_distance
+  - ftr_period_similar_day:similar_day_pool_rank1_lag_days

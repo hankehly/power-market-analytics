@@ -86,6 +86,32 @@ METHOD_SIMILARITY = "similarity"
 #: ``similar_day_method`` of a special day that takes the same holiday last year.
 METHOD_SAME_HOLIDAY = "same_holiday"
 METHODS: tuple[str, ...] = (METHOD_SIMILARITY, METHOD_SAME_HOLIDAY)
+#: The same columns for the pool variant, which ranks every day from its pool and
+#: never takes the same holiday last year (expression parameter holidays=similarity).
+#: They equal the columns above on every day but a same-holiday one.
+POOL_RANK_LOAD_COLS: tuple[str, ...] = tuple(f"similar_day_pool_rank{r}_demand_kwh" for r in RANKS)
+POOL_WEIGHTED_MEAN_COL = "wavg_similar_day_pool_top3_demand_kwh"
+POOL_RANK_DATE_COLS: tuple[str, ...] = tuple(
+    f"similar_day_pool_rank{r}_reference_date" for r in RANKS
+)
+POOL_RANK_DISTANCE_COLS: tuple[str, ...] = tuple(
+    f"similar_day_pool_rank{r}_distance" for r in RANKS
+)
+POOL_N_CANDIDATES_COL = "similar_day_pool_n_candidates"
+#: The pool always has the cutoff of the fit that ranked the day; the base column
+#: is null where the same-holiday reference replaced the ranking.
+POOL_FIT_CUTOFF_COL = "similar_day_pool_fit_cutoff"
+POOL_FEATURE_COLS: tuple[str, ...] = (*POOL_RANK_LOAD_COLS, POOL_WEIGHTED_MEAN_COL)
+#: base column -> its pool twin, for the frames that build one from the other.
+POOL_OF: dict[str, str] = {
+    **dict(zip(RANK_LOAD_COLS, POOL_RANK_LOAD_COLS, strict=True)),
+    WEIGHTED_MEAN_COL: POOL_WEIGHTED_MEAN_COL,
+    **dict(zip(RANK_DATE_COLS, POOL_RANK_DATE_COLS, strict=True)),
+    **dict(zip(RANK_DISTANCE_COLS, POOL_RANK_DISTANCE_COLS, strict=True)),
+    "similar_day_n_candidates": POOL_N_CANDIDATES_COL,
+    "similar_day_fit_cutoff": POOL_FIT_CUTOFF_COL,
+}
+
 #: The columns only a ranked day fills.
 _RANKED_ONLY_COLS: tuple[str, ...] = (
     *RANK_LOAD_COLS[1:],
@@ -172,25 +198,25 @@ def score_walk_forward(
     days: Iterable[pd.Timestamp],
     *,
     refit_every_days: int = DEFAULT_REFIT_EVERY_DAYS,
-    same_holiday: bool = True,
 ) -> WalkForwardScoring:
     """Score the scorable days among ``days``, refitting the weights as time passes.
 
     The scored span is every scorable day whose issue time is on or after the
-    first cutoff. Its special days that take the same holiday last year
+    first cutoff, each ranked from its pool to ``SIMILAR_DAY_TOP_K`` days. That
+    depth is a constant, not an argument, because the table's column names carry
+    it. Its special days that take the same holiday last year
     (``SimilarDaySelector.special_day_references``: in the year-ago window, with
-    its load public by the issue time) are not ranked; every other day, special
-    or not, is ranked from its pool, to ``SIMILAR_DAY_TOP_K`` days. That depth
-    is a constant, not an argument, because the table's column names carry it.
+    its load public by the issue time) are ranked too, and the reference is what
+    the base columns use instead of the ranking.
 
-    With ``same_holiday=False`` no day takes its reference: every special day is
-    ranked from its pool like any other. The references are still computed and
-    still returned on ``WalkForwardScoring.special_days``, with
-    ``takes_reference`` false throughout, so the run's special-days artifact
-    still says which day each one would have taken. Nothing else moves: the
-    weight fits never see a special day as a target
+    Every scorable day is ranked, special or not, because both variants of the
+    feature are published: the pool columns take the ranking on every day, and
+    the base columns take it everywhere but on a day that has a same-holiday
+    reference. Which days those are is on
+    ``WalkForwardScoring.special_days.same_holiday_days``. Ranking the special
+    days as well moves nothing else: the weight fits never see one as a target
     (``SimilarDaySelector.training_pairs``) and a pair's distance is a function
-    of that pair alone, so ranking more days cannot change another day's ranks.
+    of that pair alone.
 
     The first fit runs at the first instant a fit is possible (when
     ``MIN_FIT_PAIRS`` pairs were public) and every ``refit_every_days`` after
@@ -212,9 +238,6 @@ def score_walk_forward(
         Candidate delivery days, e.g. every day with a forecast.
     refit_every_days : int, optional
         Days between two fits.
-    same_holiday : bool, optional
-        Whether a special day may take its same-holiday reference instead of
-        being ranked. False ranks every special day from its pool.
 
     Returns
     -------
@@ -239,9 +262,7 @@ def score_walk_forward(
         raise ValueError(f"no day can be scored: the first fit can run at {first}")
     span = scorable[issued >= first]
     special = selector.special_day_references(span)
-    if not same_holiday:
-        special = SpecialDayReferences.from_df(special.df.assign(takes_reference=False))
-    ranked_days = span[~span.isin(special.same_holiday_days)]
+    ranked_days = span
     ranked_issued = issue_times(ranked_days)
     step = pd.Timedelta(days=refit_every_days)
     cutoffs = pd.date_range(first, issued.max(), freq=step)
@@ -335,6 +356,11 @@ class SimilarDayFeatureRecords(DomainFrame):
         **{col: _DATE for col in RANK_DATE_COLS},
         **{col: "float64" for col in RANK_DISTANCE_COLS},
         "similar_day_n_candidates": "float64",
+        **{col: "float64" for col in POOL_FEATURE_COLS},
+        **{col: _DATE for col in POOL_RANK_DATE_COLS},
+        **{col: "float64" for col in POOL_RANK_DISTANCE_COLS},
+        POOL_N_CANDIDATES_COL: "float64",
+        POOL_FIT_CUTOFF_COL: _DATE,
         "similar_day_fit_cutoff": _DATE,
         "similar_day_method": "object",
         "available_at": _DATE,
@@ -357,13 +383,17 @@ class SimilarDayFeatureRecords(DomainFrame):
         name = cls.__name__
         if not df["time_code"].between(1, N_PERIODS).all():
             raise ValueError(f"{name}: time_code outside 1..{N_PERIODS}")
-        for col in RANK_DATE_COLS:
+        for col in (*RANK_DATE_COLS, *POOL_RANK_DATE_COLS):
             if (df[col] >= df["trade_date"]).any():
                 raise ValueError(f"{name}: {col} must precede trade_date")
-        for col in FEATURE_COLS:
+        for col in (*FEATURE_COLS, *POOL_FEATURE_COLS):
             if (df[col] <= 0).any():
                 raise ValueError(f"{name}: {col} must be positive")
-        for load, date in zip(RANK_LOAD_COLS, RANK_DATE_COLS, strict=True):
+        for load, date in zip(
+            (*RANK_LOAD_COLS, *POOL_RANK_LOAD_COLS),
+            (*RANK_DATE_COLS, *POOL_RANK_DATE_COLS),
+            strict=True,
+        ):
             if (df[load].isna() != df[date].isna()).any():
                 raise ValueError(f"{name}: {date} must be present exactly where {load} is")
         issued = issue_times(pd.DatetimeIndex(df["trade_date"])).to_numpy()
@@ -380,6 +410,24 @@ class SimilarDayFeatureRecords(DomainFrame):
             raise ValueError(f"{name}: similar_day_method must be one of {METHODS}")
         cls._validate_same_holiday(df[df["similar_day_method"] == METHOD_SAME_HOLIDAY])
         cls._validate_similarity(df[df["similar_day_method"] == METHOD_SIMILARITY])
+        # The pool columns are a ranked day's, whatever the base did, wherever the
+        # pool reached: drop the base columns before renaming onto their names.
+        as_ranked = df.drop(columns=list(POOL_OF)).rename(
+            columns={pool: base for base, pool in POOL_OF.items()}
+        )
+        cls._validate_similarity(as_ranked[as_ranked[RANK_LOAD_COLS[0]].notna()])
+        # Where the override never fired the two variants are the same ranking.
+        ranked_rows = df["similar_day_method"] == METHOD_SIMILARITY
+        for base_col, pool_col in POOL_OF.items():
+            base_values = df.loc[ranked_rows, base_col]
+            pool_values = df.loc[ranked_rows, pool_col]
+            agree = (base_values.isna() & pool_values.isna()) | (
+                base_values.to_numpy() == pool_values.to_numpy()
+            )
+            if not agree.all():
+                raise ValueError(
+                    f"{name}: {pool_col} must equal {base_col} on a {METHOD_SIMILARITY} row"
+                )
 
     @classmethod
     def _validate_same_holiday(cls, df: pd.DataFrame) -> None:
@@ -497,43 +545,132 @@ def _ranked_days(
     )
 
 
-def _same_holiday_days(scoring: WalkForwardScoring, day_available_at: pd.Series) -> pd.DataFrame:
-    """One row per same-holiday day: its reference as rank 1 with all the weight.
+def _empty_ranked_days() -> pd.DataFrame:
+    """The columns of ``_ranked_days`` with no rows, for a scoring whose days all
+    took their same-holiday reference."""
+    columns: dict[str, pd.Series] = {"trade_date": pd.Series(dtype=_DATE)}
+    for col in RANK_DATE_COLS:
+        columns[col] = pd.Series(dtype=_DATE)
+    for col in (*RANK_DISTANCE_COLS, *(f"weight_{r}" for r in RANKS)):
+        columns[col] = pd.Series(dtype="float64")
+    columns["similar_day_n_candidates"] = pd.Series(dtype="float64")
+    columns["similar_day_fit_cutoff"] = pd.Series(dtype=_DATE)
+    columns["similar_day_method"] = pd.Series(dtype="object")
+    columns["available_at"] = pd.Series(dtype=_DATE)
+    return pd.DataFrame(columns)
+
+
+def _with_same_holiday(
+    pool_days: pd.DataFrame, scoring: WalkForwardScoring, day_available_at: pd.Series
+) -> pd.DataFrame:
+    """``pool_days`` with the same-holiday reference put over the ranking.
+
+    The base columns of a day that has a reference
+    (``SpecialDayReferences.takes_reference``) carry that day's load alone: rank
+    1's date is the reference, ranks 2 and 3, every distance, the pool's size and
+    the fit cutoff are null, and ``available_at`` is the reference's load
+    availability. Every other day keeps its ranking. The pool columns are built
+    from ``pool_days`` untouched, so they hold the ranking on every day.
 
     Parameters
     ----------
+    pool_days : pandas.DataFrame
+        ``_ranked_days`` over every scored day.
     scoring : WalkForwardScoring
-        Its special days; only those that take their reference get a row.
+        Its special days; only those that take their reference are overridden.
     day_available_at : pandas.Series
         When each day's whole load was public, indexed by day.
 
     Returns
     -------
     pandas.DataFrame
-        The columns of ``_ranked_days``: rank 1's date is the reference, ranks 2
-        and 3, the distances, the pool's size and the fit cutoff are null, and
-        ``available_at`` is the reference's load availability.
+        ``pool_days``' columns, the overridden days replaced.
     """
     references = scoring.special_days.df
     references = references[references["takes_reference"]]
-    n = len(references)
-    days = pd.DataFrame(
-        {
-            "trade_date": references["trade_date"].to_numpy(),
-            RANK_DATE_COLS[0]: references["last_year_date"].to_numpy(),
-            "weight_1": np.ones(n),
-        }
-    )
+    days = pool_days.copy()
+    if references.empty:
+        return days
+    reference_of = references.set_index("trade_date")["last_year_date"]
+    unranked = reference_of.index.difference(pd.DatetimeIndex(days["trade_date"]))
+    if len(unranked):
+        # Its pool had no candidate, so it has base columns and no pool ones.
+        blank = pd.DataFrame({"trade_date": pd.DatetimeIndex(unranked)})
+        for col in days.columns:
+            if col == "trade_date":
+                continue
+            blank[col] = pd.Series(
+                pd.NaT if days[col].dtype.kind == "M" else np.nan, index=blank.index
+            ).astype(days[col].dtype if days[col].dtype.kind != "O" else "object")
+        days = pd.concat([days, blank], ignore_index=True).sort_values(
+            "trade_date", ignore_index=True
+        )
+    take = days["trade_date"].isin(reference_of.index).to_numpy()
+    reference = days.loc[take, "trade_date"].map(reference_of)
+    days.loc[take, RANK_DATE_COLS[0]] = reference.to_numpy()
+    days.loc[take, "weight_1"] = 1.0
     for r, date_col in zip(RANKS[1:], RANK_DATE_COLS[1:], strict=True):
-        days[date_col] = pd.Series(pd.NaT, index=days.index, dtype=_DATE)
-        days[f"weight_{r}"] = np.nan
-    return days.assign(
-        **{col: np.nan for col in RANK_DISTANCE_COLS},
-        similar_day_n_candidates=np.nan,
-        similar_day_fit_cutoff=pd.Series(pd.NaT, index=days.index, dtype=_DATE),
-        similar_day_method=METHOD_SAME_HOLIDAY,
-        available_at=days[RANK_DATE_COLS[0]].map(day_available_at),
-    )
+        days.loc[take, date_col] = pd.NaT
+        days.loc[take, f"weight_{r}"] = np.nan
+    for col in (*RANK_DISTANCE_COLS, "similar_day_n_candidates"):
+        days.loc[take, col] = np.nan
+    days.loc[take, "similar_day_fit_cutoff"] = pd.NaT
+    days.loc[take, "similar_day_method"] = METHOD_SAME_HOLIDAY
+    days.loc[take, "available_at"] = reference.map(day_available_at).to_numpy()
+    return days
+
+
+def _rank_loads(
+    rows: pd.DataFrame, hourly_load: AreaHourlyLoad, date_cols: tuple[str, ...], prefix: str
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Join each rank's hourly load onto ``rows``, and the periods that have none.
+
+    Parameters
+    ----------
+    rows : pandas.DataFrame
+        One row per day and period, carrying ``date_cols`` and ``hour_ending``.
+    hourly_load : AreaHourlyLoad
+    date_cols : tuple of str
+        The rank date columns to join on, rank 1 first.
+    prefix : str
+        Name prefix of the load columns written, ``<prefix><rank>``.
+
+    Returns
+    -------
+    tuple of (pandas.DataFrame, pandas.DataFrame)
+        ``rows`` with the load columns, and the (day, period, reference) rows
+        whose similar day has no load.
+    """
+    gaps = []
+    for r, date_col in zip(RANKS, date_cols, strict=True):
+        load = hourly_load.df[["load_date", "hour_ending", "demand_kwh"]].rename(
+            columns={"load_date": date_col, "demand_kwh": f"{prefix}{r}"}
+        )
+        rows = rows.merge(load, how="left", on=[date_col, "hour_ending"], validate="many_to_one")
+        missing = rows[date_col].notna() & rows[f"{prefix}{r}"].isna()
+        gaps.append(
+            rows.loc[missing, ["trade_date", "time_code", date_col]].set_axis(
+                ["trade_date", "time_code", "reference_date"], axis=1
+            )
+        )
+    return rows, pd.concat(gaps, ignore_index=True)
+
+
+def _weighted_mean(rows: pd.DataFrame, load_prefix: str, weight_prefix: str) -> np.ndarray:
+    """Sum weight x load one rank at a time, in rank order, so a re-run gives the
+    same value to the bit; a null rank contributes nothing, and a row no rank
+    reached is null, not zero."""
+    total = np.zeros(len(rows))
+    contributed = np.zeros(len(rows), dtype=bool)
+    for r in RANKS:
+        term = rows[f"{weight_prefix}{r}"].to_numpy(dtype="float64") * rows[
+            f"{load_prefix}{r}"
+        ].to_numpy(dtype="float64")
+        present = ~np.isnan(term)
+        total = total + np.where(present, term, 0.0)
+        contributed |= present
+    # A row no rank reached has no mean; summing its nulls would read as zero.
+    return np.where(contributed, total, np.nan)
 
 
 def build_feature_records(
@@ -584,31 +721,42 @@ def build_feature_records(
         issue time).
     """
     day_available_at = hourly_load.df.groupby("load_date")["available_at"].max()
-    frames = []
-    if len(scoring.ranking):
-        frames.append(_ranked_days(scoring, forecast, day_available_at))
-    if len(scoring.special_days.same_holiday_days):
-        frames.append(_same_holiday_days(scoring, day_available_at))
-    if not frames:
+    if not len(scoring.ranking) and not len(scoring.special_days.same_holiday_days):
         raise ValueError("no scored day to publish")
-    days = pd.concat(frames, ignore_index=True)
+    pool_days = (
+        _ranked_days(scoring, forecast, day_available_at)
+        if len(scoring.ranking)
+        else _empty_ranked_days()
+    )
+    days = _with_same_holiday(pool_days, scoring, day_available_at)
+    pool_weights = {f"weight_{r}": f"pool_weight_{r}" for r in RANKS}
+    carried = pool_days.rename(
+        columns={**POOL_OF, **pool_weights, "available_at": "pool_available_at"}
+    )[
+        [
+            "trade_date",
+            *POOL_RANK_DATE_COLS,
+            *POOL_RANK_DISTANCE_COLS,
+            POOL_N_CANDIDATES_COL,
+            POOL_FIT_CUTOFF_COL,
+            *pool_weights.values(),
+            "pool_available_at",
+        ]
+    ]
+    days = days.merge(carried, how="left", on="trade_date", validate="one_to_one")
+    # One row, one availability: the later of the two variants' inputs, so neither
+    # set of columns is served before everything behind it was public.
+    days["available_at"] = days[["available_at", "pool_available_at"]].max(axis=1)
+    days = days.drop(columns="pool_available_at")
     rows = days.merge(
         pd.DataFrame({"time_code": np.arange(1, N_PERIODS + 1, dtype="int64")}), how="cross"
     )
     rows["hour_ending"] = (rows["time_code"] + 1) // 2
-    gaps = []
-    for r, date_col in zip(RANKS, RANK_DATE_COLS, strict=True):
-        load = hourly_load.df[["load_date", "hour_ending", "demand_kwh"]].rename(
-            columns={"load_date": date_col, "demand_kwh": f"load_{r}"}
-        )
-        rows = rows.merge(load, how="left", on=[date_col, "hour_ending"], validate="many_to_one")
-        missing = rows[date_col].notna() & rows[f"load_{r}"].isna()
-        gaps.append(
-            rows.loc[missing, ["trade_date", "time_code", date_col]].set_axis(
-                ["trade_date", "time_code", "reference_date"], axis=1
-            )
-        )
-    gap = pd.concat(gaps, ignore_index=True).sort_values(["trade_date", "time_code"])
+    rows, base_gap = _rank_loads(rows, hourly_load, RANK_DATE_COLS, "load_")
+    rows, pool_gap = _rank_loads(rows, hourly_load, POOL_RANK_DATE_COLS, "pool_load_")
+    gap = pd.concat([base_gap, pool_gap], ignore_index=True).sort_values(
+        ["trade_date", "time_code"]
+    )
     if not gap.empty:
         n_periods = len(gap.drop_duplicates(["trade_date", "time_code"]))
         first = gap.iloc[0]
@@ -617,19 +765,21 @@ def build_feature_records(
             f"{first['trade_date'].date()} time_code {first['time_code']} "
             f"(similar day {first['reference_date'].date()})"
         )
-    total = np.zeros(len(rows))
-    for r in RANKS:
-        term = rows[f"weight_{r}"].to_numpy(dtype="float64") * rows[f"load_{r}"].to_numpy(
-            dtype="float64"
-        )
-        total = total + np.where(np.isnan(term), 0.0, term)
     rows = rows.assign(
         area_code=area_code,
         **{
             col: rows[f"load_{r}"].to_numpy(dtype="float64") / PERIODS_PER_HOUR
             for r, col in zip(RANKS, RANK_LOAD_COLS, strict=True)
         },
-        **{WEIGHTED_MEAN_COL: total / PERIODS_PER_HOUR},
+        **{
+            col: rows[f"pool_load_{r}"].to_numpy(dtype="float64") / PERIODS_PER_HOUR
+            for r, col in zip(RANKS, POOL_RANK_LOAD_COLS, strict=True)
+        },
+        **{WEIGHTED_MEAN_COL: _weighted_mean(rows, "load_", "weight_") / PERIODS_PER_HOUR},
+        **{
+            POOL_WEIGHTED_MEAN_COL: _weighted_mean(rows, "pool_load_", "pool_weight_")
+            / PERIODS_PER_HOUR
+        },
         published_at=pd.Timestamp(published_at),
         run_id=run_id,
     )
@@ -637,7 +787,15 @@ def build_feature_records(
         rows[list(SimilarDayFeatureRecords.schema)]
         .astype(
             {
-                **{col: _DATE for col in (*RANK_DATE_COLS, "similar_day_fit_cutoff")},
+                **{
+                    col: _DATE
+                    for col in (
+                        *RANK_DATE_COLS,
+                        *POOL_RANK_DATE_COLS,
+                        "similar_day_fit_cutoff",
+                        POOL_FIT_CUTOFF_COL,
+                    )
+                },
                 "available_at": _DATE,
                 "published_at": _DATE,
                 "similar_day_method": "object",
@@ -654,8 +812,10 @@ _SQL_TYPES: dict[str, str] = {
     "area_code": "string",
     "trade_date": "date",
     "time_code": "int",
-    **{col: "date" for col in RANK_DATE_COLS},
+    **{col: "date" for col in (*RANK_DATE_COLS, *POOL_RANK_DATE_COLS)},
     "similar_day_n_candidates": "int",
+    POOL_N_CANDIDATES_COL: "int",
+    POOL_FIT_CUTOFF_COL: "timestamp",
     "similar_day_fit_cutoff": "timestamp",
     "similar_day_method": "string",
     "available_at": "timestamp",
