@@ -65,7 +65,7 @@ class TestTickLabels:
 
     def test_the_budget_grows_until_the_elisions_are_as_distinct_as_the_labels(self):
         # Same head, same tail, differing only where the starting budget cuts.
-        head, tail = "ROLLING_MEAN(demand_kwh, gap=2d, ", ") by day_type, holidays=last_year"
+        head, tail = "ROLLING_MEAN(demand_kwh, gap=2d, ", ") by day_type, holidays=same_holiday"
         pair = [f"{head}window=28{tail}", f"{head}window=14{tail}"]
         assert _elide(pair[0], TICK_LABEL_MAX_CHARS) == _elide(pair[1], TICK_LABEL_MAX_CHARS)
 
@@ -351,7 +351,7 @@ class TestPermutationImportancePlot:
     def test_long_expressions_are_elided_in_the_tick_text_not_the_hover(self):
         long_name = (
             "SIMILAR_DAY(power_usage_demand_kwh, gap=(2d, 335d), "
-            "window=(30, 60), rank=1, holidays=last_year) / 2"
+            "window=(30, 60), rank=1, holidays=same_holiday) / 2"
         )
         fig = permutation_importance_plot(
             TASK,

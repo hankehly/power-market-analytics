@@ -39,9 +39,12 @@ tag and into `dim_feature`, the feature dimension every label reads.
    - **A pool of several windows** writes `gap` and `window` as tuples, read in
      pairs: `gap=(2d, 335d), window=(30, 60)` is 30 days from 2 days back and
      60 days from 335 days back.
-   - **`holidays=last_year`** means a holiday takes the same holiday last year,
-     when that day lies in the year-ago window and its load is public by the
-     issue time, instead of a ranked pick.
+   - **`holidays=`** says what a holiday does. `holidays=same_holiday` means it
+     takes the same holiday last year, when that day lies in the year-ago
+     window and its load is public by the issue time, instead of a ranked pick.
+     `holidays=similarity` means it is ranked from the pool like any other day.
+     The values are `similar_day_method`'s, so the expression and the data say
+     the same word.
 6. **Composition** reads outer to inner. The outermost primitive is the step
    applied last. Arithmetic between expressions is written infix:
    `EWA(…) - EWA(…)`, `SIMILAR_DAY(…) / 2`.
@@ -73,8 +76,8 @@ A column passed through unchanged keeps its name as its expression
 | `MEAN(x, weight)` | Over the area's stations, weighted by `weight`. | `MEAN(forecast_temperature_c, weight=population)` |
 | `DISCOMFORT_INDEX(t, h)` | The 不快指数 of a temperature `t`, C, and a relative humidity `h`, %: `0.81 t + 0.01 h (0.99 t - 14.3) + 46.3` (木内 2001, eq. A1; [literature review](research/literature-review.md)). It is the U.S. Weather Bureau's temperature-humidity index `T - (0.55 - 0.0055 h)(T - 58)`, `T` in F, written for C: the two are equal. Below 14.4 C a higher humidity lowers it. | `DISCOMFORT_INDEX(MEAN(forecast_temperature_c, weight=population), MEAN(forecast_relative_humidity_pct, weight=population))` |
 | `DAYS_SINCE(flag)` / `DAYS_UNTIL(flag)` | Calendar days to the nearest day the flag is true. | `DAYS_SINCE(is_holiday)` |
-| `SIMILAR_DAY(x, gap, window, rank, holidays)` | `x` on the `rank`-th most similar day of the pool: `window` candidate days, the newest `gap` back. | `SIMILAR_DAY(power_usage_demand_kwh, gap=(2d, 335d), window=(30, 60), rank=1, holidays=last_year) / 2` |
-| `SIMILAR_DAY_MEAN(x, gap, window, k, weight, holidays)` | The mean of `x` over the `k` most similar days of the pool, weighted by `weight`. `weight=inverse_distance` weighs each day by one over its distance. It weighs days, unlike `MEAN(x, weight=population)`, which weighs stations. | `SIMILAR_DAY_MEAN(power_usage_demand_kwh, gap=(2d, 335d), window=(30, 60), k=3, weight=inverse_distance, holidays=last_year) / 2` |
+| `SIMILAR_DAY(x, gap, window, rank, holidays)` | `x` on the `rank`-th most similar day of the pool: `window` candidate days, the newest `gap` back. | `SIMILAR_DAY(power_usage_demand_kwh, gap=(2d, 335d), window=(30, 60), rank=1, holidays=same_holiday) / 2` |
+| `SIMILAR_DAY_MEAN(x, gap, window, k, weight, holidays)` | The mean of `x` over the `k` most similar days of the pool, weighted by `weight`. `weight=inverse_distance` weighs each day by one over its distance. It weighs days, unlike `MEAN(x, weight=population)`, which weighs stations. | `SIMILAR_DAY_MEAN(power_usage_demand_kwh, gap=(2d, 335d), window=(30, 60), k=3, weight=inverse_distance, holidays=same_holiday) / 2` |
 
 ## Adding or changing a feature
 

@@ -22,7 +22,8 @@ their inverse-distance weighted mean are written to ``pma_ml.similar_day``
 (``tasks/demand/similar_day_feature.py``). A special day whose same holiday
 last year lies in the pool's year-ago window, with that day's load public by
 the issue time, takes that day instead: rank 1 and the mean carry its load.
-The pool has no flags. The
+The ``similar_day_pool_*`` columns hold the ranking on every day, that override
+included, so a preset picks the variant it wants. The pool has no flags. The
 ``ftr_period_similar_day`` mart passes the rows to Feast after ``dbt build``;
 the similar-day presets read rank 1. A re-run's rows win by ``published_at``
 wherever they share ``available_at``.

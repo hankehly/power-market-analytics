@@ -243,7 +243,32 @@ def similar_day_reference(day: pd.Timestamp, rank: int) -> pd.Timestamp | None:
     return day - pd.Timedelta(days=SIMILAR_DAY_RANK_LAG_DAYS[rank - 1])
 
 
-def similar_day_rank_load(day: pd.Timestamp, time_code: int, rank: int) -> float | None:
+def similar_day_pool_reference(day: pd.Timestamp, rank: int) -> pd.Timestamp:
+    """The pool ranking's day of ``rank`` for ``day``.
+
+    The pool ranks every day, so where the same-holiday override fired it keeps a
+    ranking of its own, at lags 364, 7 and 14; elsewhere it is the base's.
+
+    Parameters
+    ----------
+    day : pandas.Timestamp
+    rank : int
+        1, 2 or 3.
+
+    Returns
+    -------
+    pandas.Timestamp
+    """
+    if day == SIMILAR_DAY_SAME_HOLIDAY:
+        return day - pd.Timedelta(days={1: 364, 2: 7, 3: 14}[rank])
+    reference = similar_day_reference(day, rank)
+    assert reference is not None  # only a same-holiday day has absent ranks
+    return reference
+
+
+def similar_day_rank_load(
+    day: pd.Timestamp, time_code: int, rank: int, *, pool: bool = False
+) -> float | None:
     """``similar_day_rank{rank}_demand_kwh`` of the fixture's row for ``day`` and ``time_code``.
 
     Parameters
@@ -259,15 +284,16 @@ def similar_day_rank_load(day: pd.Timestamp, time_code: int, rank: int) -> float
     -------
     float or None
         The rank's day's hourly load over the hour containing the period, halved;
-        ``None`` where the rank is absent.
+        ``None`` where the rank is absent. With ``pool``, the pool ranking's rank,
+        which is never absent.
     """
-    reference = similar_day_reference(day, rank)
+    reference = similar_day_pool_reference(day, rank) if pool else similar_day_reference(day, rank)
     if reference is None:
         return None
     return synthetic_hourly_load(reference, (time_code + 1) // 2 - 1) / 2
 
 
-def similar_day_mean(day: pd.Timestamp, time_code: int) -> float:
+def similar_day_mean(day: pd.Timestamp, time_code: int, *, pool: bool = False) -> float:
     """``wavg_similar_day_top3_demand_kwh`` of the fixture's row for ``day`` and ``time_code``.
 
     Parameters
@@ -282,9 +308,10 @@ def similar_day_mean(day: pd.Timestamp, time_code: int) -> float:
     float
         On a ranked day the rank loads weighted 4/7, 2/7 and 1/7 (the inverse
         distances 2, 1 and 0.5 over their sum), summed in rank order; on
-        ``SIMILAR_DAY_SAME_HOLIDAY`` rank 1's load.
+        ``SIMILAR_DAY_SAME_HOLIDAY`` rank 1's load. With ``pool``, the same over
+        the pool ranking, which weighs three ranks on every day.
     """
-    if day == SIMILAR_DAY_SAME_HOLIDAY:
+    if day == SIMILAR_DAY_SAME_HOLIDAY and not pool:
         return similar_day_load(day, time_code)
     inverse = [1.0 / distance for distance in SIMILAR_DAY_RANK_DISTANCES]
     total_inverse = 0.0
@@ -292,7 +319,7 @@ def similar_day_mean(day: pd.Timestamp, time_code: int) -> float:
         total_inverse += value
     mean = 0.0
     for rank, value in enumerate(inverse, start=1):
-        load = similar_day_rank_load(day, time_code, rank)
+        load = similar_day_rank_load(day, time_code, rank, pool=pool)
         assert load is not None
         mean += value / total_inverse * load
     return mean
@@ -1829,6 +1856,10 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
         same_holiday = day == SIMILAR_DAY_SAME_HOLIDAY
         references = [similar_day_reference(day, rank) for rank in (1, 2, 3)]
         rank1_reference = references[0]
+        # The pool ranks every day. Where the override fired it keeps a ranking of
+        # its own, inside the pool's windows; elsewhere it is the base's.
+        pool_references = [similar_day_pool_reference(day, rank) for rank in (1, 2, 3)]
+        pool_rank1_reference = pool_references[0]
         assert rank1_reference is not None  # rank 1 is never null
         # A same-holiday row is usable once its reference's day of load is (the next
         # midnight); a ranked row an hour after its fit.
@@ -1861,8 +1892,26 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
                 "similar_day_n_candidates": None if same_holiday else 87,
                 "similar_day_fit_cutoff": None if same_holiday else day - pd.Timedelta(days=1),
                 "similar_day_method": "same_holiday" if same_holiday else "similarity",
-                # The mart's one computed value: the days from the rank-1 day to D.
+                # The mart computes each variant's lag: days from its rank-1 day to D.
                 "similar_day_rank1_lag_days": (day - rank1_reference).days,
+                **{
+                    f"similar_day_pool_rank{rank}_demand_kwh": similar_day_rank_load(
+                        day, tc, rank, pool=True
+                    )
+                    for rank in (1, 2, 3)
+                },
+                "wavg_similar_day_pool_top3_demand_kwh": similar_day_mean(day, tc, pool=True),
+                **{
+                    f"similar_day_pool_rank{rank}_reference_date": reference.date()
+                    for rank, reference in enumerate(pool_references, start=1)
+                },
+                **{
+                    f"similar_day_pool_rank{rank}_distance": distance
+                    for rank, distance in enumerate(SIMILAR_DAY_RANK_DISTANCES, start=1)
+                },
+                "similar_day_pool_n_candidates": 87,
+                "similar_day_pool_fit_cutoff": day - pd.Timedelta(days=1),
+                "similar_day_pool_rank1_lag_days": (day - pool_rank1_reference).days,
                 "available_at": available_at,
                 "published_at": pd.Timestamp("2026-09-11 09:00:00"),
             }
@@ -1998,7 +2047,14 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
         "similar_day_rank3_reference_date date, similar_day_rank1_distance double, "
         "similar_day_rank2_distance double, similar_day_rank3_distance double, "
         "similar_day_n_candidates int, similar_day_fit_cutoff timestamp, "
-        "similar_day_method string, similar_day_rank1_lag_days int, available_at timestamp, "
+        "similar_day_method string, similar_day_rank1_lag_days int, "
+        "similar_day_pool_rank1_demand_kwh double, similar_day_pool_rank2_demand_kwh double, "
+        "similar_day_pool_rank3_demand_kwh double, wavg_similar_day_pool_top3_demand_kwh double, "
+        "similar_day_pool_rank1_reference_date date, similar_day_pool_rank2_reference_date date, "
+        "similar_day_pool_rank3_reference_date date, similar_day_pool_rank1_distance double, "
+        "similar_day_pool_rank2_distance double, similar_day_pool_rank3_distance double, "
+        "similar_day_pool_n_candidates int, similar_day_pool_fit_cutoff timestamp, "
+        "similar_day_pool_rank1_lag_days int, available_at timestamp, "
         "published_at timestamp",
         "pma_features.ftr_period_similar_day",
     )

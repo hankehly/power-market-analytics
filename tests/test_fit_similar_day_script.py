@@ -126,14 +126,17 @@ class TestFitScript:
         assert params["similar_day_hourly_load_span"] == "2023-01-01..2024-04-30"
         assert params["similar_day_weights"].startswith("calendar_days=")
 
-        # Every forecast day from 02-09 to the calendar's last day, 04-29, is published;
-        # 03-20 takes its same holiday, every other day (04-29 among them) is ranked.
+        # Every forecast day from 02-09 to the calendar's last day, 04-29, is published
+        # and ranked; 03-20's base columns take its same holiday, its pool columns
+        # keep the ranking.
         published = [d for d in FORECAST_DAYS if pd.Timestamp("2024-02-09") <= d <= HOLIDAYS[-1]]
-        ranked = [d for d in published if d != SAME_HOLIDAY_DAY]
+        ranked = published
         assert len(published) == 81
         assert params["n_days_scored"] == "81"
-        assert params["n_days_ranked"] == "80"
-        assert params["n_special_days_ranked"] == "1"
+        # Every scored day is ranked now; the same-holiday days are a subset of
+        # them, the days whose base columns took a reference instead.
+        assert params["n_days_ranked"] == "81"
+        assert params["n_special_days_ranked"] == "2"
         assert params["n_days_same_holiday"] == "1"
         fits = artifact(run.info.run_id, "similar_day_fits.csv")
         assert len(fits) == 12
@@ -159,11 +162,11 @@ class TestFitScript:
             "distance",
             "weight",
         ]
-        assert len(ranking) == 240
+        assert len(ranking) == 243
         assert ranking["trade_date"].unique().tolist() == [str(d.date()) for d in ranked]
-        assert ranking.groupby("trade_date")["rank"].apply(list).eq([[1, 2, 3]] * 80).all()
+        assert ranking.groupby("trade_date")["rank"].apply(list).eq([[1, 2, 3]] * 81).all()
         assert ranking.groupby("trade_date")["weight"].sum().to_numpy() == pytest.approx(
-            [1.0] * 80, rel=1e-12
+            [1.0] * 81, rel=1e-12
         )
         rank1 = ranking[ranking["rank"] == 1].set_index("trade_date")["reference_date"]
         assert rank1.to_dict() == selection.set_index("trade_date")["reference_date"].to_dict()
@@ -239,8 +242,14 @@ class TestFitScript:
         assert holiday["wavg_similar_day_top3_demand_kwh"] == expected
         assert holiday["similar_day_method"] == METHOD_SAME_HOLIDAY
         assert pd.isna(holiday["similar_day_fit_cutoff"])
-        # The reference's load was public at midnight after it.
-        assert holiday["available_at"] == pd.Timestamp("2023-03-22 00:00")
+        # Its pool columns hold the ranking, so both variants are on the row.
+        assert pd.notna(holiday["similar_day_pool_rank1_reference_date"])
+        assert holiday["similar_day_pool_rank1_reference_date"] != SAME_HOLIDAY_REFERENCE.date()
+        assert pd.notna(holiday["similar_day_pool_fit_cutoff"])
+        # The reference's load was public at midnight after it (2023-03-22), but the
+        # row carries the pool columns too, so it waits for the later of the two.
+        assert holiday["available_at"] > pd.Timestamp("2023-03-22 00:00")
+        assert holiday["available_at"] <= pd.Timestamp("2024-03-19 09:30")
         assert rows["published_at"].nunique() == 1
 
     def test_a_special_day_left_unranked_is_neither_counted_nor_called_similarity(
@@ -268,12 +277,12 @@ class TestFitScript:
         run = last_run()
         params = run.data.params
         assert params["n_days_scored"] == "80"
-        assert params["n_days_ranked"] == "79"
-        assert params["n_special_days_ranked"] == "0"
+        assert params["n_days_ranked"] == "80"
+        assert params["n_special_days_ranked"] == "1"
         assert params["n_days_same_holiday"] == "1"
-        assert int(params["n_days_ranked"]) + int(params["n_days_same_holiday"]) == int(
-            params["n_days_scored"]
-        )
+        # The day dropped by hand had no pool and took no reference, so it is the
+        # one scorable day with no row at all.
+        assert params["n_days_ranked"] == params["n_days_scored"]
         special = artifact(run.info.run_id, "similar_day_special_days.csv").set_index("trade_date")
         assert special.loc[str(SAME_HOLIDAY_DAY.date()), "similar_day_method"] == (
             METHOD_SAME_HOLIDAY
