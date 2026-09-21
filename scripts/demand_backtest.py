@@ -93,9 +93,9 @@ def main(argv: list[str] | None = None) -> None:
         help=(
             "Allow scoring past the pinned evaluation window. Only for a "
             "confirmation run: the holdout is what keeps the window's numbers "
-            "honest, and a run that reads it is logged as having done so. Days "
-            f"reserved holdout is {HOLDOUT_START.date()}..{HOLDOUT_END.date()}, and a "
-            "run may not score past it. Without --start-date or --days the run "
+            "honest, and a run that reads it is logged as having done so. The "
+            f"reserved holdout is {HOLDOUT_START.date()}..{HOLDOUT_END.date()}, and "
+            "a run may not score past it. Without --start-date or --days the run "
             "covers exactly those days, so every run of one batch compares on the "
             "same window."
         ),
@@ -219,10 +219,9 @@ def main(argv: list[str] | None = None) -> None:
         result = run.result
 
         per_day = daily_metrics(result)
-        # Publishing comes first because it is what marks the holdout spent: the
-        # boundary is read off this table. Logging the errors before it would let
-        # a failed publish leave them visible in MLflow with nothing recording
-        # that the days were scored, so a retry would call them unseen again.
+        # Publishing comes first so a failed publish takes the artifacts with
+        # it: the warehouse rows are the durable record of the run, and errors
+        # logged to MLflow without them would outlive what produced them.
         records = build_forecast_records(
             TASK, result, run_id=mlflow_run.info.run_id, strategy=label, area_code=args.area
         )

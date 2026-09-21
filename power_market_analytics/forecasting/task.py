@@ -47,17 +47,22 @@ class TaskSpec:
     eval_start, eval_end : pandas.Timestamp or None
         The task's pinned evaluation window: the delivery days every experiment
         scores, so two runs made months apart compare on the same days. The days
-        after ``eval_end`` are the holdout, kept out of the decisions that pick a
-        baseline; a backtest refuses to score into them without being told to.
+        after ``eval_end`` are kept out of the decisions that pick a baseline,
+        and the reserved part of them is ``holdout_start`` .. ``holdout_end``; a
+        backtest refuses to score past ``eval_end`` without being told to.
         Both None leaves a task unpinned, and its backtest ends at the last day
         in the data.
-    holdout_start : pandas.Timestamp or None
-        A floor for the first unseen day, when the day after ``eval_end`` is too
-        early: runs made before the window was pinned scored past it. None means
-        the floor is the day after ``eval_end``. It is only a floor — a day a run
-        has scored is no longer unseen, so
-        ``forecasting.holdout.holdout_opens`` moves the boundary past whatever
-        the accuracy mart already holds. Read it through that, not through this.
+    holdout_start, holdout_end : pandas.Timestamp or None
+        The reserved holdout: the days set aside from the decisions that pick a
+        baseline, and the only days a confirmation run may score. Read it through
+        ``holdout_window``. It is declared here rather than inferred from what
+        has been scored, because every run of one confirmation batch must share
+        the same days — a boundary that moved as runs published would stop a
+        baseline and its candidate being compared at all — and because a value in
+        the repository cannot be reset by dropping a warehouse table or raced by
+        two runs starting at once. It may reach into the future: the days fill as
+        data arrives. Once a batch has spent it, move both dates in a pull
+        request. None leaves a task without a reserved holdout.
     """
 
     name: str
