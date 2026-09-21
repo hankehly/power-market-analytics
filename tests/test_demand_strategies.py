@@ -54,6 +54,7 @@ class TestRegistry:
         assert STRATEGIES == (
             "e212",
             "e219",
+            "e221",
             "lightgbm",
             "lightgbm_msm",
             "lightgbm_msm_popw",

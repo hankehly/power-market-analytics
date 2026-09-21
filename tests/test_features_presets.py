@@ -36,6 +36,7 @@ DAY_TYPE = "ftr_day_calendar:day_type"
 REGISTERED_SERVICES = [
     "demand__e212",
     "demand__e219",
+    "demand__e221",
     "demand__lightgbm",
     "demand__lightgbm_msm",
     "demand__lightgbm_msm_popw",
