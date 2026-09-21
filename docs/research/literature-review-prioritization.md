@@ -120,8 +120,11 @@ baseline on the pinned window, and any candidate resting on a single-window numb
 should be re-read once a second window exists.
 
 **The best new capability is quantile forecasting from the existing strategy**, then
-calibrated intervals on top (§8). They reuse the feature marts, Feast retrieval, the
-`pma_ml` write-back and the dashboards unchanged.
+calibrated intervals on top (§8). They reuse the feature marts, Feast retrieval and the
+training plumbing; the layers downstream need new work — a quantile-keyed write-back
+(the `pma_ml` forecast table holds one value per period, not one per τ), pinball loss
+and coverage beside MAE, a calibration check, and dashboards that draw a fan rather
+than a line.
 [P-147](research/literature-review.md#p-147) gives the reason plainly: real operator
 day-ahead errors are peaked, heavy-tailed and biased low, so a Gaussian interval is the
 wrong object — and our own error has kurtosis 4.04. The most *valuable* capability in
@@ -588,7 +591,7 @@ novelty, **LV** learning value, **FE** feasibility, **OB** ongoing burden.
 
 | # | Cat. | Intervention | Papers | Overlap with `e212` | Segment it targets | EI | TC | RN | LV | FE | OB | Gate | Rationale |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 1 | A1 | **Own D-2 forecast residual as a feature** | P-113, P-116, P-128, P-145, P-146, P-154, P-157, P-161, P-034, P-035 | none — no feature is a function of the model's own output | summer and winter regimes; holidays; the day level | 3 | 2 | 3 | 3 | 2 | low | pass | The only candidate whose *fix* is measured on our data: −2.19 % over the window, **−1.75 % on a held-out year** with β fixed, partial r 0.240 after controlling for the D-2 load level. Papers are weak individually (P-145 beats a *frozen* model; P-157 and P-161 are COVID-era) but the mechanism is confirmed here. §9.1 |
+| 1 | A1 | **Own D-2 forecast residual as a feature** | P-113, P-116, P-128, P-145, P-146, P-154, P-157, P-161, P-034, P-035 | none — no feature is a function of the model's own output | summer and winter regimes; holidays; the day level | 3 | 2 | 3 | 3 | 2 | low | pass | The only candidate whose *fix* is measured on our data: **−1.62 % on a held-out year**, with β selected on the first year alone (0.25) and applied untouched to the second; partial r 0.240 after controlling for the D-2 load level. Papers are weak individually (P-145 beats a *frozen* model; P-157 and P-161 are COVID-era) but the mechanism is confirmed here. §9.1 |
 | 2 | E2 | **Correlation-aware feature pruning** | P-003, P-058, P-063, P-025 | the importance machinery exists and runs every backtest; nothing acts on it | whole run; the importance table itself | 1 | 2 | 3 | 3 | 3 | low | pass | 17 of 105 features at ΔMAE ≤ 0, 26 under 500 kWh, median pairwise \|r\| 0.833 in the lag block. A preset with a `drop` list — the cheapest experiment available here, and **both outcomes are informative**. P-058's own gain was 1.6 % relative with the subset size chosen on the test set, so expect ~0. §9.2 |
 | 3 | B1 | **Bound the day-type reference window** | P-104, P-113, P-001, P-141, P-106, P-111 | `mean/ewm_daytype_4d_demand_kwh` and `…_weekly_lags` exist but are unbounded in age; #203 added the *age* as a feature | the 2,400 periods whose reference is over a week old | 3 | 2 | 3 | 2 | 3 | low | pass | MAE rises monotonically with reference age, 489,466 → 2,219,186 past 60 days; 6.86 % of periods carry **10.69 %** of the error. #203 proved that telling the model is not enough. P-104 (7.29 → 3.22 % on French special days) replaces the coarse match with a typed one. §9.3 |
 | 4 | A5 | **Combine several fits (sister forecasts)** | P-059, P-146, P-025, P-149, P-027, P-001, P-067 | none — every run is a single fit | whole run; and the ensemble's own member spread | 2 | 3 | 3 | 3 | 2 | med | pass | The methodologically cleanest point-accuracy evidence in the corpus: P-059's eight sister models, two systems, Diebold-Mariano, "no combination was ever worse" in 20–22 of 24 hours. Note that it does **not** measure how much of our decision record is noise — §9.4 corrects that claim; the paired daily bootstrap and #223's sealed second window are the instruments for that. §9.4 |
@@ -737,11 +740,13 @@ A cheaper fallback tests a weaker version: the residual of a *fixed reference pr
 is. It does **not** reproduce the measurement in §4.6, which is of the model's own
 residual, and the report says so rather than treating the two as interchangeable.
 
-**The matched baseline.** `943aab6d21b14fe2877169dabc5d694b` — the `e212` preset on the
-same window against the *current* similar-day partition — same `--train-start`, same 104
-features plus the one column. (Not the `34c506fb…` of
-[demand/README.md](research/demand/README.md); §12 item 6 explains the 0.13 % difference
-and why the newer one is the matched arm.)
+**The matched baseline.** The fresh pinned-window `e212` run from step 0 — same
+`--train-start`, same 104 features plus the one column. Before #223 lands that would be
+`943aab6d21b14fe2877169dabc5d694b`, the `e212` preset on the old window against the
+*current* similar-day partition, and not the `34c506fb…` of
+[demand/README.md](research/demand/README.md) (§12 item 6 explains the 0.13 %
+difference). Rank 1 is the one step whose baseline is `e212`; §11 explains why every
+later step's is whatever survived before it.
 
 **The important segments.** Season × day type, because the held-out gain is
 concentrated there and is not uniform: Holiday DJFM −4.53 %, Weekend JJAS −2.65 %,
@@ -819,8 +824,9 @@ because they answer different questions:
 - **2b**: drop within the |r| > 0.95 clusters, keeping the highest-ΔMAE representative
   of each.
 
-**The matched baseline.** `943aab6d21b14fe2877169dabc5d694b`, as for every candidate
-below — see §12 item 6 on why it, and not `34c506fb…`, is the matched arm.
+**The matched baseline.** Whatever preset is current when this runs — `e212` if rank 1
+was rejected, the rank-1 preset if it was kept — on a run of its own. Not a shared arm:
+§11 explains why the baseline advances on every Keep.
 
 **The important segments.** Overall MAE and the CI first, because the hypothesis is a
 null. Then the by-month table, because a pruned model that is flat overall but worse in
@@ -911,8 +917,8 @@ D's type within, say, 35 days, null beyond), so the model has both the unbounded
 reference and one that admits when it has nothing recent to say. A mart change plus a
 preset — no new source, no code, no new table.
 
-**The matched baseline.** `943aab6d21b14fe2877169dabc5d694b`, same window, same
-`--train-start`.
+**The matched baseline.** The preset current when this runs, on a run of its own — see
+§11 on the baseline advancing after every Keep.
 
 **The important segments.** The staleness bands above, reported exactly as the table —
 they are the hypothesis. Then holidays, since staleness and holidays coincide. Then
@@ -1007,8 +1013,10 @@ produced five identical fits, a null result, and a false rejection of the whole
 combination family. The experiment sets `bagging_freq ≥ 1` or varies `feature_fraction`,
 and its first check is that the *k* member forecasts differ at all.
 
-**The matched baseline.** `943aab6d21b14fe2877169dabc5d694b`, same window, same
-features, k = 1.
+**The matched baseline.** The preset current when this runs, at k = 1 and with the same
+stochastic configuration as the candidate — see §11 on the baseline advancing after
+every Keep. A k = 1 arm built from the *deterministic* settings would confound the
+ensemble's effect with the sampling's.
 
 **The important segments.** Overall MAE and the paired daily bootstrap CI. Then the
 member spread: the MAE range across the *k* members of a single ensemble, and how much
@@ -1108,8 +1116,9 @@ same for humidity. That is exactly
 [#134](https://github.com/hankehly/power-market-analytics/issues/134)'s expression,
 already specified and open. A mart change plus a preset — no new source, no code.
 
-**The matched baseline.** `943aab6d21b14fe2877169dabc5d694b` (`e212` against the
-current similar-day partition), same window, same `--train-start`.
+**The matched baseline.** The preset current when this runs, on a run of its own. Being
+last of the five, this one is most exposed to the advance rule in §11: if ranks 1–4 were
+kept it is not `e212` it competes against.
 
 **The important segments.** Day type, and holidays above all. Then the `same_holiday`
 subset specifically — the diagnostic that motivates this is defined on those 54 days,
@@ -1303,8 +1312,18 @@ for a candidate and its baseline. Until
 similar-day partition — is the matched arm, and it is not the `34c506fb…` named in
 [demand/README.md](research/demand/README.md) (§12 item 6 explains why). **After #223
 lands, neither is**: one fresh `e212` run on the pinned 2024-04-01 … 2026-03-31 window
-becomes the baseline every experiment below shares. Step 0 says why that is the right
-order.
+opens the sequence. Step 0 says why that is the right order.
+
+**The baseline advances on every Keep.** That fresh `e212` run is the baseline for step
+1 only. The research README's rule is that a kept batch's preset *becomes* the baseline,
+so a step that lands compares the next step against **its** preset, on a run of its own,
+not against `e212` throughout. Sharing one arm across the whole sequence would measure
+each change against a superseded model and misstate its incremental effect — and with
+several of these candidates plausibly touching the same day-level error (ranks 1 and 3
+both do), the overlap is exactly what a stale baseline would hide. Concretely: if step 1
+is kept, step 2's arms are the step-1 preset with and without the pruning; if step 1 is
+rejected, step 2's baseline stays the `e212` run. Each Keep costs one new baseline run,
+which is the price of an honest increment.
 
 Each step prespecifies its hypothesis, the evidence it will produce, and its decision
 rule **before** the run.
@@ -1364,7 +1383,9 @@ on the first one run.
 ### Step 1 — the D-2 forecast residual (rank 1)
 
 One model-method change, on its own, against **the fresh pinned-window `e212` run from
-step 0** — not `943aab6d…`, whose window step 0 supersedes. The prespecified numbers are
+step 0** — not `943aab6d…`, whose window step 0 supersedes. Being first, this is the one
+step whose baseline is `e212`; every later step's baseline is whatever survived before
+it. The prespecified numbers are
 in §9.1: the post-processing proxy gives **−1.62 %** on a held-out year with β chosen on
 the first year alone, so **−1.0 % or better** is the Keep threshold and the paired daily
 bootstrap CI must exclude zero. Run it before anything else because its result re-ranks
