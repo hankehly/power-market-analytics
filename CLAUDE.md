@@ -234,9 +234,30 @@
   keep them fresh with the JMA download + load scripts, since a stale window's last days are
   forecast with the temperature window null), the MSM forecasts of its stations in
   `fct_jma_msm_weather_forecast_hourly` (a delivery day without a forecast is forecast with
-  those features null) and `fct_census_population_jma_station`. Same flags as the spot script: `--add VIEW:COLUMN …` /
-  `--drop VIEW:COLUMN …` with `--name`, `--days` (default 365), `--start-date` /
-  `--end-date`, `--train-start`, `--importance-repeats`. Logs to the MLflow experiment
+  those features null) and `fct_census_population_jma_station`. Since 2026-09-21 the demand task pins an
+  **evaluation window** on its `TaskSpec` (`eval_start` / `eval_end`,
+  `TASK.eval_window`): **2024-04-01 … 2026-03-31**, fiscal years 2024 and 2025,
+  730 days. It opens on the first day that can be scored at all — the target
+  starts 2022-04-01 and the sliding 730-day training window eats the two years
+  before it — and the days after it are the **holdout**, which no experiment
+  reads until a confirmation run. `--start-date` and `--end-date` default to it,
+  so two runs months apart score the same days without either remembering to say
+  so, and `--days` counts back from its end rather than from the newest data. The
+  pin is a ceiling, not an equality: a warehouse that stops before `eval_end`
+  scores what it has and logs a warning, and the default can never pass
+  `eval_end`. An explicit `--end-date` in the holdout is refused unless
+  `--holdout` is given, checked off the arguments before a Spark session exists;
+  every run logs `eval_window` and `reads_holdout`, so a run that read the
+  holdout is identifiable afterwards. The spot task is unpinned (both fields
+  None) and still ends at the last day in the data.
+  Runs before the pin used `2024-08-18 … 2026-08-17`, so they do not cover it.
+  Restricting an existing run to a **prefix** of the days it scored needs no
+  re-run — walk-forward means day D's forecast depends only on data through D-2
+  and refits anchor at the run's start — but a window that starts earlier does.
+  Same flags as the spot script: `--add VIEW:COLUMN …` /
+  `--drop VIEW:COLUMN …` with `--name`, `--days` (no default; the pinned window),
+  `--start-date` / `--end-date`, `--holdout`, `--train-start`,
+  `--importance-repeats`. Logs to the MLflow experiment
   `demand`, publishes to `pma_ml.demand_forecast`, then `just dbt build --select
   +fct_demand_forecast_accuracy +fct_demand_forecast_contribution_summary
   +fct_demand_forecast_importance` (the second selector materialises the run's TreeSHAP

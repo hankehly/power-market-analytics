@@ -78,6 +78,39 @@ class TestTaskSpec:
         with pytest.raises(ValueError, match="history_lead_days must be >= 1, got 0"):
             make_spec(history_lead_days=0)
 
+    def test_an_unpinned_task_has_no_evaluation_window(self):
+        spec = make_spec()
+        assert spec.eval_start is None and spec.eval_end is None
+
+    def test_an_evaluation_window_is_pinned_at_both_ends_or_neither(self):
+        with pytest.raises(ValueError, match="pin both eval_start and eval_end, or neither"):
+            make_spec(eval_start=pd.Timestamp("2024-04-01"))
+        with pytest.raises(ValueError, match="pin both eval_start and eval_end, or neither"):
+            make_spec(eval_end=pd.Timestamp("2026-03-31"))
+
+    def test_an_evaluation_window_must_not_run_backwards(self):
+        with pytest.raises(ValueError, match="eval_start 2026-03-31 is after eval_end 2024-04-01"):
+            make_spec(
+                eval_start=pd.Timestamp("2026-03-31"), eval_end=pd.Timestamp("2024-04-01")
+            )
+
+    def test_eval_window_refuses_an_unpinned_task(self):
+        # A caller that needs the window says so; an unpinned task cannot be
+        # mistaken for one whose window happens to be missing.
+        with pytest.raises(ValueError, match="no evaluation window is pinned"):
+            _ = make_spec().eval_window
+
+    def test_eval_window_returns_both_ends_of_a_pinned_one(self):
+        spec = make_spec(
+            eval_start=pd.Timestamp("2024-04-01"), eval_end=pd.Timestamp("2026-03-31")
+        )
+        assert spec.eval_window == (pd.Timestamp("2024-04-01"), pd.Timestamp("2026-03-31"))
+
+    def test_a_one_day_window_is_allowed(self):
+        day = pd.Timestamp("2024-04-01")
+        spec = make_spec(eval_start=day, eval_end=day)
+        assert spec.eval_start == spec.eval_end == day
+
     def test_frames_must_agree_on_the_forecast_column(self):
         with pytest.raises(
             ValueError,
