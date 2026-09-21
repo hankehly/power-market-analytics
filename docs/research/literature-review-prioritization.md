@@ -683,11 +683,16 @@ Papers: [P-113](research/literature-review.md#p-113),
 [P-035](research/literature-review.md#p-035),
 [P-154](research/literature-review.md#p-154).
 
-**The falsifiable hypothesis.** Giving the model the mean error of its own forecast for
-D-2 — information public at D-1 09:30 and absent from all 104 features — lowers Tokyo
-MAE on 2024-08-18 … 2026-08-17 by at least 1.0 %, with a paired daily bootstrap CI over
-days that excludes zero, and the gain concentrates in summer and winter rather than the
+**The falsifiable hypothesis.** Giving the model the mean D-2 forecast error **of a
+named prior run** — information public at D-1 09:30 and absent from all 104 features —
+lowers Tokyo MAE by at least 1.0 %, with a paired daily bootstrap CI over days that
+excludes zero, and the gain concentrates in the hot and cold regimes rather than the
 shoulder seasons.
+
+The wording is deliberate. The backtest retrieves its features before the walk and
+publishes its forecasts after it, so the candidate can only ever read a *prior* run's
+residuals, not its own; risk 3 below says what that costs and what a Keep would and
+would not establish.
 
 **Why this, not the others.** It is the only intervention in this review with a
 *measured* effect on our own residual rather than a discounted number from another
@@ -760,7 +765,7 @@ the gain is as much the result as its size.
 
 | Evidence | Decision |
 |---|---|
-| MAE ≤ −1.0 %, CI over days excludes zero, and the hot/cold concentration reproduces | **Keep.** It becomes the baseline, and the online-adaptation family (P-145, P-146, P-154, P-157, P-161) is worth its own investigation. |
+| MAE ≤ −1.0 %, CI over days excludes zero, and the hot/cold concentration reproduces | **Keep**, as prior-run feedback. It becomes the baseline, the online-adaptation family (P-145, P-146, P-154, P-157, P-161) is worth its own investigation, and the self-consistent version — a pre-roll so the candidate reads its own residuals — becomes the next experiment rather than an assumption. |
 | MAE improves but the CI includes zero, or the gain appears in the shoulder seasons instead | **Refine.** The mechanism is present but mis-specified — try the residual as a level shift rather than as a feature, or restrict it to a regime flag. |
 | MAE within ±0.3 % of baseline | **Reject**, and with real force: the cheapest member of the online-adaptation family failed on a signal we had already measured at −1.62 % out of sample, which says the model absorbs it through its lags once it can fit freely. The family drops to the bottom of the point-MAE lane. |
 | MAE rises | **Reject.** Most likely the extra column displaced a correlated feature; note it and stop. |
@@ -778,11 +783,22 @@ the gain is as much the result as its size.
    absent for the entire first fit. Whatever is missing must be null rather than zero — a
    zero says "no error" — and LightGBM's NaN handling has been the repository's rule since
    PR #110. The experiment must state what fraction of training rows carry the feature.
-3. *Operational recursion.* In production the D-2 forecast is the one issued at D-3
-   09:30. In the backtest it is the same run's. These are the same horizon, but a run
-   that changes its feature set changes its own residuals, so two runs' residual columns
-   are not comparable — which is fine for a matched comparison against a fixed baseline
-   and must be remembered when chaining experiments.
+3. *The experiment tests **prior-run** feedback, not self-consistent feedback.* This is
+   the sharpest limit of the persisted-source design and it changes what the run can
+   conclude. `demand_backtest.py` retrieves its `FeatureFrame` before the walk and
+   publishes the candidate's forecasts only after it, so every residual the candidate
+   reads belongs to the *named prior run* — never to itself. In production the D-2
+   forecast is the candidate's own, issued at D-3 09:30, and the loop is self-referential:
+   a correction applied on D-2 changes the residual fed on D. The experiment cannot
+   reproduce that without a pre-roll of the candidate over its own training window, which
+   is a second walk-forward and roughly doubles the cost.
+
+   So the hypothesis is stated as prior-run feedback and the decision rule reads on that
+   basis. A Keep says "the residual of a comparable model, read as of D-1 09:30, carries
+   usable signal" — which is enough to justify the self-consistent version as the next
+   experiment, not enough to claim it. A Reject is stronger, because prior-run feedback
+   is the easier case: the prior run's residuals are *more* informative than the
+   candidate's own would be once the candidate starts correcting them away.
 4. *It could be absorbed.* The model has 104 features including seven demand lags. If
    the tree can already reconstruct the regime from those, the column adds nothing. That
    is exactly what the ±0.3 % branch of the decision rule is for, and it is the honest
@@ -816,22 +832,38 @@ one city in one year with the subset size chosen on the test set.
 [P-003](research/literature-review.md#p-003) uses clustered permutation selection as
 standard practice and reports no isolated figure for it.
 
-**The smallest valid repository change.** A preset. `base: e212` with a `drop` list and
-nothing else — no code, no mart, no new source, no new test. Two runs, not one batch,
-because they answer different questions:
+**The smallest valid repository change.** One preset, `base: <current>` with a single
+`drop` list — no code, no mart, no new source, no new test — and **one run, one
+decision**, per the research README's batch rule. The list combines both pruning
+candidates, because they are two expressions of one mechanism:
 
-- **2a**: drop the 17 features with ΔMAE ≤ 0.
-- **2b**: drop within the |r| > 0.95 clusters, keeping the highest-ΔMAE representative
-  of each.
+- the 17 features with permutation ΔMAE ≤ 0, and
+- within each |r| > 0.95 cluster of §4.4, everything but the highest-ΔMAE
+  representative.
+
+An earlier draft proposed running these as two experiments. That was wrong: it is the
+per-candidate queue slot the README forbids, and it costs a second baseline run for no
+extra information. The combined result is also the more useful one — MAE holding with
+both the inert and the duplicated columns gone is a stronger statement than two separate
+nulls. **Only if the combined run fails** does a follow-up isolate which half carried
+the loss, and that follow-up is then justified by a result rather than scheduled in
+advance.
+
+Note what the list costs in independence: it is chosen from `34c506fb…`'s own importance
+table, on the same days the comparison would score, so this is a development result by
+construction. Selecting it on one window and testing on another — which #223 makes
+possible — is the stronger form, worth the extra run if the result lands close to the
+bound.
 
 **The matched baseline.** Whatever preset is current when this runs — `e212` if rank 1
 was rejected, the rank-1 preset if it was kept — on a run of its own. Not a shared arm:
 §11 explains why the baseline advances on every Keep.
 
 **The important segments.** Overall MAE and the CI first, because the hypothesis is a
-null. Then the by-month table, because a pruned model that is flat overall but worse in
-August and better in November has not lost nothing. Then the permutation importance of
-the survivors — for 2b that is the point of the experiment, not a diagnostic.
+non-inferiority bound. Then the by-month table, because a pruned model that is flat
+overall but worse in August and better in November has not lost nothing. Then the
+permutation importance of the survivors — with the clusters collapsed that is a
+deliverable of the experiment, not a diagnostic.
 
 **The decision rule, set before the run.**
 
@@ -846,19 +878,20 @@ the survivors — for 2b that is the point of the experiment, not a diagnostic.
 
 1. *Permutation importance understates a correlated group.* Shuffling one member of a
    cluster leaves its twins to carry the signal, so a low ΔMAE can mean "duplicated",
-   not "useless". That is precisely why 2b drops by **cluster** rather than by rank,
-   and why 2a and 2b are separate runs — 2a alone could mislead.
+   not "useless". That is precisely why the list drops by **cluster** as well as by
+   rank: a rank-only drop could mislead, which is the other reason the two belong in one
+   preset rather than in two runs.
 2. *The dominant feature must not be touched.* `wavg_similar_day_top3_demand_kwh`
-   carries ΔMAE 2,030,747, 21.6× the next. It is not in either drop list, and a run
-   that removed it would measure something else entirely.
+   carries ΔMAE 2,030,747, 21.6× the next. It is not in the drop list, and a run that
+   removed it would measure something else entirely.
 3. *Published presets are never edited.* A pruned set is a new preset file named after
    its experiment issue, per the naming rule; `e212` stays as it is.
 
 **Why it precedes rank 3.** It is the only candidate in the top five that needs no
 Python, and both of its outcomes are informative — which is rare. It also changes how
-every later experiment is read: if 2a is null, then the next batch's added columns can
-be judged against a lean baseline instead of against 104 columns of which a quarter are
-measurably inert.
+every later experiment is read: if the drop is non-inferior, the next batch's added
+columns are judged against a lean baseline instead of against 104 columns of which a
+quarter are measurably inert.
 ### 9.3 Rank 3 — Bound the day-type reference window
 
 Papers: [P-104](research/literature-review.md#p-104),
@@ -1393,20 +1426,12 @@ the whole online-adaptation family either way.
 
 ### Step 2 — correlation-aware pruning (rank 2)
 
-A preset with a `drop` list only — no code, no mart, no new data. Two variants are
-worth one run each and they are not a batch, because they answer different questions:
-
-- **2a, the dead-weight drop**: drop the 17 features with ΔMAE ≤ 0. Hypothesis: the
-  upper bound on MAE harm is under +0.3 %. Note what this costs in independence: the 17
-  were chosen from `34c506fb…`'s importance table, on the same days the comparison would
-  score, so 2a is a development result by construction. Selecting the drop list from one
-  window and testing it on another — which #223 makes possible — is the stronger form,
-  and is worth the extra run if the first result is close.
-- **2b, the cluster drop**: drop within the high-|r| clusters of §4.4, keeping one
-  representative each. Hypothesis: MAE does not rise and the surviving features'
-  permutation importance becomes interpretable.
-
-Run 2a first; run 2b only if 2a is null or better. They are cheap and fully reversible.
+A preset with a `drop` list only — no code, no mart, no new data. **One experiment, one
+preset, one run, one decision**, per the README's batch rule: the list holds both the 17
+features at ΔMAE ≤ 0 and the redundant members of each |r| > 0.95 cluster, since they are
+two expressions of one mechanism. A follow-up isolating which half mattered is justified
+only if the combined run fails. §9.2 has the decision rule, which is a non-inferiority
+bound on the upper CI limit rather than a null.
 
 ### Step 3 — bound the day-type reference window (rank 3)
 
