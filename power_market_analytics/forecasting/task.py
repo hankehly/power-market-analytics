@@ -51,6 +51,12 @@ class TaskSpec:
         baseline; a backtest refuses to score into them without being told to.
         Both None leaves a task unpinned, and its backtest ends at the last day
         in the data.
+    holdout_start : pandas.Timestamp or None
+        The first day no run has ever scored, when that is later than the day
+        after ``eval_end``: runs made before the window was pinned scored past
+        it, and a day whose errors have been read is not independent evidence
+        however the window is drawn. None means the holdout opens the day after
+        ``eval_end``. Read through ``holdout_opens``.
     """
 
     name: str
@@ -64,6 +70,7 @@ class TaskSpec:
     records_cls: type[ForecastRecords]
     eval_start: pd.Timestamp | None = None
     eval_end: pd.Timestamp | None = None
+    holdout_start: pd.Timestamp | None = None
 
     def __post_init__(self) -> None:
         if (self.eval_start is None) != (self.eval_end is None):
@@ -77,6 +84,14 @@ class TaskSpec:
                 f"{self.name}: eval_start {self.eval_start.date()} is after "
                 f"eval_end {self.eval_end.date()}"
             )
+        if self.holdout_start is not None:
+            if self.eval_end is None:
+                raise ValueError(f"{self.name}: holdout_start needs a pinned eval_end")
+            if self.holdout_start <= self.eval_end:
+                raise ValueError(
+                    f"{self.name}: holdout_start {self.holdout_start.date()} must follow "
+                    f"eval_end {self.eval_end.date()}"
+                )
         if self.history_lead_days < 1:
             raise ValueError(f"history_lead_days must be >= 1, got {self.history_lead_days}")
         forecast_cols = {
@@ -112,6 +127,27 @@ class TaskSpec:
         if self.eval_start is None or self.eval_end is None:
             raise ValueError(f"{self.name}: no evaluation window is pinned")
         return self.eval_start, self.eval_end
+
+    @property
+    def holdout_opens(self) -> pd.Timestamp:
+        """The first day that is genuinely unseen.
+
+        The day after ``eval_end``, unless ``holdout_start`` puts it later
+        because earlier runs already scored those days.
+
+        Returns
+        -------
+        pandas.Timestamp
+
+        Raises
+        ------
+        ValueError
+            If the task is unpinned.
+        """
+        _, eval_end = self.eval_window
+        if self.holdout_start is not None:
+            return self.holdout_start
+        return eval_end + pd.Timedelta(days=1)
 
     @property
     def value_col(self) -> str:

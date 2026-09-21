@@ -41,6 +41,9 @@ from power_market_analytics.tasks.demand.strategies import STRATEGIES, build_str
 
 #: The task's pinned evaluation window; the days after it are the holdout.
 EVAL_START, EVAL_END = TASK.eval_window
+#: The first day no run has ever scored. Later than EVAL_END + 1 where runs made
+#: before the window was pinned already read past it.
+HOLDOUT_OPENS = TASK.holdout_opens
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -88,9 +91,11 @@ def main(argv: list[str] | None = None) -> None:
         "--holdout",
         action="store_true",
         help=(
-            "Allow scoring past the pinned evaluation window, into the holdout. "
-            "Only for a confirmation run: the holdout is what keeps the window's "
-            "numbers honest, and a run that reads it is logged as having done so."
+            "Allow scoring past the pinned evaluation window. Only for a "
+            "confirmation run: the holdout is what keeps the window's numbers "
+            "honest, and a run that reads it is logged as having done so. Days "
+            f"before {HOLDOUT_OPENS.date()} were scored by runs made before the "
+            "window was pinned, so they are not independent evidence."
         ),
     )
     parser.add_argument(
@@ -170,6 +175,15 @@ def main(argv: list[str] | None = None) -> None:
                 )
         if end_date > last_day:
             parser.error(f"--end-date {end_date.date()} is after the last day in the data")
+        if end_date > EVAL_END and end_date < HOLDOUT_OPENS:
+            logger.warning(
+                "this run reads {}..{}, which runs made before the window was pinned "
+                "already scored: the holdout opens {}, and days before it are not "
+                "independent evidence",
+                (EVAL_END + pd.Timedelta(days=1)).date(),
+                end_date.date(),
+                HOLDOUT_OPENS.date(),
+            )
         if args.start_date is not None:
             start_date = args.start_date
         elif args.days is not None:
@@ -207,6 +221,8 @@ def main(argv: list[str] | None = None) -> None:
                 "end_date": str(end_date.date()),
                 "eval_window": f"{EVAL_START.date()}..{EVAL_END.date()}",
                 "reads_holdout": end_date > EVAL_END,
+                "reads_unseen_holdout": end_date >= HOLDOUT_OPENS,
+                "holdout_opens": str(HOLDOUT_OPENS.date()),
                 "n_days": per_day["trade_date"].nunique(),
                 "n_predictions": len(result),
                 "n_days_skipped": len(run.skipped_days),

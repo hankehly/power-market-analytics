@@ -240,7 +240,15 @@
   730 days. It opens on the first day that can be scored at all — the target
   starts 2022-04-01 and the sliding 730-day training window eats the two years
   before it — and the days after it are the **holdout**, which no experiment
-  reads until a confirmation run. `--start-date` and `--end-date` default to it,
+  reads until a confirmation run. The holdout does not open the day after
+  `eval_end`, though: 49 runs scored past it before the window existed — 43
+  through 2026-08-17 and 3 through 2026-09-05 — and the split of their per-day
+  errors was read while deciding to pin at all, so `holdout_start` puts the
+  first unseen day at **2026-09-06** (`TASK.holdout_opens`). A day whose errors
+  have been read is not independent evidence however the window is drawn. The
+  holdout is 14 days today and grows with the data; a `--holdout` run that stops
+  before it is allowed, logs `reads_unseen_holdout=False` and warns that its days
+  were already scored. `--start-date` and `--end-date` default to it,
   so two runs months apart score the same days without either remembering to say
   so, and `--days` counts back from its end rather than from the newest data. The
   pin is a ceiling, not an equality: a warehouse that stops before `eval_end`
@@ -260,7 +268,8 @@
   and refits anchor at the run's start — but a window that starts earlier does.
   Same flags as the spot script: `--add VIEW:COLUMN …` /
   `--drop VIEW:COLUMN …` with `--name`, `--days` (no default; the pinned window),
-  `--start-date` / `--end-date`, `--holdout`, `--train-start`,
+  `--start-date` / `--end-date`, `--holdout` (logs `holdout_opens`,
+  `reads_holdout` and `reads_unseen_holdout`), `--train-start`,
   `--importance-repeats`. Logs to the MLflow experiment
   `demand`, publishes to `pma_ml.demand_forecast`, then `just dbt build --select
   +fct_demand_forecast_accuracy +fct_demand_forecast_contribution_summary
