@@ -1,0 +1,16 @@
+description: >-
+  The Tokyo baseline e212 with both similar-day variants side by side: the six
+  holidays=same_holiday features it already carries, plus their six
+  holidays=similarity twins. They are identical on every day the same-holiday
+  override never touched, so the six added columns say something only on a
+  holiday, where the model may split on special_period and take whichever
+  reference suits the family. Experiment #221; #219 found neither rule wins
+  outright.
+base: e212
+add:
+  - ftr_period_similar_day:similar_day_pool_rank1_demand_kwh
+  - ftr_period_similar_day:similar_day_pool_rank2_demand_kwh
+  - ftr_period_similar_day:similar_day_pool_rank3_demand_kwh
+  - ftr_period_similar_day:wavg_similar_day_pool_top3_demand_kwh
+  - ftr_period_similar_day:similar_day_pool_rank1_distance
+  - ftr_period_similar_day:similar_day_pool_rank1_lag_days
