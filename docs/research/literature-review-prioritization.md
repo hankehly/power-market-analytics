@@ -1,6 +1,8 @@
 # Literature review prioritization
 
-**As of** 2026-09-21. **Commit** `bc92de8e3942ca87a7c3cb09fbe9d08cfa1b2211` (`main`).
+**As of** 2026-09-21. **Commit** `bc92de8e3942ca87a7c3cb09fbe9d08cfa1b2211` — the state
+of `main` the measurements in §4 were taken against. Later commits on `main` are merged
+into this branch but the numbers were not recomputed on them; §12 lists what that costs.
 
 **Scope.** This ranks *interventions* — atomic, testable changes to our forecasting
 system — extracted from the 162 sources of
