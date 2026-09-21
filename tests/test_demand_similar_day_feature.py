@@ -24,6 +24,13 @@ from power_market_analytics.tasks.demand.similar_day_feature import (
     METHOD_SAME_HOLIDAY,
     METHOD_SIMILARITY,
     MLFLOW_EXPERIMENT,
+    POOL_FIT_CUTOFF_COL,
+    POOL_N_CANDIDATES_COL,
+    POOL_OF,
+    POOL_RANK_DATE_COLS,
+    POOL_RANK_DISTANCE_COLS,
+    POOL_RANK_LOAD_COLS,
+    POOL_WEIGHTED_MEAN_COL,
     RANK_DATE_COLS,
     RANK_DISTANCE_COLS,
     RANK_LOAD_COLS,
@@ -187,9 +194,11 @@ class TestScoreWalkForward:
         # the first day it can serve is issued after that: 02-09. 春分の日 2024-03-20
         # takes 2023-03-21 and is not ranked; 昭和の日 2024-04-29 has no 2023 namesake
         # and is ranked: 81 days from 02-09 to 04-29, 80 of them ranked.
-        expected = pd.date_range("2024-02-09", LAST_SCORABLE).drop(SAME_HOLIDAY)
+        # Every scorable day is ranked now, the same-holiday one included: its
+        # pool columns need the ranking even though its base columns do not.
+        expected = pd.date_range("2024-02-09", LAST_SCORABLE)
         assert scored.tolist() == expected.tolist()
-        assert len(scored) == 80
+        assert len(scored) == 81
         assert LAST_SCORABLE in set(scored)
         assert weekly.special_days.same_holiday_days.tolist() == [SAME_HOLIDAY]
         special = weekly.special_days.df
@@ -204,7 +213,7 @@ class TestScoreWalkForward:
         fits = weekly.fits
         assert fits["fit_cutoff"].tolist() == list(WEEKLY_CUTOFFS)
         assert set(weekly.fit_cutoff) == set(fits["fit_cutoff"])
-        assert fits["n_days_scored"].sum() == 80
+        assert fits["n_days_scored"].sum() == 81
         assert list(fits.columns) == [
             "fit_cutoff",
             "fit_from",
@@ -228,63 +237,56 @@ class TestScoreWalkForward:
         )
         # Every ranked day holds three ranks, and its rank 1 is its selection.
         ranking = weekly.ranking.df
-        assert ranking.groupby("trade_date")["rank"].apply(list).eq([[1, 2, 3]] * 80).all()
+        assert ranking.groupby("trade_date")["rank"].apply(list).eq([[1, 2, 3]] * 81).all()
         rank1 = ranking[ranking["rank"] == 1].set_index("trade_date")
         selection = weekly.selection.df.set_index("trade_date")
         assert rank1.index.tolist() == selection.index.tolist()
         assert (rank1["reference_date"] == selection["reference_date"]).all()
         assert (rank1["distance"] == selection["distance"]).all()
 
-    def test_same_holiday_days_are_not_ranked(self, weekly):
-        assert SAME_HOLIDAY not in set(weekly.ranking.df["trade_date"])
-        assert SAME_HOLIDAY not in weekly.fit_cutoff.index
-
-    def test_without_the_same_holiday_rule_every_special_day_is_ranked(self, weekly):
-        # The reference is still computed and still reported, but no day takes it.
-        scoring = score_walk_forward(
-            make_selector(), make_forecast().df["trade_date"].unique(), same_holiday=False
-        )
-        assert scoring.special_days.same_holiday_days.empty
-        special = scoring.special_days.df
-        assert special["trade_date"].tolist() == [SAME_HOLIDAY, LAST_SCORABLE]
-        assert special["takes_reference"].tolist() == [False, False]
-        assert special["last_year_date"].iloc[0] == SAME_HOLIDAY_REFERENCE
-        # The day the rule used to take is ranked from its pool like any other.
-        scored = scoring.selection.df["trade_date"]
+    def test_every_special_day_is_ranked_so_the_pool_columns_exist(self, weekly):
+        # Both variants ship, so the ranking covers every scorable day; the
+        # reference is still reported, and the base columns are what use it.
+        scored = weekly.selection.df["trade_date"]
         assert scored.tolist() == pd.date_range("2024-02-09", LAST_SCORABLE).tolist()
-        assert SAME_HOLIDAY in set(scoring.ranking.df["trade_date"])
-        assert SAME_HOLIDAY in scoring.fit_cutoff.index
-        # Its rows are a ranked day's: three ranks and a pool of its own.
-        records = make_records(scoring)
-        rows = records.df[records.df["trade_date"] == SAME_HOLIDAY]
-        assert rows["similar_day_method"].eq(METHOD_SIMILARITY).all()
-        assert rows["similar_day_n_candidates"].gt(0).all()
-        assert rows[list(RANK_LOAD_COLS)].notna().all(axis=None)
+        assert SAME_HOLIDAY in set(weekly.ranking.df["trade_date"])
+        assert SAME_HOLIDAY in weekly.fit_cutoff.index
+        assert weekly.special_days.same_holiday_days.tolist() == [SAME_HOLIDAY]
+        special = weekly.special_days.df
+        assert special["trade_date"].tolist() == [SAME_HOLIDAY, LAST_SCORABLE]
+        assert special["takes_reference"].tolist() == [True, False]
 
-    def test_dropping_the_same_holiday_rule_moves_no_other_day(self, weekly):
-        # What the experiment on the rule rests on: the fits never see a special day
-        # as a target and a pair's distance is its own, so ranking one more day
-        # leaves every other day's ranks and weights untouched, to the bit.
-        scoring = score_walk_forward(
-            make_selector(), make_forecast().df["trade_date"].unique(), same_holiday=False
+    def test_the_pool_columns_hold_the_ranking_on_a_same_holiday_day(self, weekly):
+        records = make_records(weekly)
+        rows = records.df[records.df["trade_date"] == SAME_HOLIDAY]
+        assert rows["similar_day_method"].eq(METHOD_SAME_HOLIDAY).all()
+        assert rows[RANK_DATE_COLS[0]].eq(SAME_HOLIDAY_REFERENCE).all()
+        assert rows[list(RANK_DATE_COLS[1:])].isna().all(axis=None)
+        # The pool ranked it like any day: three ranks and a pool of its own.
+        assert rows[list(POOL_RANK_DATE_COLS)].notna().all(axis=None)
+        assert rows[list(POOL_RANK_LOAD_COLS)].notna().all(axis=None)
+        assert rows[POOL_N_CANDIDATES_COL].gt(0).all()
+        assert rows[POOL_RANK_DATE_COLS[0]].ne(SAME_HOLIDAY_REFERENCE).all()
+        # They disagree there, which is the whole point of carrying both.
+        assert rows[POOL_WEIGHTED_MEAN_COL].ne(rows[WEIGHTED_MEAN_COL]).all()
+
+    def test_the_two_variants_agree_wherever_the_override_did_not_fire(self, weekly):
+        records = make_records(weekly)
+        ranked = records.df[records.df["similar_day_method"] == METHOD_SIMILARITY]
+        assert len(ranked)
+        for base, pool in POOL_OF.items():
+            pd.testing.assert_series_equal(ranked[base], ranked[pool].rename(base))
+
+    def test_a_row_waits_for_the_later_of_the_two_variants(self, weekly):
+        # One row, one availability: a same-holiday day's reference is public about
+        # a year early, but its pool columns are not, so the row waits for them.
+        records = make_records(weekly)
+        rows = records.df[records.df["trade_date"] == SAME_HOLIDAY]
+        reference_public = (
+            make_hourly_load().df.groupby("load_date")["available_at"].max()[SAME_HOLIDAY_REFERENCE]
         )
-        # Every fit is the same fit; only its tally of the days it served grows by
-        # the one day the rule used to take out.
-        tally = "n_days_scored"
-        pd.testing.assert_frame_equal(
-            scoring.fits.drop(columns=tally), weekly.fits.drop(columns=tally)
-        )
-        grew = scoring.fits[tally] - weekly.fits[tally]
-        assert grew.sum() == 1
-        served = weekly.fits["fit_cutoff"] <= issue_times(pd.DatetimeIndex([SAME_HOLIDAY]))[0]
-        assert grew[served].iloc[-1] == 1
-        for frame, before in (
-            (scoring.selection.df, weekly.selection.df),
-            (scoring.ranking.df, weekly.ranking.df),
-        ):
-            others = frame[frame["trade_date"] != SAME_HOLIDAY].reset_index(drop=True)
-            pd.testing.assert_frame_equal(others, before.reset_index(drop=True))
-        pd.testing.assert_series_equal(scoring.fit_cutoff.drop(SAME_HOLIDAY), weekly.fit_cutoff)
+        assert rows["available_at"].gt(reference_public).all()
+        assert rows["available_at"].le(issue_times(pd.DatetimeIndex([SAME_HOLIDAY]))[0]).all()
 
     def test_a_days_choice_is_the_fits_own(self, weekly):
         # Re-fit at the day's cutoff and rank the day again: the same choice.
@@ -434,17 +436,14 @@ class TestScoreWalkForward:
         assert pd.Timestamp("2024-02-08") not in set(weekly.selection.df["trade_date"])
         assert pd.Timestamp("2024-02-09") in set(weekly.selection.df["trade_date"])
 
-    def test_only_same_holiday_days_still_score(self):
-        # The first fit cutoff comes from every training pair (02-08); the one day asked
-        # for is a same-holiday day, so nothing is ranked and nothing raises.
+    def test_a_same_holiday_day_is_ranked_and_still_takes_its_reference(self):
+        # It is ranked because its pool columns need the ranking; its base columns
+        # take the reference all the same.
         scoring = score_walk_forward(make_selector(), [SAME_HOLIDAY])
-        assert len(scoring.selection) == 0
-        assert scoring.selection.df.dtypes.astype(str).to_dict() == SimilarDaySelection.schema
-        assert len(scoring.ranking) == 0
-        assert scoring.ranking.df.dtypes.astype(str).to_dict() == SimilarDayRanking.schema
-        assert scoring.fit_cutoff.empty
+        assert scoring.selection.df["trade_date"].tolist() == [SAME_HOLIDAY]
+        assert len(scoring.ranking) == SIMILAR_DAY_TOP_K
         assert scoring.special_days.same_holiday_days.tolist() == [SAME_HOLIDAY]
-        assert scoring.fits["n_days_scored"].eq(0).all()
+        assert scoring.fits["n_days_scored"].sum() == 1
         records = build_feature_records(
             scoring,
             make_hourly_load(),
@@ -560,6 +559,18 @@ class TestBuildFeatureRecords:
             "similar_day_rank2_distance",
             "similar_day_rank3_distance",
             "similar_day_n_candidates",
+            "similar_day_pool_rank1_demand_kwh",
+            "similar_day_pool_rank2_demand_kwh",
+            "similar_day_pool_rank3_demand_kwh",
+            "wavg_similar_day_pool_top3_demand_kwh",
+            "similar_day_pool_rank1_reference_date",
+            "similar_day_pool_rank2_reference_date",
+            "similar_day_pool_rank3_reference_date",
+            "similar_day_pool_rank1_distance",
+            "similar_day_pool_rank2_distance",
+            "similar_day_pool_rank3_distance",
+            "similar_day_pool_n_candidates",
+            "similar_day_pool_fit_cutoff",
             "similar_day_fit_cutoff",
             "similar_day_method",
             "available_at",
@@ -621,6 +632,25 @@ class TestBuildFeatureRecords:
             .eq(METHOD_SIMILARITY)
             .all()
         )
+
+    def test_a_run_whose_every_day_took_its_reference_still_publishes(self):
+        # Nothing was ranked, so there are no pool columns to carry; the base
+        # columns are the reference's and the row is published all the same.
+        scoring = make_scoring(days=(), same_holiday=((SAME_HOLIDAY, SAME_HOLIDAY_REFERENCE),))
+        records = make_records(scoring)
+        assert len(records) == 48
+        assert records.df["similar_day_method"].eq(METHOD_SAME_HOLIDAY).all()
+        assert records.df[RANK_DATE_COLS[0]].eq(SAME_HOLIDAY_REFERENCE).all()
+        assert records.df[list(POOL_RANK_DATE_COLS)].isna().all(axis=None)
+        assert records.df[list(POOL_RANK_LOAD_COLS)].isna().all(axis=None)
+        assert records.df[POOL_WEIGHTED_MEAN_COL].isna().all()
+        assert records.df[POOL_N_CANDIDATES_COL].isna().all()
+        assert records.df[POOL_FIT_CUTOFF_COL].isna().all()
+        # It waits for its reference's load alone, as it did before both variants.
+        reference_public = make_hourly_load().df.groupby("load_date")["available_at"].max()[
+            SAME_HOLIDAY_REFERENCE
+        ]
+        assert records.df["available_at"].eq(reference_public).all()
 
     def test_a_ranked_special_day(self):
         # 昭和の日 2024-04-29 has no 2023 namesake: ranked like any day. A special day
@@ -740,6 +770,14 @@ class TestBuildFeatureRecords:
                 with_values(df, ranked, similar_day_rank2_reference_date=D),
             ),
             ("must be positive", with_values(df, ranked, similar_day_rank3_demand_kwh=0.0)),
+            # Both variants sit on one row, so where the override never fired they
+            # must be the same ranking; a cutoff of its own is still a disagreement.
+            (
+                "similar_day_pool_fit_cutoff must equal similar_day_fit_cutoff",
+                with_values(
+                    df, ranked, similar_day_pool_fit_cutoff=pd.Timestamp("2024-04-02 00:00")
+                ),
+            ),
             ("time_code outside 1..48", df.assign(time_code=df["time_code"] + 48)),
             (
                 "similar_day_fit_cutoff must not follow the issue time",
@@ -823,6 +861,11 @@ class TestPublishFeatureRecords:
             **{col: "date" for col in RANK_DATE_COLS},
             **{col: "double" for col in RANK_DISTANCE_COLS},
             "similar_day_n_candidates": "int",
+            **{col: "double" for col in (*POOL_RANK_LOAD_COLS, POOL_WEIGHTED_MEAN_COL)},
+            **{col: "date" for col in POOL_RANK_DATE_COLS},
+            **{col: "double" for col in POOL_RANK_DISTANCE_COLS},
+            POOL_N_CANDIDATES_COL: "int",
+            POOL_FIT_CUTOFF_COL: "timestamp",
             "similar_day_fit_cutoff": "timestamp",
             "similar_day_method": "string",
             "available_at": "timestamp",
