@@ -53,6 +53,7 @@ class TestRegistry:
     def test_registered_names_are_the_presets(self):
         assert STRATEGIES == (
             "e212",
+            "e219",
             "lightgbm",
             "lightgbm_msm",
             "lightgbm_msm_popw",

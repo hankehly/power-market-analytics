@@ -364,6 +364,42 @@ sources:
           - name: similar_day_n_candidates
             description: >
               Pool days that could be ranked for D (up to 90); null on a same-holiday day.
+          - name: similar_day_pool_rank1_demand_kwh
+            description: >
+              Rank 1 of the pool ranking, kWh per 30-minute period. The pool columns hold the ranking on every day, a same-holiday day included, so a preset picks between copying last year's same holiday and ranking every day. Null only where the pool had no candidate.
+          - name: similar_day_pool_rank2_demand_kwh
+            description: >
+              Rank 2 of the pool ranking; null when the pool has fewer than two days.
+          - name: similar_day_pool_rank3_demand_kwh
+            description: >
+              Rank 3 of the pool ranking; null when the pool has fewer than three days.
+          - name: wavg_similar_day_pool_top3_demand_kwh
+            description: >
+              The inverse-distance weighted mean of the pool rank loads present, by the rule of wavg_similar_day_top3_demand_kwh. Null only where the pool had no candidate.
+          - name: similar_day_pool_rank1_reference_date
+            description: >
+              The pool ranking's nearest day; null where its load is.
+          - name: similar_day_pool_rank2_reference_date
+            description: >
+              The pool ranking's second nearest day; null where its load is.
+          - name: similar_day_pool_rank3_reference_date
+            description: >
+              The pool ranking's third nearest day; null where its load is.
+          - name: similar_day_pool_rank1_distance
+            description: >
+              The pool ranking's rank-1 distance from D under the run's fitted weights.
+          - name: similar_day_pool_rank2_distance
+            description: >
+              The pool ranking's rank-2 distance from D.
+          - name: similar_day_pool_rank3_distance
+            description: >
+              The pool ranking's rank-3 distance from D.
+          - name: similar_day_pool_n_candidates
+            description: >
+              Pool days that could be ranked for D (up to 90). Unlike similar_day_n_candidates it is filled on a same-holiday day too.
+          - name: similar_day_pool_fit_cutoff
+            description: >
+              When the fit that ranked the day ran; filled on a same-holiday day, where similar_day_fit_cutoff is null.
           - name: similar_day_fit_cutoff
             description: >
               When the fit whose weights ranked the day ran, naive JST, on or before D's issue time: the job refits every few days as it walks forward, each fit on the pairs of the 730 days before its cutoff whose target load was public by then, and ranks each day with the latest fit before its issue time. Null on a same-holiday day.
@@ -372,7 +408,7 @@ sources:
               similarity (the day was ranked) or same_holiday (the day took last year's same holiday).
           - name: available_at
             description: >
-              When the row became usable, naive JST, never after D's issue time: on a ranked day the latest of D's MSM forecast vintage (reference + 4 h, 01:00 on D-1), similar_day_fit_cutoff and the load availability of the ranked days; on a same-holiday day the load availability of last year's same holiday.
+              When the row became usable, naive JST, never after D's issue time: on a ranked day the latest of D's MSM forecast vintage (reference + 4 h, 01:00 on D-1), similar_day_fit_cutoff and the load availability of the ranked days; on a same-holiday day the later of that load's availability and the pool columns' own inputs, since both variants sit on the one row.
           - name: published_at
             description: >
               When the run's rows were written to the warehouse (naive JST); the newest published run wins among rows tied on available_at.

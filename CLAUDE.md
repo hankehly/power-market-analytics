@@ -271,9 +271,19 @@
   whose same holiday last year (`dim_date.holiday_name_ja`) lies 335 … 394 days back, with
   that day's load public by the issue time, takes that day instead
   (`similar_day_method = 'same_holiday'`): rank 1 and the mean carry its load, and the rest
-  is null. Any other special day is ranked; one whose pool has no candidate is not
-  published. The pool has no flags
-  (`--window-half-width-days` was removed on 2026-09-14). Logs to the MLflow experiment
+  is null. Every day is ranked all the same, that override included, because the
+  job publishes both variants side by side (since 2026-09-21, experiment #219):
+  the twelve `similar_day_pool_*` columns hold the ranking on every day, six of
+  them tagged features whose expressions read `holidays=similarity` against the
+  base columns' `holidays=same_holiday`. So the rule is a preset's choice, not a
+  flag — `conf/presets/demand/e219.yaml` is `e212` with the six references
+  swapped — and the pool has no flags at all (`--window-half-width-days` was
+  removed on 2026-09-14). The two variants agree wherever the override never
+  fired, which the frame, `stg_ml__similar_day` and the mart's unit test each
+  assert; a day whose pool had no candidate has null pool columns and its base
+  columns as before. A row's `available_at` is the later of both variants'
+  inputs, so a same-holiday row waits for its pool columns rather than for its
+  reference's load alone. Logs to the MLflow experiment
   `similar_day` (`refit_every_days`, `n_fits`, `n_cutoffs_without_fit`, `first_fit_cutoff`,
   `last_fit_cutoff`; `n_days_scored`, `first_day_scored` and `last_day_scored` over every
   published day; `n_days_ranked`, `n_special_days_ranked`, `n_days_same_holiday`,

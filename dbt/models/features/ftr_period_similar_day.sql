@@ -26,6 +26,23 @@ with
     -- How many days back the rank-1 day lies: within 2 to 31 or 335 to 394 on a
     -- ranked day, the pool's two windows; the same holiday last year otherwise.
     datediff(trade_date, similar_day_rank1_reference_date) as similar_day_rank1_lag_days,
+    -- The same four features and their traceability from the pool ranking, which
+    -- runs on every day: a preset picks between copying last year's same holiday
+    -- and ranking every day. On a day the override never touched the two agree.
+    similar_day_pool_rank1_demand_kwh,
+    similar_day_pool_rank2_demand_kwh,
+    similar_day_pool_rank3_demand_kwh,
+    wavg_similar_day_pool_top3_demand_kwh,
+    similar_day_pool_rank1_reference_date,
+    similar_day_pool_rank2_reference_date,
+    similar_day_pool_rank3_reference_date,
+    similar_day_pool_rank1_distance,
+    similar_day_pool_rank2_distance,
+    similar_day_pool_rank3_distance,
+    similar_day_pool_n_candidates,
+    similar_day_pool_fit_cutoff,
+    -- Always one of the pool's two windows: the override cannot reach it.
+    datediff(trade_date, similar_day_pool_rank1_reference_date) as similar_day_pool_rank1_lag_days,
     available_at,
     published_at
   from
