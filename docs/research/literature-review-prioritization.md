@@ -425,11 +425,11 @@ overlap column names it), **already represented** (§10.1), **already tested** (
 
 | Mechanism | Precise change | Papers | Lane | Inputs / legal at 09:30 D-1 | Status | Overlap | Segment | Papers report | Evidence limits | Smallest experiment here | Burden |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| **A1 Own D-2 forecast residual** | Give the model the mean error of its own forecast for D-2 | P-113, P-116, P-128, P-145, P-146, P-154, P-157, P-161, P-034, P-035 | point MAE | our own stored forecasts + D-2 actuals; **yes** | absent | none | regimes, holidays, the day level | P-145 MAPE 1.83 → 1.63 %; P-113 −16…−30 % on special days; P-161 nRMSE 0.377 → 0.332 | P-145's baseline is a *frozen* model, ours refits weekly; P-157/P-161 test windows are COVID-dominated; observed weather in P-145/P-157 | a strategy subclass exposing one day-grain column; matched run vs `943aab6d…` | low |
+| **A1 Own D-2 forecast residual** | Give the model the mean error of its own forecast for D-2 | P-113, P-116, P-128, P-145, P-146, P-154, P-157, P-161, P-034, P-035 | point MAE | our own stored forecasts + D-2 actuals; **yes** | absent | none | regimes, holidays, the day level | P-145 MAPE 1.83 → 1.63 %; P-113 −16…−30 % on special days; P-161 nRMSE 0.377 → 0.332 | P-145's baseline is a *frozen* model, ours refits weekly; P-157/P-161 test windows are COVID-dominated; observed weather in P-145/P-157 | a `pma_ml` write-back of persisted D-2 residuals, read by a guarded staging model and a day-grain mart (the `fit_similar_day.py` pattern); a wrapper around the walk-forward does **not** work — see §9.1 | low |
 | **A2 Recency-weighted training rows** | `sample_weight` decaying with age instead of a flat 730-day window | P-145, P-154, P-157, P-161, P-035, P-114, P-121, P-129, P-019 | point MAE | none new; **yes** | absent | the window is flat and hard-edged | regime transitions | P-154 lowest RMSE on 6 of 7 datasets | hyper-parameters "picked by eye on one data set" (P-154's own appraisal); no significance tests | one argument in `lgbm.py`, its own experiment | low |
 | **A3 Refit daily instead of weekly** | `refit_every_days` 7 → 1 | P-067, P-145, P-034, P-161, P-154, P-059 | point MAE | none new; **yes** | absent | `refit_every_days` is a constructor argument with no CLI flag | whole run | P-067 MAPE 3.75 → 2.18 % with daily refits | P-067's base is a GAM, and the same paper found XGBoost no better (RMSE 199 vs 191 MW); one country, one test year | one constructor argument + a CLI flag; 7× the fit cost | med |
 | **A4 Online aggregation of several presets** | Weight live forecasts by recent performance | P-146, P-035, P-034, P-157, P-160, P-161 | point MAE | several runs' forecasts; **yes** | absent | none | whole run | P-146 RMSE 27.8 vs 30.4 (best expert); P-035 won its competition track | P-146's French test excludes holidays; the post-COVID competitions reward regime-break adaptation we do not have | needs A5's several runs first | high |
-| **A5 Combine several fits (sister forecasts)** | Average *k* fits differing in seed / subsample / feature subset | P-059, P-146, P-025, P-149, P-027, P-001, P-067 | point MAE | none new; **yes** | absent | every run is a single fit | whole run + the noise floor | P-059 4.74 → 4.52 % and 2.24 → 2.10 %, DM-tested, never worse in 20–22 of 24 hours | P-059's sisters differ in structure, ours would differ in seed; P-025 saw correlated members fail to help | *k* fits per refit inside the existing strategy | med |
+| **A5 Combine several fits (sister forecasts)** | Average *k* fits differing in row or feature subsample (`bagging_freq ≥ 1` or `feature_fraction`; seed alone is inert) | P-059, P-146, P-025, P-149, P-027, P-001, P-067 | point MAE | none new; **yes** | absent | every run is a single fit | whole run + the noise floor | P-059 4.74 → 4.52 % and 2.24 → 2.10 %, DM-tested, never worse in 20–22 of 24 hours | P-059's sisters differ in structure, ours would differ in seed; P-025 saw correlated members fail to help | *k* fits per refit inside the existing strategy | med |
 
 ### Family 2 — Reference days and the similar-day machinery
 
@@ -564,7 +564,7 @@ novelty, **LV** learning value, **FE** feasibility, **OB** ongoing burden.
 | 1 | A1 | **Own D-2 forecast residual as a feature** | P-113, P-116, P-128, P-145, P-146, P-154, P-157, P-161, P-034, P-035 | none — no feature is a function of the model's own output | summer and winter regimes; holidays; the day level | 3 | 2 | 3 | 3 | 2 | low | pass | The only candidate whose *fix* is measured on our data: −2.19 % over the window, **−1.75 % on a held-out year** with β fixed, partial r 0.240 after controlling for the D-2 load level. Papers are weak individually (P-145 beats a *frozen* model; P-157 and P-161 are COVID-era) but the mechanism is confirmed here. §9.1 |
 | 2 | E2 | **Correlation-aware feature pruning** | P-003, P-058, P-063, P-025 | the importance machinery exists and runs every backtest; nothing acts on it | whole run; the importance table itself | 1 | 2 | 3 | 3 | 3 | low | pass | 17 of 105 features at ΔMAE ≤ 0, 26 under 500 kWh, median pairwise \|r\| 0.833 in the lag block. A preset with a `drop` list — the cheapest experiment available here, and **both outcomes are informative**. P-058's own gain was 1.6 % relative with the subset size chosen on the test set, so expect ~0. §9.2 |
 | 3 | B1 | **Bound the day-type reference window** | P-104, P-113, P-001, P-141, P-106, P-111 | `mean/ewm_daytype_4d_demand_kwh` and `…_weekly_lags` exist but are unbounded in age; #203 added the *age* as a feature | the 2,400 periods whose reference is over a week old | 3 | 2 | 3 | 2 | 3 | low | pass | MAE rises monotonically with reference age, 489,466 → 2,219,186 past 60 days; 6.86 % of periods carry **10.69 %** of the error. #203 proved that telling the model is not enough. P-104 (7.29 → 3.22 % on French special days) replaces the coarse match with a typed one. §9.3 |
-| 4 | A5 | **Combine several fits (sister forecasts)** | P-059, P-146, P-025, P-149, P-027, P-001, P-067 | none — every run is a single fit | whole run, and the *instrument*: the noise floor of a margin | 2 | 3 | 3 | 3 | 2 | med | pass | The methodologically cleanest point-accuracy evidence in the corpus: P-059's eight sister models, two systems, Diebold-Mariano, "no combination was ever worse" in 20–22 of 24 hours. Its second deliverable is the seed spread, which #221 reached for on 2026-09-21 and did not have. §9.4 |
+| 4 | A5 | **Combine several fits (sister forecasts)** | P-059, P-146, P-025, P-149, P-027, P-001, P-067 | none — every run is a single fit | whole run; and the ensemble's own member spread | 2 | 3 | 3 | 3 | 2 | med | pass | The methodologically cleanest point-accuracy evidence in the corpus: P-059's eight sister models, two systems, Diebold-Mariano, "no combination was ever worse" in 20–22 of 24 hours. Note that it does **not** measure how much of our decision record is noise — §9.4 corrects that claim; the paired daily bootstrap and #223's sealed second window are the instruments for that. §9.4 |
 | 5 | B2 | **Correct the similar day for its weather gap** | P-141, P-128, P-113, P-006, P-002, P-104 | #134 specifies exactly this and is open; the raw reference load is present, its conditions are not | holidays; the 54 `same_holiday` days | 2 | 2 | 2 | 3 | 3 | low | pass | Attacks the model's dominant input (ΔMAE 2,030,747, 21.6× the next). #212 measured corr(daily bias, rank-1 gap) = 0.906, slope 0.696 on 54 days. P-141 is the closest operational match in the corpus — real 08:00 forecast weather, and XGBoost and LSTM did *worst* on those days. §9.5 |
 ### Band B — credible, run after band A
 
@@ -679,12 +679,30 @@ the day's overall level and the within-day error autocorrelation is 0.955; the D
 (r 0.197 against 0.166; corrections −2.19 % against −1.53 %), so the feature is one
 day-grain column, not 48.
 
-**The smallest valid repository change.** A `ForecastStrategy` that wraps
-`PresetLightGbmStrategy` and, during the walk-forward, exposes one extra column: the
-mean error of its own already-issued forecast for D-2. The backtest already walks
-forward day by day and D-2's actual is in history, so no new source and no new mart are
-needed — but it is a framework change, not a preset, because the value depends on the
-run's own forecasts.
+**The smallest valid repository change.** Not a wrapper around the walk-forward.
+[`run_backtest`](power_market_analytics/forecasting/backtest.py) forecasts only
+`[start_date, end_date]`, while each fit's window is `target_date − 730 days`
+([lgbm.py](power_market_analytics/forecasting/lgbm.py)), so a column holding *the run's
+own* residual would be NaN across the whole first training window and fill in only
+gradually. The model would get no splits on it in training and then meet a live value at
+prediction time. That is not the prespecified signal.
+
+The design that does work is the repository's existing Form B pattern, the one
+[`fit_similar_day.py`](scripts/fit_similar_day.py) already uses: **persisted historical
+forecasts**. `pma_ml.demand_forecast` holds every published run's row-level forecasts, so
+a job can write the D-2 residual per delivery day to `pma_ml.<feature>`, a guarded
+staging model can read it, and a day-grain mart column can expose it to Feast with
+`available_at` = 00:30 on D-1 — legal, and defined for every historical day a prior run
+scored. The cost is honest: the residual is then a function of *which* run produced it,
+so the feature must name its source run the way `ftr_period_similar_day` names
+`similar_day_run_id`, and a backtest needs a prior run covering its training window.
+
+A cheaper fallback tests a weaker version: the residual of a *fixed reference predictor*
+— `LAG(demand_kwh, 7d)` or `wavg_similar_day_top3_demand_kwh` against the actual on D-2
+— which is a pure mart column with no recursion, computable for every day. It is what
+[P-128](research/literature-review.md#p-128)'s "nearby date comparison value" actually
+is. It does **not** reproduce the measurement in §4.6, which is of the model's own
+residual, and the report says so rather than treating the two as interchangeable.
 
 **The matched baseline.** `943aab6d21b14fe2877169dabc5d694b` — the `e212` preset on the
 same window against the *current* similar-day partition — same `--train-start`, same 104
@@ -713,9 +731,13 @@ the gain is as much the result as its size.
    test asserting Σ contributions = the forecast within 1e-6. A post-processing shift
    applied outside the model breaks it; implementing the residual as a **feature**
    keeps TreeSHAP additive and is the reason to prefer that form.
-2. *The first row of a run.* The first two delivery days of any backtest have no D-2
-   residual. They must be null, not zero — a zero would tell the model "no error", and
-   LightGBM's NaN handling is already the repository's rule since PR #110.
+2. *Warm-up, not just the first two days.* The naive reading — "only the first two
+   delivery days lack a residual" — is wrong, and it was wrong in an earlier draft of
+   this report. The training window reaches 730 days before the evaluation start, and the
+   run never forecast those days, so without persisted historical forecasts the column is
+   absent for the entire first fit. Whatever is missing must be null rather than zero — a
+   zero says "no error" — and LightGBM's NaN handling has been the repository's rule since
+   PR #110. The experiment must state what fraction of training rows carry the feature.
 3. *Operational recursion.* In production the D-2 forecast is the one issued at D-3
    09:30. In the backtest it is the same run's. These are the same horizon, but a run
    that changes its feature set changes its own residuals, so two runs' residual columns
@@ -926,38 +948,68 @@ single expert; France 0.623 GW against 0.782), and
 validation MAE by about 10 %.
 
 **The smallest valid repository change.** `SlidingWindowLightGbmStrategy` already keeps
-every refit. The minimal version fits *k* models per refit with different
-`random_state` and `bagging_fraction` and averages their predictions — a change inside
-the existing strategy, no new mart, no new source, no new table. Start at k = 5.
+every refit. The minimal version fits *k* models per refit and averages their
+predictions — a change inside the existing strategy, no new mart, no new source, no new
+table. Start at k = 5.
+
+**The diversity has to be switched on, or there is none.** Probed on the installed
+LightGBM 4.7.0: with the defaults in `LGBM_PARAMS`, changing `random_state` alone gives a
+*bit-identical* fit, and so does `random_state` plus `bagging_fraction` — because
+`bagging_freq` defaults to **0**, which disables row sampling outright. Only
+`bagging_fraction` **with `bagging_freq ≥ 1`**, or `feature_fraction`, actually changes
+the fit:
+
+| variation | fits identical? |
+|---|---|
+| `random_state` alone | **yes** |
+| `random_state` + `bagging_fraction` (`bagging_freq` = 0, the default) | **yes** |
+| `random_state` + `bagging_fraction` + `bagging_freq=1` | no |
+| `random_state` + `feature_fraction` | no |
+
+An earlier draft of this report proposed seeds and `bagging_fraction`, which would have
+produced five identical fits, a null result, and a false rejection of the whole
+combination family. The experiment sets `bagging_freq ≥ 1` or varies `feature_fraction`,
+and its first check is that the *k* member forecasts differ at all.
 
 **The matched baseline.** `943aab6d21b14fe2877169dabc5d694b`, same window, same
 features, k = 1.
 
 **The important segments.** Overall MAE and the paired daily bootstrap CI. Then the
-run-to-run spread itself, which is the second deliverable: fit the same arm three times
-with different seeds and report the MAE range, both for k = 1 and k = 5. That number
-does not exist anywhere in the repository today and it is what tells the researcher how
-large a margin has to be before it means anything.
+member spread: the MAE range across the *k* members of a single ensemble, and how much
+of it the average removes.
+
+One correction to an earlier draft of this report, which followed from the probe above.
+It proposed measuring a "run-to-run seed spread" for the current baseline as a second
+deliverable. **There is none.** With `LGBM_PARAMS` as it stands the fit is deterministic,
+so re-running `e212` with a different seed reproduces it exactly, and the spread is zero
+by construction. The variance that actually makes a 0.3 % margin unreadable is not seed
+noise — it is sensitivity to *which days* were scored, and the instruments for that
+already exist: the paired daily bootstrap in `compare_demand_runs.py`, and now the second
+window [PR #223](https://github.com/hankehly/power-market-analytics/pull/223) seals. This
+experiment's contribution to that question is narrower than claimed: it says how much of
+the *model's* variance an ensemble removes, not how much of our decision record is noise.
 
 **The decision rule, set before the run.**
 
 | Evidence | Decision |
 |---|---|
-| MAE falls, CI excludes zero, and the k = 5 seed spread is materially narrower than k = 1's | **Keep.** Combination becomes the default strategy and the seed spread becomes a reported quantity. |
-| MAE flat but the spread narrows materially | **Keep on the second ground alone**, and say so plainly: the value is a readable instrument, not a lower MAE. |
-| Neither moves | **Reject**, and conclude that a 500-tree GBM on 105 features has already exhausted the ensembling that [P-059](research/literature-review.md#p-059)'s eight *linear* sister models had available. That closes the whole combination family (P-025, P-027, P-059, P-146, P-149, P-151) for the point-MAE lane. |
+| MAE falls and the CI over days excludes zero | **Keep.** Combination becomes the default strategy. |
+| MAE flat, but the ensemble's member spread is wide and the average sits materially inside it | **Refine.** The diversity is real and the averaging is not capturing it; try structural sisters (feature subsets, training lengths) as [P-059](research/literature-review.md#p-059) did, rather than sampling alone. |
+| Neither moves, **and the *k* members are verified to differ** | **Reject**, and conclude that a 500-tree GBM on 105 features has already exhausted the ensembling that [P-059](research/literature-review.md#p-059)'s eight *linear* sister models had available. That closes the whole combination family (P-025, P-027, P-059, P-146, P-149, P-151) for the point-MAE lane. |
+| Neither moves and the members are identical | **Not a result.** The stochastic mechanism was not active; fix it and re-run. This row exists because that failure is silent. |
 
 **Dependencies and risks.**
 
 1. *Cost.* `34c506fb…` ran in about 31 minutes (MLflow start 1789889130315 → end
-   1789891008249). k = 5 multiplies the fit cost, and the seed-spread measurement needs
-   three runs per arm. This is the most compute-hungry of the top five.
-2. *P-059's sisters differ in structure, ours in seed.* Its eight models used different
-   variable selections and training lengths; seeds and bagging give a thinner kind of
-   diversity, and the gain could be correspondingly thinner.
+   1789891008249). k = 5 multiplies the fit cost. This is the most compute-hungry of the
+   top five, and the least so once the second deliverable is corrected down to the
+   member spread.
+2. *P-059's sisters differ in structure, ours in sampling.* Its eight models used
+   different variable selections and training lengths; row and column subsampling give a
+   thinner kind of diversity, and the gain could be correspondingly thinner.
    [P-025](research/literature-review.md#p-025) saw the failure mode directly — its
    random forests were "too correlated with the boosting machine to help the ensemble".
-   If seed averaging is null, feature-subset sisters are the refinement, not a
+   If sampling-based averaging is null, feature-subset sisters are the refinement, not a
    rejection.
 3. *TreeSHAP and permutation importance.* Both are defined per model. Averaging k
    models means averaging k SHAP decompositions, which stays additive, but the
@@ -969,12 +1021,16 @@ large a margin has to be before it means anything.
 **Why it follows rank 3.** Ranks 1–3 are single, cheap changes with measured local
 evidence; rank 4 costs the most compute of the five and its expected gain is the
 smallest — [P-059](research/literature-review.md#p-059)'s own margins are 0.1–0.2 MAPE
-points. What lifts it into the top five is the second deliverable. It is the only
-candidate that would tell us how much of our accumulated keep/reject record is noise,
-and [#221](https://github.com/hankehly/power-market-analytics/issues/221) reached for
-exactly that number on 2026-09-21 without having it: "picking by point estimate would
-have kept `e221` on a 0.3 % margin that the segment evidence shows is variance."
-Running it after ranks 1–3 means it measures the spread of a baseline worth keeping.
+points. What lifts it into the top five is the quality of its
+evidence: [P-059](research/literature-review.md#p-059) is the only point-accuracy result
+in the corpus with a matched baseline, two systems, significance testing and a
+"never worse" finding. Running it after ranks 1–3 means it averages a baseline worth
+keeping. It is *not*, as an earlier draft claimed, the candidate that would tell us how
+much of our decision record is noise — the probe above shows why, and
+[#221](https://github.com/hankehly/power-market-analytics/issues/221)'s own words point
+at the real instrument: "picking by point estimate would have kept `e221` on a 0.3 %
+margin that the segment evidence shows is variance." Segment evidence and a second
+window answer that, not an ensemble.
 ### 9.5 Rank 5 — Correct the retrieved similar day for its weather gap
 
 Papers: [P-141](research/literature-review.md#p-141),
@@ -1135,12 +1191,11 @@ that would re-propose them.
 | [#140](https://github.com/hankehly/power-market-analytics/issues/140) OCCTO's half-hourly forecast | Published from 2025-04-01 only, 538 days — too short to fit a bias correction. |
 ### 10.5 Papers that yield nothing testable here
 
-**Measured:** 155 of the 162 sources contributed at least one intervention to the
-catalogue. Seven did not, each for a stated reason:
+**Measured:** of the 162 sources, **155 contributed at least one intervention** to the
+catalogue and **seven contributed none**. The seven, each with its reason:
 
 | Paper | Why nothing is extracted |
 |---|---|
-| [P-010](research/literature-review.md#p-010) | Full text unavailable; the review records the access gap. The discomfort index itself reaches us through [P-009](research/literature-review.md#p-009), which we already implement. |
 | [P-014](research/literature-review.md#p-014) | A planning-horizon report — two-to-five-year monthly energy and peak — with no accuracy table and no day-ahead result. |
 | [P-016](research/literature-review.md#p-016) | A systematic review that counts algorithms, inputs, error measures and horizons across 67 papers without comparing accuracy. |
 | [P-024](research/literature-review.md#p-024) | The GEFCom2012 organisers' report: competition design, not a method. |
@@ -1148,6 +1203,12 @@ catalogue. Seven did not, each for a stated reason:
 | [P-083](research/literature-review.md#p-083) | Sampling-free SHAP for Transformers. The problem it solves — exact Shapley values without sampling — we do not have: TreeSHAP is exact for our model and already runs on every backtest. |
 | [P-124](research/literature-review.md#p-124) | A training method for a structured neural network whose stated gain is interpretability, not accuracy, and not for our model class. |
 | [P-142](research/literature-review.md#p-142) | eForecaster's separable mechanisms are either already ours (Shapley explanations per row) or need infrastructure we do not have. |
+
+One source sits outside that split. [P-010](research/literature-review.md#p-010) is
+cited — once, for a wind- and radiation-aware thermal index — so it counts among the
+155, but its full text is unavailable and the review records that access gap. The
+discomfort index it is the origin of reaches us through
+[P-009](research/literature-review.md#p-009), which `e212` already implements.
 
 Several further papers appear only as *corroboration*: they support an intervention
 another paper originates rather than adding one.
@@ -1253,11 +1314,10 @@ A mart change plus a preset, one run. The hypothesis and its staleness table are
 the bound's length is chosen from the staleness distribution **before** the run, not
 from the result.
 
-### Step 4 — combine several fits (rank 4), and measure the seed spread
+### Step 4 — combine several fits (rank 4)
 
-Its second deliverable matters more than its first: the run-to-run MAE range at k = 1
-and k = 5. That number does not exist in the repository today, and every keep/reject
-above is read against a margin whose noise floor is currently unknown.
+Switch on a stochastic mechanism first — `bagging_freq ≥ 1` or `feature_fraction` — or
+the *k* members are bit-identical and the run is a false negative. §9.4 has the probe.
 
 ### Step 5 — the holiday family, where the ledger left it
 
@@ -1317,7 +1377,8 @@ combined run would credit reconciliation with DART's gain.
 
 ### How every step is reported
 
-`scripts/compare_demand_runs.py --baseline 943aab6d… --candidate <run>` after
+`scripts/compare_demand_runs.py --baseline <the fresh pinned-window `e212` run>
+--candidate <run>` after
 `just dbt build --select +fct_demand_forecast_accuracy`, citing overall MAE, the paired
 daily bootstrap CI over days, and the segments named in each step's §9 entry. A result
 that improves one segment but not overall is reported as exactly that — a segment gain
