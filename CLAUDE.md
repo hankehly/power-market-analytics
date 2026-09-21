@@ -246,8 +246,12 @@
   errors was read while deciding to pin at all, so `holdout_start` floors the
   first unseen day at **2026-09-06**. That is only a floor: the effective
   boundary is `forecasting.holdout.holdout_opens(TASK)`, which moves it past the
-  last day in `fct_demand_forecast_accuracy`, because a day a run has scored is
-  no longer unseen. So the first confirmation run spends the days it scores and
+  last `trade_date` in `pma_ml.demand_forecast` — the table a run writes itself,
+  not the accuracy mart, which is a dbt table and stays stale until the next
+  build — because a day a run has scored is no longer unseen. A read that fails
+  for any reason other than the table being absent or empty is raised, not read
+  as "nothing was scored": failing open there would move the boundary back and
+  let a run reread days while calling them unseen. So the first confirmation run spends the days it scores and
   the next one is told so — the boundary is derived, never maintained by hand. A day whose errors
   have been read is not independent evidence however the window is drawn. The
   holdout is 14 days today and grows with the data; a `--holdout` run that stops
