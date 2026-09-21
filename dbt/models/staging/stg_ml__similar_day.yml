@@ -264,7 +264,11 @@ models:
       - name: similar_day_pool_rank1_demand_kwh
         data_type: double
         data_tests:
-          - not_null
+          # Null exactly where the pool had no candidate, as ranks 2 and 3 are
+          # null where it fell short of them: the base columns still publish.
+          - not_null:
+              config:
+                where: "similar_day_pool_n_candidates >= 1"
           - dbt_utils.accepted_range:
               arguments:
                 min_value: 0
