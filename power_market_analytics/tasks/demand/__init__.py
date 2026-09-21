@@ -34,17 +34,20 @@ TASK = TaskSpec(
     forecast_cls=DemandForecast,
     result_cls=DemandBacktestResult,
     records_cls=DemandForecastRecords,
-    # Two fiscal years, FY2024 and FY2025. It opens on the first day that can be
-    # scored at all: the target starts 2022-04-01 and the sliding 730-day
-    # training window eats the two years before 2024-04-01. Everything after it
-    # is the holdout, which no experiment reads until a confirmation run.
+    # Two fiscal years, FY2024 and FY2025. It opens where the configured 730-day
+    # training window is first full: the target starts 2022-04-01, and a model
+    # trains on as much history as exists, so earlier days are scorable but on a
+    # shorter window. Everything after it is the holdout.
     eval_start=pd.Timestamp("2024-04-01"),
     eval_end=pd.Timestamp("2026-03-31"),
-    # Not the day after eval_end: 49 runs scored past it before the window was
-    # pinned - 43 through 2026-08-17 and 3 through 2026-09-05 - and the split of
-    # those runs' per-day errors was read while deciding to pin at all. Nothing
-    # before 2026-09-06 is unseen, whatever the window says.
+    # Reserved, not derived. It opens after the last day any run had scored when
+    # the window was pinned - 49 of them reached past eval_end, 3 as far as
+    # 2026-09-05 - and runs to the end of FY2026. Only 14 of its days hold data
+    # today; the rest fill as the data arrives, which is the point of reserving
+    # rather than waiting. Every run of one confirmation batch scores the same
+    # days; once a batch has spent it, move both dates in a pull request.
     holdout_start=pd.Timestamp("2026-09-06"),
+    holdout_end=pd.Timestamp("2027-03-31"),
 )
 
 MLFLOW_EXPERIMENT = TASK.name

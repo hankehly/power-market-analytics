@@ -72,6 +72,7 @@ class TaskSpec:
     eval_start: pd.Timestamp | None = None
     eval_end: pd.Timestamp | None = None
     holdout_start: pd.Timestamp | None = None
+    holdout_end: pd.Timestamp | None = None
 
     def __post_init__(self) -> None:
         if (self.eval_start is None) != (self.eval_end is None):
@@ -85,13 +86,20 @@ class TaskSpec:
                 f"{self.name}: eval_start {self.eval_start.date()} is after "
                 f"eval_end {self.eval_end.date()}"
             )
-        if self.holdout_start is not None:
+        if (self.holdout_start is None) != (self.holdout_end is None):
+            raise ValueError(f"{self.name}: reserve both holdout_start and holdout_end, or neither")
+        if self.holdout_start is not None and self.holdout_end is not None:
             if self.eval_end is None:
-                raise ValueError(f"{self.name}: holdout_start needs a pinned eval_end")
+                raise ValueError(f"{self.name}: a reserved holdout needs a pinned eval_end")
             if self.holdout_start <= self.eval_end:
                 raise ValueError(
                     f"{self.name}: holdout_start {self.holdout_start.date()} must follow "
                     f"eval_end {self.eval_end.date()}"
+                )
+            if self.holdout_end < self.holdout_start:
+                raise ValueError(
+                    f"{self.name}: holdout_end {self.holdout_end.date()} is before "
+                    f"holdout_start {self.holdout_start.date()}"
                 )
         if self.history_lead_days < 1:
             raise ValueError(f"history_lead_days must be >= 1, got {self.history_lead_days}")
@@ -130,25 +138,23 @@ class TaskSpec:
         return self.eval_start, self.eval_end
 
     @property
-    def holdout_opens(self) -> pd.Timestamp:
-        """The first day that is genuinely unseen.
-
-        The day after ``eval_end``, unless ``holdout_start`` puts it later
-        because earlier runs already scored those days.
+    def holdout_window(self) -> tuple[pd.Timestamp, pd.Timestamp]:
+        """The reserved holdout, for a task that has one.
 
         Returns
         -------
-        pandas.Timestamp
+        tuple of (pandas.Timestamp, pandas.Timestamp)
+            ``holdout_start`` and ``holdout_end``.
 
         Raises
         ------
         ValueError
-            If the task is unpinned.
+            If the task reserves no holdout, so a caller cannot mistake a task
+            without one for a task whose window happens to be missing.
         """
-        _, eval_end = self.eval_window
-        if self.holdout_start is not None:
-            return self.holdout_start
-        return eval_end + pd.Timedelta(days=1)
+        if self.holdout_start is None or self.holdout_end is None:
+            raise ValueError(f"{self.name}: no holdout is reserved")
+        return self.holdout_start, self.holdout_end
 
     @property
     def value_col(self) -> str:

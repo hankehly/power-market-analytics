@@ -24,7 +24,6 @@ from loguru import logger
 
 from power_market_analytics.common.tracking import MAPE_METRIC_NAME, log_dataframe, task_run
 from power_market_analytics.forecasting.backtest import daily_metrics, run_backtest
-from power_market_analytics.forecasting.holdout import holdout_opens
 from power_market_analytics.forecasting.importance import DEFAULT_N_REPEATS, DEFAULT_SEED
 from power_market_analytics.forecasting.lgbm import DEFAULT_TRAIN_WINDOW_DAYS
 from power_market_analytics.forecasting.plots import error_heatmaps, permutation_importance_plot
@@ -42,9 +41,9 @@ from power_market_analytics.tasks.demand.strategies import STRATEGIES, build_str
 
 #: The task's pinned evaluation window; the days after it are the holdout.
 EVAL_START, EVAL_END = TASK.eval_window
-#: The floor for the first unseen day, before what the warehouse has scored is
-#: taken into account; the effective boundary is holdout_opens(TASK) per run.
-HOLDOUT_FLOOR = TASK.holdout_opens
+#: The reserved holdout: the only days a confirmation run may score, shared by
+#: every run of one batch so a baseline and its candidate compare on them.
+HOLDOUT_START, HOLDOUT_END = TASK.holdout_window
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -95,10 +94,10 @@ def main(argv: list[str] | None = None) -> None:
             "Allow scoring past the pinned evaluation window. Only for a "
             "confirmation run: the holdout is what keeps the window's numbers "
             "honest, and a run that reads it is logged as having done so. Days "
-            f"before {HOLDOUT_FLOOR.date()} were scored by runs made before the "
-            "window was pinned, so they are not independent evidence. Without "
-            "--start-date or --days the run begins at the holdout rather than at "
-            "the window, so its metrics measure the holdout alone."
+            f"reserved holdout is {HOLDOUT_START.date()}..{HOLDOUT_END.date()}, and a "
+            "run may not score past it. Without --start-date or --days the run "
+            "covers exactly those days, so every run of one batch compares on the "
+            "same window."
         ),
     )
     parser.add_argument(
@@ -150,6 +149,11 @@ def main(argv: list[str] | None = None) -> None:
             f"--end-date {args.end_date.date()} reads the holdout, which opens after "
             f"{EVAL_END.date()}; pass --holdout for a confirmation run"
         )
+    if args.end_date is not None and args.end_date > HOLDOUT_END:
+        parser.error(
+            f"--end-date {args.end_date.date()} is past the reserved holdout, which ends "
+            f"{HOLDOUT_END.date()}; reserve those days first"
+        )
     label = args.name or args.strategy
 
     with task_run(
@@ -159,51 +163,38 @@ def main(argv: list[str] | None = None) -> None:
     ) as mlflow_run:
         demand = load_area_demand(area_code=args.area)
         last_day = demand.df["trade_date"].max()
-        # Derived, not configured: a day a run has scored is no longer unseen, so
-        # the boundary moves as the holdout is spent. The first confirmation run
-        # consumes the days it scores, and the next one is told so.
-        unseen_from = holdout_opens(TASK)
-        # The pinned window is the default on both ends, so two runs months apart
-        # score the same delivery days without either remembering to say so. It is
-        # a ceiling, not an equality: a warehouse that does not reach eval_end
-        # scores what it has and says so, rather than refusing to run at all. The
-        # default can never pass eval_end, so nothing reads the holdout by accident.
         if args.end_date is not None:
             end_date = args.end_date
         else:
-            end_date = min(EVAL_END, last_day)
-            if last_day < EVAL_END:
+            end_date = min(HOLDOUT_END if args.holdout else EVAL_END, last_day)
+            if last_day < (HOLDOUT_END if args.holdout else EVAL_END):
                 logger.warning(
-                    "the data ends {}, before the pinned window's {}: scoring to {} "
-                    "instead, so this run is not comparable with one on the full window",
+                    "the data ends {}, before {}: scoring to {} instead, so this run "
+                    "is not comparable with one over the whole window",
                     last_day.date(),
-                    EVAL_END.date(),
+                    (HOLDOUT_END if args.holdout else EVAL_END).date(),
                     end_date.date(),
                 )
         if end_date > last_day:
             parser.error(f"--end-date {end_date.date()} is after the last day in the data")
-        if end_date > EVAL_END and end_date < unseen_from:
+        if end_date > EVAL_END and end_date < HOLDOUT_START:
             logger.warning(
-                "this run reads {}..{}, which runs made before the window was pinned "
-                "already scored: the holdout opens {}, and days before it are not "
-                "independent evidence",
+                "this run reads {}..{}, which lies between the evaluation window and "
+                "the reserved holdout at {}: runs made before the window was pinned "
+                "scored those days, so they are not independent evidence",
                 (EVAL_END + pd.Timedelta(days=1)).date(),
                 end_date.date(),
-                unseen_from.date(),
+                HOLDOUT_START.date(),
             )
         if args.start_date is not None:
             start_date = args.start_date
         elif args.days is not None:
             start_date = end_date - pd.DateOffset(days=args.days - 1)
-        elif end_date >= unseen_from:
-            # A confirmation run measures the holdout, not the window plus a few
-            # new days: starting at EVAL_START would drown the unseen suffix in
-            # 730 days that are not independent, while still reporting
-            # reads_unseen_holdout. Pass --start-date to score both.
-            start_date = unseen_from
-        elif end_date > EVAL_END:
-            # Past the window but short of the opening: the already-scored gap.
-            start_date = EVAL_END + pd.Timedelta(days=1)
+        elif args.holdout:
+            # A confirmation run covers the reserved holdout, so every run of one
+            # batch scores the same days and starting at EVAL_START cannot drown
+            # them in 730 days that are not independent. --start-date scores both.
+            start_date = HOLDOUT_START
         else:
             start_date = max(EVAL_START, demand.df["trade_date"].min())
         if start_date > end_date:
@@ -251,8 +242,8 @@ def main(argv: list[str] | None = None) -> None:
                 "last_scored_date": str(last_scored.date()),
                 "eval_window": f"{EVAL_START.date()}..{EVAL_END.date()}",
                 "reads_holdout": last_scored > EVAL_END,
-                "reads_unseen_holdout": last_scored >= unseen_from,
-                "holdout_opens": str(unseen_from.date()),
+                "reads_unseen_holdout": last_scored >= HOLDOUT_START,
+                "holdout_window": f"{HOLDOUT_START.date()}..{HOLDOUT_END.date()}",
                 "n_days": per_day["trade_date"].nunique(),
                 "n_predictions": len(result),
                 "n_days_skipped": len(run.skipped_days),
