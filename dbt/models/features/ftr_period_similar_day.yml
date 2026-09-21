@@ -23,9 +23,9 @@ models:
       ranking on every day, that override included, so a preset picks the variant it wants. No day is ranked with weights that saw a load
       that was not yet public: each fit runs at a cutoff on the pairs of the 730 days before it
       whose target load was public by then, and a day is ranked by the latest fit whose cutoff
-      is on or before its issue time. A ranked day's available_at is the latest of D's MSM
-      forecast vintage's, that cutoff and its ranked days' load availability; a same-holiday
-      day's is its reference day's load availability. The reference days, distances, candidate
+      is on or before its issue time. available_at is the latest of every input behind the
+      row, both variants' included: D's MSM forecast vintage, the fit's cutoff and the load
+      availability of the days either variant ranked or took. The reference days, distances, candidate
       count, fit cutoff and method sit next to the features, untagged. One row per scoring run:
       the as-of join takes the newest run usable at the issue time, and among rows tied on
       available_at the newest published wins. So a re-run replaces an older run's row only where
@@ -251,7 +251,7 @@ models:
       - name: available_at
         data_type: timestamp
         description: >
-          When the row became usable, naive JST, never after D's issue time. On a ranked day, the latest of D's MSM forecast vintage (reference + 4 h, 01:00 on D-1), similar_day_fit_cutoff and the ranked days' load availability; on a same-holiday day, the reference day's load availability.
+          When the row became usable, naive JST, never after D's issue time: the latest of D's MSM forecast vintage (reference + 4 h, 01:00 on D-1), similar_day_fit_cutoff and the load availability of every day either variant used. Both variants sit on the one row, so a same-holiday row waits for its pool columns as well as for its reference's load.
         data_tests:
           - not_null
       - name: published_at
