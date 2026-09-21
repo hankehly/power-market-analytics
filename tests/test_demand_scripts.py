@@ -691,11 +691,60 @@ class TestBacktestScript:
         assert "--importance-repeats must be >= 1, got 0" in capsys.readouterr().err
 
     def test_end_date_after_the_data_is_rejected(self, spark, curated_warehouse, feature_marts):
+        # Inside the pinned window but past the fixture's data, so it is the data
+        # that rejects it, after the run has started.
+        script = import_script("demand_backtest")
+        with pytest.raises(SystemExit) as exc:
+            script.main(["--end-date", "2026-03-30"])
+        assert exc.value.code == 2
+        assert last_run().info.status == "FAILED"
+
+    def test_an_end_date_in_the_holdout_needs_the_flag(self, spark, capsys):
+        # Checked off the arguments alone, so it refuses before a run exists.
         script = import_script("demand_backtest")
         with pytest.raises(SystemExit) as exc:
             script.main(["--end-date", "2030-01-01"])
         assert exc.value.code == 2
+        message = capsys.readouterr().err
+        assert "reads the holdout, which opens after 2026-03-31" in message
+        assert "--holdout" in message
+
+    def test_the_holdout_flag_lets_the_run_past_the_window(
+        self, spark, curated_warehouse, feature_marts
+    ):
+        # With the flag it is the data that stops it, not the window.
+        script = import_script("demand_backtest")
+        with pytest.raises(SystemExit) as exc:
+            script.main(["--end-date", "2030-01-01", "--holdout"])
+        assert exc.value.code == 2
         assert last_run().info.status == "FAILED"
+
+    def test_the_pin_caps_the_run_when_the_data_runs_past_it(
+        self, spark, curated_warehouse, feature_marts, monkeypatch, caplog
+    ):
+        # Production's case, which the fixture cannot reach on its own: the data
+        # outlives the window, so the run stops at the pin and says nothing about
+        # a short warehouse.
+        script = import_script("demand_backtest")
+        monkeypatch.setattr(script, "EVAL_END", pd.Timestamp("2024-05-20"))
+        script.main(["--shap-nsamples", "20"])
+        params = last_run().data.params
+        assert params["end_date"] == "2024-05-20"
+        assert params["reads_holdout"] == "False"
+        assert "before the pinned window's" not in caplog.text
+
+    def test_the_default_window_is_the_pin_capped_by_the_data(
+        self, spark, curated_warehouse, feature_marts
+    ):
+        # The fixture ends long before eval_end, so the run scores what it has and
+        # logs the pin next to it; the default never reaches the holdout.
+        script = import_script("demand_backtest")
+        script.main(["--shap-nsamples", "20"])
+        params = last_run().data.params
+        assert params["eval_window"] == "2024-04-01..2026-03-31"
+        assert params["reads_holdout"] == "False"
+        assert params["end_date"] == "2024-05-31"
+        assert params["start_date"] == "2024-04-01"
 
     def test_start_after_end_is_rejected(self, spark, curated_warehouse, feature_marts, capsys):
         script = import_script("demand_backtest")

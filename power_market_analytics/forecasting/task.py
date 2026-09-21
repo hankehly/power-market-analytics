@@ -44,6 +44,13 @@ class TaskSpec:
     history_cls, forecast_cls, result_cls, records_cls : type
         The task's ``HalfHourlySeries``, ``DayAheadForecast``,
         ``BacktestResult`` and ``ForecastRecords`` subclasses.
+    eval_start, eval_end : pandas.Timestamp or None
+        The task's pinned evaluation window: the delivery days every experiment
+        scores, so two runs made months apart compare on the same days. The days
+        after ``eval_end`` are the holdout, kept out of the decisions that pick a
+        baseline; a backtest refuses to score into them without being told to.
+        Both None leaves a task unpinned, and its backtest ends at the last day
+        in the data.
     """
 
     name: str
@@ -55,8 +62,21 @@ class TaskSpec:
     forecast_cls: type[DayAheadForecast]
     result_cls: type[BacktestResult]
     records_cls: type[ForecastRecords]
+    eval_start: pd.Timestamp | None = None
+    eval_end: pd.Timestamp | None = None
 
     def __post_init__(self) -> None:
+        if (self.eval_start is None) != (self.eval_end is None):
+            raise ValueError(f"{self.name}: pin both eval_start and eval_end, or neither")
+        if (
+            self.eval_start is not None
+            and self.eval_end is not None
+            and self.eval_start > self.eval_end
+        ):
+            raise ValueError(
+                f"{self.name}: eval_start {self.eval_start.date()} is after "
+                f"eval_end {self.eval_end.date()}"
+            )
         if self.history_lead_days < 1:
             raise ValueError(f"history_lead_days must be >= 1, got {self.history_lead_days}")
         forecast_cols = {
@@ -73,6 +93,25 @@ class TaskSpec:
                 f"{self.name}: forecast column {self.forecast_col!r} must start with "
                 "'forecast_' (the contribution column is derived from it)"
             )
+
+    @property
+    def eval_window(self) -> tuple[pd.Timestamp, pd.Timestamp]:
+        """The pinned evaluation window, for a task that has one.
+
+        Returns
+        -------
+        tuple of (pandas.Timestamp, pandas.Timestamp)
+            ``eval_start`` and ``eval_end``.
+
+        Raises
+        ------
+        ValueError
+            If the task is unpinned, so a caller cannot mistake an unpinned task
+            for one whose window happens to be missing.
+        """
+        if self.eval_start is None or self.eval_end is None:
+            raise ValueError(f"{self.name}: no evaluation window is pinned")
+        return self.eval_start, self.eval_end
 
     @property
     def value_col(self) -> str:

@@ -34,6 +34,12 @@ TASK = TaskSpec(
     forecast_cls=DemandForecast,
     result_cls=DemandBacktestResult,
     records_cls=DemandForecastRecords,
+    # Two fiscal years, FY2024 and FY2025. It opens on the first day that can be
+    # scored at all: the target starts 2022-04-01 and the sliding 730-day
+    # training window eats the two years before 2024-04-01. Everything after it
+    # is the holdout, which no experiment reads until a confirmation run.
+    eval_start=pd.Timestamp("2024-04-01"),
+    eval_end=pd.Timestamp("2026-03-31"),
 )
 
 MLFLOW_EXPERIMENT = TASK.name
