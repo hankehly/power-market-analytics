@@ -4,11 +4,30 @@ Every feature has two names.
 
 | Name | Example | Used by |
 |---|---|---|
-| **Physical name** | `lag_2d_demand_kwh` | The mart column. Code, presets, `--add` / `--drop`, Feast, LightGBM, MLflow params and the stored contribution and importance rows. |
-| **Expression** | `LAG(demand_kwh, 2d)` | People. Charts, dashboards, the feature catalogue and the MLflow plots. |
+| **Physical name** | `lag_2d_demand_kwh` | The mart column. Code, Feast, LightGBM, MLflow params, the stored contribution and importance rows, and a preset once loaded. |
+| **Expression** | `LAG(demand_kwh, 2d)` | People. Charts, dashboards, the feature catalogue and the MLflow plots. A preset file and `--add` / `--drop` take either name. |
 
 The physical name never changes: stored runs refer to it. The expression can be
 edited at any time, and every label follows on the next build.
+
+## Naming a feature in a preset
+
+A preset file, and `--add` / `--drop`, name a feature by its reference,
+`ftr_period_actuals:lag_2d_demand_kwh`, or by its expression, `LAG(demand_kwh, 2d)`.
+An expression is unique across the marts, so it needs no view prefix. The loader
+turns each expression into its reference (`features.presets.resolve_references`),
+so the preset, the MLflow params and the stored runs hold references whichever way
+the file was written. Write expressions in a block list (`- LAG(demand_kwh, 2d)`):
+in a flow list (`[a, b]`) the comma inside the call would split it.
+
+An expression edited after a preset file named it fails that file's load, which
+`just test` and CI catch. The fix is that one item, and it is the one edit a
+published preset file gets.
+
+`just show-preset demand e221` prints a preset's features in feature order: the
+preset of the base chain that added each, its categorical mark, its reference and
+its expression. `--refs` or `--expressions` prints one list or the other, one per
+line, for a new preset file or an issue.
 
 The expression is written once, as `meta.expression` in the mart's YAML. The
 generator (`just feature-views`) copies it into the Feast field's `expression`
@@ -114,3 +133,5 @@ description. Old runs still name the feature, and the row keeps their labels.
   logged before this convention keep physical names in their images.
 - **Feast UI:** the `expression` tag on each feature's page. Its lists show only
   physical names.
+- **Presets:** `just show-preset <task> <name>` lists a preset's features with
+  their expressions, and a preset file may name a feature by its expression.

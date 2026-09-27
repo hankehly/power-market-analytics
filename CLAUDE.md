@@ -163,18 +163,29 @@
   stops it. `just open feast` opens it. Needs the `grpcio` extra of `feast` (in the
   dependency since 2026-09-10: `feast[spark,grpcio]`) — without it `feast ui` dies on
   `import grpc`. The UI reads the registry at start: restart it after a mart changes.
+- `just show-preset <task> <name>` (since 2026-09-27) — print a preset's features in feature
+  order, host-side (`scripts/show_preset.py` reads the preset files and the generated views,
+  no warehouse): rank, the preset of the base chain that added the feature, its categorical
+  mark, its `view:column` reference and its expression, under the name, the chain and the
+  description; `--refs` / `--expressions` print one list or the other, one per line, for a
+  new preset file or an issue.
 - `just python scripts/spot_price_backtest.py --strategy lightgbm --area tokyo` — day-ahead
   backtest (strategies: `previous_day`, and the presets `lightgbm`, `lightgbm_occto`; areas =
   `dim_area.area_code`). Since 2026-09-11 a LightGBM strategy is a **preset**
   (a YAML file under `conf/presets/spot_price/` since 2026-09-19, `features.presets.load_presets`:
   `description` and either `features`, the full ordered list of `<view>:<column>` references into
-  the Feast feature views, or `base` plus `add` / `drop`; the name is the file's stem; a feature is categorical when its view field carries the mart's
+  the Feast feature views, or `base` plus `add` / `drop`, every item a reference or the
+  feature's expression — since 2026-09-27 `features.presets.resolve_references` turns an
+  expression into its reference on load, so the preset and the run's params hold references
+  either way, and an expression edited after a preset file named it fails that file's load,
+  the fix being that one item, the one edit a published file gets; write an expression in a
+  block list, since a flow list splits it at its comma; the name is the file's stem; a feature is categorical when its view field carries the mart's
   `categorical` tag — `features.presets.categorical_columns`, so an added feature is
   treated as its mart declares it); `build_strategy` retrieves the
   preset's features once for the run's days through Feast (`features/retrieval.py`, each
   row as of its own 09:30 D-1 issue time) and builds a `PresetLightGbmStrategy`
   (`forecasting/preset_lgbm.py`) over that `FeatureFrame`; `time_code` is always the first
-  feature. `--add VIEW:COLUMN …` / `--drop VIEW:COLUMN …` change the list for one run and
+  feature. `--add VIEW:COLUMN|EXPRESSION …` / `--drop …` change the list for one run and
   need `--name`, which becomes the run's strategy label (`strategy` column, MLflow tag;
   params `feature_preset`, `feature_preset_base`, `feature_refs`, `lgbm_feature_cols`). A
   new preset = a new file under `conf/presets/<task>/`, named after the experiment issue that
@@ -1358,9 +1369,9 @@
   2026-09-12, #77). Claude drives the loop and never merges on its own initiative — the
   researcher merges, or explicitly asks Claude to (then through `merge-async`, below). Open it
   with `gh pr create`
-  (title `type(scope): description`; body sections *Why* / *What* / *Proof* with the measured
-  numbers), then `gh pr edit <n> --add-assignee hankehly --add-label <labels>`. A PR gets one
-  type label plus the areas it touches. The type follows the title's type: `fix` → `bug`,
+  (title `type(scope): description`; body in the shape of `.github/pull_request_template.md`,
+  the bullet below), then `gh pr edit <n> --add-assignee hankehly --add-label <labels>`. A PR
+  gets one type label plus the areas it touches. The type follows the title's type: `fix` → `bug`,
   `feat` and `perf` → `enhancement`, `docs` → `documentation`, `chore` / `ci` / `build` /
   `test` / `refactor` / `style` → `chore`, a `release/` branch → no label. So a `chore/`
   branch whose PR only edits docs is `documentation`, not `chore`. Never put `documentation`
@@ -1372,6 +1383,32 @@
   investigation under `docs/research/`. The labels were backfilled over PRs 1-70 on
   2026-09-12. A stage that depends on an unmerged PR is stacked on that branch
   (`--base <branch>`); GitHub retargets it to `main` when the base merges.
+- **The PR body** leads with what the merge needs and folds the rest (since 2026-09-27; the
+  shape is `.github/pull_request_template.md`, which the web form pre-fills and which Claude
+  writes fresh, without the template's comments, into a file for `gh pr create --body-file`).
+  Four sections in a fixed order, then two folded blocks. **Summary** — one to three lines:
+  what the PR does, the issue or spec it comes from, what it is stacked on, what closes on
+  merge; a PR with no issue opens with the problem in one line. **Changes** — one line per
+  item, naming the model, column, script or file; no reasoning. **Effect on what exists** —
+  a two-column table, the one fixed place for what already existed and moved or did not; its
+  rows by kind of change are in the template; `None: docs only.` for prose documentation
+  alone — a template or a setting changes what a form or a tool does, and says so.
+  **Checks** — one line, the commands run and their results, separated by ` · `.
+  `<details>` **Decisions (n)** — numbered, a bold lead, one to three lines each, the
+  justification once, an alternative weighed and dropped in one line; only when a decision
+  was made. `<details>` **Evidence** — the PR-specific tables: equality with the table before
+  the change, a guard shown to catch a known break, retrieval through Feast, timings before
+  and after. A bullet is one line, at most two sentences: a change that needs a paragraph is
+  a decision. Numbers go in table cells or on the Checks line, not in sentences. A fact that
+  decides nothing in this PR — a feature's error as a forecast by itself, what a column holds
+  — goes to the issue as a comment, linked from Evidence. The body describes the PR as it is
+  now: review rounds live in the threads, never in the body, and after a round changes the
+  PR, `gh pr edit <n> --body-file` brings the body up to date. The Claude Code attribution
+  line ends it. This replaced the *Why* / *What* / *Proof* body of 2026-08-30, which the
+  researcher found hard to read: each section had grown to hold everything (53 of its 120
+  bodies ran past 500 words; Proof went from 21–124 words in its first week to 277–818 on
+  the feature-column PRs of 2026-09-19; 56 What sections argued a design choice), and the
+  fact a merge needs had no fixed place. Earlier bodies are not rewritten.
 - **Never spell out the Codex mention** — the bot's handle followed by `review` — in a PR
   body, a commit message, a review reply or a file that will show up in a diff: Codex acts on
   that literal text wherever it appears on the PR and, anywhere but a plain PR comment,
@@ -1449,7 +1486,7 @@
   findings were all rebutted has nothing to push and is terminal once every thread is resolved
   (the reviewed SHA is unchanged). Repeat until a round ends clean: Codex signals that with 👍,
   Copilot with an `APPROVED` review. A round with only rebutted, resolved findings is clean too.
-- Then report the PR as ready — CI green, the reviewer clean, Proof filled in — and stop; the
+- Then report the PR as ready — CI green, the reviewer clean, the body current — and stop; the
   researcher merges unless they have explicitly asked Claude to. The repository's required
   checks must pass on the PR's *current* head, so a branch that has fallen behind `main` is
   brought up to date first — merge `main` into it (never rebase a reviewed branch), push, and

@@ -122,14 +122,20 @@ def main(argv: list[str] | None = None) -> None:
         nargs="+",
         default=(),
         metavar="VIEW:COLUMN",
-        help="Feature references added to the preset for this run (needs --name).",
+        help=(
+            "Features added to the preset for this run, each a view:column reference or an "
+            "expression (needs --name)."
+        ),
     )
     parser.add_argument(
         "--drop",
         nargs="+",
         default=(),
         metavar="VIEW:COLUMN",
-        help="Feature references removed from the preset for this run (needs --name).",
+        help=(
+            "Features removed from the preset for this run, each a view:column reference or "
+            "an expression (needs --name)."
+        ),
     )
     parser.add_argument(
         "--name",
