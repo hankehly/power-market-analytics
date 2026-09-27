@@ -8,7 +8,7 @@ Power market analytics.
 
 - **Data sources** — below: every dataset the warehouse loads, its grain, its
   loaded date range and the doc that records how it is retrieved.
-- [**Curated star schema**](Curated-Star-Schema.md) — the sixteen fact tables,
+- [**Curated star schema**](Curated-Star-Schema.md) — the eighteen fact tables,
   their dimensions and the ER diagram.
 - [**Forecast analysis**](Forecast-Analysis.md) — the walk-forward backtest, the
   strategies and feature experiments, and the Superset dashboards.
@@ -48,6 +48,7 @@ gantt
     section JMA
     過去の気象データ 時別値 (hourly, 149 stations) :active, jma, 2016-01-01, 2026-09-05
     MSM GPV 地上予報 (hourly, 12 UTC D-2 run)      :active, msm, 2019-04-01, 2026-09-07
+    平年値 1991–2020 (daily, in use 2021-05-19)      :milestone, jmanml, 2021-05-19, 0d
 
     section OCCTO
     需要予想・ピーク時供給力 翌々日 (daily)        :active, occtod, 2024-03-13, 2026-09-07
@@ -95,6 +96,7 @@ snapshot).
 | JMA | [過去の気象データ（官署 時別値）](https://www.data.jma.go.jp/risk/obsdl/index.php) (過去の気象データ・ダウンロード, obsdl) | <ul><li>station (149 staffed stations inside the JEPX areas)</li><li>hour</li></ul> | 27 columns: precipitation, temperature, wind speed/direction, sunshine duration, snow depth, humidity, solar radiation, each with quality / homogeneity flags and 現象なし markers ([doc](JMA-Weather-Data-Retrieval.md)) | 2016-01-01 ~ current | `pma_raw.jma_hourly_staffed` |
 | JMA | [Station master](https://www.data.jma.go.jp/risk/obsdl/top/station) (obsdl station list) | <ul><li>station</li></ul> | station id, name, prefecture, latitude / longitude, elevation, station type; JEPX-area mapping from the hand-curated seed `jma_station_areas` | current snapshot | seed `jma_stations` |
 | JMA | [MSM GPV 地上予報](https://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/) (RISH 京都大学 生存圏研究所 GPV archive) | <ul><li>station (nearest 5 km grid point)</li><li>forecast_reference_at (12 UTC D−2)</li><li>valid hour (leads 28–51 = D 01:00–24:00 JST)</li></ul> | temperature, relative humidity, u/v wind and speed, precipitation, surface / sea-level pressure, shortwave radiation, total / high / middle / low cloud cover ([doc](JMA-MSM-GPV-Retrieval.md)) | 2019-04-01 ~ current | `pma_raw.jma_msm_surface_forecast` |
+| JMA | [平年値 (climatological normals, 1991–2020)](https://www.data.jma.go.jp/stats/data/mdrr/normal/index.html) (平年値ダウンロード, `normal_surface.zip`, the daily file of each staffed station) | <ul><li>station (157; 147 in the seed)</li><li>calendar day (month, day; Feb 29 included)</li><li>element (81 codes)</li></ul> | daily mean / max / min temperature with std and class thresholds, the temperature at each hour 01–24 with std, cloud cover, sunshine, radiation, precipitation, snowfall, snow depth and three occurrence rates, each with a quality flag (8/6 normal, 7/5 reference only, 0 none) and the years the statistic covers ([doc](JMA-Climatological-Normals-Retrieval.md)) | the 1991–2020 period, version 5, in use since 2021-05-19 | `pma_raw.jma_normal_surface_daily` |
 | OCCTO | [需要予想・ピーク時供給力（翌々日）](https://occtonet3.occto.or.jp/public/dfw/RP11/OCCTO/SD) (広域機関システム 系統情報公表) | <ul><li>対象日 (formulated on D−2)</li><li>area (9 JEPX areas + エリア計 + 沖縄)</li></ul> | 最小需要 時刻 / MW, 最大需要 時刻 / MW, ピーク時供給力 MW, 使用率 %, 予備率 % — hour-ending labels `01:00`–`24:00`; `min_demand_mw` changed meaning on 2025-04-01 ([doc](OCCTO-Demand-Forecast-Retrieval.md)) | 2024-03-13 ~ current (2024-03-13..31 are OCCTO's pre-FY2024 試験データ, kept in `std` but out of the curated fact) | `pma_raw.occto_demand_forecast_dad` |
 | OCCTO | [広域予備率 エリア・広域ブロック情報（翌々日）](https://occtonet3.occto.or.jp/public/dfw/RP11/OCCTO/SD) (same portal, `areaDataKnd=31`; identical numbers on the [広域予備率Web公表システム](https://web-kohyo.occto.or.jp/kks-web-public/download)) | <ul><li>対象日</li><li>30-min period (48/day)</li><li>area / 広域ブロック</li></ul> | エリア需要 MW, 供給力 MW, 予備力 MW, 広域予備率 %, 広域使用率 %, block demand / supply capacity / reserve ([doc §9](OCCTO-Demand-Forecast-Retrieval.md)) | 2025-04-01 ~ current | `pma_raw.occto_area_reserve_rate_dad` |
 | TEPCO | [エリア需要・発電情報（実績）](https://www.tepco.co.jp/forecast/html/area-download-j.html) (`AREA_YYYYMM.zip`) | <ul><li>date</li><li>30-min period</li><li>Tokyo area</li></ul> | エリア総需要量, エリア総発電量, エリア風力・太陽光発電量 [30分kWh] — the インバランス料金 系統需給情報 items A-1 / B-1 / B-4; 予測 / BG計画 files exist but are not loaded ([doc](TEPCO-Area-Demand-Generation-Retrieval.md)) | 2022-04-01 ~ yesterday | `pma_raw.tepco_area_demand_generation_actual` |
