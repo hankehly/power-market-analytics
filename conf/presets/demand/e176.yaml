@@ -1,0 +1,9 @@
+description: >-
+  Plus the two holiday distances alone (experiment #176, demand/R-005 E-003,
+  rejected; a reference). Until 2026-09-27 this was
+  lightgbm_msm_popw_daytype_simday_holidaydistance; runs from before then carry
+  that name.
+base: e173
+add:
+  - ftr_day_calendar:days_since_holiday
+  - ftr_day_calendar:days_until_holiday

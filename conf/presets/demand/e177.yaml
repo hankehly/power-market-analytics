@@ -1,0 +1,13 @@
+description: >-
+  Plus the six calendar counts alone (experiment #177, demand/R-005 E-004,
+  rejected; a reference). Until 2026-09-27 this was
+  lightgbm_msm_popw_daytype_simday_calendarcounts; runs from before then carry
+  that name.
+base: e173
+add:
+  - ftr_day_calendar:half
+  - ftr_day_calendar:quarter
+  - ftr_day_calendar:day_of_month
+  - ftr_day_calendar:day_of_quarter
+  - ftr_day_calendar:day_of_year
+  - ftr_day_calendar:fiscal_quarter
