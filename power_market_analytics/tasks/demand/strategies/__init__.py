@@ -19,6 +19,7 @@ from power_market_analytics.features.presets import (
     feature_dtypes,
     feature_expressions,
     load_presets,
+    resolve_references,
 )
 from power_market_analytics.features.retrieval import entity_frame, historical_features
 from power_market_analytics.features.store import open_store
@@ -60,7 +61,8 @@ def build_strategy(
     train_start_date : pandas.Timestamp, optional
         First delivery day eligible as a training row.
     add, drop : sequence of str, optional
-        Feature references added to or dropped from the preset; need ``label``.
+        Features added to or dropped from the preset, each a ``view:column``
+        reference or an expression; need ``label``.
     label : str, optional
         The strategy label of the run when it differs from the preset's name;
         required with ``add`` or ``drop``.
@@ -80,7 +82,9 @@ def build_strategy(
     if add or drop:
         if not label:
             raise ValueError(f"{name!r} with features added or dropped needs a label")
-        preset = preset.with_changes(add=add, drop=drop, name=label)
+        preset = preset.with_changes(
+            add=resolve_references(add), drop=resolve_references(drop), name=label
+        )
     if days is None:
         raise ValueError(f"{name!r} needs the days to retrieve its features for")
     store = open_store()

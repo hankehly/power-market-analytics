@@ -25,6 +25,7 @@ from power_market_analytics.features.presets import (
     feature_service,
     load_presets,
     preset_tasks,
+    resolve_references,
 )
 from power_market_analytics.features.store import open_store
 from tests.support import write_feature_store_yaml
@@ -32,6 +33,7 @@ from tests.support import write_feature_store_yaml
 CALENDAR = "ftr_day_calendar:month"
 LAG = "ftr_period_jepx:lag_1d_price"
 DAY_TYPE = "ftr_day_calendar:day_type"
+MORNING = "ftr_day_actuals:lag_2d_morning_mean_demand_kwh"
 #: Every registered preset's service, both tasks, sorted.
 REGISTERED_SERVICES = [
     "demand__e212",
@@ -92,6 +94,23 @@ class TestLoadPresets:
             "demand", "three", (CALENDAR, DAY_TYPE), base="two", description="Minus the lag."
         )
 
+    def test_a_file_may_name_a_feature_by_its_expression(self, tmp_path):
+        task = tmp_path / "demand"
+        write_preset(
+            task,
+            "one",
+            "description: By expression.\nfeatures:\n  - month\n  - LAG(area_price_jpy_kwh, 1d)\n",
+        )
+        write_preset(
+            task,
+            "two",
+            "description: Changed by expression.\nbase: one\nadd: [day_type]\n"
+            "drop:\n  - LAG(area_price_jpy_kwh, 1d)\n",
+        )
+        presets = load_presets("demand", tmp_path)
+        assert presets["one"].features == (CALENDAR, LAG)
+        assert presets["two"].features == (CALENDAR, DAY_TYPE)
+
     def test_a_base_may_add_and_drop_in_one_file(self, tmp_path):
         task = tmp_path / "demand"
         write_preset(task, "one", ONE)
@@ -119,17 +138,34 @@ class TestLoadPresets:
             ("description: x\nbase: one\nadd: []\ndrop: []\n", "a base needs add or drop"),
             ("description: x\nbase: 3\nadd: [ftr_a:c]\n", "base must be a preset name"),
             (
-                "description: x\nbase: nope\nadd: [ftr_a:c]\n",
+                "description: x\nbase: nope\nadd: [ftr_day_calendar:day_type]\n",
                 "base 'nope' is not a preset of demand",
             ),
             (
                 "description: x\nfeatures: ftr_a:b\n",
-                "features must be a list of 'view:column' strings",
+                "features must be a list of 'view:column' references or expressions",
             ),
-            ("description: x\nfeatures: [lag]\n", "is not '<view>:<column>'"),
-            ("description: x\nfeatures: [ftr_a:b, ftr_c:b]\n", "duplicate feature columns ['b']"),
-            ("description: x\nfeatures: [ftr_a:time_code]\n", "every preset's first feature"),
-            ("description: x\nbase: one\ndrop: [ftr_x:y]\n", "cannot drop ['ftr_x:y']"),
+            (
+                "description: x\nfeatures: [lag]\n",
+                "'lag' is neither a '<view>:<column>' feature reference nor the expression of one",
+            ),
+            (
+                "description: x\nbase: one\nadd:\n  - LAG(nope, 1d)\n",
+                "'LAG(nope, 1d)' is neither a '<view>:<column>' feature reference",
+            ),
+            (
+                "description: x\nfeatures: [ftr_day_calendar:month, ftr_day_calendar:month]\n",
+                "duplicate feature columns ['month']",
+            ),
+            (
+                # A join key is not a feature, so time_code cannot be named at all.
+                "description: x\nfeatures: [ftr_period_jepx:time_code]\n",
+                "'ftr_period_jepx:time_code' is neither a '<view>:<column>' feature reference",
+            ),
+            (
+                "description: x\nbase: one\ndrop: [ftr_day_calendar:day_type]\n",
+                "cannot drop ['ftr_day_calendar:day_type']",
+            ),
             ("description: x\nbase: one\nadd: [ftr_day_calendar:month]\n", "cannot add"),
         ],
     )
@@ -143,8 +179,8 @@ class TestLoadPresets:
 
     def test_rejects_a_looping_chain(self, tmp_path):
         task = tmp_path / "demand"
-        write_preset(task, "a", "description: x\nbase: b\nadd: [ftr_a:b]\n")
-        write_preset(task, "b", "description: x\nbase: a\nadd: [ftr_a:c]\n")
+        write_preset(task, "a", "description: x\nbase: b\nadd: [ftr_day_calendar:month]\n")
+        write_preset(task, "b", "description: x\nbase: a\nadd: [ftr_day_calendar:day_type]\n")
         with pytest.raises(ValueError, match=r"a\.yaml: base chain loops: a -> b -> a"):
             load_presets("demand", tmp_path)
 
@@ -177,6 +213,43 @@ class TestFeatureColumn:
     def test_malformed_reference(self, ref):
         with pytest.raises(ValueError, match="is not '<view>:<column>'"):
             feature_column(ref)
+
+
+class TestResolveReferences:
+    def test_a_reference_is_kept_and_an_expression_becomes_its_columns_reference(self):
+        assert resolve_references([CALENDAR, "LAG(area_price_jpy_kwh, 1d)", "day_type"]) == (
+            CALENDAR,
+            LAG,
+            DAY_TYPE,
+        )
+
+    def test_an_expression_holding_a_colon_is_still_an_expression(self):
+        assert resolve_references(["LAG(DAILY_MEAN(demand_kwh, time=06:00-10:00), 2d)"]) == (
+            MORNING,
+        )
+
+    @pytest.mark.parametrize(
+        "item",
+        [
+            "ftr_x:y",  # an unknown view
+            "ftr_day_calendar:nope",  # an unknown column
+            "ftr_day_calendar:area_code",  # a join key
+            "LAG(nope, 1d)",  # no feature's expression
+            "lag_1d_price",  # a column without its view is not an expression
+            "",
+        ],
+    )
+    def test_rejects_an_item_that_names_no_feature(self, item):
+        message = (
+            f"{item!r} is neither a '<view>:<column>' feature reference nor the expression of one"
+        )
+        with pytest.raises(ValueError, match=re.escape(message)):
+            resolve_references([item])
+
+    def test_a_field_without_tags_is_reached_by_its_reference(self, monkeypatch):
+        fake_view = SimpleNamespace(schema=[Field(name="n", dtype=Int64, tags=None)], join_keys=[])
+        monkeypatch.setattr(presets_module, "_views_by_name", lambda: {"ftr_x": fake_view})
+        assert resolve_references(["ftr_x:n"]) == ("ftr_x:n",)
 
 
 class TestPreset:

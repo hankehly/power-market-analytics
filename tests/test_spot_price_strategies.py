@@ -118,6 +118,21 @@ class TestBuildPreset:
         assert strategy.feature_cols == ("time_code", "month", "lag_1d_price", "max_demand_mw")
         assert strategy._extra_params()["feature_preset_base"] == "lightgbm"
 
+    def test_add_and_drop_take_expressions_too(self, feature_marts):
+        strategy = build_strategy(
+            "lightgbm",
+            area_code="tokyo",
+            days=DAYS,
+            add=("forecast_max_demand_mw",),
+            drop=("day_of_week",),
+            label="lightgbm_peak",
+        )
+        assert strategy.preset.features == (
+            "ftr_day_calendar:month",
+            "ftr_period_jepx:lag_1d_price",
+            "ftr_day_occto:max_demand_mw",
+        )
+
     def test_an_added_categorical_is_marked_categorical(self, feature_marts):
         # The mart tags day_type categorical; the preset never said so.
         strategy = build_strategy(

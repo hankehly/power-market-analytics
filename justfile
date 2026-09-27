@@ -29,6 +29,10 @@ feature-views:
     cd dbt && DBT_THRIFT_HOST=localhost uv run dbt parse
     uv run python scripts/generate_feature_views.py
 
+[doc("Print a preset's features in feature order with their origin, categorical mark, reference and expression (host-side): just show-preset demand e221 [--refs | --expressions]")]
+show-preset *args:
+    uv run python scripts/show_preset.py "$@"
+
 [doc("Open a shell inside the devcontainer")]
 shell:
     @docker compose exec -e PYTHONPATH=/workspace devcontainer bash
