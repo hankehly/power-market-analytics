@@ -1,0 +1,82 @@
+element_code,element_name_ja,element,statistic,hour_ending,unit,scale_denominator
+0500,日平均気温,mean_temperature,normal,,°C,10
+0510,日平均気温【標準偏差】,mean_temperature,std,,°C,10
+0521,日平均気温【階級区分1】,mean_temperature,class_1,,°C,10
+0522,日平均気温【階級区分2】,mean_temperature,class_2,,°C,10
+0523,日平均気温【階級区分3】,mean_temperature,class_3,,°C,10
+0524,日平均気温【階級区分4】,mean_temperature,class_4,,°C,10
+0525,日平均気温【階級区分5】,mean_temperature,class_5,,°C,10
+0526,日平均気温【階級区分6】,mean_temperature,class_6,,°C,10
+0600,日最高気温,max_temperature,normal,,°C,10
+0610,日最高気温【標準偏差】,max_temperature,std,,°C,10
+0621,日最高気温【階級区分1】,max_temperature,class_1,,°C,10
+0622,日最高気温【階級区分2】,max_temperature,class_2,,°C,10
+0623,日最高気温【階級区分3】,max_temperature,class_3,,°C,10
+0624,日最高気温【階級区分4】,max_temperature,class_4,,°C,10
+0625,日最高気温【階級区分5】,max_temperature,class_5,,°C,10
+0626,日最高気温【階級区分6】,max_temperature,class_6,,°C,10
+0700,日最低気温,min_temperature,normal,,°C,10
+0710,日最低気温【標準偏差】,min_temperature,std,,°C,10
+0721,日最低気温【階級区分1】,min_temperature,class_1,,°C,10
+0722,日最低気温【階級区分2】,min_temperature,class_2,,°C,10
+0723,日最低気温【階級区分3】,min_temperature,class_3,,°C,10
+0724,日最低気温【階級区分4】,min_temperature,class_4,,°C,10
+0725,日最低気温【階級区分5】,min_temperature,class_5,,°C,10
+0726,日最低気温【階級区分6】,min_temperature,class_6,,°C,10
+3000,雲量 日平均,cloud_cover,normal,,tenths,10
+3500,日照時間 日合計,sunshine_duration,normal,,h,10
+3600,日照率≧40% 日数（出現率）,sunshine_rate_ge_40pct,normal,,%,1
+3800,全天日射量 日合計,solar_radiation,normal,,MJ/m2,10
+4000,降水量 日合計,precipitation,normal,,mm,10
+4600,日降水量≧1.0mm 日数（出現率）,precipitation_ge_1mm,normal,,%,1
+4700,日降水量≧10.0mm 日数（出現率）,precipitation_ge_10mm,normal,,%,1
+6000,降雪の深さ 日合計,snowfall,normal,,cm,1
+6200,積雪の深さ 日最大,max_snow_depth,normal,,cm,1
+7100,01時の気温,hourly_temperature,normal,1,°C,10
+7110,01時の気温【標準偏差】,hourly_temperature,std,1,°C,10
+7200,02時の気温,hourly_temperature,normal,2,°C,10
+7210,02時の気温【標準偏差】,hourly_temperature,std,2,°C,10
+7300,03時の気温,hourly_temperature,normal,3,°C,10
+7310,03時の気温【標準偏差】,hourly_temperature,std,3,°C,10
+7400,04時の気温,hourly_temperature,normal,4,°C,10
+7410,04時の気温【標準偏差】,hourly_temperature,std,4,°C,10
+7500,05時の気温,hourly_temperature,normal,5,°C,10
+7510,05時の気温【標準偏差】,hourly_temperature,std,5,°C,10
+7600,06時の気温,hourly_temperature,normal,6,°C,10
+7610,06時の気温【標準偏差】,hourly_temperature,std,6,°C,10
+7700,07時の気温,hourly_temperature,normal,7,°C,10
+7710,07時の気温【標準偏差】,hourly_temperature,std,7,°C,10
+7800,08時の気温,hourly_temperature,normal,8,°C,10
+7810,08時の気温【標準偏差】,hourly_temperature,std,8,°C,10
+7900,09時の気温,hourly_temperature,normal,9,°C,10
+7910,09時の気温【標準偏差】,hourly_temperature,std,9,°C,10
+8000,10時の気温,hourly_temperature,normal,10,°C,10
+8010,10時の気温【標準偏差】,hourly_temperature,std,10,°C,10
+8100,11時の気温,hourly_temperature,normal,11,°C,10
+8110,11時の気温【標準偏差】,hourly_temperature,std,11,°C,10
+8200,12時の気温,hourly_temperature,normal,12,°C,10
+8210,12時の気温【標準偏差】,hourly_temperature,std,12,°C,10
+8300,13時の気温,hourly_temperature,normal,13,°C,10
+8310,13時の気温【標準偏差】,hourly_temperature,std,13,°C,10
+8400,14時の気温,hourly_temperature,normal,14,°C,10
+8410,14時の気温【標準偏差】,hourly_temperature,std,14,°C,10
+8500,15時の気温,hourly_temperature,normal,15,°C,10
+8510,15時の気温【標準偏差】,hourly_temperature,std,15,°C,10
+8600,16時の気温,hourly_temperature,normal,16,°C,10
+8610,16時の気温【標準偏差】,hourly_temperature,std,16,°C,10
+8700,17時の気温,hourly_temperature,normal,17,°C,10
+8710,17時の気温【標準偏差】,hourly_temperature,std,17,°C,10
+8800,18時の気温,hourly_temperature,normal,18,°C,10
+8810,18時の気温【標準偏差】,hourly_temperature,std,18,°C,10
+8900,19時の気温,hourly_temperature,normal,19,°C,10
+8910,19時の気温【標準偏差】,hourly_temperature,std,19,°C,10
+9000,20時の気温,hourly_temperature,normal,20,°C,10
+9010,20時の気温【標準偏差】,hourly_temperature,std,20,°C,10
+9100,21時の気温,hourly_temperature,normal,21,°C,10
+9110,21時の気温【標準偏差】,hourly_temperature,std,21,°C,10
+9200,22時の気温,hourly_temperature,normal,22,°C,10
+9210,22時の気温【標準偏差】,hourly_temperature,std,22,°C,10
+9300,23時の気温,hourly_temperature,normal,23,°C,10
+9310,23時の気温【標準偏差】,hourly_temperature,std,23,°C,10
+9400,24時の気温,hourly_temperature,normal,24,°C,10
+9410,24時の気温【標準偏差】,hourly_temperature,std,24,°C,10
