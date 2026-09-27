@@ -1,0 +1,109 @@
+models:
+  - name: fct_jma_normal_hourly
+    config:
+      contract:
+        enforced: true
+    description: >
+      JMA climatological normal of the temperature at each hour of each
+      calendar day (時別気温 平年値, new in the 2020 normals), one row per
+      station, day and hour ending 1–24 — 147 stations × 366 days × 24 hours —
+      for the stations of dim_jma_station, with its standard deviation over
+      the period's years and one quality flag (8 normal, 7 reference only, 0
+      no statistic). hour_ending 24 is the value at 24:00 of the day, which
+      fct_jma_weather_hourly stores as 00:00 of the next day under the day's
+      date_key (observed_date), so both join on station_id, the month and day
+      of the date and hour(observed_hour_start_at) + 1. available_at is
+      2021-05-19 00:00, the day the period's normals came into use.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - normals_period_end_year
+              - station_id
+              - month
+              - day_of_month
+              - hour_ending
+    columns:
+      - name: normals_period_end_year
+        data_type: int
+        description: Last year of the normals period (2020); part of the grain.
+        data_tests:
+          - not_null
+      - name: station_id
+        data_type: string
+        description: Station foreign key to dim_jma_station, e.g. s47662 = 東京.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_jma_station')
+                field: station_id
+      - name: month
+        data_type: int
+        description: Calendar month 1–12.
+        data_tests:
+          - not_null
+      - name: day_of_month
+        data_type: int
+        description: Day of the month, 1–31; Feb 29 exists.
+        data_tests:
+          - not_null
+      - name: hour_ending
+        data_type: int
+        description: Hour ending 1–24 (JST); 24 = the value at 24:00 of the day.
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 1
+                max_value: 24
+      - name: temperature_c
+        data_type: double
+        description: >
+          The temperature normal at the hour, °C; null with flag 0 (富士山
+          reaches about −21 at night in January).
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: -30
+                max_value: 40
+      - name: temperature_std_c
+        data_type: double
+        description: Its standard deviation over the period's years, °C.
+      - name: temperature_quality_flag
+        data_type: int
+        description: >
+          8 normal, 7 reference only (the observation ended or the series was
+          cut), 0 no statistic.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [0, 7, 8]
+                quote: false
+      - name: n_years
+        data_type: int
+        description: Years of data behind the statistic; 0 with flag 0.
+        data_tests:
+          - not_null
+      - name: statistic_start_year
+        data_type: int
+        description: First year the statistic covers; null with n_years 0.
+      - name: statistic_end_year
+        data_type: int
+        description: Last year the statistic covers; null with n_years 0.
+      - name: normals_period_start_year
+        data_type: int
+        description: First year of the normals period (1991).
+        data_tests:
+          - not_null
+      - name: normals_version
+        data_type: string
+        description: The archive's version when downloaded ("5").
+        data_tests:
+          - not_null
+      - name: available_at
+        data_type: timestamp
+        description: The period's first in-use date at 00:00, naive JST.
+        data_tests:
+          - not_null
