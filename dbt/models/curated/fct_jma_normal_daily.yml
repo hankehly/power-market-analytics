@@ -1,0 +1,156 @@
+models:
+  - name: fct_jma_normal_daily
+    config:
+      contract:
+        enforced: true
+    description: >
+      JMA daily climatological normals (平年値) of the 1991–2020 period, one
+      row per station and calendar day — 147 stations × 366 days, Feb 29
+      included — for the stations of dim_jma_station: the normal of each daily
+      element and, for the three temperatures, its standard deviation, with a
+      quality flag per element (8 normal; 6 normal, no phenomenon; 7 and 5
+      reference only — the observation ended or the series was cut, not for
+      anomalies; 0 no statistic, value null). The three prob_* columns are
+      the share of the period's years in which the day qualified, in %, as
+      JMA publishes them. A normal has no date: join a dated row on
+      station_id and the month and day of its date (dim_date carries both;
+      month() and day() on a timestamp give the same). The hourly
+      temperatures are fct_jma_normal_hourly; the class thresholds and the
+      years behind each statistic stay in std_jma__normal_daily. available_at
+      is 2021-05-19 00:00, the day the period's normals came into use — a
+      documented bound, since only the current version of the archive is
+      served (docs/JMA-Climatological-Normals-Retrieval.md §5).
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - normals_period_end_year
+              - station_id
+              - month
+              - day_of_month
+    columns:
+      - name: normals_period_end_year
+        data_type: int
+        description: Last year of the normals period (2020); part of the grain.
+        data_tests:
+          - not_null
+      - name: station_id
+        data_type: string
+        description: Station foreign key to dim_jma_station, e.g. s47662 = 東京.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_jma_station')
+                field: station_id
+      - name: month
+        data_type: int
+        description: Calendar month 1–12 of the normal's day.
+        data_tests:
+          - not_null
+      - name: day_of_month
+        data_type: int
+        description: Day of the month of the normal's day, 1–31; Feb 29 exists.
+        data_tests:
+          - not_null
+      - name: mean_temperature_c
+        data_type: double
+        description: 日平均気温 normal, °C (富士山, 3,775 m, is near −19 in January).
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: -30
+                max_value: 35
+      - name: mean_temperature_std_c
+        data_type: double
+        description: Standard deviation of the daily mean temperature over the period's years, °C.
+      - name: mean_temperature_quality_flag
+        data_type: int
+        description: Flag of the mean temperature (and its std, which shares it).
+      - name: max_temperature_c
+        data_type: double
+        description: 日最高気温 normal, °C.
+      - name: max_temperature_std_c
+        data_type: double
+        description: Its standard deviation, °C.
+      - name: max_temperature_quality_flag
+        data_type: int
+        description: Flag of the maximum temperature.
+      - name: min_temperature_c
+        data_type: double
+        description: 日最低気温 normal, °C.
+      - name: min_temperature_std_c
+        data_type: double
+        description: Its standard deviation, °C.
+      - name: min_temperature_quality_flag
+        data_type: int
+        description: Flag of the minimum temperature.
+      - name: cloud_cover_tenths
+        data_type: double
+        description: 雲量 日平均 normal, tenths of the sky (0–10).
+      - name: cloud_cover_quality_flag
+        data_type: int
+        description: Flag of the cloud cover.
+      - name: sunshine_duration_h
+        data_type: double
+        description: 日照時間 日合計 normal, hours.
+      - name: sunshine_duration_quality_flag
+        data_type: int
+        description: Flag of the sunshine duration.
+      - name: prob_sunshine_rate_ge_40pct_pct
+        data_type: double
+        description: Share of the period's years in which the day's sunshine rate was ≥ 40 %, in %.
+      - name: sunshine_rate_ge_40pct_quality_flag
+        data_type: int
+        description: Flag of that share.
+      - name: solar_radiation_mjm2
+        data_type: double
+        description: 全天日射量 日合計 normal, MJ/m².
+      - name: solar_radiation_quality_flag
+        data_type: int
+        description: Flag of the solar radiation.
+      - name: precipitation_mm
+        data_type: double
+        description: 降水量 日合計 normal, mm.
+      - name: precipitation_quality_flag
+        data_type: int
+        description: Flag of the precipitation.
+      - name: prob_precipitation_ge_1mm_pct
+        data_type: double
+        description: Share of the period's years in which the day had ≥ 1.0 mm of precipitation, in %.
+      - name: precipitation_ge_1mm_quality_flag
+        data_type: int
+        description: Flag of that share.
+      - name: prob_precipitation_ge_10mm_pct
+        data_type: double
+        description: Share of the period's years in which the day had ≥ 10.0 mm of precipitation, in %.
+      - name: precipitation_ge_10mm_quality_flag
+        data_type: int
+        description: Flag of that share.
+      - name: snowfall_cm
+        data_type: double
+        description: 降雪の深さ 日合計 normal, cm; 0.0 with flag 6 where it never snows.
+      - name: snowfall_quality_flag
+        data_type: int
+        description: Flag of the snowfall.
+      - name: max_snow_depth_cm
+        data_type: double
+        description: 積雪の深さ 日最大 normal, cm.
+      - name: max_snow_depth_quality_flag
+        data_type: int
+        description: Flag of the snow depth.
+      - name: normals_period_start_year
+        data_type: int
+        description: First year of the normals period (1991).
+        data_tests:
+          - not_null
+      - name: normals_version
+        data_type: string
+        description: The archive's version when downloaded ("5").
+        data_tests:
+          - not_null
+      - name: available_at
+        data_type: timestamp
+        description: The period's first in-use date at 00:00, naive JST.
+        data_tests:
+          - not_null
