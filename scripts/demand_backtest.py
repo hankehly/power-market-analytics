@@ -177,15 +177,6 @@ def main(argv: list[str] | None = None) -> None:
                 )
         if end_date > last_day:
             parser.error(f"--end-date {end_date.date()} is after the last day in the data")
-        if end_date > EVAL_END and end_date < HOLDOUT_START:
-            logger.warning(
-                "this run reads {}..{}, which lies between the evaluation window and "
-                "the reserved holdout at {}: runs made before the window was pinned "
-                "scored those days, so they are not independent evidence",
-                (EVAL_END + pd.Timedelta(days=1)).date(),
-                end_date.date(),
-                HOLDOUT_START.date(),
-            )
         if args.start_date is not None:
             start_date = args.start_date
         elif args.days is not None:
@@ -199,6 +190,20 @@ def main(argv: list[str] | None = None) -> None:
             start_date = max(EVAL_START, demand.df["trade_date"].min())
         if start_date > end_date:
             parser.error(f"start date {start_date.date()} is after end date {end_date.date()}")
+        # The days between the window and the reservation are the ones pre-pin runs
+        # scored. Judged on the run's overlap with them, not on where it ends: a run
+        # from inside the window into the reservation crosses every one of them.
+        seen_first = max(start_date, EVAL_END + pd.Timedelta(days=1))
+        seen_last = min(end_date, HOLDOUT_START - pd.Timedelta(days=1))
+        if seen_first <= seen_last:
+            logger.warning(
+                "this run reads {}..{}, which lies between the evaluation window and "
+                "the reserved holdout at {}: runs made before the window was pinned "
+                "scored those days, so they are not independent evidence",
+                seen_first.date(),
+                seen_last.date(),
+                HOLDOUT_START.date(),
+            )
 
         # Every delivery day a model may train on or forecast: the sliding window
         # before the first target day, then the target window.
