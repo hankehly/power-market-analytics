@@ -25,12 +25,15 @@ from power_market_analytics.ingestion.jma.normals import (
     NORMALS_PAGE_URL,
     STATION_INDEX_MEMBER,
     VINTAGES,
+    JmaNormalsCsvLoader,
     JmaNormalsDownloader,
     JmaNormalsDownloadError,
     NormalsVintage,
     parse_versions,
     vintage_for_year,
 )
+from power_market_analytics.ingestion.loader import CsvTableSchema
+from tests.support import REPO_ROOT
 
 # --------------------------------------------------------------------------- vintages
 
@@ -366,3 +369,330 @@ class TestDownloadAll:
         dl = JmaNormalsDownloader(data_dir=tmp_path, session=FakeSession({}))
         with pytest.raises(KeyError, match="2030"):
             dl.download_all(years=[2030])
+
+
+# --------------------------------------------------------------------------- loader
+
+CONTRACT = CsvTableSchema.from_yaml(REPO_ROOT / "conf/schemas/jma_normal_surface_daily.yaml")
+
+MANIFEST_2020 = {
+    "period_start_year": 1991,
+    "period_end_year": 2020,
+    "version": "5",
+    "in_use_since": "2021-05-19",
+    "downloaded_at_utc": "2026-09-27T10:00:00Z",
+    "zip_url": V2020.zip_url,
+    "zip_sha256": "0" * 64,
+    "zip_bytes": 1,
+    "daily_file_count": 2,
+}
+MANIFEST_2030 = {
+    **MANIFEST_2020,
+    "period_start_year": 2001,
+    "period_end_year": 2030,
+    "version": "1",
+    "in_use_since": "2031-05-20",
+}
+
+
+def write_period(root: Path, year: int, files: dict[str, str], manifest: dict | None) -> Path:
+    """Write daily files under ``root/<year>/csv/daily/`` and the manifest next to them."""
+    daily = root / str(year) / "csv" / "daily"
+    daily.mkdir(parents=True, exist_ok=True)
+    for name, text in files.items():
+        (daily / name).write_bytes(text.encode("ascii"))
+    if manifest is not None:
+        (root / str(year) / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    return daily
+
+
+def rows_of(spark, table: str) -> dict[tuple[int, str, str, int], dict]:
+    return {
+        (r["normals_period_end_year"], r["station_number"], r["element_code"], r["month"]): (
+            r.asDict()
+        )
+        for r in spark.table(table).collect()
+    }
+
+
+class TestContract:
+    def test_grain_and_read_options(self):
+        assert CONTRACT.grain == [
+            "normals_period_end_year",
+            "station_number",
+            "element_code",
+            "month",
+        ]
+        assert CONTRACT.read_options == {
+            "encoding": "windows-31j",
+            "ignoreLeadingWhiteSpace": "true",
+        }
+
+    def test_columns_in_order(self):
+        names = [c.name for c in CONTRACT.columns]
+        assert names[:7] == [
+            "normal_kind",
+            "station_number",
+            "element_code",
+            "n_years",
+            "statistic_start_year",
+            "statistic_end_year",
+            "month",
+        ]
+        assert names[7:69] == [
+            f"{kind}_d{d:02d}" for d in range(1, 32) for kind in ("value", "flag")
+        ]
+        assert names[69:] == [
+            "normals_period_start_year",
+            "normals_period_end_year",
+            "normals_version",
+            "in_use_since",
+            "source_file",
+        ]
+        assert [c.source_name for c in CONTRACT.columns[:69]] == [f"_c{i}" for i in range(69)]
+        assert all(not c.nullable for c in CONTRACT.columns)
+        types = {c.name: c.type for c in CONTRACT.columns}
+        assert (types["station_number"], types["element_code"], types["in_use_since"]) == (
+            "string",
+            "string",
+            "date",
+        )
+
+
+@pytest.fixture(scope="module")
+def loaded(spark, tmp_path_factory):
+    """One load of two stations × two elements for every test of ``TestLoad``."""
+    root = tmp_path_factory.mktemp("normals")
+    write_period(
+        root,
+        2020,
+        {
+            "nml_sfc_d_47662.csv": daily_file_text("47662"),
+            "nml_sfc_d_47772.csv": daily_file_text("47772"),
+        },
+        MANIFEST_2020,
+    )
+    loader = JmaNormalsCsvLoader(CONTRACT, root, "test_jma_normals.loaded", spark=spark)
+    return loader.load(), rows_of(spark, "test_jma_normals.loaded")
+
+
+class TestLoad:
+    def test_row_count_and_grain(self, loaded):
+        n_rows, rows = loaded
+        assert n_rows == 48  # 2 stations × 2 elements × 12 months
+        assert len(rows) == 48
+
+    def test_cells_are_read_by_position(self, loaded):
+        _, rows = loaded
+        feb = rows[(2020, "47662", "0500", 2)]
+        assert (feb["normal_kind"], feb["n_years"]) == (15, 30)
+        assert (feb["statistic_start_year"], feb["statistic_end_year"]) == (1991, 2020)
+        assert (feb["value_d01"], feb["flag_d01"]) == (21, 8)
+        assert (feb["value_d29"], feb["flag_d29"]) == (49, 8)
+        assert (feb["value_d30"], feb["flag_d30"], feb["value_d31"], feb["flag_d31"]) == (
+            0,
+            0,
+            0,
+            0,
+        )
+        jan = rows[(2020, "47772", "7100", 1)]
+        assert (jan["value_d31"], jan["flag_d31"]) == (41, 8)
+
+    def test_manifest_values_are_injected(self, loaded):
+        _, rows = loaded
+        r = rows[(2020, "47662", "0500", 1)]
+        assert (
+            r["normals_period_start_year"],
+            r["normals_period_end_year"],
+            r["normals_version"],
+            r["in_use_since"],
+            r["source_file"],
+        ) == (1991, 2020, "5", datetime.date(2021, 5, 19), "nml_sfc_d_47662.csv")
+
+    def test_table_types_follow_the_contract(self, spark, loaded):
+        schema = {
+            f.name: f.dataType.simpleString() for f in spark.table("test_jma_normals.loaded").schema
+        }
+        assert len(schema) == 74
+        assert (schema["element_code"], schema["in_use_since"], schema["value_d31"]) == (
+            "string",
+            "date",
+            "int",
+        )
+
+    def test_negative_values_parse(self, spark, tmp_path):
+        january = month_cells(1, [-40 + d for d in range(1, 32)])
+        lines = []
+        for m in range(1, 13):
+            cells = january if m == 1 else month_cells(m, [0] * calendar.monthrange(2020, m)[1])
+            lines.append(daily_line("47412", "0500", m, cells))
+        write_period(
+            tmp_path, 2020, {"nml_sfc_d_47412.csv": "\n".join(lines) + "\n"}, MANIFEST_2020
+        )
+        loader = JmaNormalsCsvLoader(CONTRACT, tmp_path, "test_jma_normals.negative", spark=spark)
+        assert loader.load() == 12
+        rows = rows_of(spark, "test_jma_normals.negative")
+        assert rows[(2020, "47412", "0500", 1)]["value_d01"] == -39
+
+    def test_two_periods_load_side_by_side(self, spark, tmp_path):
+        files = {"nml_sfc_d_47662.csv": daily_file_text("47662")}
+        write_period(tmp_path, 2020, files, MANIFEST_2020)
+        write_period(tmp_path, 2030, files, MANIFEST_2030)
+        loader = JmaNormalsCsvLoader(CONTRACT, tmp_path, "test_jma_normals.two", spark=spark)
+        assert loader.load() == 48
+        rows = rows_of(spark, "test_jma_normals.two")
+        assert rows[(2030, "47662", "0500", 1)]["normals_version"] == "1"
+        assert rows[(2030, "47662", "0500", 1)]["in_use_since"] == datetime.date(2031, 5, 20)
+        assert rows[(2020, "47662", "0500", 1)]["normals_period_start_year"] == 1991
+
+
+class TestFileResolution:
+    def test_directory_root_finds_every_periods_daily_files(self, spark, tmp_path):
+        write_period(tmp_path, 2020, {"nml_sfc_d_47662.csv": "x"}, MANIFEST_2020)
+        write_period(tmp_path, 2030, {"nml_sfc_d_47662.csv": "x"}, MANIFEST_2030)
+        (tmp_path / "2020/zip").mkdir()
+        (tmp_path / "2020/zip/normal_surface.zip").write_bytes(b"not a csv")
+        (tmp_path / "2020/csv/surface_station_index.csv").write_bytes(b"not loaded")
+        loader = JmaNormalsCsvLoader(CONTRACT, tmp_path, "t", spark=spark)
+        assert loader._resolve_files() == [
+            str(tmp_path / "2020/csv/daily/nml_sfc_d_47662.csv"),
+            str(tmp_path / "2030/csv/daily/nml_sfc_d_47662.csv"),
+        ]
+
+    def test_glob_and_single_file(self, spark, tmp_path):
+        daily = write_period(tmp_path, 2020, {"nml_sfc_d_47662.csv": "x"}, MANIFEST_2020)
+        by_glob = JmaNormalsCsvLoader(CONTRACT, daily / "*.csv", "t", spark=spark)
+        assert by_glob._resolve_files() == [str(daily / "nml_sfc_d_47662.csv")]
+        one = JmaNormalsCsvLoader(CONTRACT, daily / "nml_sfc_d_47662.csv", "t", spark=spark)
+        assert one._resolve_files() == [str(daily / "nml_sfc_d_47662.csv")]
+
+    def test_manifest_path_is_two_levels_up(self):
+        assert JmaNormalsCsvLoader.manifest_path_for(
+            "/data/2020/csv/daily/nml_sfc_d_47662.csv"
+        ) == Path("/data/2020/manifest.json")
+
+    def test_no_files_raises(self, spark, tmp_path):
+        loader = JmaNormalsCsvLoader(CONTRACT, tmp_path, "t", spark=spark)
+        with pytest.raises(FileNotFoundError, match="No daily normals files"):
+            loader.load()
+
+
+def _replace_line(text: str, element: str, month: int, line: str) -> str:
+    lines = text.splitlines()
+    for i, existing in enumerate(lines):
+        if existing.split(",")[2] == element and int(existing.split(",")[6]) == month:
+            lines[i] = line
+            return "\n".join(lines) + "\n"
+    raise AssertionError("no such line")
+
+
+GOOD = daily_file_text("47662")
+JAN = month_cells(1, [10 + d for d in range(1, 32)])
+DECEMBER_0500 = daily_line("47662", "0500", 12, month_cells(12, [120 + d for d in range(1, 32)]))
+
+
+class TestValidationFailsBeforeWriting:
+    @pytest.mark.parametrize(
+        "text, message",
+        [
+            (
+                _replace_line(GOOD, "0500", 1, daily_line("47662", "0500", 1, JAN, kind=16)),
+                "first field not 15",
+            ),
+            (
+                _replace_line(GOOD, "0500", 1, daily_line("47663", "0500", 1, JAN)),
+                "station number not the file's",
+            ),
+            (
+                _replace_line(GOOD, "0500", 1, daily_line("47662", "05", 1, JAN)),
+                "element code not four digits",
+            ),
+            (
+                _replace_line(GOOD, "0500", 1, daily_line("47662", "0500", 13, JAN)),
+                "month not 1-12",
+            ),
+            (
+                _replace_line(
+                    GOOD,
+                    "0500",
+                    1,
+                    daily_line("47662", "0500", 1, JAN).replace("    11,8", "     x,8"),
+                ),
+                "value cell not an integer",
+            ),
+            (
+                _replace_line(
+                    GOOD,
+                    "0500",
+                    1,
+                    daily_line("47662", "0500", 1, JAN).replace("    11,8", "    11,9"),
+                ),
+                r"flag not in \['0', '5', '6', '7', '8'\]",
+            ),
+            # a short line: the last two (value, flag) pairs missing
+            (
+                _replace_line(GOOD, "0500", 1, daily_line("47662", "0500", 1, JAN)[:-18]),
+                "value cell not an integer",
+            ),
+            # December of 0500 dropped: 11 months
+            (GOOD.replace(DECEMBER_0500 + "\n", ""), "element 0500 has 11 row"),
+        ],
+        ids=[
+            "kind-16",
+            "station-of-another-file",
+            "element-two-digits",
+            "month-13",
+            "value-not-integer",
+            "flag-9",
+            "short-line",
+            "eleven-months",
+        ],
+    )
+    def test_bad_rows_name_the_file(self, spark, tmp_path, text, message):
+        write_period(tmp_path, 2020, {"nml_sfc_d_47662.csv": text}, MANIFEST_2020)
+        loader = JmaNormalsCsvLoader(CONTRACT, tmp_path, "test_jma_normals.bad", spark=spark)
+        with pytest.raises(ValueError, match=message) as excinfo:
+            loader.load()
+        assert "nml_sfc_d_47662.csv" in str(excinfo.value)
+        assert not spark.catalog.tableExists("test_jma_normals.bad")
+
+    def test_files_with_different_element_sets_are_rejected(self, spark, tmp_path):
+        write_period(
+            tmp_path,
+            2020,
+            {
+                "nml_sfc_d_47662.csv": daily_file_text("47662"),
+                "nml_sfc_d_47772.csv": daily_file_text("47772", elements=("0500", "7100", "0600")),
+            },
+            MANIFEST_2020,
+        )
+        loader = JmaNormalsCsvLoader(CONTRACT, tmp_path, "test_jma_normals.sets", spark=spark)
+        with pytest.raises(
+            ValueError, match=r"nml_sfc_d_47662\.csv: 2 element\(s\) where the other files have 3"
+        ):
+            loader.load()
+
+    @pytest.mark.parametrize(
+        "manifest, message",
+        [
+            (None, "no manifest"),
+            ({**MANIFEST_2020, "period_end_year": 2030}, "is not the directory's"),
+            (
+                {k: v for k, v in MANIFEST_2020.items() if k != "version"},
+                r"manifest lacks \['version'\]",
+            ),
+        ],
+    )
+    def test_manifest_problems(self, spark, tmp_path, manifest, message):
+        write_period(tmp_path, 2020, {"nml_sfc_d_47662.csv": daily_file_text("47662")}, manifest)
+        loader = JmaNormalsCsvLoader(CONTRACT, tmp_path, "test_jma_normals.manifest", spark=spark)
+        with pytest.raises(ValueError, match=message):
+            loader.load()
+
+    def test_a_file_not_named_like_a_daily_file_is_rejected(self, spark, tmp_path):
+        daily = write_period(
+            tmp_path, 2020, {"normals_47662.csv": daily_file_text("47662")}, MANIFEST_2020
+        )
+        loader = JmaNormalsCsvLoader(CONTRACT, daily / "normals_47662.csv", "t", spark=spark)
+        with pytest.raises(ValueError, match="not a daily normals file"):
+            loader.load()
