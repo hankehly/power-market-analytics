@@ -1,0 +1,12 @@
+description: >-
+  Calendar, the recency-weighted same-hour temperature over D-8..D-2 at the
+  representative station, the D-7 demand lag, and the MSM forecast temperature
+  at the representative station (experiment #169, demand/R-001 E-001). Until
+  2026-09-27 this was lightgbm_msm, with the first four in its base preset
+  lightgbm; runs from before then carry those names.
+features:
+  - ftr_day_calendar:month
+  - ftr_day_calendar:day_of_week
+  - ftr_hour_jma_obs:wavg_temperature_c
+  - ftr_period_actuals:lag_7d_demand_kwh
+  - ftr_hour_msm:forecast_temperature_c

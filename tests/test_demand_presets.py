@@ -1,8 +1,9 @@
-"""The demand presets: the twelve files of conf/presets/demand, pinned to their tuples.
+"""The demand presets: the thirteen files of conf/presets/demand, pinned to their tuples.
 
-The eleven of 2026-09-19 keep the tuples they were registered with; ``e212``, ``e219``, ``e221``,
-the joint test of experiment #212, is pinned to the 104 references it was
-written with on 2026-09-20.
+The ten renamed on 2026-09-27 (``e169`` … ``e179``, chain names until then) keep
+the tuples they were registered with on 2026-09-19; ``e212``, the joint test of
+experiment #212, is pinned to the 104 references it was written with on
+2026-09-20; ``e219`` and ``e221`` are counted, not pinned.
 """
 
 from __future__ import annotations
@@ -65,24 +66,29 @@ MSM_ELEMENTS = (
     "ftr_hour_msm:popw_forecast_precipitation_mm",
     "ftr_hour_msm:popw_forecast_solar_radiation_mjm2",
 )
-SIMDAY_NAME = "lightgbm_msm_popw_daytype_simday"
-#: Every preset as tasks/demand/presets.py registered it on 2026-09-19: base, then features.
+#: The similar-day preset: lightgbm_msm_popw_daytype_simday until 2026-09-27.
+SIMDAY_NAME = "e173"
+#: Every preset as tasks/demand/presets.py registered it on 2026-09-19 — base,
+#: then features — under the name it carries since 2026-09-27, its experiment's.
+#: The four-feature root lightgbm went that day, written out in e169 and e170,
+#: so those two have no base.
 EXPECTED = {
-    "lightgbm": (None, SIMDAY[:4]),
-    "lightgbm_msm": ("lightgbm", (*SIMDAY[:4], "ftr_hour_msm:forecast_temperature_c")),
-    "lightgbm_msm_popw": ("lightgbm", SIMDAY[:5]),
-    "lightgbm_msm_popw_daytype": ("lightgbm_msm_popw", SIMDAY[:6]),
-    SIMDAY_NAME: ("lightgbm_msm_popw_daytype", SIMDAY),
-    f"{SIMDAY_NAME}_calendar": (SIMDAY_NAME, (*SIMDAY, *CALENDAR_TEN)),
-    f"{SIMDAY_NAME}_calendarcounts": (SIMDAY_NAME, (*SIMDAY, *CALENDAR_COUNTS)),
-    f"{SIMDAY_NAME}_holidaydegree": (SIMDAY_NAME, (*SIMDAY, "ftr_day_calendar:holiday_degree")),
-    f"{SIMDAY_NAME}_holidaydistance": (
+    "e169": (None, (*SIMDAY[:4], "ftr_hour_msm:forecast_temperature_c")),
+    "e170": (None, SIMDAY[:5]),
+    "e171": ("e170", SIMDAY[:6]),
+    SIMDAY_NAME: ("e171", SIMDAY),
+    "e174": (SIMDAY_NAME, (*SIMDAY, *CALENDAR_TEN)),
+    "e175": (SIMDAY_NAME, (*SIMDAY, "ftr_day_calendar:holiday_degree")),
+    "e176": (
         SIMDAY_NAME,
         (*SIMDAY, "ftr_day_calendar:days_since_holiday", "ftr_day_calendar:days_until_holiday"),
     ),
-    f"{SIMDAY_NAME}_lags": (SIMDAY_NAME, (*SIMDAY, *RECENT_LOAD)),
-    f"{SIMDAY_NAME}_lags_weather": (f"{SIMDAY_NAME}_lags", (*SIMDAY, *RECENT_LOAD, *MSM_ELEMENTS)),
+    "e177": (SIMDAY_NAME, (*SIMDAY, *CALENDAR_COUNTS)),
+    "e178": (SIMDAY_NAME, (*SIMDAY, *RECENT_LOAD)),
+    "e179": ("e178", (*SIMDAY, *RECENT_LOAD, *MSM_ELEMENTS)),
 }
+#: The presets that carry ftr_day_calendar:day_type, the one categorical outside e212's five.
+WITH_DAY_TYPE = frozenset({"e171", SIMDAY_NAME, "e174", "e175", "e176", "e177", "e178", "e179"})
 
 #: The other 81 tagged columns of the seven marts we build ourselves, in view
 #: order after the baseline's 23: the feature set of experiment #212. A
@@ -189,26 +195,24 @@ E212_CATEGORICALS = (
 )
 
 
-def test_the_eleven_files_resolve_to_the_tuples_registered_on_2026_09_19():
+def test_the_ten_renamed_files_resolve_to_the_tuples_registered_on_2026_09_19():
     # The migration pin: a rerun of any preset sees the same columns in the same
-    # order as before the move to files, so no published run's feature set moved.
+    # order as before the move to files and before the rename, so no published
+    # run's feature set moved.
     assert {
         name: (p.base, p.features) for name, p in PRESETS.items() if name in EXPECTED
     } == EXPECTED
     assert set(PRESETS) == set(EXPECTED) | {"e212", "e219", "e221"}
     assert all(p.task == "demand" for p in PRESETS.values())
-    assert PRESETS["lightgbm"].feature_cols == (
-        "time_code",
-        "month",
-        "day_of_week",
-        "wavg_temperature_c",
-        "lag_7d_demand_kwh",
-    )
+    # The root's four, written out twice, still lead both of its former children.
+    base_four = ("time_code", "month", "day_of_week", "wavg_temperature_c", "lag_7d_demand_kwh")
+    assert PRESETS["e169"].feature_cols[:5] == base_four
+    assert PRESETS["e170"].feature_cols[:5] == base_four
 
 
 def test_every_file_has_a_description():
     assert all(p.description for p in PRESETS.values())
-    assert PRESETS[f"{SIMDAY_NAME}_lags_weather"].description.startswith("Plus the three other MSM")
+    assert PRESETS["e179"].description.startswith("Plus the three other MSM")
 
 
 def test_the_calendar_subsets_partition_the_ten_but_the_working_day_flag():
@@ -231,21 +235,22 @@ def test_types_and_categoricals_come_from_the_views():
         "day_type": "int64",
         "similar_day_rank1_demand_kwh": "float64",
     }
-    assert feature_dtypes(PRESETS["lightgbm_msm"])["forecast_temperature_c"] == "float64"
-    calendar = feature_dtypes(PRESETS[f"{SIMDAY_NAME}_calendar"])
+    assert feature_dtypes(PRESETS["e169"])["forecast_temperature_c"] == "float64"
+    calendar = feature_dtypes(PRESETS["e174"])
     assert calendar["holiday_degree"] == "float64"
     assert all(
         calendar[c.split(":")[1]] == "int64" for c in CALENDAR_TEN if "holiday_degree" not in c
     )
     assert all(
-        categorical_columns(preset) == (("day_type",) if "daytype" in name else ())
+        categorical_columns(preset) == (("day_type",) if name in WITH_DAY_TYPE else ())
         for name, preset in PRESETS.items()
-        if name not in ("e212", "e219", "e221")  # e212's five are pinned below; the others share them
+        if name
+        not in ("e212", "e219", "e221")  # e212's five are pinned below; the others share them
     )
 
 
 def test_the_lags_preset_appends_the_thirteen_recent_load_features():
-    lags = PRESETS[f"{SIMDAY_NAME}_lags"]
+    lags = PRESETS["e178"]
     assert lags.columns == (*(r.split(":")[1] for r in SIMDAY), *RECENT_LOAD_COLUMNS)
     # The D-9 lag is a mart column for the change, not a feature of the preset.
     assert "ftr_period_actuals:lag_9d_demand_kwh" not in lags.features
@@ -265,7 +270,7 @@ def test_the_lags_preset_appends_the_thirteen_recent_load_features():
         "lag_2d_max_demand_kwh": "int64",
         "lag_2d_range_demand_kwh": "int64",
     }
-    weather = PRESETS[f"{SIMDAY_NAME}_lags_weather"]
+    weather = PRESETS["e179"]
     assert len(weather.features) == len(lags.features) + 3
     assert all(feature_dtypes(weather)[c.split(":")[1]] == "float64" for c in MSM_ELEMENTS)
 
@@ -279,9 +284,7 @@ def test_e212_is_every_feature_of_the_seven_marts_we_build_ourselves():
     assert preset.columns == tuple(r.split(":")[1] for r in E212)
     assert preset.feature_cols == ("time_code", *preset.columns)
     # The two exogenous views are out at the researcher's ruling (issue #212).
-    assert not [
-        r for r in preset.features if r.startswith(("ftr_day_occto:", "ftr_period_jepx:"))
-    ]
+    assert not [r for r in preset.features if r.startswith(("ftr_day_occto:", "ftr_period_jepx:"))]
     # Every column resolves to a dtype LightGBM can take, and the categoricals
     # are the marts', not the preset's.
     assert set(feature_dtypes(preset)) == set(preset.columns)

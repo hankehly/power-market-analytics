@@ -5,7 +5,7 @@ description: >-
   task's D-1 area price (ftr_period_jepx) are left out at the researcher's
   ruling. Experiment #212.
 features:
-  # The Tokyo baseline lightgbm_msm_popw_daytype_simday_lags_weather, in its order.
+  # The Tokyo baseline of 2026-09-20, e179 (then lightgbm_msm_popw_daytype_simday_lags_weather), in its order.
   - ftr_day_calendar:month
   - ftr_day_calendar:day_of_week
   - ftr_hour_jma_obs:wavg_temperature_c

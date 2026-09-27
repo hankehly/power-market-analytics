@@ -142,6 +142,10 @@ file's `base`, and never the algorithm, which is the same for every preset. No
 task prefix (the directory is the task) and no baseline alias file (the task README
 names the baseline). The thirteen presets of 2026-09-19 keep their chain names
 (`lightgbm_msm_popw_daytype_simday_lags`), because their runs carry them.
+(Superseded on 2026-09-27: the ten demand chain names became their experiments'
+`e169` … `e179`, and the root `lightgbm` was written out in `e169` and `e170`; the
+old names live on in the runs, the files' descriptions and the table in the demand
+research README. The two spot-price presets keep theirs.)
 
 ## 4. Loading
 
