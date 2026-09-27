@@ -11,17 +11,25 @@ versions and the warehouse models are documented in
 from __future__ import annotations
 
 import datetime
+import glob
 import hashlib
 import io
 import json
+import operator
 import re
 import zipfile
 from collections.abc import Callable
 from dataclasses import dataclass
+from functools import reduce
 from pathlib import Path
+from typing import Any
 
 import requests
 from loguru import logger
+from pyspark.sql import Column, DataFrame
+from pyspark.sql import functions as F
+
+from power_market_analytics.ingestion.loader import REPORT_LIMIT, SOURCE_FILE_COL, CsvLoader
 
 #: The 平年値ダウンロード page; its ``<year>年平年値（第<n>版）`` heading names the version.
 NORMALS_PAGE_URL = "https://www.data.jma.go.jp/stats/data/mdrr/normal/index.html"
@@ -375,3 +383,206 @@ class JmaNormalsDownloader:
         except Exception:
             partial.unlink(missing_ok=True)
             raise
+
+
+class JmaNormalsCsvLoader(CsvLoader):
+    """Positional full reload of the daily normals files into a raw table.
+
+    The files have no header: 7 key fields, then 31 (value, flag) pairs, 69
+    fields in all, which the contract addresses as ``_c0`` … ``_c68``. The files
+    of one period are read in one positional scan
+    (:meth:`CsvLoader._scan_positional`); the period's manifest, written by
+    :class:`JmaNormalsDownloader`, supplies the injected
+    ``__normals_period_start_year``, ``__normals_period_end_year``,
+    ``__normals_version`` and ``__in_use_since``; ``__source_file`` is the file
+    name. Row checks run in one grouped Spark pass per scan and name the first
+    offending file.
+
+    Parameters
+    ----------
+    schema, filepath, table, spark
+        As for :class:`CsvLoader`. A directory ``filepath`` is the downloader's
+        root (``{period end year}/csv/daily/*.csv`` underneath); a glob pattern
+        or a single file also works, with the manifest two levels up.
+    """
+
+    COLUMN_COUNT = 69
+    NORMAL_KIND_DAILY = "15"
+    ACCEPTED_FLAGS = ("0", "5", "6", "7", "8")
+
+    #: A plain group, not a named one: the pattern also runs in Spark's
+    #: ``regexp_extract``, and Java's regex has no ``(?P<…>)``.
+    _FILENAME_RE = re.compile(r"nml_sfc_d_(\d{5})\.csv$")
+    _MANIFEST_KEYS = ("period_start_year", "period_end_year", "version", "in_use_since")
+
+    def _resolve_files(self) -> list[str]:
+        if self.filepath.is_dir():
+            files = sorted(str(p) for p in self.filepath.glob("*/csv/daily/nml_sfc_d_*.csv"))
+        else:
+            files = sorted(glob.glob(str(self.filepath)))
+        if not files:
+            raise FileNotFoundError(f"No daily normals files found at {self.filepath}")
+        return files
+
+    @staticmethod
+    def manifest_path_for(file: str) -> Path:
+        """The manifest of the period a daily file belongs to: ``<period>/manifest.json``."""
+        return Path(file).resolve().parents[2] / "manifest.json"
+
+    def _read_all(self, files: list[str]) -> DataFrame:
+        groups: dict[Path, list[str]] = {}
+        for file in files:
+            if self._FILENAME_RE.search(file) is None:
+                raise ValueError(f"{file}: not a daily normals file (nml_sfc_d_<station>.csv)")
+            groups.setdefault(self.manifest_path_for(file), []).append(file)
+        frames = [
+            self._read_period(manifest, members) for manifest, members in sorted(groups.items())
+        ]
+        return reduce(DataFrame.unionByName, frames)
+
+    def _read_period(self, manifest_path: Path, files: list[str]) -> DataFrame:
+        """One positional scan of a period's files, the manifest's values injected."""
+        manifest = self._read_manifest(manifest_path)
+        raw = self._scan_positional(files, self.COLUMN_COUNT)
+        self._check_rows(raw)
+        data = (
+            raw.withColumn("__normals_period_start_year", F.lit(int(manifest["period_start_year"])))
+            .withColumn("__normals_period_end_year", F.lit(int(manifest["period_end_year"])))
+            .withColumn("__normals_version", F.lit(str(manifest["version"])))
+            .withColumn(
+                "__in_use_since",
+                F.lit(datetime.date.fromisoformat(str(manifest["in_use_since"]))),
+            )
+            .withColumn("__source_file", F.col(SOURCE_FILE_COL))
+        )
+        return self._project(data)
+
+    def _read_manifest(self, path: Path) -> dict[str, Any]:
+        """The period's manifest, checked against its directory.
+
+        Raises
+        ------
+        ValueError
+            If the manifest is absent (a download that never finished), lacks
+            a key the loader needs, or names another period than its directory.
+        """
+        if not path.exists():
+            raise ValueError(
+                f"{path}: no manifest next to the daily files; run scripts/download_jma_normals.py"
+            )
+        manifest: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
+        missing = [key for key in self._MANIFEST_KEYS if key not in manifest]
+        if missing:
+            raise ValueError(f"{path}: manifest lacks {missing}")
+        if str(manifest["period_end_year"]) != path.parent.name:
+            raise ValueError(
+                f"{path}: period_end_year {manifest['period_end_year']!r} is not the "
+                f"directory's {path.parent.name!r}"
+            )
+        return manifest
+
+    def _check_rows(self, raw: DataFrame) -> None:
+        """Validate every row of a scan, reporting per file.
+
+        Parameters
+        ----------
+        raw : pyspark.sql.DataFrame
+            A positional scan carrying ``SOURCE_FILE_COL``.
+
+        Raises
+        ------
+        ValueError
+            Named after the first offending file: a first field other than 15,
+            a station number other than the file's, an element code that is not
+            four digits, a month outside 1–12, a value cell that is not an
+            integer (a short line reads as nulls and fails here too), a flag
+            outside 0/5/6/7/8; then an element without exactly its 12 months,
+            or a file whose element set is not every file's.
+        """
+        station_of_file = F.regexp_extract(F.col(SOURCE_FILE_COL), self._FILENAME_RE.pattern, 1)
+        values = [F.col(f"_c{i}") for i in range(7, self.COLUMN_COUNT, 2)]
+        flags = [F.col(f"_c{i}") for i in range(8, self.COLUMN_COUNT, 2)]
+
+        def bad(condition: Column) -> Column:
+            # A null cell (a short line) is bad too; a comparison with null is null.
+            return F.coalesce(condition, F.lit(True))
+
+        checks: list[tuple[str, Column]] = [
+            (
+                f"first field not {self.NORMAL_KIND_DAILY}",
+                bad(F.col("_c0") != self.NORMAL_KIND_DAILY),
+            ),
+            ("station number not the file's", bad(F.col("_c1") != station_of_file)),
+            ("element code not four digits", bad(~F.col("_c2").rlike(r"^\d{4}$"))),
+            ("month not 1-12", bad(~F.col("_c6").rlike(r"^([1-9]|1[0-2])$"))),
+            (
+                "value cell not an integer",
+                reduce(operator.or_, [bad(~c.rlike(r"^-?\d+$")) for c in values]),
+            ),
+            (
+                f"flag not in {list(self.ACCEPTED_FLAGS)}",
+                reduce(operator.or_, [bad(~c.isin(*self.ACCEPTED_FLAGS)) for c in flags]),
+            ),
+        ]
+        counts = (
+            raw.groupBy(SOURCE_FILE_COL)
+            .agg(
+                *[
+                    F.count(F.when(condition, True)).alias(f"__c{i}")
+                    for i, (_, condition) in enumerate(checks)
+                ]
+            )
+            .orderBy(SOURCE_FILE_COL)
+            .collect()
+        )
+        for row in counts:
+            file = row[SOURCE_FILE_COL]
+            for i, (label, condition) in enumerate(checks):
+                n_bad = row[f"__c{i}"]
+                if n_bad:
+                    examples = [
+                        (r["_c1"], r["_c2"], r["_c6"])
+                        for r in raw.filter((F.col(SOURCE_FILE_COL) == file) & condition)
+                        .select("_c1", "_c2", "_c6")
+                        .limit(REPORT_LIMIT)
+                        .collect()
+                    ]
+                    raise ValueError(
+                        f"{file}: {n_bad} row(s) with {label}; first (station, element, "
+                        f"month): {examples}"
+                    )
+        self._check_structure(raw)
+
+    def _check_structure(self, raw: DataFrame) -> None:
+        """Every element has its 12 months, and every file holds the same elements."""
+        per_element = (
+            raw.groupBy(SOURCE_FILE_COL, "_c2")
+            .agg(F.count(F.lit(1)).alias("rows"), F.count_distinct(F.col("_c6")).alias("months"))
+            .filter((F.col("rows") != 12) | (F.col("months") != 12))
+            .orderBy(SOURCE_FILE_COL, "_c2")
+            .limit(REPORT_LIMIT)
+            .collect()
+        )
+        if per_element:
+            r = per_element[0]
+            raise ValueError(
+                f"{r[SOURCE_FILE_COL]}: element {r['_c2']} has {r['rows']} row(s) over "
+                f"{r['months']} month(s); expected one row per month, 12"
+            )
+        n_elements = raw.select("_c2").distinct().count()
+        per_file = (
+            raw.groupBy(SOURCE_FILE_COL)
+            .agg(F.count_distinct(F.col("_c2")).alias("elements"))
+            .filter(F.col("elements") != n_elements)
+            .orderBy(SOURCE_FILE_COL)
+            .limit(REPORT_LIMIT)
+            .collect()
+        )
+        if per_file:
+            r = per_file[0]
+            raise ValueError(
+                f"{r[SOURCE_FILE_COL]}: {r['elements']} element(s) where the other files have "
+                f"{n_elements}; every file must hold the same elements"
+            )
+        n_files = raw.select(SOURCE_FILE_COL).distinct().count()
+        logger.debug("{} file(s): row and structure checks passed", n_files)
