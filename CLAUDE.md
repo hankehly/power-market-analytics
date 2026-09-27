@@ -295,6 +295,12 @@
   The baseline on the pinned window is `e212` run
   `264840a26c8f48ac83b2cfe4ebb1c16c` (`e212-tokyo-pinned-window`, MAE 518,070 kWh,
   MAPE 3.13 %, 730 days, 0 skipped), scored with no date arguments at all.
+  On 2026-09-27 every demand preset was re-scored on the window in one batch
+  (MLflow tag `batch = pinned-window-reeval-2026-09-27`; the table of runs and
+  matched comparisons is issue #230): the `e212` re-run
+  `77662d27b2b4402db478a52ed3a37a35` reproduced `264840a2…` period by period,
+  and `e171` got its Kansai reference run, `53b62fe1856b40bdb8c6944cb3ec0b50`
+  (MAE 287,231 kWh, MAPE 3.52 %), the first Kansai backtest in the experiment.
   Runs before the pin used `2024-08-18 … 2026-08-17`, so they do not cover it,
   and their numbers are not comparable with one on the pinned window.
   Restricting an existing run to a **prefix** of the days it scored needs no
