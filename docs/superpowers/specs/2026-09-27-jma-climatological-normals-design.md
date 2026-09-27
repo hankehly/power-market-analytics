@@ -240,10 +240,10 @@ Grain `normals_period_end_year × station_id × element_code × month × day_of_
   `accepted_values` on `quality_flag` (0, 5, 6, 7, 8) and `statistic`; `relationships`
   from `element_code` to the seed.
 - Unit test, one Tokyo file's worth of staging rows: element 0500 February (29 values, two
-  `0,0` cells) gives 29 rows, 6.0 on the 1st; a flag-0 cell gives a null value; a flag-6
-  zero gives 0.0; element 3600's 78 gives 78.0; element 7100 lands on `hour_ending` 1 and
-  9410 on 24 with `statistic` `std`; years 0 become null; `available_at` is
-  2021-05-19 00:00.
+  `0,0` cells) gives 29 rows, 5.4 on the 1st and 7.4 on the 29th; a flag-0 cell gives a
+  null value; a flag-6 zero gives 0.0; element 3600's 78 gives 78.0; element 7100 lands on
+  `hour_ending` 1 and 9410 on 24 with `statistic` `std`; years 0 become null;
+  `available_at` is 2021-05-19 00:00.
 - Singular tests: `assert_stg_jma__normal_surface_daily_padding_cells_are_zero` (in
   staging, the value and flag of every day a month does not have are 0, so the dropped rows
   carried nothing); `assert_std_jma__normal_daily_derived_statistics_share_base_flags`
