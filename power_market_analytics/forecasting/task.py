@@ -44,6 +44,25 @@ class TaskSpec:
     history_cls, forecast_cls, result_cls, records_cls : type
         The task's ``HalfHourlySeries``, ``DayAheadForecast``,
         ``BacktestResult`` and ``ForecastRecords`` subclasses.
+    eval_start, eval_end : pandas.Timestamp or None
+        The task's pinned evaluation window: the delivery days every experiment
+        scores, so two runs made months apart compare on the same days. The days
+        after ``eval_end`` are kept out of the decisions that pick a baseline,
+        and the reserved part of them is ``holdout_start`` .. ``holdout_end``; a
+        backtest refuses to score past ``eval_end`` without being told to.
+        Both None leaves a task unpinned, and its backtest ends at the last day
+        in the data.
+    holdout_start, holdout_end : pandas.Timestamp or None
+        The reserved holdout: the days set aside from the decisions that pick a
+        baseline, and the only days a confirmation run may score. Read it through
+        ``holdout_window``. It is declared here rather than inferred from what
+        has been scored, because every run of one confirmation batch must share
+        the same days — a boundary that moved as runs published would stop a
+        baseline and its candidate being compared at all — and because a value in
+        the repository cannot be reset by dropping a warehouse table or raced by
+        two runs starting at once. It may reach into the future: the days fill as
+        data arrives. Once a batch has spent it, move both dates in a pull
+        request. None leaves a task without a reserved holdout.
     """
 
     name: str
@@ -55,8 +74,38 @@ class TaskSpec:
     forecast_cls: type[DayAheadForecast]
     result_cls: type[BacktestResult]
     records_cls: type[ForecastRecords]
+    eval_start: pd.Timestamp | None = None
+    eval_end: pd.Timestamp | None = None
+    holdout_start: pd.Timestamp | None = None
+    holdout_end: pd.Timestamp | None = None
 
     def __post_init__(self) -> None:
+        if (self.eval_start is None) != (self.eval_end is None):
+            raise ValueError(f"{self.name}: pin both eval_start and eval_end, or neither")
+        if (
+            self.eval_start is not None
+            and self.eval_end is not None
+            and self.eval_start > self.eval_end
+        ):
+            raise ValueError(
+                f"{self.name}: eval_start {self.eval_start.date()} is after "
+                f"eval_end {self.eval_end.date()}"
+            )
+        if (self.holdout_start is None) != (self.holdout_end is None):
+            raise ValueError(f"{self.name}: reserve both holdout_start and holdout_end, or neither")
+        if self.holdout_start is not None and self.holdout_end is not None:
+            if self.eval_end is None:
+                raise ValueError(f"{self.name}: a reserved holdout needs a pinned eval_end")
+            if self.holdout_start <= self.eval_end:
+                raise ValueError(
+                    f"{self.name}: holdout_start {self.holdout_start.date()} must follow "
+                    f"eval_end {self.eval_end.date()}"
+                )
+            if self.holdout_end < self.holdout_start:
+                raise ValueError(
+                    f"{self.name}: holdout_end {self.holdout_end.date()} is before "
+                    f"holdout_start {self.holdout_start.date()}"
+                )
         if self.history_lead_days < 1:
             raise ValueError(f"history_lead_days must be >= 1, got {self.history_lead_days}")
         forecast_cols = {
@@ -73,6 +122,44 @@ class TaskSpec:
                 f"{self.name}: forecast column {self.forecast_col!r} must start with "
                 "'forecast_' (the contribution column is derived from it)"
             )
+
+    @property
+    def eval_window(self) -> tuple[pd.Timestamp, pd.Timestamp]:
+        """The pinned evaluation window, for a task that has one.
+
+        Returns
+        -------
+        tuple of (pandas.Timestamp, pandas.Timestamp)
+            ``eval_start`` and ``eval_end``.
+
+        Raises
+        ------
+        ValueError
+            If the task is unpinned, so a caller cannot mistake an unpinned task
+            for one whose window happens to be missing.
+        """
+        if self.eval_start is None or self.eval_end is None:
+            raise ValueError(f"{self.name}: no evaluation window is pinned")
+        return self.eval_start, self.eval_end
+
+    @property
+    def holdout_window(self) -> tuple[pd.Timestamp, pd.Timestamp]:
+        """The reserved holdout, for a task that has one.
+
+        Returns
+        -------
+        tuple of (pandas.Timestamp, pandas.Timestamp)
+            ``holdout_start`` and ``holdout_end``.
+
+        Raises
+        ------
+        ValueError
+            If the task reserves no holdout, so a caller cannot mistake a task
+            without one for a task whose window happens to be missing.
+        """
+        if self.holdout_start is None or self.holdout_end is None:
+            raise ValueError(f"{self.name}: no holdout is reserved")
+        return self.holdout_start, self.holdout_end
 
     @property
     def value_col(self) -> str:
