@@ -3,7 +3,7 @@
 Run inside the devcontainer (needs the Spark warehouse and the MLflow
 server):
 
-    python scripts/demand_backtest.py --strategy lightgbm_msm_popw_daytype --area tokyo
+    python scripts/demand_backtest.py --strategy e171 --area tokyo
 
 Pin ``--start-date``/``--end-date`` (and ``--train-start``) when two runs
 must be compared on identical delivery days and training rows, e.g. a
@@ -52,10 +52,9 @@ def main(argv: list[str] | None = None) -> None:
     # since experiment #212 (2026-09-20) is e212, whose similar-day mart needs
     # the でんき予報 hourly load and a fit of the weights
     # (scripts/fit_similar_day.py), so it runs for Tokyo only; the R-003 preset
-    # (2026-08-26) stays the default and the Kansai baseline.
-    parser.add_argument(
-        "--strategy", choices=sorted(STRATEGIES), default="lightgbm_msm_popw_daytype"
-    )
+    # e171 (2026-08-26; lightgbm_msm_popw_daytype until 2026-09-27) stays the
+    # default and the Kansai baseline.
+    parser.add_argument("--strategy", choices=sorted(STRATEGIES), default="e171")
     parser.add_argument(
         "--area", choices=AREA_CODES, default="tokyo", help="dim_area.area_code value."
     )

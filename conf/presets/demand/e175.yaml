@@ -1,0 +1,8 @@
+description: >-
+  Plus the holiday degree alone (experiment #175, demand/R-005 E-002, rejected;
+  a reference). Until 2026-09-27 this was
+  lightgbm_msm_popw_daytype_simday_holidaydegree; runs from before then carry
+  that name.
+base: e173
+add:
+  - ftr_day_calendar:holiday_degree

@@ -1,0 +1,8 @@
+description: >-
+  Plus the delivery day's type, categorical by the mart's tag (experiment #171,
+  demand/R-003 E-001; the script default and the Kansai baseline). Until
+  2026-09-27 this was lightgbm_msm_popw_daytype; runs from before then carry
+  that name.
+base: e170
+add:
+  - ftr_day_calendar:day_type

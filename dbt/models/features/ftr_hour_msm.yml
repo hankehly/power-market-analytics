@@ -4,7 +4,7 @@ models:
       contract:
         enforced: true
     description: >
-      The MSM forecast for each delivery-day hour per bidding zone, one row per forecast vintage: the representative station's temperature (the demand lightgbm_msm feature) and the population-weighted temperature, humidity, rain, solar radiation, cloud cover (total, high, middle, low), wind (speed, u, v) and pressure (surface, sea-level) over the area's staffed stations with the latest census vintage's weights (lightgbm_msm_popw and the similar-day selector; tasks/demand/datasets.py), and the 不快指数 of the weighted temperature and humidity. Grain: area_code x trade_date x hour_ending x forecast_reference_at. available_at is the vintage's: reference + 4 h.
+      The MSM forecast for each delivery-day hour per bidding zone, one row per forecast vintage: the representative station's temperature (the feature of the demand preset e169) and the population-weighted temperature, humidity, rain, solar radiation, cloud cover (total, high, middle, low), wind (speed, u, v) and pressure (surface, sea-level) over the area's staffed stations with the latest census vintage's weights (the demand preset e170 and the similar-day selector; tasks/demand/datasets.py), and the 不快指数 of the weighted temperature and humidity. Grain: area_code x trade_date x hour_ending x forecast_reference_at. available_at is the vintage's: reference + 4 h.
     data_tests:
       - dbt_utils.unique_combination_of_columns:
           arguments:

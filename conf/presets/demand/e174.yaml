@@ -1,7 +1,9 @@
 description: >-
-  Plus the ten dim_date calendar attributes (demand/R-005 E-001, rejected; a
-  reference).
-base: lightgbm_msm_popw_daytype_simday
+  Plus the ten dim_date calendar attributes (experiment #174, demand/R-005
+  E-001, rejected; a reference). Until 2026-09-27 this was
+  lightgbm_msm_popw_daytype_simday_calendar; runs from before then carry that
+  name.
+base: e173
 add:
   - ftr_day_calendar:half
   - ftr_day_calendar:quarter

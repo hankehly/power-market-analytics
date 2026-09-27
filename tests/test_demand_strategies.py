@@ -52,20 +52,19 @@ def frame_by_period(strategy) -> pd.DataFrame:
 class TestRegistry:
     def test_registered_names_are_the_presets(self):
         assert STRATEGIES == (
+            "e169",
+            "e170",
+            "e171",
+            "e173",
+            "e174",
+            "e175",
+            "e176",
+            "e177",
+            "e178",
+            "e179",
             "e212",
             "e219",
             "e221",
-            "lightgbm",
-            "lightgbm_msm",
-            "lightgbm_msm_popw",
-            "lightgbm_msm_popw_daytype",
-            "lightgbm_msm_popw_daytype_simday",
-            "lightgbm_msm_popw_daytype_simday_calendar",
-            "lightgbm_msm_popw_daytype_simday_calendarcounts",
-            "lightgbm_msm_popw_daytype_simday_holidaydegree",
-            "lightgbm_msm_popw_daytype_simday_holidaydistance",
-            "lightgbm_msm_popw_daytype_simday_lags",
-            "lightgbm_msm_popw_daytype_simday_lags_weather",
         )
         assert STRATEGIES == tuple(PRESETS)
 
@@ -75,15 +74,15 @@ class TestRegistry:
 
 
 class TestBuildPreset:
-    def test_lightgbm_retrieves_its_features_as_of_each_day(self, feature_marts):
+    def test_e170_retrieves_its_features_as_of_each_day(self, feature_marts):
         strategy = build_strategy(
-            "lightgbm", area_code="tokyo", days=DAYS, train_start_date=TRAIN_START
+            "e170", area_code="tokyo", days=DAYS, train_start_date=TRAIN_START
         )
         assert type(strategy) is PresetLightGbmStrategy
-        assert strategy.name == "lightgbm"
-        assert strategy.preset is PRESETS["lightgbm"]
+        assert strategy.name == "e170"
+        assert strategy.preset is PRESETS["e170"]
         assert strategy.train_start_date == TRAIN_START
-        assert strategy.feature_cols == BASE_FEATURE_COLS
+        assert strategy.feature_cols == (*BASE_FEATURE_COLS, "popw_forecast_temperature_c")
         assert strategy.categorical_feature_cols == ()
         frame = strategy._features_df
         assert len(frame) == len(DAYS) * 48
@@ -95,11 +94,11 @@ class TestBuildPreset:
         assert row["wavg_temperature_c"] == pytest.approx(wavg_temperature(day, 5))
         assert row["lag_7d_demand_kwh"] == synthetic_demand(day - pd.Timedelta(days=7), 10)
 
-    def test_lightgbm_msm_adds_the_representative_stations_forecast(self, feature_marts):
+    def test_e169_adds_the_representative_stations_forecast(self, feature_marts):
         days = pd.date_range(
             FORECAST_MISSING_DAY - pd.Timedelta(days=1), FORECAST_MISSING_DAY + pd.Timedelta(days=1)
         )
-        strategy = build_strategy("lightgbm_msm", area_code="tokyo", days=days)
+        strategy = build_strategy("e169", area_code="tokyo", days=days)
         assert strategy.feature_cols == (*BASE_FEATURE_COLS, "forecast_temperature_c")
         frame = frame_by_period(strategy)
         day = FORECAST_MISSING_DAY + pd.Timedelta(days=1)
@@ -109,9 +108,9 @@ class TestBuildPreset:
         assert frame.loc[FORECAST_MISSING_DAY, "forecast_temperature_c"].isna().all()
         assert frame.loc[day, "forecast_temperature_c"].notna().all()
 
-    def test_lightgbm_msm_popw_daytype_marks_the_day_type_categorical(self, feature_marts):
+    def test_e171_marks_the_day_type_categorical(self, feature_marts):
         days = pd.date_range("2024-04-26", "2024-04-30", freq="D")  # 04-27 Sat, 04-29 holiday
-        strategy = build_strategy("lightgbm_msm_popw_daytype", area_code="tokyo", days=days)
+        strategy = build_strategy("e171", area_code="tokyo", days=days)
         assert strategy.feature_cols == (
             *BASE_FEATURE_COLS,
             "popw_forecast_temperature_c",
@@ -140,7 +139,7 @@ class TestBuildPreset:
     def test_the_week_after_the_hole_lacks_its_lag(self, feature_marts):
         after = DEMAND_HOLE_DAY + pd.Timedelta(days=7)
         days = pd.date_range(after - pd.Timedelta(days=1), after, freq="D")
-        frame = frame_by_period(build_strategy("lightgbm", area_code="tokyo", days=days))
+        frame = frame_by_period(build_strategy("e170", area_code="tokyo", days=days))
         lag = frame.loc[after, "lag_7d_demand_kwh"]
         assert lag.loc[list(DEMAND_HOLE_TIME_CODES)].isna().all()
         assert lag.loc[1:10].notna().all()
@@ -148,9 +147,7 @@ class TestBuildPreset:
 
     def test_weather_preset_appends_the_three_msm_elements(self, feature_marts):
         days = pd.date_range("2024-04-01", "2024-04-25", freq="D")
-        strategy = build_strategy(
-            "lightgbm_msm_popw_daytype_simday_lags_weather", area_code="tokyo", days=days
-        )
+        strategy = build_strategy("e179", area_code="tokyo", days=days)
         assert type(strategy) is PresetLightGbmStrategy
         assert strategy.feature_cols == (
             *SIMDAY_FEATURE_COLS,
@@ -194,11 +191,11 @@ class TestBuildPreset:
         columns = tuple(f"popw_forecast_{element}" for element in MSM_EXTRA_ELEMENTS)
         days = pd.date_range("2024-04-26", "2024-04-30", freq="D")
         strategy = build_strategy(
-            "lightgbm_msm_popw",
+            "e170",
             area_code="tokyo",
             days=days,
             add=tuple(f"ftr_hour_msm:{column}" for column in columns),
-            label="lightgbm_msm_extra",
+            label="e170_msm_extra",
         )
         assert strategy.feature_cols[-len(columns) :] == columns
         assert strategy.categorical_feature_cols == ()
@@ -216,60 +213,58 @@ class TestBuildPreset:
 
     def test_add_drop_and_label_compose_a_named_set(self, feature_marts):
         strategy = build_strategy(
-            "lightgbm",
+            "e170",
             area_code="tokyo",
             days=DAYS,
             add=("ftr_day_calendar:day_type",),
             drop=("ftr_day_calendar:day_of_week",),
-            label="lightgbm_daytype",
+            label="e170_daytype",
         )
-        assert strategy.name == "lightgbm_daytype"
-        assert strategy.preset.name == "lightgbm_daytype" and strategy.preset.base == "lightgbm"
+        assert strategy.name == "e170_daytype"
+        assert strategy.preset.name == "e170_daytype" and strategy.preset.base == "e170"
         assert strategy.feature_cols == (
             "time_code",
             "month",
             "wavg_temperature_c",
             "lag_7d_demand_kwh",
+            "popw_forecast_temperature_c",
             "day_type",
         )
         assert strategy.categorical_feature_cols == ("day_type",)
 
     def test_add_and_drop_take_expressions_too(self, feature_marts):
         strategy = build_strategy(
-            "lightgbm",
+            "e170",
             area_code="tokyo",
             days=DAYS,
             add=("day_type",),
             drop=("day_of_week",),
-            label="lightgbm_daytype",
+            label="e170_daytype",
         )
         # The preset, and so the run's params, hold the references either way.
         assert strategy.preset.features == (
             "ftr_day_calendar:month",
             "ftr_hour_jma_obs:wavg_temperature_c",
             "ftr_period_actuals:lag_7d_demand_kwh",
+            "ftr_hour_msm:popw_forecast_temperature_c",
             "ftr_day_calendar:day_type",
         )
         assert strategy.categorical_feature_cols == ("day_type",)
 
     def test_a_label_alone_renames_the_run(self, feature_marts):
-        strategy = build_strategy("lightgbm", area_code="tokyo", days=DAYS, label="lightgbm_again")
-        assert strategy.name == "lightgbm_again" and strategy.preset is PRESETS["lightgbm"]
+        strategy = build_strategy("e170", area_code="tokyo", days=DAYS, label="e170_again")
+        assert strategy.name == "e170_again" and strategy.preset is PRESETS["e170"]
 
     def test_a_preset_needs_its_days(self):
-        with pytest.raises(ValueError, match="'lightgbm' needs the days"):
-            build_strategy("lightgbm", area_code="tokyo")
+        with pytest.raises(ValueError, match="'e170' needs the days"):
+            build_strategy("e170", area_code="tokyo")
 
     def test_changes_need_a_label(self):
-        with pytest.raises(
-            ValueError, match="'lightgbm' with features added or dropped needs a label"
-        ):
-            build_strategy(
-                "lightgbm", area_code="tokyo", days=DAYS, add=("ftr_day_calendar:day_type",)
-            )
+        with pytest.raises(ValueError, match="'e170' with features added or dropped needs a label"):
+            build_strategy("e170", area_code="tokyo", days=DAYS, add=("ftr_day_calendar:day_type",))
 
     def test_an_area_without_mart_rows_gets_nan_features(self, feature_marts):
-        strategy = build_strategy("lightgbm_msm", area_code="kansai", days=DAYS)
+        strategy = build_strategy("e169", area_code="kansai", days=DAYS)
         frame = strategy._features_df
         # The calendar covers kansai; the tokyo-only facts do not.
         assert frame["month"].eq(4.0).all()
@@ -282,10 +277,10 @@ class TestBuildSimilarDayPresets:
         days = pd.date_range(
             FORECAST_MISSING_DAY - pd.Timedelta(days=1), FORECAST_MISSING_DAY + pd.Timedelta(days=1)
         )
-        strategy = build_strategy("lightgbm_msm_popw_daytype_simday", area_code="tokyo", days=days)
+        strategy = build_strategy("e173", area_code="tokyo", days=days)
         assert type(strategy) is PresetLightGbmStrategy
-        assert strategy.name == "lightgbm_msm_popw_daytype_simday"
-        assert strategy.preset is PRESETS["lightgbm_msm_popw_daytype_simday"]
+        assert strategy.name == "e173"
+        assert strategy.preset is PRESETS["e173"]
         assert strategy.feature_cols == SIMDAY_FEATURE_COLS
         assert strategy.categorical_feature_cols == ("day_type",)
         frame = frame_by_period(strategy)
@@ -306,7 +301,7 @@ class TestBuildSimilarDayPresets:
             "wavg_similar_day_top3_demand_kwh",
         )
         strategy = build_strategy(
-            "lightgbm_msm_popw_daytype_simday",
+            "e173",
             area_code="tokyo",
             days=pd.date_range(ranked, holiday),
             add=tuple(f"ftr_period_similar_day:{column}" for column in others),
@@ -335,7 +330,7 @@ class TestBuildSimilarDayPresets:
         ("name", "calendar_cols"),
         [
             (
-                "lightgbm_msm_popw_daytype_simday_calendar",
+                "e174",
                 (
                     "half",
                     "quarter",
@@ -350,7 +345,7 @@ class TestBuildSimilarDayPresets:
                 ),
             ),
             (
-                "lightgbm_msm_popw_daytype_simday_calendarcounts",
+                "e177",
                 (
                     "half",
                     "quarter",
@@ -360,9 +355,9 @@ class TestBuildSimilarDayPresets:
                     "fiscal_quarter",
                 ),
             ),
-            ("lightgbm_msm_popw_daytype_simday_holidaydegree", ("holiday_degree",)),
+            ("e175", ("holiday_degree",)),
             (
-                "lightgbm_msm_popw_daytype_simday_holidaydistance",
+                "e176",
                 ("days_since_holiday", "days_until_holiday"),
             ),
         ],
@@ -384,9 +379,7 @@ class TestBuildSimilarDayPresets:
 
     def test_lags_preset_appends_the_thirteen_recent_load_columns(self, feature_marts):
         days = pd.date_range("2024-04-01", "2024-04-25", freq="D")
-        strategy = build_strategy(
-            "lightgbm_msm_popw_daytype_simday_lags", area_code="tokyo", days=days
-        )
+        strategy = build_strategy("e178", area_code="tokyo", days=days)
         assert type(strategy) is PresetLightGbmStrategy
         assert strategy.feature_cols == (*SIMDAY_FEATURE_COLS, *RECENT_LOAD_COLUMNS)
         assert strategy.categorical_feature_cols == ("day_type",)
@@ -427,7 +420,7 @@ class TestBuildSimilarDayPresets:
 
     def test_add_drop_and_label_change_the_preset_under_the_similar_day(self, feature_marts):
         strategy = build_strategy(
-            "lightgbm_msm_popw_daytype_simday",
+            "e173",
             area_code="tokyo",
             days=DAYS,
             add=("ftr_day_calendar:half",),
@@ -436,7 +429,7 @@ class TestBuildSimilarDayPresets:
         )
         assert strategy.name == "simday_half"
         assert strategy.preset.name == "simday_half"
-        assert strategy.preset.base == "lightgbm_msm_popw_daytype_simday"
+        assert strategy.preset.base == "e173"
         assert strategy.feature_cols == (
             "time_code",
             "month",
