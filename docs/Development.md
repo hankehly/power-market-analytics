@@ -58,15 +58,16 @@ trying to do, while Copilot is better at spotting the gap between what a file pr
 and what the tool it configures actually enforces. Claude drives the loop and reports
 the PR as ready; the researcher merges unless they have explicitly asked Claude to.
 
-The mechanics are in `CLAUDE.md` under *Code review (pull requests)*: the exact
-`gh api` polls and their timestamps, why the Codex trigger is never spelled out in a
-PR body or reply, how a Copilot request differs, resolving review threads, and stacked
-PRs. This is the shape of the loop:
+The mechanics are in `CLAUDE.md` under *Code review (pull requests)*: the PR body's
+shape (`.github/pull_request_template.md`: lead with what the merge needs, fold the
+evidence), the exact `gh api` polls and their timestamps, why the Codex trigger is
+never spelled out in a PR body or reply, how a Copilot request differs, resolving
+review threads, and stacked PRs. This is the shape of the loop:
 
 ```mermaid
 flowchart TD
-    open["Open the PR<br/>gh pr create — title type(scope): description,<br/>body Why / What / Proof"]
-    open --> meta["Assign the researcher, add labels<br/>fix → bug · feature → enhancement · chore → documentation<br/>(plus documentation when docs change)"]
+    open["Open the PR<br/>gh pr create — title type(scope): description,<br/>body Summary · Changes · Effect on what exists · Checks,<br/>Decisions and Evidence folded"]
+    open --> meta["Assign the researcher, add labels<br/>fix → bug · feat, perf → enhancement · docs → documentation<br/>chore, ci, build, test, refactor, style → chore<br/>plus the areas touched"]
     meta --> codex{"Codex reviews automatically<br/>👀 when it starts"}
     codex -->|"👍 — nothing to flag"| ready["Ready: CI green on a head that is<br/>up to date with main, reviewer clean<br/>→ merge"]
     codex -->|"review with inline findings"| fix["Address every finding:<br/>fix in a commit or rebut in the thread,<br/>reply, resolve the thread"]
