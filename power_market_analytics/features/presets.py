@@ -1,7 +1,11 @@
 """Presets: the named feature lists a strategy is built from.
 
 A preset names its features as ``<view>:<column>`` references into the
-generated feature views, in feature order. Which of them LightGBM treats as
+generated feature views, in feature order. A file, and ``--add`` / ``--drop``,
+may write a feature as its expression instead — the name people read, unique
+across the views — and ``resolve_references`` turns it into the reference on
+load, so the preset, its MLflow params and the stored runs hold the reference
+whichever way the feature was written. Which of them LightGBM treats as
 categorical is not the preset's to say: a column is categorical when its
 view field carries the ``categorical`` tag the dbt mart declares, whether the
 preset is registered or changed with ``--add`` (``categorical_columns``). The
@@ -11,8 +15,9 @@ same features, so the registry and the UI list it.
 
 A preset is a YAML file under ``conf/presets/<task>/<name>.yaml``: ``description``
 and either ``features`` (the full list, in feature order) or ``base`` with ``add``
-and/or ``drop`` (a change to another preset of the task). ``load_presets`` reads
-a task's directory into presets by name; the file's stem is the name.
+and/or ``drop`` (a change to another preset of the task), every item a reference
+or an expression. ``load_presets`` reads a task's directory into presets by name;
+the file's stem is the name.
 """
 
 from __future__ import annotations
@@ -160,6 +165,57 @@ class Preset:
 
 def _views_by_name() -> dict[str, FeatureView]:
     return {view.name: view for view in _views.VIEWS}
+
+
+def resolve_references(items: Iterable[str]) -> tuple[str, ...]:
+    """Each item as the ``<view>:<column>`` reference of the feature it names.
+
+    An item is either a reference of a feature of the views, kept as it is,
+    or the expression of one — its field's ``expression`` tag, unique across
+    the views (the generator refuses a shared one), so it needs no view
+    prefix — turned into that feature's reference. A preset file and
+    ``--add`` / ``--drop`` may therefore name a feature either way, and
+    everything downstream sees the reference.
+
+    Parameters
+    ----------
+    items : iterable of str
+        References or expressions, in feature order.
+
+    Returns
+    -------
+    tuple of str
+        The references, in the items' order.
+
+    Raises
+    ------
+    ValueError
+        If an item is neither: an unknown view or column, a join key, or an
+        expression no feature carries.
+    """
+    references: set[str] = set()
+    by_expression: dict[str, str] = {}
+    for view_name, view in _views_by_name().items():
+        for field in view.schema:
+            if field.name in view.join_keys:
+                continue
+            ref = f"{view_name}:{field.name}"
+            references.add(ref)
+            expression = (field.tags or {}).get(EXPRESSION_TAG)
+            if expression:
+                by_expression[expression] = ref
+    resolved: list[str] = []
+    for item in items:
+        if item in references:
+            resolved.append(item)
+        elif item in by_expression:
+            resolved.append(by_expression[item])
+        else:
+            raise ValueError(
+                f"{item!r} is neither a '<view>:<column>' feature reference "
+                "nor the expression of one"
+            )
+    return tuple(resolved)
 
 
 def _fields(preset: Preset) -> Iterator[tuple[str, str, Field]]:
@@ -311,17 +367,16 @@ class _PresetFileError(ValueError):
 
 
 def _refs(file: Path, data: dict, key: str) -> tuple[str, ...]:
+    """The key's items as references, resolved; ``()`` when the key is absent."""
     value = data.get(key)
     if value is None:
         return ()
-    if not isinstance(value, list) or not all(isinstance(ref, str) for ref in value):
-        raise ValueError(f"{file}: {key} must be a list of 'view:column' strings")
-    for ref in value:
-        try:
-            feature_column(ref)
-        except ValueError as exc:
-            raise ValueError(f"{file}: {exc}") from None
-    return tuple(value)
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        raise ValueError(f"{file}: {key} must be a list of 'view:column' references or expressions")
+    try:
+        return resolve_references(value)
+    except ValueError as exc:
+        raise ValueError(f"{file}: {exc}") from None
 
 
 def _read_preset_file(file: Path) -> _PresetFile:
@@ -385,8 +440,9 @@ def load_presets(task: str, presets_dir: Path = PRESETS_DIR) -> dict[str, Preset
     ------
     ValueError
         If the task has no file, a file's name is not lowercase ``a-z0-9_``,
-        a file breaks a rule of the format, a base is not a preset of the
-        task, a chain of bases loops, or the resolved list breaks a
+        a file breaks a rule of the format, an item is neither a feature
+        reference nor an expression of the views, a base is not a preset of
+        the task, a chain of bases loops, or the resolved list breaks a
         :class:`Preset` rule. The message starts with the file's path.
     """
     files = {path.stem: path for path in sorted((presets_dir / task).glob("*.yaml"))}

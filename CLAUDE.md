@@ -163,18 +163,29 @@
   stops it. `just open feast` opens it. Needs the `grpcio` extra of `feast` (in the
   dependency since 2026-09-10: `feast[spark,grpcio]`) — without it `feast ui` dies on
   `import grpc`. The UI reads the registry at start: restart it after a mart changes.
+- `just show-preset <task> <name>` (since 2026-09-27) — print a preset's features in feature
+  order, host-side (`scripts/show_preset.py` reads the preset files and the generated views,
+  no warehouse): rank, the preset of the base chain that added the feature, its categorical
+  mark, its `view:column` reference and its expression, under the name, the chain and the
+  description; `--refs` / `--expressions` print one list or the other, one per line, for a
+  new preset file or an issue.
 - `just python scripts/spot_price_backtest.py --strategy lightgbm --area tokyo` — day-ahead
   backtest (strategies: `previous_day`, and the presets `lightgbm`, `lightgbm_occto`; areas =
   `dim_area.area_code`). Since 2026-09-11 a LightGBM strategy is a **preset**
   (a YAML file under `conf/presets/spot_price/` since 2026-09-19, `features.presets.load_presets`:
   `description` and either `features`, the full ordered list of `<view>:<column>` references into
-  the Feast feature views, or `base` plus `add` / `drop`; the name is the file's stem; a feature is categorical when its view field carries the mart's
+  the Feast feature views, or `base` plus `add` / `drop`, every item a reference or the
+  feature's expression — since 2026-09-27 `features.presets.resolve_references` turns an
+  expression into its reference on load, so the preset and the run's params hold references
+  either way, and an expression edited after a preset file named it fails that file's load,
+  the fix being that one item, the one edit a published file gets; write an expression in a
+  block list, since a flow list splits it at its comma; the name is the file's stem; a feature is categorical when its view field carries the mart's
   `categorical` tag — `features.presets.categorical_columns`, so an added feature is
   treated as its mart declares it); `build_strategy` retrieves the
   preset's features once for the run's days through Feast (`features/retrieval.py`, each
   row as of its own 09:30 D-1 issue time) and builds a `PresetLightGbmStrategy`
   (`forecasting/preset_lgbm.py`) over that `FeatureFrame`; `time_code` is always the first
-  feature. `--add VIEW:COLUMN …` / `--drop VIEW:COLUMN …` change the list for one run and
+  feature. `--add VIEW:COLUMN|EXPRESSION …` / `--drop …` change the list for one run and
   need `--name`, which becomes the run's strategy label (`strategy` column, MLflow tag;
   params `feature_preset`, `feature_preset_base`, `feature_refs`, `lgbm_feature_cols`). A
   new preset = a new file under `conf/presets/<task>/`, named after the experiment issue that

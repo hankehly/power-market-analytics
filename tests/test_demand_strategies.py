@@ -234,6 +234,24 @@ class TestBuildPreset:
         )
         assert strategy.categorical_feature_cols == ("day_type",)
 
+    def test_add_and_drop_take_expressions_too(self, feature_marts):
+        strategy = build_strategy(
+            "lightgbm",
+            area_code="tokyo",
+            days=DAYS,
+            add=("day_type",),
+            drop=("day_of_week",),
+            label="lightgbm_daytype",
+        )
+        # The preset, and so the run's params, hold the references either way.
+        assert strategy.preset.features == (
+            "ftr_day_calendar:month",
+            "ftr_hour_jma_obs:wavg_temperature_c",
+            "ftr_period_actuals:lag_7d_demand_kwh",
+            "ftr_day_calendar:day_type",
+        )
+        assert strategy.categorical_feature_cols == ("day_type",)
+
     def test_a_label_alone_renames_the_run(self, feature_marts):
         strategy = build_strategy("lightgbm", area_code="tokyo", days=DAYS, label="lightgbm_again")
         assert strategy.name == "lightgbm_again" and strategy.preset is PRESETS["lightgbm"]
