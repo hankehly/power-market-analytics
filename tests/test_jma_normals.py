@@ -344,6 +344,23 @@ class TestDownloadVintage:
         assert not (tmp_path / "2020").exists()
 
 
+class TestAtomicWrite:
+    def test_a_failing_write_removes_the_partial_file_and_keeps_the_old_one(self, tmp_path):
+        dest = tmp_path / "csv" / "manifest.json"
+        dest.parent.mkdir()
+        dest.write_bytes(b"old")
+
+        def write(partial: Path) -> None:
+            partial.write_bytes(b"half")
+            raise OSError("disk full")
+
+        with pytest.raises(OSError, match="disk full"):
+            JmaNormalsDownloader._atomic_write(dest, write)
+
+        assert dest.read_bytes() == b"old"
+        assert not dest.with_name("manifest.json.part").exists()
+
+
 class TestDownloadAll:
     def test_defaults_to_every_configured_vintage(self, tmp_path, monkeypatch):
         seen: list[int] = []
