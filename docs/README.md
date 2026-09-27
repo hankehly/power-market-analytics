@@ -8,7 +8,7 @@ Power market analytics.
 
 - **Data sources** — below: every dataset the warehouse loads, its grain, its
   loaded date range and the doc that records how it is retrieved.
-- [**Curated star schema**](Curated-Star-Schema.md) — the eighteen fact tables,
+- [**Curated star schema**](Curated-Star-Schema.md) — the sixteen fact tables of the star,
   their dimensions and the ER diagram.
 - [**Forecast analysis**](Forecast-Analysis.md) — the walk-forward backtest, the
   strategies and feature experiments, and the Superset dashboards.
