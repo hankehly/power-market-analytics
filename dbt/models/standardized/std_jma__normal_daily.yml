@@ -1,0 +1,370 @@
+models:
+  - name: std_jma__normal_daily
+    config:
+      contract:
+        enforced: true
+    description: >
+      JMA daily climatological normals (平年値, the 1991–2020 period) of the
+      staffed stations, one row per period, station, element code, month and
+      day of month — 4,654,422 rows: 157 stations × 81 elements × 366 days.
+      value is the published integer divided by the element's scale
+      denominator (jma_normal_elements): °C, cloud tenths, h, MJ/m2, mm, cm,
+      or % for the three occurrence rates, which JMA publishes in hundredths
+      of a day; null where quality_flag is 0. Flags: 8 normal; 6 normal, no
+      phenomenon (a true zero — snowfall at 那覇); 7 and 5 the same two,
+      reference only (is_reference_only): the observation ended or the series
+      was cut, statistic_end_year says when, and JMA says not to use them for
+      anomalies. A day a month does not have is not a row; Feb 29 is.
+      available_at is the period's first in-use date at 00:00 (2021-05-19 for
+      1991–2020) — a documented bound: JMA served the 2020 normals from
+      2021-03-24 and put them in use 2021-05-19; only the current version of
+      the archive is served (5 since 2025-05-21), and each version changed a
+      few stations' files, so a row holds the current version's value under
+      the period's in-use date. A normal has no date; a dated row finds its
+      normal through the month and day of its date.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - normals_period_end_year
+              - station_id
+              - element_code
+              - month
+              - day_of_month
+      - dbt_utils.unique_combination_of_columns:
+          name: std_jma__normal_daily_one_row_per_element_statistic_and_hour
+          arguments:
+            combination_of_columns:
+              - normals_period_end_year
+              - station_id
+              - element
+              - statistic
+              - hour_ending
+              - month
+              - day_of_month
+      - dbt_utils.expression_is_true:
+          name: std_jma__normal_daily_value_is_null_exactly_when_flag_is_0
+          arguments:
+            expression: "(quality_flag = 0) = (value is null)"
+      - dbt_utils.expression_is_true:
+          name: std_jma__normal_daily_hour_ending_exactly_on_hourly_temperature
+          arguments:
+            expression: "(element = 'hourly_temperature') = (hour_ending is not null)"
+    columns:
+      - name: normals_period_start_year
+        data_type: int
+        description: First year of the normals period (1991).
+        data_tests:
+          - not_null
+      - name: normals_period_end_year
+        data_type: int
+        description: Last year of the normals period (2020); part of the grain.
+        data_tests:
+          - not_null
+      - name: normals_version
+        data_type: string
+        description: The archive's version when downloaded ("5").
+        data_tests:
+          - not_null
+      - name: station_id
+        data_type: string
+        description: >
+          JMA station id, 's' + the station number (s47662 = 東京); every
+          station of the archive, the ten outside a JEPX area included.
+        data_tests:
+          - not_null
+      - name: element_code
+        data_type: string
+        description: Four-digit JMA element code (0500 = 日平均気温).
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('jma_normal_elements')
+                field: element_code
+      - name: element
+        data_type: string
+        description: >
+          The element in English (jma_normal_elements): mean_temperature,
+          max_temperature, min_temperature, cloud_cover, sunshine_duration,
+          sunshine_rate_ge_40pct, solar_radiation, precipitation,
+          precipitation_ge_1mm, precipitation_ge_10mm, snowfall,
+          max_snow_depth, hourly_temperature.
+        data_tests:
+          - not_null
+      - name: statistic
+        data_type: string
+        description: >
+          normal (the mean or total), std (its standard deviation) or class_1
+          … class_6 (JMA's class thresholds: 1 the smallest of the "low"
+          class, 2 at or below "much lower than normal", 3 at or below
+          "lower", 4 above "higher", 5 above "much higher", 6 the largest of
+          the "high" class).
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [normal, std, class_1, class_2, class_3, class_4, class_5, class_6]
+      - name: hour_ending
+        data_type: int
+        description: >
+          1–24 for hourly_temperature (24 = the value at 24:00 of the day),
+          null for the daily elements.
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 1
+                max_value: 24
+      - name: element_name_ja
+        data_type: string
+        description: JMA's name of the element code, e.g. 日平均気温【標準偏差】, 01時の気温.
+        data_tests:
+          - not_null
+      - name: unit
+        data_type: string
+        description: "°C, tenths, h, %, MJ/m2, mm or cm."
+        data_tests:
+          - not_null
+      - name: month
+        data_type: int
+        description: Calendar month 1–12.
+        data_tests:
+          - not_null
+      - name: day_of_month
+        data_type: int
+        description: Day of the month, 1 to the month's length in a leap year.
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 1
+                max_value: 31
+      - name: value
+        data_type: double
+        description: The normal in unit; null where quality_flag is 0.
+      - name: quality_flag
+        data_type: int
+        description: 8 normal, 6 normal with no phenomenon, 7 and 5 reference only, 0 no statistic.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [0, 5, 6, 7, 8]
+                quote: false
+      - name: is_reference_only
+        data_type: boolean
+        description: quality_flag 5 or 7 — not for anomalies.
+        data_tests:
+          - not_null
+      - name: n_years
+        data_type: int
+        description: Years of data behind the statistic; 0 with quality_flag 0.
+        data_tests:
+          - not_null
+      - name: statistic_start_year
+        data_type: int
+        description: First year the statistic covers; null with n_years 0.
+      - name: statistic_end_year
+        data_type: int
+        description: Last year the statistic covers; null with n_years 0.
+      - name: available_at
+        data_type: timestamp
+        description: >
+          The period's first in-use date at 00:00, naive JST (2021-05-19 00:00
+          for 1991–2020).
+        data_tests:
+          - not_null
+
+unit_tests:
+  - name: std_jma__normal_daily_unpivots_scales_and_drops_padding
+    description: >
+      Tokyo's February row of 日平均気温 (0500), day 2 replaced by a 0,0 cell:
+      29 rows, 5.4 on the 1st and 7.4 on the 29th, a null value with flag 0 on
+      the 2nd, and the two padding cells gone.
+    model: std_jma__normal_daily
+    given:
+      - input: ref('jma_normal_elements')
+        rows:
+          - {element_code: "0500", element_name_ja: 日平均気温, element: mean_temperature, statistic: normal, hour_ending: null, unit: °C, scale_denominator: 10}
+      - input: ref('stg_jma__normal_surface_daily')
+        format: csv
+        rows: |
+          normal_kind,station_number,element_code,n_years,statistic_start_year,statistic_end_year,month,value_d01,flag_d01,value_d02,flag_d02,value_d03,flag_d03,value_d04,flag_d04,value_d05,flag_d05,value_d06,flag_d06,value_d07,flag_d07,value_d08,flag_d08,value_d09,flag_d09,value_d10,flag_d10,value_d11,flag_d11,value_d12,flag_d12,value_d13,flag_d13,value_d14,flag_d14,value_d15,flag_d15,value_d16,flag_d16,value_d17,flag_d17,value_d18,flag_d18,value_d19,flag_d19,value_d20,flag_d20,value_d21,flag_d21,value_d22,flag_d22,value_d23,flag_d23,value_d24,flag_d24,value_d25,flag_d25,value_d26,flag_d26,value_d27,flag_d27,value_d28,flag_d28,value_d29,flag_d29,value_d30,flag_d30,value_d31,flag_d31,normals_period_start_year,normals_period_end_year,normals_version,in_use_since,source_file
+          15,47662,0500,30,1991,2020,2,54,8,0,0,55,8,55,8,55,8,56,8,56,8,56,8,57,8,57,8,58,8,59,8,59,8,60,8,61,8,61,8,62,8,63,8,64,8,64,8,65,8,66,8,67,8,69,8,70,8,71,8,72,8,73,8,74,8,0,0,0,0,1991,2020,5,2021-05-19,nml_sfc_d_47662.csv
+    expect:
+      format: csv
+      rows: |
+        station_id,element_code,element,statistic,hour_ending,element_name_ja,unit,month,day_of_month,value,quality_flag,is_reference_only,n_years,statistic_start_year,statistic_end_year,available_at
+        s47662,0500,mean_temperature,normal,,日平均気温,°C,2,1,5.4,8,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,0500,mean_temperature,normal,,日平均気温,°C,2,2,,0,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,0500,mean_temperature,normal,,日平均気温,°C,2,3,5.5,8,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,0500,mean_temperature,normal,,日平均気温,°C,2,4,5.5,8,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,0500,mean_temperature,normal,,日平均気温,°C,2,5,5.5,8,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,0500,mean_temperature,normal,,日平均気温,°C,2,6,5.6,8,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,0500,mean_temperature,normal,,日平均気温,°C,2,7,5.6,8,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,0500,mean_temperature,normal,,日平均気温,°C,2,8,5.6,8,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,0500,mean_temperature,normal,,日平均気温,°C,2,9,5.7,8,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,0500,mean_temperature,normal,,日平均気温,°C,2,10,5.7,8,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,0500,mean_temperature,normal,,日平均気温,°C,2,11,5.8,8,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,0500,mean_temperature,normal,,日平均気温,°C,2,12,5.9,8,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,0500,mean_temperature,normal,,日平均気温,°C,2,13,5.9,8,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,0500,mean_temperature,normal,,日平均気温,°C,2,14,6.0,8,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,0500,mean_temperature,normal,,日平均気温,°C,2,15,6.1,8,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,0500,mean_temperature,normal,,日平均気温,°C,2,16,6.1,8,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,0500,mean_temperature,normal,,日平均気温,°C,2,17,6.2,8,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,0500,mean_temperature,normal,,日平均気温,°C,2,18,6.3,8,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,0500,mean_temperature,normal,,日平均気温,°C,2,19,6.4,8,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,0500,mean_temperature,normal,,日平均気温,°C,2,20,6.4,8,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,0500,mean_temperature,normal,,日平均気温,°C,2,21,6.5,8,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,0500,mean_temperature,normal,,日平均気温,°C,2,22,6.6,8,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,0500,mean_temperature,normal,,日平均気温,°C,2,23,6.7,8,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,0500,mean_temperature,normal,,日平均気温,°C,2,24,6.9,8,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,0500,mean_temperature,normal,,日平均気温,°C,2,25,7.0,8,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,0500,mean_temperature,normal,,日平均気温,°C,2,26,7.1,8,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,0500,mean_temperature,normal,,日平均気温,°C,2,27,7.2,8,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,0500,mean_temperature,normal,,日平均気温,°C,2,28,7.3,8,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,0500,mean_temperature,normal,,日平均気温,°C,2,29,7.4,8,false,30,1991,2020,2021-05-19 00:00:00
+
+  - name: std_jma__normal_daily_rates_no_phenomenon_reference_only_and_no_statistic
+    description: >
+      Four February rows: 3600's 78 is 78.0 (a percentage as published,
+      denominator 1); 6000's 0 with flag 6 is 0.0 (no phenomenon); 7100 lands
+      on hour_ending 1, its flag 7 is reference only, its years 1991–2016 are
+      kept as they are; 9410 (24時の気温【標準偏差】) with n_years 0, years 0
+      and flags 0 gives null values and null years on hour_ending 24.
+    model: std_jma__normal_daily
+    given:
+      - input: ref('jma_normal_elements')
+        rows:
+          - {element_code: "3600", element_name_ja: 日照率≧40% 日数（出現率）, element: sunshine_rate_ge_40pct, statistic: normal, hour_ending: null, unit: "%", scale_denominator: 1}
+          - {element_code: "6000", element_name_ja: 降雪の深さ 日合計, element: snowfall, statistic: normal, hour_ending: null, unit: cm, scale_denominator: 1}
+          - {element_code: "7100", element_name_ja: 01時の気温, element: hourly_temperature, statistic: normal, hour_ending: 1, unit: °C, scale_denominator: 10}
+          - {element_code: "9410", element_name_ja: 24時の気温【標準偏差】, element: hourly_temperature, statistic: std, hour_ending: 24, unit: °C, scale_denominator: 10}
+      - input: ref('stg_jma__normal_surface_daily')
+        format: csv
+        rows: |
+          normal_kind,station_number,element_code,n_years,statistic_start_year,statistic_end_year,month,value_d01,flag_d01,value_d02,flag_d02,value_d03,flag_d03,value_d04,flag_d04,value_d05,flag_d05,value_d06,flag_d06,value_d07,flag_d07,value_d08,flag_d08,value_d09,flag_d09,value_d10,flag_d10,value_d11,flag_d11,value_d12,flag_d12,value_d13,flag_d13,value_d14,flag_d14,value_d15,flag_d15,value_d16,flag_d16,value_d17,flag_d17,value_d18,flag_d18,value_d19,flag_d19,value_d20,flag_d20,value_d21,flag_d21,value_d22,flag_d22,value_d23,flag_d23,value_d24,flag_d24,value_d25,flag_d25,value_d26,flag_d26,value_d27,flag_d27,value_d28,flag_d28,value_d29,flag_d29,value_d30,flag_d30,value_d31,flag_d31,normals_period_start_year,normals_period_end_year,normals_version,in_use_since,source_file
+          15,47662,3600,30,1991,2020,2,78,8,78,8,78,8,78,8,78,8,78,8,78,8,78,8,78,8,78,8,78,8,78,8,78,8,78,8,78,8,78,8,78,8,78,8,78,8,78,8,78,8,78,8,78,8,78,8,78,8,78,8,78,8,78,8,78,8,0,0,0,0,1991,2020,5,2021-05-19,nml_sfc_d_47662.csv
+          15,47662,6000,30,1991,2020,2,0,6,0,6,0,6,0,6,0,6,0,6,0,6,0,6,0,6,0,6,0,6,0,6,0,6,0,6,0,6,0,6,0,6,0,6,0,6,0,6,0,6,0,6,0,6,0,6,0,6,0,6,0,6,0,6,0,6,0,0,0,0,1991,2020,5,2021-05-19,nml_sfc_d_47662.csv
+          15,47662,7100,25,1991,2016,2,10,7,20,7,30,7,40,7,50,7,60,7,70,7,80,7,90,7,100,7,110,7,120,7,130,7,140,7,150,7,160,7,170,7,180,7,190,7,200,7,210,7,220,7,230,7,240,7,250,7,260,7,270,7,280,7,290,7,0,0,0,0,1991,2020,5,2021-05-19,nml_sfc_d_47662.csv
+          15,47662,9410,0,0,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1991,2020,5,2021-05-19,nml_sfc_d_47662.csv
+    expect:
+      format: csv
+      rows: |
+        station_id,element_code,element,statistic,hour_ending,element_name_ja,unit,month,day_of_month,value,quality_flag,is_reference_only,n_years,statistic_start_year,statistic_end_year,available_at
+        s47662,3600,sunshine_rate_ge_40pct,normal,,日照率≧40% 日数（出現率）,%,2,1,78.0,8,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,3600,sunshine_rate_ge_40pct,normal,,日照率≧40% 日数（出現率）,%,2,2,78.0,8,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,3600,sunshine_rate_ge_40pct,normal,,日照率≧40% 日数（出現率）,%,2,3,78.0,8,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,3600,sunshine_rate_ge_40pct,normal,,日照率≧40% 日数（出現率）,%,2,4,78.0,8,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,3600,sunshine_rate_ge_40pct,normal,,日照率≧40% 日数（出現率）,%,2,5,78.0,8,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,3600,sunshine_rate_ge_40pct,normal,,日照率≧40% 日数（出現率）,%,2,6,78.0,8,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,3600,sunshine_rate_ge_40pct,normal,,日照率≧40% 日数（出現率）,%,2,7,78.0,8,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,3600,sunshine_rate_ge_40pct,normal,,日照率≧40% 日数（出現率）,%,2,8,78.0,8,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,3600,sunshine_rate_ge_40pct,normal,,日照率≧40% 日数（出現率）,%,2,9,78.0,8,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,3600,sunshine_rate_ge_40pct,normal,,日照率≧40% 日数（出現率）,%,2,10,78.0,8,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,3600,sunshine_rate_ge_40pct,normal,,日照率≧40% 日数（出現率）,%,2,11,78.0,8,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,3600,sunshine_rate_ge_40pct,normal,,日照率≧40% 日数（出現率）,%,2,12,78.0,8,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,3600,sunshine_rate_ge_40pct,normal,,日照率≧40% 日数（出現率）,%,2,13,78.0,8,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,3600,sunshine_rate_ge_40pct,normal,,日照率≧40% 日数（出現率）,%,2,14,78.0,8,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,3600,sunshine_rate_ge_40pct,normal,,日照率≧40% 日数（出現率）,%,2,15,78.0,8,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,3600,sunshine_rate_ge_40pct,normal,,日照率≧40% 日数（出現率）,%,2,16,78.0,8,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,3600,sunshine_rate_ge_40pct,normal,,日照率≧40% 日数（出現率）,%,2,17,78.0,8,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,3600,sunshine_rate_ge_40pct,normal,,日照率≧40% 日数（出現率）,%,2,18,78.0,8,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,3600,sunshine_rate_ge_40pct,normal,,日照率≧40% 日数（出現率）,%,2,19,78.0,8,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,3600,sunshine_rate_ge_40pct,normal,,日照率≧40% 日数（出現率）,%,2,20,78.0,8,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,3600,sunshine_rate_ge_40pct,normal,,日照率≧40% 日数（出現率）,%,2,21,78.0,8,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,3600,sunshine_rate_ge_40pct,normal,,日照率≧40% 日数（出現率）,%,2,22,78.0,8,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,3600,sunshine_rate_ge_40pct,normal,,日照率≧40% 日数（出現率）,%,2,23,78.0,8,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,3600,sunshine_rate_ge_40pct,normal,,日照率≧40% 日数（出現率）,%,2,24,78.0,8,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,3600,sunshine_rate_ge_40pct,normal,,日照率≧40% 日数（出現率）,%,2,25,78.0,8,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,3600,sunshine_rate_ge_40pct,normal,,日照率≧40% 日数（出現率）,%,2,26,78.0,8,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,3600,sunshine_rate_ge_40pct,normal,,日照率≧40% 日数（出現率）,%,2,27,78.0,8,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,3600,sunshine_rate_ge_40pct,normal,,日照率≧40% 日数（出現率）,%,2,28,78.0,8,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,3600,sunshine_rate_ge_40pct,normal,,日照率≧40% 日数（出現率）,%,2,29,78.0,8,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,6000,snowfall,normal,,降雪の深さ 日合計,cm,2,1,0.0,6,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,6000,snowfall,normal,,降雪の深さ 日合計,cm,2,2,0.0,6,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,6000,snowfall,normal,,降雪の深さ 日合計,cm,2,3,0.0,6,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,6000,snowfall,normal,,降雪の深さ 日合計,cm,2,4,0.0,6,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,6000,snowfall,normal,,降雪の深さ 日合計,cm,2,5,0.0,6,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,6000,snowfall,normal,,降雪の深さ 日合計,cm,2,6,0.0,6,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,6000,snowfall,normal,,降雪の深さ 日合計,cm,2,7,0.0,6,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,6000,snowfall,normal,,降雪の深さ 日合計,cm,2,8,0.0,6,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,6000,snowfall,normal,,降雪の深さ 日合計,cm,2,9,0.0,6,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,6000,snowfall,normal,,降雪の深さ 日合計,cm,2,10,0.0,6,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,6000,snowfall,normal,,降雪の深さ 日合計,cm,2,11,0.0,6,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,6000,snowfall,normal,,降雪の深さ 日合計,cm,2,12,0.0,6,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,6000,snowfall,normal,,降雪の深さ 日合計,cm,2,13,0.0,6,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,6000,snowfall,normal,,降雪の深さ 日合計,cm,2,14,0.0,6,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,6000,snowfall,normal,,降雪の深さ 日合計,cm,2,15,0.0,6,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,6000,snowfall,normal,,降雪の深さ 日合計,cm,2,16,0.0,6,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,6000,snowfall,normal,,降雪の深さ 日合計,cm,2,17,0.0,6,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,6000,snowfall,normal,,降雪の深さ 日合計,cm,2,18,0.0,6,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,6000,snowfall,normal,,降雪の深さ 日合計,cm,2,19,0.0,6,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,6000,snowfall,normal,,降雪の深さ 日合計,cm,2,20,0.0,6,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,6000,snowfall,normal,,降雪の深さ 日合計,cm,2,21,0.0,6,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,6000,snowfall,normal,,降雪の深さ 日合計,cm,2,22,0.0,6,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,6000,snowfall,normal,,降雪の深さ 日合計,cm,2,23,0.0,6,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,6000,snowfall,normal,,降雪の深さ 日合計,cm,2,24,0.0,6,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,6000,snowfall,normal,,降雪の深さ 日合計,cm,2,25,0.0,6,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,6000,snowfall,normal,,降雪の深さ 日合計,cm,2,26,0.0,6,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,6000,snowfall,normal,,降雪の深さ 日合計,cm,2,27,0.0,6,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,6000,snowfall,normal,,降雪の深さ 日合計,cm,2,28,0.0,6,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,6000,snowfall,normal,,降雪の深さ 日合計,cm,2,29,0.0,6,false,30,1991,2020,2021-05-19 00:00:00
+        s47662,7100,hourly_temperature,normal,1,01時の気温,°C,2,1,1.0,7,true,25,1991,2016,2021-05-19 00:00:00
+        s47662,7100,hourly_temperature,normal,1,01時の気温,°C,2,2,2.0,7,true,25,1991,2016,2021-05-19 00:00:00
+        s47662,7100,hourly_temperature,normal,1,01時の気温,°C,2,3,3.0,7,true,25,1991,2016,2021-05-19 00:00:00
+        s47662,7100,hourly_temperature,normal,1,01時の気温,°C,2,4,4.0,7,true,25,1991,2016,2021-05-19 00:00:00
+        s47662,7100,hourly_temperature,normal,1,01時の気温,°C,2,5,5.0,7,true,25,1991,2016,2021-05-19 00:00:00
+        s47662,7100,hourly_temperature,normal,1,01時の気温,°C,2,6,6.0,7,true,25,1991,2016,2021-05-19 00:00:00
+        s47662,7100,hourly_temperature,normal,1,01時の気温,°C,2,7,7.0,7,true,25,1991,2016,2021-05-19 00:00:00
+        s47662,7100,hourly_temperature,normal,1,01時の気温,°C,2,8,8.0,7,true,25,1991,2016,2021-05-19 00:00:00
+        s47662,7100,hourly_temperature,normal,1,01時の気温,°C,2,9,9.0,7,true,25,1991,2016,2021-05-19 00:00:00
+        s47662,7100,hourly_temperature,normal,1,01時の気温,°C,2,10,10.0,7,true,25,1991,2016,2021-05-19 00:00:00
+        s47662,7100,hourly_temperature,normal,1,01時の気温,°C,2,11,11.0,7,true,25,1991,2016,2021-05-19 00:00:00
+        s47662,7100,hourly_temperature,normal,1,01時の気温,°C,2,12,12.0,7,true,25,1991,2016,2021-05-19 00:00:00
+        s47662,7100,hourly_temperature,normal,1,01時の気温,°C,2,13,13.0,7,true,25,1991,2016,2021-05-19 00:00:00
+        s47662,7100,hourly_temperature,normal,1,01時の気温,°C,2,14,14.0,7,true,25,1991,2016,2021-05-19 00:00:00
+        s47662,7100,hourly_temperature,normal,1,01時の気温,°C,2,15,15.0,7,true,25,1991,2016,2021-05-19 00:00:00
+        s47662,7100,hourly_temperature,normal,1,01時の気温,°C,2,16,16.0,7,true,25,1991,2016,2021-05-19 00:00:00
+        s47662,7100,hourly_temperature,normal,1,01時の気温,°C,2,17,17.0,7,true,25,1991,2016,2021-05-19 00:00:00
+        s47662,7100,hourly_temperature,normal,1,01時の気温,°C,2,18,18.0,7,true,25,1991,2016,2021-05-19 00:00:00
+        s47662,7100,hourly_temperature,normal,1,01時の気温,°C,2,19,19.0,7,true,25,1991,2016,2021-05-19 00:00:00
+        s47662,7100,hourly_temperature,normal,1,01時の気温,°C,2,20,20.0,7,true,25,1991,2016,2021-05-19 00:00:00
+        s47662,7100,hourly_temperature,normal,1,01時の気温,°C,2,21,21.0,7,true,25,1991,2016,2021-05-19 00:00:00
+        s47662,7100,hourly_temperature,normal,1,01時の気温,°C,2,22,22.0,7,true,25,1991,2016,2021-05-19 00:00:00
+        s47662,7100,hourly_temperature,normal,1,01時の気温,°C,2,23,23.0,7,true,25,1991,2016,2021-05-19 00:00:00
+        s47662,7100,hourly_temperature,normal,1,01時の気温,°C,2,24,24.0,7,true,25,1991,2016,2021-05-19 00:00:00
+        s47662,7100,hourly_temperature,normal,1,01時の気温,°C,2,25,25.0,7,true,25,1991,2016,2021-05-19 00:00:00
+        s47662,7100,hourly_temperature,normal,1,01時の気温,°C,2,26,26.0,7,true,25,1991,2016,2021-05-19 00:00:00
+        s47662,7100,hourly_temperature,normal,1,01時の気温,°C,2,27,27.0,7,true,25,1991,2016,2021-05-19 00:00:00
+        s47662,7100,hourly_temperature,normal,1,01時の気温,°C,2,28,28.0,7,true,25,1991,2016,2021-05-19 00:00:00
+        s47662,7100,hourly_temperature,normal,1,01時の気温,°C,2,29,29.0,7,true,25,1991,2016,2021-05-19 00:00:00
+        s47662,9410,hourly_temperature,std,24,24時の気温【標準偏差】,°C,2,1,,0,false,0,,,2021-05-19 00:00:00
+        s47662,9410,hourly_temperature,std,24,24時の気温【標準偏差】,°C,2,2,,0,false,0,,,2021-05-19 00:00:00
+        s47662,9410,hourly_temperature,std,24,24時の気温【標準偏差】,°C,2,3,,0,false,0,,,2021-05-19 00:00:00
+        s47662,9410,hourly_temperature,std,24,24時の気温【標準偏差】,°C,2,4,,0,false,0,,,2021-05-19 00:00:00
+        s47662,9410,hourly_temperature,std,24,24時の気温【標準偏差】,°C,2,5,,0,false,0,,,2021-05-19 00:00:00
+        s47662,9410,hourly_temperature,std,24,24時の気温【標準偏差】,°C,2,6,,0,false,0,,,2021-05-19 00:00:00
+        s47662,9410,hourly_temperature,std,24,24時の気温【標準偏差】,°C,2,7,,0,false,0,,,2021-05-19 00:00:00
+        s47662,9410,hourly_temperature,std,24,24時の気温【標準偏差】,°C,2,8,,0,false,0,,,2021-05-19 00:00:00
+        s47662,9410,hourly_temperature,std,24,24時の気温【標準偏差】,°C,2,9,,0,false,0,,,2021-05-19 00:00:00
+        s47662,9410,hourly_temperature,std,24,24時の気温【標準偏差】,°C,2,10,,0,false,0,,,2021-05-19 00:00:00
+        s47662,9410,hourly_temperature,std,24,24時の気温【標準偏差】,°C,2,11,,0,false,0,,,2021-05-19 00:00:00
+        s47662,9410,hourly_temperature,std,24,24時の気温【標準偏差】,°C,2,12,,0,false,0,,,2021-05-19 00:00:00
+        s47662,9410,hourly_temperature,std,24,24時の気温【標準偏差】,°C,2,13,,0,false,0,,,2021-05-19 00:00:00
+        s47662,9410,hourly_temperature,std,24,24時の気温【標準偏差】,°C,2,14,,0,false,0,,,2021-05-19 00:00:00
+        s47662,9410,hourly_temperature,std,24,24時の気温【標準偏差】,°C,2,15,,0,false,0,,,2021-05-19 00:00:00
+        s47662,9410,hourly_temperature,std,24,24時の気温【標準偏差】,°C,2,16,,0,false,0,,,2021-05-19 00:00:00
+        s47662,9410,hourly_temperature,std,24,24時の気温【標準偏差】,°C,2,17,,0,false,0,,,2021-05-19 00:00:00
+        s47662,9410,hourly_temperature,std,24,24時の気温【標準偏差】,°C,2,18,,0,false,0,,,2021-05-19 00:00:00
+        s47662,9410,hourly_temperature,std,24,24時の気温【標準偏差】,°C,2,19,,0,false,0,,,2021-05-19 00:00:00
+        s47662,9410,hourly_temperature,std,24,24時の気温【標準偏差】,°C,2,20,,0,false,0,,,2021-05-19 00:00:00
+        s47662,9410,hourly_temperature,std,24,24時の気温【標準偏差】,°C,2,21,,0,false,0,,,2021-05-19 00:00:00
+        s47662,9410,hourly_temperature,std,24,24時の気温【標準偏差】,°C,2,22,,0,false,0,,,2021-05-19 00:00:00
+        s47662,9410,hourly_temperature,std,24,24時の気温【標準偏差】,°C,2,23,,0,false,0,,,2021-05-19 00:00:00
+        s47662,9410,hourly_temperature,std,24,24時の気温【標準偏差】,°C,2,24,,0,false,0,,,2021-05-19 00:00:00
+        s47662,9410,hourly_temperature,std,24,24時の気温【標準偏差】,°C,2,25,,0,false,0,,,2021-05-19 00:00:00
+        s47662,9410,hourly_temperature,std,24,24時の気温【標準偏差】,°C,2,26,,0,false,0,,,2021-05-19 00:00:00
+        s47662,9410,hourly_temperature,std,24,24時の気温【標準偏差】,°C,2,27,,0,false,0,,,2021-05-19 00:00:00
+        s47662,9410,hourly_temperature,std,24,24時の気温【標準偏差】,°C,2,28,,0,false,0,,,2021-05-19 00:00:00
+        s47662,9410,hourly_temperature,std,24,24時の気温【標準偏差】,°C,2,29,,0,false,0,,,2021-05-19 00:00:00
