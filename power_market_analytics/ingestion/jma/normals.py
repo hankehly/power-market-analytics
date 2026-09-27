@@ -444,7 +444,7 @@ class JmaNormalsCsvLoader(CsvLoader):
         """One positional scan of a period's files, the manifest's values injected."""
         manifest = self._read_manifest(manifest_path)
         raw = self._scan_positional(files, self.COLUMN_COUNT)
-        self._check_rows(raw)
+        self._check_rows(raw, files)
         data = (
             raw.withColumn("__normals_period_start_year", F.lit(int(manifest["period_start_year"])))
             .withColumn("__normals_period_end_year", F.lit(int(manifest["period_end_year"])))
@@ -481,13 +481,15 @@ class JmaNormalsCsvLoader(CsvLoader):
             )
         return manifest
 
-    def _check_rows(self, raw: DataFrame) -> None:
+    def _check_rows(self, raw: DataFrame, files: list[str]) -> None:
         """Validate every row of a scan, reporting per file.
 
         Parameters
         ----------
         raw : pyspark.sql.DataFrame
             A positional scan carrying ``SOURCE_FILE_COL``.
+        files : list of str
+            The paths the scan read, so a file that produced no rows is caught.
 
         Raises
         ------
@@ -496,8 +498,10 @@ class JmaNormalsCsvLoader(CsvLoader):
             a station number other than the file's, an element code that is not
             four digits, a month outside 1–12, a value cell that is not an
             integer (a short line reads as nulls and fails here too), a flag
-            outside 0/5/6/7/8; then an element without exactly its 12 months,
-            or a file whose element set is not every file's.
+            outside 0/5/6/7/8; then a file with no rows (an empty member would
+            otherwise drop its station without a word), an element without
+            exactly its 12 months, or a file whose element set is not every
+            file's.
         """
         station_of_file = F.regexp_extract(F.col(SOURCE_FILE_COL), self._FILENAME_RE.pattern, 1)
         values = [F.col(f"_c{i}") for i in range(7, self.COLUMN_COUNT, 2)]
@@ -551,10 +555,16 @@ class JmaNormalsCsvLoader(CsvLoader):
                         f"{file}: {n_bad} row(s) with {label}; first (station, element, "
                         f"month): {examples}"
                     )
-        self._check_structure(raw)
+        self._check_structure(raw, files)
 
-    def _check_structure(self, raw: DataFrame) -> None:
-        """Every element has its 12 months, and every file holds the same elements."""
+    def _check_structure(self, raw: DataFrame, files: list[str]) -> None:
+        """Every file has rows, every element its 12 months, every file the same elements."""
+        with_rows = {r[SOURCE_FILE_COL] for r in raw.select(SOURCE_FILE_COL).distinct().collect()}
+        without_rows = [file for file in files if Path(file).name not in with_rows]
+        if without_rows:
+            raise ValueError(
+                f"{without_rows[0]}: no rows (an empty file); {len(without_rows)} such file(s)"
+            )
         per_element = (
             raw.groupBy(SOURCE_FILE_COL, "_c2")
             .agg(F.count(F.lit(1)).alias("rows"), F.count_distinct(F.col("_c6")).alias("months"))
@@ -584,5 +594,4 @@ class JmaNormalsCsvLoader(CsvLoader):
                 f"{r[SOURCE_FILE_COL]}: {r['elements']} element(s) where the other files have "
                 f"{n_elements}; every file must hold the same elements"
             )
-        n_files = raw.select(SOURCE_FILE_COL).distinct().count()
-        logger.debug("{} file(s): row and structure checks passed", n_files)
+        logger.debug("{} file(s): row and structure checks passed", len(with_rows))

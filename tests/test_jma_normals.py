@@ -706,6 +706,18 @@ class TestValidationFailsBeforeWriting:
         with pytest.raises(ValueError, match=message):
             loader.load()
 
+    def test_an_empty_file_is_rejected_rather_than_dropping_its_station(self, spark, tmp_path):
+        write_period(
+            tmp_path,
+            2020,
+            {"nml_sfc_d_47662.csv": daily_file_text("47662"), "nml_sfc_d_47772.csv": ""},
+            MANIFEST_2020,
+        )
+        loader = JmaNormalsCsvLoader(CONTRACT, tmp_path, "test_jma_normals.empty", spark=spark)
+        with pytest.raises(ValueError, match=r"nml_sfc_d_47772\.csv: no rows"):
+            loader.load()
+        assert not spark.catalog.tableExists("test_jma_normals.empty")
+
     def test_a_file_not_named_like_a_daily_file_is_rejected(self, spark, tmp_path):
         daily = write_period(
             tmp_path, 2020, {"normals_47662.csv": daily_file_text("47662")}, MANIFEST_2020

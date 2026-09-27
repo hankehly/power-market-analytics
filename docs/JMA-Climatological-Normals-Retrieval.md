@@ -176,7 +176,9 @@ stations.
 ## 6. Downloading and loading
 
 ```bash
-# Host or devcontainer: the page (version), the zip (20 MB), the 157 daily files.
+# The page (version), the zip (20 MB), the 157 daily files. Host-side:
+uv run python scripts/download_jma_normals.py
+# or in the devcontainer:
 just python scripts/download_jma_normals.py            # every configured period
 just python scripts/download_jma_normals.py --years 2020 --data-dir data/jma/normals
 

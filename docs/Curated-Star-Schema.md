@@ -1,6 +1,6 @@
 # Curated star schema
 
-The curated layer (`dbt/models/curated/`) contains eighteen fact tables across
+The curated layer (`dbt/models/curated/`) holds the sixteen fact tables below across
 six subject areas, sharing a conformed `dim_date` (the census fact, a
 once-per-census snapshot, joins its own mesh dimension instead):
 
