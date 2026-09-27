@@ -3,8 +3,8 @@
 ## Commands
 
 - `just refresh-all` — every source in one go: download + reload `raw` for JEPX (+ the holidays
-  seed), JMA hourly (+ the station seed), OCCTO, TEPCO (both datasets), Kansai (both datasets),
-  e-Stat and MSM,
+  seed), JMA hourly (+ the station seed), JMA normals, OCCTO, TEPCO (both datasets), Kansai
+  (both datasets), e-Stat and MSM,
   in that order (JMA before MSM: the MSM downloader reads the station seed), each script with
   its defaults, then a single `dbt build` (models + tests). Warm caches make it ~1.5 h,
   dominated by JMA re-fetching every station's current-year file; a failing step aborts before
@@ -18,6 +18,11 @@
     args = all ~149 staffed stations, ~13.5 h cold; `--request-interval 3` is proven — the
     2026-08-20 full backfill, ~3,100 requests, zero 429s, ~6 h — while 2 s spacing draws 429s),
     `load_jma_hourly.py`.
+  - JMA normals (平年値, since 2026-09-27): `download_jma_normals.py` (the version off the
+    平年値ダウンロード page, `normal_surface.zip` — 20 MB, always re-downloaded — validated and
+    its 157 daily files extracted under `data/jma/normals/2020/` with a manifest; no `--force`),
+    `load_jma_normals.py` (152,604 rows, seconds). Host or devcontainer for the download,
+    devcontainer for the load.
   - OCCTO 翌々日, two datasets — the demand-forecast CSV (~700 KB, 3 HTTP calls) and the
     half-hourly area reserve-rate CSV (~20 MB/yr, fetched in 300-day windows because the portal
     caps a download at 150,000 rows): `download_occto_demand_forecast.py`,
@@ -587,6 +592,34 @@
   `fct_jma_weather_hourly` on station_id + forecast_valid_at = observed_at for
   forecast-vs-observed comparisons). Protocol, GRIB2 element table and verification results:
   [docs/JMA-MSM-GPV-Retrieval.md](docs/JMA-MSM-GPV-Retrieval.md).
+- JMA climatological normals (平年値, the 1991–2020 period, in use since 2021-05-19; since
+  2026-09-27): `scripts/download_jma_normals.py` (`JmaNormalsDownloader` in
+  `power_market_analytics/ingestion/jma/normals.py`, which holds the vintage config
+  `VINTAGES` — one entry, the 2030 normals become a second —, the downloader and the loader:
+  the version is read off the page heading `2020年平年値（第5版)`, the archive is validated —
+  the station index plus exactly 157 daily files — and the daily files, the index and
+  `manifest.json` written under `data/jma/normals/2020/`, the manifest removed first and
+  written last so a failed run leaves none) → `scripts/load_jma_normals.py`
+  (`JmaNormalsCsvLoader`, positional contract `conf/schemas/jma_normal_surface_daily.yaml`,
+  69 fields — 7 keys, then 31 value/flag pairs —, the period, version and in-use date
+  injected from the manifest, row checks in one grouped Spark pass) →
+  `pma_raw.jma_normal_surface_daily` (station × element × month, 152,604 rows) →
+  `stg_jma__normal_surface_daily` → `std_jma__normal_daily` (one row per station × element ×
+  month × day, 4,654,422 rows: the value scaled by the seed `jma_normal_elements` — 81 codes,
+  the three occurrence rates percentages as published —, null with flag 0, the padding days
+  dropped by a fixed leap-year calendar so Feb 29 stays, `is_reference_only` = flag 5 or 7,
+  `available_at` = 2021-05-19 00:00, the period's first in-use date — the documented bound,
+  since only the current version of the archive is served) → `fct_jma_normal_daily` (station ×
+  month × day_of_month, 147 stations × 366 days: mean/max/min temperature with std, cloud
+  cover, sunshine, radiation, precipitation, snowfall, snow depth, three `prob_*_pct` rates,
+  one flag per element; the ten stations outside a JEPX area drop at the `dim_jma_station`
+  join) and `fct_jma_normal_hourly` (× hour_ending 1–24, 1,291,248 rows: the temperature at
+  each hour with its std, flag and statistic years). A normal has no date: join a dated row
+  on `station_id`, the month and day of its date and, for the hourly fact, the hour ending
+  (hour 24 belongs to the day it ends, as `fct_jma_weather_hourly` places it). In no preset;
+  departure-from-normal features are a feature candidate of their own. Protocol, record
+  layout, element codes, flags and versions:
+  [docs/JMA-Climatological-Normals-Retrieval.md](docs/JMA-Climatological-Normals-Retrieval.md).
 - OCCTO 翌々日 demand forecast: `scripts/download_occto_demand_forecast.py`
   (`OcctoBulkDownloader` in `power_market_analytics/ingestion/occto.py`, always
   re-downloads the whole history) → `data/occto/demand_forecast_dad/` →
@@ -1262,6 +1295,13 @@
 - JMA hourly: 積雪の深さ carries 現象なし情報 at staffed stations and is blank (not 0) with
   quality 1 when snow is untracked off-season; `wind_direction_quality_flag` is the one
   nullable flag (阿蘇山 s47821 post-closure padding rows, 2017-12-12..31) — don't tighten either.
+- JMA normals: the two year columns of a daily row are the years *that statistic* covers
+  (1991–2016 for an observation that ended in 2016, 0 and 0 with `n_years` 0 for none), not
+  the period — the period is the vintage's. Only the current version of the archive is served
+  (5 since 2025-05-21; each version changed a few stations' files — 延岡 in v5), so a reload
+  after a new version silently changes those rows; the manifest records the version loaded.
+  A standard-deviation or class-threshold row shares its base element's flag and years on
+  every cell (measured), so the facts carry one flag per measure; a singular test keeps it so.
 - Feast's Spark offline store needs a **UTC** Spark session: the SQL it generates renders the
   entity timestamps as UTC string literals (`where available_at <= '2025-03-09T00:30:00'`) while
   comparing rows as instants, so any other session zone shifts the cutoff. The devcontainer's

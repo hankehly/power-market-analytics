@@ -16,7 +16,13 @@ model, request caps and CSV format — is documented in
   end-of-observation date) scraped from the per-prefecture ``top/station`` pages.
 * :mod:`~power_market_analytics.ingestion.jma.load` — the hourly CSVs into
   ``pma_raw.jma_hourly_staffed``.
+* :mod:`~power_market_analytics.ingestion.jma.normals` — the climatological
+  normals (平年値): the vintage config, the ``normal_surface.zip`` downloader
+  and the positional loader of the daily files into
+  ``pma_raw.jma_normal_surface_daily``.
 
 Only staffed stations (気象官署, ``s``-prefixed ids) inside a JEPX area are in
-scope since the 2026-08 re-scope.
+scope for the observations since the 2026-08 re-scope; the normals archive
+holds every staffed station, and the ten outside a JEPX area drop out at the
+curated join.
 """

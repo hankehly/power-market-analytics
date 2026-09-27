@@ -2,6 +2,7 @@
 - Data sources
   - [JMA — 過去の気象データ 時別値](JMA-Weather-Data-Retrieval.md)
   - [JMA — MSM GPV 地上予報](JMA-MSM-GPV-Retrieval.md)
+  - [JMA — 平年値 (climatological normals)](JMA-Climatological-Normals-Retrieval.md)
   - [OCCTO — 需要予想・広域予備率 翌々日](OCCTO-Demand-Forecast-Retrieval.md)
   - [TEPCO — エリア需要・発電情報 実績](TEPCO-Area-Demand-Generation-Retrieval.md)
   - [TEPCO — でんき予報 電力使用実績](TEPCO-Power-Usage-Retrieval.md)
