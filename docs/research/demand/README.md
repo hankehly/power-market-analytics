@@ -19,25 +19,50 @@ midnight (`history_lead_days = 2`). Weather features use complete observation
 days ≤ D-2 at the area's representative JMA station
 (`dim_area.representative_jma_station_id`).
 
+**Evaluation window.** Since 2026-09-27
+([PR #223](https://github.com/hankehly/power-market-analytics/pull/223)) the
+task pins its evaluation window, **2024-04-01 … 2026-03-31** (FY2024 and
+FY2025, 730 days), and reserves a holdout, 2026-09-06 … 2027-03-31, for
+confirmation runs. `scripts/demand_backtest.py` scores the window when it is
+given no dates. The runs from before the pin scored 2024-08-18 … 2026-08-17,
+so their numbers are not comparable with a run on the window; the experiments
+decided on them keep the numbers as run.
+
 **Baseline.** A strategy run in the `demand` MLflow experiment. The Tokyo
 baseline is `e212` since 2026-09-20, when the researcher kept
 [#212](https://github.com/hankehly/power-market-analytics/issues/212) for
-lowering MAE 6.5 % (546,202 → 510,465 kWh over 2024-08-18 … 2026-08-17, CI over
-days excluding zero). Its reference run is `34c506fbb30d4c7eb4efdca973e49384`
-and the baseline it beat is `32ecbdbc7c1a456d8f1411ba867c6d84`, a run of
-`e179` (named `lightgbm_msm_popw_daytype_simday_lags_weather` at the time) — the Tokyo baseline from
+lowering MAE 6.5 % (546,202 → 510,465 kWh over 2024-08-18 … 2026-08-17, CI
+over days excluding zero; run `34c506fbb30d4c7eb4efdca973e49384` against
+`32ecbdbc7c1a456d8f1411ba867c6d84`, a run of `e179` — the Tokyo baseline from
 2026-09-19, when [R-006](https://github.com/hankehly/power-market-analytics/issues/165),
-[R-007](https://github.com/hankehly/power-market-analytics/issues/166) and [R-008](https://github.com/hankehly/power-market-analytics/issues/167)
-were kept tentatively — on the same window. Both runs are matched to the marts
-of 2026-09-20, so a candidate on that window can use `34c506fb…` as its
-baseline instead of a fresh run; a candidate on any other window still needs
-one. `e212` runs for Tokyo only, because its similar-day mart needs the
-でんき予報 hourly load and a fit of the weights (`scripts/fit_similar_day.py`).
-`scripts/demand_backtest.py` keeps `e171`
-as its default and as the Kansai baseline ([R-003](https://github.com/hankehly/power-market-analytics/issues/162),
-2026-08-26). `e169`, `e170` and the similar-day presets `e173` … `e179` stay
-registered as reference presets. Pin `--start-date`,
-`--end-date` and `--train-start` identically for a candidate and its baseline.
+[R-007](https://github.com/hankehly/power-market-analytics/issues/166) and
+[R-008](https://github.com/hankehly/power-market-analytics/issues/167) were
+kept tentatively). Its reference run on the pinned window is
+`264840a26c8f48ac83b2cfe4ebb1c16c` (MAE 518,070 kWh, MAPE 3.13 %), which the
+batch of 2026-09-27 ([#230](https://github.com/hankehly/power-market-analytics/issues/230))
+reproduced period by period. `e212` runs for Tokyo
+only, because its similar-day mart needs the でんき予報 hourly load and a fit
+of the weights (`scripts/fit_similar_day.py`). `scripts/demand_backtest.py`
+keeps `e171` as its default and as the Kansai baseline
+([R-003](https://github.com/hankehly/power-market-analytics/issues/162),
+2026-08-26); its Kansai reference run is `53b62fe1856b40bdb8c6944cb3ec0b50`
+(MAE 287,231 kWh, MAPE 3.52 %). Both reference runs are matched to the
+marts built 2026-09-19 … 2026-09-21, and the Tokyo one also to the
+similar-day partition `b18808c615184762b21621354f93bfb5` (`e171` reads no
+similar-day feature). A candidate on the pinned window can use the baseline's
+run as its baseline until the data is refreshed, after which re-run the
+baseline first; a re-run of the similar-day job also retires the Tokyo one,
+because the fit moves with the last bit of its inputs. Pin `--train-start`
+identically for a candidate and its baseline; the window's dates need no
+pinning. `e169`, `e170`, the similar-day presets `e173` … `e179` and the two
+holiday variants `e219` and `e221` stay registered as reference presets.
+
+**Reference runs on the pinned window.** Every preset was re-scored on the
+window on 2026-09-27, in one batch with the script's defaults: 730 days, no
+day skipped, the 13 presets for Tokyo and `e169` … `e171` for Kansai. The
+runs are the MLflow runs tagged `batch = pinned-window-reeval-2026-09-27`; the
+table of their MAE, MAPE and matched comparisons against the baselines is
+[#230](https://github.com/hankehly/power-market-analytics/issues/230).
 
 **Preset names.** Every demand preset is named after the experiment that tested
 it, `e<issue number>` (the [research README](research/README.md)'s rule). Until
