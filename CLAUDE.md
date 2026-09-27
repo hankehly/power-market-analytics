@@ -258,9 +258,11 @@
 
   A `--holdout` run covers exactly the reservation unless `--start-date` or
   `--days` say otherwise, so a batch compares on one window; `--end-date` past
-  `holdout_end` is refused, since nothing is reserved there. A run reaching the
-  days between `eval_end` and `holdout_start` — which pre-pin runs scored — is
-  allowed with explicit dates and warns that they are not independent evidence.
+  `holdout_end` is refused, since nothing is reserved there. A run whose days
+  include any between `eval_end` and `holdout_start` — which pre-pin runs scored —
+  is allowed with explicit dates and warns, naming the days it reads there, that
+  they are not independent evidence; the check is on the overlap, not on where
+  the run ends, so a run from inside the window into the reservation is warned too.
   `reads_holdout` and `reads_unseen_holdout` read the last day actually
   scored (`last_scored_date`), not the day asked for, so a run whose holdout
   targets all raised `ForecastUnavailableError` does not claim to have read
