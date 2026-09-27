@@ -189,12 +189,12 @@ class TestCompareScript:
 
 
 class TestBacktestScript:
-    def test_lightgbm_over_a_pinned_window(self, spark, curated_warehouse, feature_marts):
+    def test_e169_over_a_pinned_window(self, spark, curated_warehouse, feature_marts):
         script = import_script("demand_backtest")
         script.main(
             [
                 "--strategy",
-                "lightgbm",
+                "e169",
                 "--area",
                 "tokyo",
                 "--start-date",
@@ -207,24 +207,25 @@ class TestBacktestScript:
         )
         run = last_run()
         assert run.info.status == "FINISHED"
-        assert run.info.run_name == "lightgbm-tokyo"
+        assert run.info.run_name == "e169-tokyo"
         assert mlflow.get_experiment(run.info.experiment_id).name == "demand"
 
         params = run.data.params
-        assert params["strategy"] == "lightgbm"
+        assert params["strategy"] == "e169"
         assert params["area"] == "tokyo"
         assert params["start_date"] == "2024-04-10"
         assert params["end_date"] == "2024-04-12"
         assert params["n_days"] == "3"
         assert params["n_predictions"] == "144"
         assert params["n_days_skipped"] == "0"
-        assert params["feature_preset"] == "lightgbm"
+        assert params["feature_preset"] == "e169"
         assert params["feature_preset_base"] == "none"
         assert params["feature_refs"].startswith("ftr_day_calendar:month,")
         assert params["lgbm_feature_cols"] == (
-            "time_code,month,day_of_week,wavg_temperature_c,lag_7d_demand_kwh"
+            "time_code,month,day_of_week,wavg_temperature_c,lag_7d_demand_kwh,"
+            "forecast_temperature_c"
         )
-        assert run.data.tags["strategy"] == "lightgbm"
+        assert run.data.tags["strategy"] == "e169"
         assert run.data.tags["area"] == "tokyo"
         assert run.data.tags["warehouse_table"] == FORECAST_TABLE
         assert run.data.metrics["n_refits"] == 1.0
@@ -249,7 +250,7 @@ class TestBacktestScript:
 
         published = published_rows(spark, run.info.run_id)
         assert len(published) == 144
-        assert set(published["strategy"]) == {"lightgbm"}
+        assert set(published["strategy"]) == {"e169"}
         assert set(published["area_code"]) == {"tokyo"}
         assert list(published.columns) == [
             "strategy",
@@ -283,7 +284,7 @@ class TestBacktestScript:
             "published_at",
             "run_id",
         ]
-        assert len(contributions) == 144 * 6  # base + the 5 lightgbm features per scored period
+        assert len(contributions) == 144 * 7  # base + the 6 e169 features per scored period
         assert set(contributions["component"]) == {
             "base",
             "time_code",
@@ -291,6 +292,7 @@ class TestBacktestScript:
             "day_of_week",
             "wavg_temperature_c",
             "lag_7d_demand_kwh",
+            "forecast_temperature_c",
         }
         assert contributions["published_at"].nunique() == 1
         assert contributions["published_at"].iloc[0] == published["published_at"].iloc[0]
@@ -302,7 +304,7 @@ class TestBacktestScript:
             sums.reindex(forecasts.index).to_numpy(), forecasts.to_numpy(), rtol=1e-9, atol=1e-3
         )
 
-        # The run's permutation importance lands next to them: 5 features x 5 repeats.
+        # The run's permutation importance lands next to them: 6 features x 5 repeats.
         assert run.data.tags["importance_table"] == IMPORTANCE_TABLE
         assert params["permutation_repeats"] == "5"
         assert params["permutation_seed"] == "0"
@@ -324,13 +326,14 @@ class TestBacktestScript:
             "published_at",
             "run_id",
         ]
-        assert len(importance) == 5 * 5
+        assert len(importance) == 6 * 5
         assert importance["feature"].unique().tolist() == [
             "time_code",
             "month",
             "day_of_week",
             "wavg_temperature_c",
             "lag_7d_demand_kwh",
+            "forecast_temperature_c",
         ]
         assert importance["n_periods"].unique().tolist() == [144]
         # the baseline is the run's own MAE (the MLflow evaluation replays the same rows)
@@ -361,8 +364,9 @@ class TestBacktestScript:
             "day_of_week",
             "EWA(temperature_c, gap=2d, window=7, step=1d, halflife=1)",
             "LAG(demand_kwh, 7d)",
+            "forecast_temperature_c",
         ]
-        assert summary["n_repeats"].tolist() == [5] * 5
+        assert summary["n_repeats"].tolist() == [5] * 6
 
     def test_importance_repeats_reaches_the_strategy(self, spark, curated_warehouse, feature_marts):
         script = import_script("demand_backtest")
@@ -481,7 +485,7 @@ class TestBacktestScript:
         assert lags.loc[list(DEMAND_HOLE_TIME_CODES)].isna().all()
         assert lags.drop(index=list(DEMAND_HOLE_TIME_CODES)).notna().all()
 
-    def test_lightgbm_msm_forecasts_the_day_without_a_temperature_forecast(
+    def test_e169_forecasts_the_day_without_a_temperature_forecast(
         self, spark, curated_warehouse, feature_marts
     ):
         # 2024-05-15 has no MSM forecast rows: the candidate strategy forecasts
@@ -492,7 +496,7 @@ class TestBacktestScript:
         script.main(
             [
                 "--strategy",
-                "lightgbm_msm",
+                "e169",
                 "--area",
                 "tokyo",
                 "--start-date",
@@ -505,9 +509,9 @@ class TestBacktestScript:
         )
         run = last_run()
         assert run.info.status == "FINISHED"
-        assert run.info.run_name == "lightgbm_msm-tokyo"
+        assert run.info.run_name == "e169-tokyo"
         params = run.data.params
-        assert params["strategy"] == "lightgbm_msm"
+        assert params["strategy"] == "e169"
         assert params["n_days"] == "3"
         assert params["n_days_skipped"] == "0"
         assert params["n_predictions"] == "144"
@@ -515,10 +519,10 @@ class TestBacktestScript:
             "time_code,month,day_of_week,wavg_temperature_c,lag_7d_demand_kwh,"
             "forecast_temperature_c"
         )
-        assert run.data.tags["strategy"] == "lightgbm_msm"
+        assert run.data.tags["strategy"] == "e169"
         published = published_rows(spark, run.info.run_id)
         assert len(published) == 144
-        assert set(published["strategy"]) == {"lightgbm_msm"}
+        assert set(published["strategy"]) == {"e169"}
         assert (published["trade_date"] == FORECAST_MISSING_DAY.date()).sum() == 48
         contributions = published_contribution_rows(spark, run.info.run_id)
         temperature = contributions[
@@ -527,14 +531,12 @@ class TestBacktestScript:
         ]
         assert len(temperature) == 48 and temperature["feature_value"].isna().all()
 
-    def test_lightgbm_msm_popw_uses_the_weighted_forecast(
-        self, spark, curated_warehouse, feature_marts
-    ):
+    def test_e170_uses_the_weighted_forecast(self, spark, curated_warehouse, feature_marts):
         script = import_script("demand_backtest")
         script.main(
             [
                 "--strategy",
-                "lightgbm_msm_popw",
+                "e170",
                 "--start-date",
                 "2024-05-10",
                 "--end-date",
@@ -545,27 +547,25 @@ class TestBacktestScript:
         )
         run = last_run()
         assert run.info.status == "FINISHED"
-        assert run.info.run_name == "lightgbm_msm_popw-tokyo"
+        assert run.info.run_name == "e170-tokyo"
         params = run.data.params
         assert params["n_days"] == "2"
         assert params["n_predictions"] == "96"
-        assert params["feature_preset"] == "lightgbm_msm_popw"
+        assert params["feature_preset"] == "e170"
         assert params["lgbm_feature_cols"] == (
             "time_code,month,day_of_week,wavg_temperature_c,lag_7d_demand_kwh,"
             "popw_forecast_temperature_c"
         )
         published = published_rows(spark, run.info.run_id)
-        assert set(published["strategy"]) == {"lightgbm_msm_popw"}
+        assert set(published["strategy"]) == {"e170"}
 
-    def test_lightgbm_msm_popw_daytype_logs_the_categorical_feature(
-        self, spark, curated_warehouse, feature_marts
-    ):
+    def test_e171_logs_the_categorical_feature(self, spark, curated_warehouse, feature_marts):
         # 2024-05-03..06 are all holidays (憲法記念日, みどりの日, こどもの日, 休日).
         script = import_script("demand_backtest")
         script.main(
             [
                 "--strategy",
-                "lightgbm_msm_popw_daytype",
+                "e171",
                 "--start-date",
                 "2024-05-03",
                 "--end-date",
@@ -576,11 +576,11 @@ class TestBacktestScript:
         )
         run = last_run()
         assert run.info.status == "FINISHED"
-        assert run.info.run_name == "lightgbm_msm_popw_daytype-tokyo"
+        assert run.info.run_name == "e171-tokyo"
         params = run.data.params
         assert params["n_days"] == "4"
         assert params["n_predictions"] == "192"
-        assert params["feature_preset"] == "lightgbm_msm_popw_daytype"
+        assert params["feature_preset"] == "e171"
         assert params["lgbm_feature_cols"] == (
             "time_code,month,day_of_week,wavg_temperature_c,lag_7d_demand_kwh,"
             "popw_forecast_temperature_c,day_type"
@@ -588,14 +588,14 @@ class TestBacktestScript:
         assert params["lgbm_categorical_feature_cols"] == "day_type"
         published = published_rows(spark, run.info.run_id)
         assert len(published) == 192
-        assert set(published["strategy"]) == {"lightgbm_msm_popw_daytype"}
+        assert set(published["strategy"]) == {"e171"}
 
     def test_similar_day_preset_reads_the_mart(self, spark, curated_warehouse, feature_marts):
         script = import_script("demand_backtest")
         script.main(
             [
                 "--strategy",
-                "lightgbm_msm_popw_daytype_simday",
+                "e173",
                 "--start-date",
                 "2024-05-10",
                 "--end-date",
@@ -606,10 +606,10 @@ class TestBacktestScript:
         )
         run = last_run()
         assert run.info.status == "FINISHED"
-        assert run.info.run_name == "lightgbm_msm_popw_daytype_simday-tokyo"
+        assert run.info.run_name == "e173-tokyo"
         params = run.data.params
-        assert params["feature_preset"] == "lightgbm_msm_popw_daytype_simday"
-        assert params["feature_preset_base"] == "lightgbm_msm_popw_daytype"
+        assert params["feature_preset"] == "e173"
+        assert params["feature_preset_base"] == "e171"
         assert params["feature_refs"].endswith(
             ",ftr_period_similar_day:similar_day_rank1_demand_kwh"
         )
@@ -640,15 +640,15 @@ class TestBacktestScript:
     def test_default_strategy_is_the_kept_day_type_model(
         self, spark, curated_warehouse, feature_marts
     ):
-        # demand/R-003 E-001 (confirmed 2026-08-26): lightgbm_msm_popw_daytype is the demand
-        # baseline.
+        # demand/R-003 E-001 (confirmed 2026-08-26): e171, lightgbm_msm_popw_daytype until
+        # 2026-09-27, is the default and the Kansai baseline.
         script = import_script("demand_backtest")
         script.main(["--days", "1", "--shap-nsamples", "20"])
         run = last_run()
-        assert run.info.run_name == "lightgbm_msm_popw_daytype-tokyo"
-        assert run.data.params["strategy"] == "lightgbm_msm_popw_daytype"
+        assert run.info.run_name == "e171-tokyo"
+        assert run.data.params["strategy"] == "e171"
         assert run.data.params["lgbm_categorical_feature_cols"] == "day_type"
-        assert run.data.params["feature_preset"] == "lightgbm_msm_popw_daytype"
+        assert run.data.params["feature_preset"] == "e171"
 
     def test_train_start_reaches_the_strategy(self, spark, curated_warehouse, feature_marts):
         script = import_script("demand_backtest")
@@ -662,13 +662,13 @@ class TestBacktestScript:
         script.main(
             [
                 "--strategy",
-                "lightgbm",
+                "e170",
                 "--add",
                 "ftr_day_calendar:day_type",
                 "--drop",
                 "ftr_day_calendar:day_of_week",
                 "--name",
-                "lightgbm_daytype",
+                "e170_daytype",
                 "--start-date",
                 "2024-05-03",
                 "--end-date",
@@ -681,25 +681,26 @@ class TestBacktestScript:
         )
         run = last_run()
         assert run.info.status == "FINISHED"
-        assert run.info.run_name == "lightgbm_daytype-tokyo"
-        assert run.data.tags["strategy"] == "lightgbm_daytype"
+        assert run.info.run_name == "e170_daytype-tokyo"
+        assert run.data.tags["strategy"] == "e170_daytype"
         params = run.data.params
-        assert params["strategy"] == "lightgbm_daytype"
-        assert params["feature_preset"] == "lightgbm_daytype"
-        assert params["feature_preset_base"] == "lightgbm"
+        assert params["strategy"] == "e170_daytype"
+        assert params["feature_preset"] == "e170_daytype"
+        assert params["feature_preset_base"] == "e170"
         assert params["lgbm_feature_cols"] == (
-            "time_code,month,wavg_temperature_c,lag_7d_demand_kwh,day_type"
+            "time_code,month,wavg_temperature_c,lag_7d_demand_kwh,popw_forecast_temperature_c,"
+            "day_type"
         )
         # The added day type is categorical by the mart's tag, not by any declaration.
         assert params["lgbm_categorical_feature_cols"] == "day_type"
-        assert set(published_rows(spark, run.info.run_id)["strategy"]) == {"lightgbm_daytype"}
+        assert set(published_rows(spark, run.info.run_id)["strategy"]) == {"e170_daytype"}
         components = set(published_contribution_rows(spark, run.info.run_id)["component"])
         assert "day_type" in components and "day_of_week" not in components
 
     def test_add_or_drop_without_a_name_is_rejected(self, capsys):
         script = import_script("demand_backtest")
         with pytest.raises(SystemExit) as exc:
-            script.main(["--strategy", "lightgbm", "--add", "ftr_day_calendar:day_type"])
+            script.main(["--strategy", "e170", "--add", "ftr_day_calendar:day_type"])
         assert exc.value.code == 2
         assert "give the run a --name" in capsys.readouterr().err
 

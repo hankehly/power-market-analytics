@@ -179,8 +179,12 @@
   params `feature_preset`, `feature_preset_base`, `feature_refs`, `lgbm_feature_cols`). A
   new preset = a new file under `conf/presets/<task>/`, named after the experiment issue that
   tests it, `e<issue>` with an optional batch slug (`e185_recent_load`) — never the algorithm,
-  the ancestry (the file's `base`) or the feature list; the thirteen presets of 2026-09-19 keep
-  their chain names (a published preset's file is never edited); new features come from the marts (`just feature-views`
+  the ancestry (the file's `base`) or the feature list; a published preset's features are
+  never edited. The demand chain names went on 2026-09-27: the ten presets of 2026-09-19 took
+  their experiments' numbers, `e169` … `e179` (the table in
+  `docs/research/demand/README.md`), and the four-feature root `lightgbm`, which no
+  experiment tested, is written out in `e169` and `e170`; a run, an MLflow `feature_preset`
+  param or an issue from before that day carries the old name. New features come from the marts (`just feature-views`
   after a mart changes). The spot `LightGbmStrategy` / `LightGbmOcctoStrategy` classes and
   the OCCTO loader/frame were deleted with PR 5 of the feature catalogue (reproduced at
   0 difference first). Logs to MLflow (`just open mlflow`) and publishes forecasts to the
@@ -196,20 +200,20 @@
   matched two-run comparison (MAE overall / by day part / near the OCCTO peak hour / by
   month / high-price days, plus bias) as markdown; needs
   `just dbt build --select +fct_spot_price_forecast_accuracy` after the runs.
-- `just python scripts/demand_backtest.py --strategy lightgbm_msm_popw_daytype --area tokyo` —
-  day-ahead area demand backtest. Strategies: the twelve files under `conf/presets/demand/`
-  — `lightgbm`, `lightgbm_msm`, `lightgbm_msm_popw`, `lightgbm_msm_popw_daytype` (the
-  script default and the Kansai baseline), `lightgbm_msm_popw_daytype_simday` (the Tokyo
+- `just python scripts/demand_backtest.py --strategy e171 --area tokyo` —
+  day-ahead area demand backtest. Strategies: the thirteen files under `conf/presets/demand/`
+  (since 2026-09-27 every one named `e<experiment issue>`; the chain names they carried until
+  then, which their old runs still do, are in the table in `docs/research/demand/README.md`)
+  — `e169`, `e170`, `e171` (the script default and the Kansai baseline), `e173` (the Tokyo
   demand baseline until 2026-09-19, reference run `008868fe…`; Tokyo-only, because its
   `ftr_period_similar_day` mart needs the でんき予報 hourly load of
   `fct_area_power_usage_hourly` and a fit of the similar-day weights, below) and its four
-  calendar variants `…_simday_calendar`, `…_simday_holidaydegree`,
-  `…_simday_holidaydistance` and `…_simday_calendarcounts` (research `demand/R-005`, all
+  calendar variants `e174`, `e175`, `e176` and `e177` (research `demand/R-005`, all
   rejected, kept as reference presets; their feature lists and numbers are in the Demand
-  task bullet below) and `…_simday_lags` (research `demand/R-006`: the thirteen recent-load
+  task bullet below) and `e178` (research `demand/R-006`: the thirteen recent-load
   features of `ftr_period_actuals` and `ftr_day_actuals`, kept tentatively on 2026-09-19;
   its 2026-09-12 run skipped seven target days to the 2025-06-14 hole where the baseline
-  skipped one, so that run compares with `--common-days`) and `…_simday_lags_weather` (research `demand/R-007`: the MSM
+  skipped one, so that run compares with `--common-days`) and `e179` (research `demand/R-007`: the MSM
   forecast's population-weighted humidity, rain and solar radiation on top of that preset,
   kept tentatively on 2026-09-19). Since 2026-09-14 these seven similar-day presets read
   `ftr_period_similar_day:similar_day_rank1_demand_kwh`, rank 1 of the paper-style pool
@@ -218,7 +222,7 @@
   two features matched on 2024-08-18 … 2026-08-17 (control `3dc586c4…` MAE 594,900; old run
   `9f02c385…` 585,788, its feature rebuilt into `pma_scratch` tables; new `d019a370…` 572,428;
   new vs old −2.3 %, CI over days includes zero; kept tentatively on 2026-09-19).
-  The twelfth preset is `e212` (experiment #212, 2026-09-20), **the Tokyo baseline since
+  The eleventh preset is `e212` (experiment #212, 2026-09-20), **the Tokyo baseline since
   2026-09-20**: every tagged column of the seven marts we build ourselves, 104 features — the
   previous baseline's 23 in their order, then the other 81, written out in full rather than as
   a `base` and an `add`, with `ftr_day_occto` and `ftr_period_jepx` left out at the
@@ -987,21 +991,22 @@
   `DayTypeCalendar` frames and their loaders were deleted, each run reproduced first — the
   one known divergence from the class-based code is two December-2022 delivery days, see
   Gotchas):
-  `lightgbm` = `ftr_day_calendar:month`, `ftr_day_calendar:day_of_week`,
+  The four-feature root (the preset `lightgbm` until 2026-09-27; since then the first four
+  references of `e169` and `e170`) = `ftr_day_calendar:month`, `ftr_day_calendar:day_of_week`,
   `ftr_hour_jma_obs:wavg_temperature_c` (the same-hour temperature at the area's
   representative JMA station — `dim_area.representative_jma_station_id`, seed `jepx_areas`;
   hour containing the period = `(time_code + 1) // 2` — over D-8..D-2, weights halving per
-  day back) and `ftr_period_actuals:lag_7d_demand_kwh`. `lightgbm_msm` (research
-  `demand/R-001`) = that + `ftr_hour_msm:forecast_temperature_c`, the MSM point forecast for D
+  day back) and `ftr_period_actuals:lag_7d_demand_kwh`. `e169` (research `demand/R-001`;
+  `lightgbm_msm` until 2026-09-27) = that + `ftr_hour_msm:forecast_temperature_c`, the MSM point forecast for D
   at the same station (the D-2 12 UTC vintage); MSM covers 2019-04-01 → (since the
   2026-09-05 backfill), earlier than the demand history's 2022-04-01 start, so a matched
-  `lightgbm` baseline needs no `--train-start`.
-  `lightgbm_msm_popw` (research `demand/R-002`) = `lightgbm` +
+  four-feature baseline needs no `--train-start`.
+  `e170` (research `demand/R-002`; `lightgbm_msm_popw` until 2026-09-27) = the four +
   `ftr_hour_msm:popw_forecast_temperature_c` instead: the same forecast averaged over the
   area's staffed stations with `fct_census_population_jma_station` weights of the latest
   census vintage, renormalised over the stations that have a value for the hour; the observed
-  `wavg_temperature_c` stays single-station. `lightgbm_msm_popw_daytype` (research
-  `demand/R-003`; the demand baseline 2026-08-26 → 2026-09-06, still the script default and
+  `wavg_temperature_c` stays single-station. `e171` (research `demand/R-003`;
+  `lightgbm_msm_popw_daytype` until 2026-09-27; the demand baseline 2026-08-26 → 2026-09-06, still the script default and
   the Kansai baseline) = that + `ftr_day_calendar:day_type`: 0 Weekday / 1 Weekend / 2 Holiday
   from `dim_date` (`is_holiday` wins over `is_weekend`, the compare script's day-type
   precedence), categorical by the mart's tag; a delivery day outside `dim_date` is forecast
@@ -1010,9 +1015,10 @@
   でんき予報 hourly load of `fct_area_power_usage_hourly` on the delivery day's `dim_date`
   prior-year reference date; research `demand/R-004`), was run on 2026-08-31 and removed with
   the column on 2026-09-05 — Not supported, the reasons in the investigation.
-  `lightgbm_msm_popw_daytype_simday` (research `demand/R-004` E-002, kept 2026-09-06: the
+  `e173` (research `demand/R-004` E-002; `lightgbm_msm_popw_daytype_simday` until
+  2026-09-27; kept 2026-09-06: the
   Tokyo demand baseline until 2026-09-19, reference run `008868fe59274abfb49f128e29aa28fe`) = the
-  `lightgbm_msm_popw_daytype` preset + `ftr_period_similar_day:similar_day_rank1_demand_kwh`
+  `e171` preset + `ftr_period_similar_day:similar_day_rank1_demand_kwh`
   since 2026-09-14 (spec `docs/superpowers/specs/2026-09-14-similar-day-top-k-design.md`).
   Until then it read `similar_day_demand_kwh`, the load of one learned similar day from
   D − 364 ± 30, halved per period, now retired (`retired_features` row). This preset and its
@@ -1081,29 +1087,32 @@
   `008868fe…`'s and the old and new code were identical period by period; with the
   walk-forward the run is a matched comparison instead — numbers in
   `docs/superpowers/plans/2026-09-11-similar-day-feature.md`.
-  `lightgbm_msm_popw_daytype_simday_calendar` (research `demand/R-005` E-001, run 2026-09-06
+  `e174` (research `demand/R-005` E-001; `lightgbm_msm_popw_daytype_simday_calendar` until
+  2026-09-27; run 2026-09-06
   `e3e3bd61…`: MAE +7.3 % on the matched window, rejected by the researcher, Not supported;
   kept as a reference preset) = that + the ten `ftr_day_calendar` columns `half`, `quarter`,
   `day_of_month`, `day_of_quarter`, `day_of_year`, `holiday_degree`, `is_business_day` (1/0),
   `fiscal_quarter`, `days_since_holiday`, `days_until_holiday` (the old join order); no new categorical. Three subsets of it (research
   `demand/R-005` E-002 / E-003 / E-004, run 2026-09-06, all rejected by the researcher the
-  same day, kept as reference presets): `lightgbm_msm_popw_daytype_simday_holidaydegree`
+  same day, kept as reference presets; until 2026-09-27 `…_simday_holidaydegree`,
+  `…_simday_holidaydistance` and `…_simday_calendarcounts`): `e175`
   (`holiday_degree`; run `a8da46c5…`: MAE +0.3 %, CI over days
   includes zero, holidays +1.8 %, 4.8 % of the SHAP mass mostly from `day_type`),
-  `lightgbm_msm_popw_daytype_simday_holidaydistance` (`days_since_holiday`, `days_until_holiday`; run `f7153839…`: MAE +6.5 %, CI excludes zero,
-  every day part / day type / season worse) and `lightgbm_msm_popw_daytype_simday_calendarcounts`
+  `e176` (`days_since_holiday`, `days_until_holiday`; run `f7153839…`: MAE +6.5 %, CI excludes zero,
+  every day part / day type / season worse) and `e177`
   (`half`, `quarter`, `day_of_month`, `day_of_quarter`,
   `day_of_year`, `fiscal_quarter`; run `9182d469…`: MAE +4.2 %, CI excludes zero, weekdays
   +7.7 % but holidays −13.4 % — E-001's holiday gain comes with this subset; `half` /
-  `quarter` never split on). `lightgbm_msm_popw_daytype_simday_lags` (research
-  `demand/R-006` E-001, run 2026-09-12 `34707ed6…` against the fresh baseline `a3fde7eb…`
+  `quarter` never split on). `e178` (research `demand/R-006` E-001;
+  `lightgbm_msm_popw_daytype_simday_lags` until 2026-09-27; run 2026-09-12 `34707ed6…` against the fresh baseline `a3fde7eb…`
   on the 723 days both scored: MAE −0.6 %, CI over days includes zero, holidays −8.9 %,
-  overnight −8.5 %, daytime +1.3 %, the top-10 % demand days +2.9 %; kept tentatively on 2026-09-19) = `lightgbm_msm_popw_daytype_simday` + the thirteen columns of
+  overnight −8.5 %, daytime +1.3 %, the top-10 % demand days +2.9 %; kept tentatively on 2026-09-19) = `e173` + the thirteen columns of
   `ftr_period_actuals` and `ftr_day_actuals` above but `lag_9d_demand_kwh`; the 2025-06-14
   hole reaches every lag it reads, so that run skipped seven target days where the baseline
   skipped one (compared with `--common-days`; since 2026-09-13 both forecast them).
-  `lightgbm_msm_popw_daytype_simday_lags_weather` (research `demand/R-007` E-001, run
-  2026-09-12 `e6d6d4ef…` against a re-run of `…_simday_lags` as baseline, `d04e9d0c…`,
+  `e179` (research `demand/R-007` E-001; `lightgbm_msm_popw_daytype_simday_lags_weather`
+  until 2026-09-27; run
+  2026-09-12 `e6d6d4ef…` against a re-run of `e178` as baseline, `d04e9d0c…`,
   which reproduces `34707ed6…` to the digit — the check that adding a column to
   `ftr_hour_msm` moved none of the existing ones — on the same 723 days: MAE −2.9 %
   (577,355 → 560,508), MAPE 3.55 % → 3.44 %, CI over days [−24,697, −8,739] excludes zero,
@@ -1112,10 +1121,10 @@
   it is unknown; kept tentatively on 2026-09-19; the Tokyo baseline from then until
   2026-09-20, when experiment #212 took it — its run `32ecbdbc…` on
   2024-08-18 … 2026-08-17, MAE 546,202 kWh, is the one matched to the marts of that day) =
-  `…_simday_lags` + the three `ftr_hour_msm` columns
+  `e178` + the three `ftr_hour_msm` columns
   `popw_forecast_relative_humidity_pct`, `popw_forecast_precipitation_mm` and
   `popw_forecast_solar_radiation_mjm2`. The forecast temperature is not repeated: every
-  preset since `lightgbm_msm_popw` carries it, so this adds three features, not four.
+  preset since `e170` carries it, so this adds three features, not four.
   `e212` (experiment #212, kept 2026-09-20; **the Tokyo baseline since**, reference run
   `34c506fbb30d4c7eb4efdca973e49384`) = every tagged column of the seven marts we build
   ourselves, 104 features: the preset above plus the other 81, of which 70 were in no demand
@@ -1511,7 +1520,7 @@
   experiment's body keeps Keep / Reject / Refine / Inconclusive (`Supported` for Keep,
   `Not supported` for Reject, `Inconclusive` for the other two). R-006, R-007 and R-008 were
   kept tentatively on 2026-09-19 ("Provisionally Keep, researcher to confirm"), which made
-  `lightgbm_msm_popw_daytype_simday_lags_weather` the Tokyo baseline; experiment #212 took it
+  `e179` (then `lightgbm_msm_popw_daytype_simday_lags_weather`) the Tokyo baseline; experiment #212 took it
   on 2026-09-20 (MAE −6.5 %) and `e212` is the Tokyo baseline since, with the matched pair
   `32ecbdbc…` (baseline) and `34c506fb…` (candidate) on 2024-08-18 … 2026-08-17 as its
   reference runs — a candidate on that window needs no fresh baseline run, one on any other

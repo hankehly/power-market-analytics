@@ -25,7 +25,7 @@ baseline is `e212` since 2026-09-20, when the researcher kept
 lowering MAE 6.5 % (546,202 → 510,465 kWh over 2024-08-18 … 2026-08-17, CI over
 days excluding zero). Its reference run is `34c506fbb30d4c7eb4efdca973e49384`
 and the baseline it beat is `32ecbdbc7c1a456d8f1411ba867c6d84`, a run of
-`lightgbm_msm_popw_daytype_simday_lags_weather` — the Tokyo baseline from
+`e179` (named `lightgbm_msm_popw_daytype_simday_lags_weather` at the time) — the Tokyo baseline from
 2026-09-19, when [R-006](https://github.com/hankehly/power-market-analytics/issues/165),
 [R-007](https://github.com/hankehly/power-market-analytics/issues/166) and [R-008](https://github.com/hankehly/power-market-analytics/issues/167)
 were kept tentatively — on the same window. Both runs are matched to the marts
@@ -33,11 +33,33 @@ of 2026-09-20, so a candidate on that window can use `34c506fb…` as its
 baseline instead of a fresh run; a candidate on any other window still needs
 one. `e212` runs for Tokyo only, because its similar-day mart needs the
 でんき予報 hourly load and a fit of the weights (`scripts/fit_similar_day.py`).
-`scripts/demand_backtest.py` keeps `lightgbm_msm_popw_daytype`
+`scripts/demand_backtest.py` keeps `e171`
 as its default and as the Kansai baseline ([R-003](https://github.com/hankehly/power-market-analytics/issues/162),
-2026-08-26). `lightgbm`, `lightgbm_msm`, `lightgbm_msm_popw` and the chain-named
-similar-day presets stay registered as reference presets. Pin `--start-date`,
+2026-08-26). `e169`, `e170` and the similar-day presets `e173` … `e179` stay
+registered as reference presets. Pin `--start-date`,
 `--end-date` and `--train-start` identically for a candidate and its baseline.
+
+**Preset names.** Every demand preset is named after the experiment that tested
+it, `e<issue number>` (the [research README](research/README.md)'s rule). Until
+2026-09-27 the ten presets of 2026-09-19 carried chain names, and the runs, the
+MLflow `feature_preset` params and the issues from before that day still do:
+
+| Until 2026-09-27 | Since | Experiment |
+|---|---|---|
+| `lightgbm` | no file: its four references are written out in `e169` and `e170` | none (the first model, PR #5) |
+| `lightgbm_msm` | `e169` | [#169](https://github.com/hankehly/power-market-analytics/issues/169) |
+| `lightgbm_msm_popw` | `e170` | [#170](https://github.com/hankehly/power-market-analytics/issues/170) |
+| `lightgbm_msm_popw_daytype` | `e171` | [#171](https://github.com/hankehly/power-market-analytics/issues/171) |
+| `lightgbm_msm_popw_daytype_simday` | `e173` | [#173](https://github.com/hankehly/power-market-analytics/issues/173); its feature switched on 2026-09-14, [#180](https://github.com/hankehly/power-market-analytics/issues/180) |
+| `lightgbm_msm_popw_daytype_simday_calendar` | `e174` | [#174](https://github.com/hankehly/power-market-analytics/issues/174) |
+| `lightgbm_msm_popw_daytype_simday_holidaydegree` | `e175` | [#175](https://github.com/hankehly/power-market-analytics/issues/175) |
+| `lightgbm_msm_popw_daytype_simday_holidaydistance` | `e176` | [#176](https://github.com/hankehly/power-market-analytics/issues/176) |
+| `lightgbm_msm_popw_daytype_simday_calendarcounts` | `e177` | [#177](https://github.com/hankehly/power-market-analytics/issues/177) |
+| `lightgbm_msm_popw_daytype_simday_lags` | `e178` | [#178](https://github.com/hankehly/power-market-analytics/issues/178) |
+| `lightgbm_msm_popw_daytype_simday_lags_weather` | `e179` | [#179](https://github.com/hankehly/power-market-analytics/issues/179) |
+
+Each renamed file's `description` also names its former name. The two
+spot-price presets keep theirs.
 
 **Primary metric.** MAE (kWh).
 
