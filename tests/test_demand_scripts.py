@@ -9,12 +9,16 @@ store: fits/scores, logs the MLflow run and publishes to
 
 from __future__ import annotations
 
+import contextlib
+
 import mlflow
 import numpy as np
 import pandas as pd
 import pytest
+from loguru import logger
 from pyspark.sql import functions as F
 
+from power_market_analytics.forecasting.strategy import ForecastUnavailableError
 from tests.conftest import (
     DEMAND_BASELINE_RUN_ID,
     DEMAND_CANDIDATE_RUN_ID,
@@ -69,6 +73,23 @@ def published_importance_rows(spark, run_id: str) -> pd.DataFrame:
 
 
 # --------------------------------------------------------------------------- compare script
+
+
+@contextlib.contextmanager
+def captured_logs(level: str = "INFO"):
+    """Collect loguru messages at ``level`` and above (the repo's test idiom)."""
+    messages: list[str] = []
+    sink = logger.add(lambda m: messages.append(m.record["message"]), level=level)
+    try:
+        yield messages
+    finally:
+        logger.remove(sink)
+
+
+#: The two warnings the window logic can log, as the tests read them. One place,
+#: so a negative test cannot outlive a rewording that its positive twin catches.
+SHORT_WAREHOUSE_WARNING = "the data ends"
+GAP_WARNING = "not independent evidence"
 
 
 class TestCompareScript:
@@ -691,11 +712,230 @@ class TestBacktestScript:
         assert "--importance-repeats must be >= 1, got 0" in capsys.readouterr().err
 
     def test_end_date_after_the_data_is_rejected(self, spark, curated_warehouse, feature_marts):
+        # Inside the pinned window but past the fixture's data, so it is the data
+        # that rejects it, after the run has started.
+        script = import_script("demand_backtest")
+        with pytest.raises(SystemExit) as exc:
+            script.main(["--end-date", "2026-03-30"])
+        assert exc.value.code == 2
+        assert last_run().info.status == "FAILED"
+
+    def test_an_end_date_in_the_holdout_needs_the_flag(self, spark, capsys):
+        # Checked off the arguments alone, so it refuses before a run exists.
         script = import_script("demand_backtest")
         with pytest.raises(SystemExit) as exc:
             script.main(["--end-date", "2030-01-01"])
         assert exc.value.code == 2
+        message = capsys.readouterr().err
+        assert "reads the holdout, which opens after 2026-03-31" in message
+        assert "--holdout" in message
+
+    def test_an_end_date_past_the_reservation_is_refused(self, spark, capsys):
+        # Nothing is reserved past holdout_end, so --holdout does not reach there.
+        # Checked off the arguments alone, before a run exists.
+        script = import_script("demand_backtest")
+        with pytest.raises(SystemExit) as exc:
+            script.main(["--end-date", "2030-01-01", "--holdout"])
+        assert exc.value.code == 2
+        message = capsys.readouterr().err
+        assert "past the reserved holdout, which ends 2027-03-31" in message
+        assert "reserve those days first" in message
+
+    def test_the_holdout_flag_lets_the_run_past_the_window(
+        self, spark, curated_warehouse, feature_marts
+    ):
+        # Inside the reservation but past the fixture's data, so the flag carries
+        # it through the window guard and the data is what stops it -- with a date
+        # past holdout_end the argument guard would exit before a run existed and
+        # last_run() would report the previous test's.
+        script = import_script("demand_backtest")
+        with pytest.raises(SystemExit) as exc:
+            script.main(["--end-date", "2026-09-10", "--holdout"])
+        assert exc.value.code == 2
         assert last_run().info.status == "FAILED"
+
+    def test_a_holdout_run_short_of_the_opening_says_the_days_were_seen(
+        self, spark, curated_warehouse, feature_marts, monkeypatch
+    ):
+        # Between eval_end and the reservation lie the days pre-pin runs already
+        # scored. Reaching them needs explicit dates, since --holdout alone covers
+        # the reservation; it is allowed, but it is not evidence.
+        script = import_script("demand_backtest")
+        monkeypatch.setattr(script, "EVAL_END", pd.Timestamp("2024-05-10"))
+        monkeypatch.setattr(script, "HOLDOUT_START", pd.Timestamp("2024-06-01"))
+        monkeypatch.setattr(script, "HOLDOUT_END", pd.Timestamp("2024-06-30"))
+        with captured_logs("WARNING") as messages:
+            script.main(
+                [
+                    "--start-date",
+                    "2024-05-15",
+                    "--end-date",
+                    "2024-05-20",
+                    "--holdout",
+                    "--shap-nsamples",
+                    "20",
+                ]
+            )
+        params = last_run().data.params
+        assert params["reads_holdout"] == "True"
+        assert params["reads_unseen_holdout"] == "False"
+        assert params["holdout_window"] == "2024-06-01..2024-06-30"
+        [warning] = [m for m in messages if GAP_WARNING in m]
+        # The run lies wholly among the seen days, so the days named are its own.
+        assert "reads 2024-05-15..2024-05-20, which lies between" in warning
+
+    def test_a_holdout_run_covers_the_reserved_window(
+        self, spark, curated_warehouse, feature_marts, monkeypatch
+    ):
+        # Every run of one batch scores the same days, so a baseline and its
+        # candidate can be compared on them.
+        script = import_script("demand_backtest")
+        monkeypatch.setattr(script, "EVAL_START", pd.Timestamp("2024-04-01"))
+        monkeypatch.setattr(script, "EVAL_END", pd.Timestamp("2024-05-10"))
+        monkeypatch.setattr(script, "HOLDOUT_START", pd.Timestamp("2024-05-25"))
+        monkeypatch.setattr(script, "HOLDOUT_END", pd.Timestamp("2024-05-28"))
+        # Twice over: the window does not move because the first run published.
+        for _ in range(2):
+            with captured_logs("WARNING") as messages:
+                script.main(["--holdout", "--shap-nsamples", "20"])
+            # It starts at the reservation, so it crosses none of the seen days.
+            assert not [m for m in messages if GAP_WARNING in m]
+            params = last_run().data.params
+            assert params["start_date"] == "2024-05-25"
+            assert params["end_date"] == "2024-05-28"
+            assert params["holdout_window"] == "2024-05-25..2024-05-28"
+            assert params["reads_unseen_holdout"] == "True"
+
+    def test_an_explicit_start_still_scores_the_window_and_the_holdout(
+        self, spark, curated_warehouse, feature_marts, monkeypatch
+    ):
+        # From inside the window into the reservation: the run ends past the seen
+        # days but crosses every one of them, which a check on the end date alone
+        # would miss. The warning is judged on the overlap and names it.
+        script = import_script("demand_backtest")
+        monkeypatch.setattr(script, "EVAL_END", pd.Timestamp("2024-05-10"))
+        monkeypatch.setattr(script, "HOLDOUT_START", pd.Timestamp("2024-05-25"))
+        with captured_logs("WARNING") as messages:
+            script.main(
+                [
+                    "--start-date",
+                    "2024-05-01",
+                    "--end-date",
+                    "2024-05-28",
+                    "--holdout",
+                    "--shap-nsamples",
+                    "20",
+                ]
+            )
+        assert last_run().data.params["start_date"] == "2024-05-01"
+        [warning] = [m for m in messages if GAP_WARNING in m]
+        assert "reads 2024-05-11..2024-05-24, which lies between" in warning
+
+    def test_the_holdout_flags_read_the_days_scored_not_the_days_asked_for(
+        self, spark, curated_warehouse, feature_marts, monkeypatch
+    ):
+        # An end date past both boundaries whose days there all fail to forecast
+        # reads no holdout error, so the flags must not claim it did. The strategy
+        # is made to refuse every day past the pin; the days before it score as
+        # usual, so the run succeeds on them and the flags have to tell the two
+        # apart. Flags read off the end date would both come out true here.
+        script = import_script("demand_backtest")
+        monkeypatch.setattr(script, "EVAL_END", pd.Timestamp("2024-05-20"))
+        monkeypatch.setattr(script, "HOLDOUT_START", pd.Timestamp("2024-05-25"))
+        build = script.build_strategy
+
+        def build_refusing_past_the_pin(*args, **kwargs):
+            strategy = build(*args, **kwargs)
+            predict = strategy.predict
+
+            def predict_or_refuse(target_date, history):
+                if target_date > script.EVAL_END:
+                    raise ForecastUnavailableError(f"test: no features for {target_date.date()}")
+                return predict(target_date, history)
+
+            monkeypatch.setattr(strategy, "predict", predict_or_refuse)
+            return strategy
+
+        monkeypatch.setattr(script, "build_strategy", build_refusing_past_the_pin)
+        script.main(
+            [
+                "--start-date",
+                "2024-05-18",
+                "--end-date",
+                "2024-05-31",
+                "--holdout",
+                "--shap-nsamples",
+                "20",
+            ]
+        )
+        params = last_run().data.params
+        # Asked for 2024-05-31, past both boundaries; scored through the pin only.
+        assert params["end_date"] == "2024-05-31"
+        assert params["last_scored_date"] == "2024-05-20"
+        assert params["n_days_skipped"] == "11"
+        assert params["reads_holdout"] == "False"
+        assert params["reads_unseen_holdout"] == "False"
+
+    def test_the_forecasts_are_published_before_the_errors_are_logged(
+        self, spark, curated_warehouse, feature_marts, monkeypatch
+    ):
+        # The warehouse rows are the durable record of the run, so a failed
+        # publish must not leave the errors in MLflow having outlived them.
+        script = import_script("demand_backtest")
+        order: list[str] = []
+        publish = script.publish_forecast_records
+        log_dataframe = script.log_dataframe
+
+        def note_publish(*args, **kwargs):
+            order.append("publish")
+            return publish(*args, **kwargs)
+
+        def note_log(frame, name, *args, **kwargs):
+            order.append(name)
+            return log_dataframe(frame, name, *args, **kwargs)
+
+        monkeypatch.setattr(script, "publish_forecast_records", note_publish)
+        monkeypatch.setattr(script, "log_dataframe", note_log)
+        script.main(["--days", "1", "--shap-nsamples", "20"])
+        assert order.index("publish") < order.index("daily_errors.csv")
+        assert order.index("publish") < order.index("predictions.csv")
+
+    def test_the_pin_caps_the_run_when_the_data_runs_past_it(
+        self, spark, curated_warehouse, feature_marts, monkeypatch
+    ):
+        # Production's case, which the fixture cannot reach on its own: the data
+        # outlives the window, so the run stops at the pin and says nothing about
+        # a short warehouse.
+        script = import_script("demand_backtest")
+        monkeypatch.setattr(script, "EVAL_END", pd.Timestamp("2024-05-20"))
+        with captured_logs("WARNING") as messages:
+            script.main(["--shap-nsamples", "20"])
+        params = last_run().data.params
+        assert params["end_date"] == "2024-05-20"
+        assert params["reads_holdout"] == "False"
+        # caplog never sees loguru, so this has to read the sink or it proves
+        # nothing; and the substring is the one the positive test below asserts
+        # fires, or a rewording would leave this passing whatever the code did.
+        assert not [m for m in messages if SHORT_WAREHOUSE_WARNING in m]
+
+    def test_the_default_window_is_the_pin_capped_by_the_data(
+        self, spark, curated_warehouse, feature_marts
+    ):
+        # The fixture ends long before eval_end, so the run scores what it has,
+        # says so, and logs the pin next to it; the default never reaches the
+        # holdout and crosses none of the seen days.
+        script = import_script("demand_backtest")
+        with captured_logs("WARNING") as messages:
+            script.main(["--shap-nsamples", "20"])
+        [warning] = [m for m in messages if SHORT_WAREHOUSE_WARNING in m]
+        assert "the data ends 2024-05-31, before 2026-03-31: scoring to 2024-05-31" in warning
+        assert not [m for m in messages if GAP_WARNING in m]
+        params = last_run().data.params
+        assert params["eval_window"] == "2024-04-01..2026-03-31"
+        assert params["holdout_window"] == "2026-09-06..2027-03-31"
+        assert params["reads_holdout"] == "False"
+        assert params["end_date"] == "2024-05-31"
+        assert params["start_date"] == "2024-04-01"
 
     def test_start_after_end_is_rejected(self, spark, curated_warehouse, feature_marts, capsys):
         script = import_script("demand_backtest")
