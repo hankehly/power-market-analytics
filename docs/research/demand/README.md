@@ -47,11 +47,12 @@ keeps `e171` as its default and as the Kansai baseline
 ([R-003](https://github.com/hankehly/power-market-analytics/issues/162),
 2026-08-26); its Kansai reference run is `53b62fe1856b40bdb8c6944cb3ec0b50`
 (MAE 287,231 kWh, MAPE 3.52 %). Both reference runs are matched to the
-marts built 2026-09-19 … 2026-09-21 and to the similar-day partition
-`b18808c615184762b21621354f93bfb5`. A candidate on the pinned window can use
-the baseline's run as its baseline until the data is refreshed or the
-similar-day job is re-run; after either, re-run the baseline first, because
-the similar-day fit moves with the last bit of its inputs. Pin `--train-start`
+marts built 2026-09-19 … 2026-09-21, and the Tokyo one also to the
+similar-day partition `b18808c615184762b21621354f93bfb5` (`e171` reads no
+similar-day feature). A candidate on the pinned window can use the baseline's
+run as its baseline until the data is refreshed, after which re-run the
+baseline first; a re-run of the similar-day job also retires the Tokyo one,
+because the fit moves with the last bit of its inputs. Pin `--train-start`
 identically for a candidate and its baseline; the window's dates need no
 pinning. `e169`, `e170`, the similar-day presets `e173` … `e179` and the two
 holiday variants `e219` and `e221` stay registered as reference presets.
