@@ -89,6 +89,13 @@ GENERIC_SCRIPTS = [
         "data/kansai/power_usage/csv",
         "pma_raw.kansai_power_usage_hourly",
     ),
+    (
+        "load_jma_normals",
+        "JmaNormalsCsvLoader",
+        "conf/schemas/jma_normal_surface_daily.yaml",
+        "data/jma/normals",
+        "pma_raw.jma_normal_surface_daily",
+    ),
 ]
 
 #: The grain of each default contract, proving the script read the right file.
@@ -104,6 +111,12 @@ CONTRACT_GRAINS = {
     "conf/schemas/estat_census_population_mesh.yaml": ["census_year", "mesh_code"],
     "conf/schemas/tepco_power_usage_hourly.yaml": ["target_date", "hour_start"],
     "conf/schemas/kansai_power_usage_hourly.yaml": ["target_date", "hour_start"],
+    "conf/schemas/jma_normal_surface_daily.yaml": [
+        "normals_period_end_year",
+        "station_number",
+        "element_code",
+        "month",
+    ],
 }
 
 

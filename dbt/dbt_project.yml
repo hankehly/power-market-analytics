@@ -50,3 +50,9 @@ seeds:
         obs_snow: int
         obs_other: int
         observation_ended_on: date
+    jma_normal_elements:
+      +column_types:
+        # keep as string: the code has a leading zero (0500)
+        element_code: string
+        hour_ending: int
+        scale_denominator: int

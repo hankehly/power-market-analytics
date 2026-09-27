@@ -1,0 +1,106 @@
+description: >
+  JMA climatological normals (平年値) of the 1991–2020 period: the daily file
+  (地上気象観測 日別平年値) of every staffed station,
+  normal_surface/daily/nml_sfc_d_<station>.csv of normal_surface.zip from the
+  平年値ダウンロード page (https://www.data.jma.go.jp/stats/data/mdrr/normal/index.html),
+  downloaded by scripts/download_jma_normals.py and loaded by
+  JmaNormalsCsvLoader (scripts/load_jma_normals.py). Format, element codes,
+  flags and versions: docs/JMA-Climatological-Normals-Retrieval.md. The files
+  have no header: 15 (the daily kind), the station number, the element code,
+  the years of data, the first and last year the statistic covers (0 and 0
+  when there is none), the month, then 31 (value, flag) pairs — 69 fields, the
+  values right-aligned in 6 characters and scaled per the element's unit
+  (0.1 °C, 0.1 mm, 0.1 h, 0.1 MJ/m2, 0.1 tenths of cloud, 1 cm, the three
+  occurrence rates in 0.01 day, which over one day is a percentage); a day
+  the month does not have is 0,0. Flags: 8 normal; 6 normal, no phenomenon (a
+  true zero); 7 and 5 the same two, reference only — the observation ended or
+  the series was cut; 0 no statistic. Read positionally (_c0 … _c68) in one
+  scan per period; the period, the archive's version and its in-use date are
+  injected from the downloader's manifest (__normals_period_start_year,
+  __normals_period_end_year, __normals_version, __in_use_since) and the file
+  name as __source_file.
+
+read_options:
+  # Java charset name for cp932 / Shift_JIS with Windows extensions; the daily
+  # files are ASCII, the station index next to them is not.
+  encoding: windows-31j
+  # the values are right-aligned with spaces
+  ignoreLeadingWhiteSpace: "true"
+
+grain: [normals_period_end_year, station_number, element_code, month]
+
+columns:
+  - { name: normal_kind, source: _c0, type: int, nullable: false }
+  - { name: station_number, source: _c1, type: string, nullable: false }
+  - { name: element_code, source: _c2, type: string, nullable: false }
+  - { name: n_years, source: _c3, type: int, nullable: false }
+  - { name: statistic_start_year, source: _c4, type: int, nullable: false }
+  - { name: statistic_end_year, source: _c5, type: int, nullable: false }
+  - { name: month, source: _c6, type: int, nullable: false }
+  - { name: value_d01, source: _c7, type: int, nullable: false }
+  - { name: flag_d01, source: _c8, type: int, nullable: false }
+  - { name: value_d02, source: _c9, type: int, nullable: false }
+  - { name: flag_d02, source: _c10, type: int, nullable: false }
+  - { name: value_d03, source: _c11, type: int, nullable: false }
+  - { name: flag_d03, source: _c12, type: int, nullable: false }
+  - { name: value_d04, source: _c13, type: int, nullable: false }
+  - { name: flag_d04, source: _c14, type: int, nullable: false }
+  - { name: value_d05, source: _c15, type: int, nullable: false }
+  - { name: flag_d05, source: _c16, type: int, nullable: false }
+  - { name: value_d06, source: _c17, type: int, nullable: false }
+  - { name: flag_d06, source: _c18, type: int, nullable: false }
+  - { name: value_d07, source: _c19, type: int, nullable: false }
+  - { name: flag_d07, source: _c20, type: int, nullable: false }
+  - { name: value_d08, source: _c21, type: int, nullable: false }
+  - { name: flag_d08, source: _c22, type: int, nullable: false }
+  - { name: value_d09, source: _c23, type: int, nullable: false }
+  - { name: flag_d09, source: _c24, type: int, nullable: false }
+  - { name: value_d10, source: _c25, type: int, nullable: false }
+  - { name: flag_d10, source: _c26, type: int, nullable: false }
+  - { name: value_d11, source: _c27, type: int, nullable: false }
+  - { name: flag_d11, source: _c28, type: int, nullable: false }
+  - { name: value_d12, source: _c29, type: int, nullable: false }
+  - { name: flag_d12, source: _c30, type: int, nullable: false }
+  - { name: value_d13, source: _c31, type: int, nullable: false }
+  - { name: flag_d13, source: _c32, type: int, nullable: false }
+  - { name: value_d14, source: _c33, type: int, nullable: false }
+  - { name: flag_d14, source: _c34, type: int, nullable: false }
+  - { name: value_d15, source: _c35, type: int, nullable: false }
+  - { name: flag_d15, source: _c36, type: int, nullable: false }
+  - { name: value_d16, source: _c37, type: int, nullable: false }
+  - { name: flag_d16, source: _c38, type: int, nullable: false }
+  - { name: value_d17, source: _c39, type: int, nullable: false }
+  - { name: flag_d17, source: _c40, type: int, nullable: false }
+  - { name: value_d18, source: _c41, type: int, nullable: false }
+  - { name: flag_d18, source: _c42, type: int, nullable: false }
+  - { name: value_d19, source: _c43, type: int, nullable: false }
+  - { name: flag_d19, source: _c44, type: int, nullable: false }
+  - { name: value_d20, source: _c45, type: int, nullable: false }
+  - { name: flag_d20, source: _c46, type: int, nullable: false }
+  - { name: value_d21, source: _c47, type: int, nullable: false }
+  - { name: flag_d21, source: _c48, type: int, nullable: false }
+  - { name: value_d22, source: _c49, type: int, nullable: false }
+  - { name: flag_d22, source: _c50, type: int, nullable: false }
+  - { name: value_d23, source: _c51, type: int, nullable: false }
+  - { name: flag_d23, source: _c52, type: int, nullable: false }
+  - { name: value_d24, source: _c53, type: int, nullable: false }
+  - { name: flag_d24, source: _c54, type: int, nullable: false }
+  - { name: value_d25, source: _c55, type: int, nullable: false }
+  - { name: flag_d25, source: _c56, type: int, nullable: false }
+  - { name: value_d26, source: _c57, type: int, nullable: false }
+  - { name: flag_d26, source: _c58, type: int, nullable: false }
+  - { name: value_d27, source: _c59, type: int, nullable: false }
+  - { name: flag_d27, source: _c60, type: int, nullable: false }
+  - { name: value_d28, source: _c61, type: int, nullable: false }
+  - { name: flag_d28, source: _c62, type: int, nullable: false }
+  - { name: value_d29, source: _c63, type: int, nullable: false }
+  - { name: flag_d29, source: _c64, type: int, nullable: false }
+  - { name: value_d30, source: _c65, type: int, nullable: false }
+  - { name: flag_d30, source: _c66, type: int, nullable: false }
+  - { name: value_d31, source: _c67, type: int, nullable: false }
+  - { name: flag_d31, source: _c68, type: int, nullable: false }
+  - { name: normals_period_start_year, source: __normals_period_start_year, type: int, nullable: false }
+  - { name: normals_period_end_year, source: __normals_period_end_year, type: int, nullable: false }
+  - { name: normals_version, source: __normals_version, type: string, nullable: false }
+  - { name: in_use_since, source: __in_use_since, type: date, nullable: false }
+  - { name: source_file, source: __source_file, type: string, nullable: false }

@@ -254,3 +254,90 @@ sources:
             description: GRIB2 archive member the row's leads were decoded from, e.g. Z__C_RJTD_20260817120000_MSM_GPV_Rjp_Lsurf_FH16-33_grib2.bin.
             data_tests:
               - not_null
+      - name: jma_normal_surface_daily
+        description: >
+          JMA climatological normals (平年値) of the 1991–2020 period: the
+          daily file (地上気象観測 日別平年値) of every staffed station in
+          normal_surface.zip from the 平年値ダウンロード page, one row per
+          station, element code and month as published — 152,604 rows, 157
+          stations × 81 elements × 12 months — with the row's 31 (value, flag)
+          cells as 62 integer columns. Values are scaled integers per the
+          element's unit (0.1 °C, 0.1 mm, 0.1 h, 0.1 MJ/m2, cloud tenths, 1 cm;
+          the three occurrence rates in hundredths of a day, which over one day
+          is a percentage); a day the month does not have is 0,0. Flags: 8
+          normal; 6 normal, no phenomenon (a true zero); 7 and 5 the same two,
+          reference only — the observation ended or the series was cut, not
+          for anomalies; 0 no statistic. The two year columns are the years the
+          row's statistic covers, not the period. The period, the archive's
+          version and its in-use date come from the downloader's manifest;
+          only the current version is served
+          (docs/JMA-Climatological-Normals-Retrieval.md §5). Grain enforced at
+          load time. Load contract: conf/schemas/jma_normal_surface_daily.yaml.
+        columns:
+          - name: normal_kind
+            description: JMA's 平年値種別; 15 = the daily file.
+            data_tests:
+              - not_null
+              - accepted_values:
+                  arguments:
+                    values: [15]
+                    quote: false
+          - name: station_number
+            description: >
+              Five-digit station number as published (47662 = 東京);
+              station_id = 's' || station_number.
+            data_tests:
+              - not_null
+          - name: element_code
+            description: >
+              Four-digit element code (0500 = 日平均気温), a string so the zero
+              stays; the seed jma_normal_elements names every code.
+            data_tests:
+              - not_null
+          - name: n_years
+            description: Years of data behind the statistic (資料年数); 0 when there is none.
+            data_tests:
+              - not_null
+          - name: statistic_start_year
+            description: First year the row's statistic covers; 0 with n_years 0.
+            data_tests:
+              - not_null
+          - name: statistic_end_year
+            description: >
+              Last year the row's statistic covers — 2016 for an observation
+              that ended that year; 0 with n_years 0.
+            data_tests:
+              - not_null
+          - name: month
+            description: Calendar month 1–12.
+            data_tests:
+              - not_null
+          - name: value_d01
+            description: >
+              The published integer of day 1 (value_d02 … value_d31 the other
+              days), in the element's scaled unit; 0 where the flag is 0 and in
+              the padding cells of a day the month does not have.
+          - name: flag_d01
+            description: >
+              Quality flag of day 1 (flag_d02 … flag_d31 the other days): 8, 6,
+              7, 5 or 0.
+          - name: normals_period_start_year
+            description: First year of the normals period (1991), from the manifest.
+            data_tests:
+              - not_null
+          - name: normals_period_end_year
+            description: Last year of the normals period (2020), from the manifest.
+            data_tests:
+              - not_null
+          - name: normals_version
+            description: The archive's version as the page named it when downloaded ("5").
+            data_tests:
+              - not_null
+          - name: in_use_since
+            description: The day JMA put the period's normals into use (2021-05-19).
+            data_tests:
+              - not_null
+          - name: source_file
+            description: The daily file the row came from, e.g. nml_sfc_d_47662.csv.
+            data_tests:
+              - not_null
