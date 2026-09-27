@@ -1371,7 +1371,8 @@
   merge; a PR with no issue opens with the problem in one line. **Changes** — one line per
   item, naming the model, column, script or file; no reasoning. **Effect on what exists** —
   a two-column table, the one fixed place for what already existed and moved or did not; its
-  rows by kind of change are in the template; `None: docs only.` when nothing can move.
+  rows by kind of change are in the template; `None: docs only.` for prose documentation
+  alone — a template or a setting changes what a form or a tool does, and says so.
   **Checks** — one line, the commands run and their results, separated by ` · `.
   `<details>` **Decisions (n)** — numbered, a bold lead, one to three lines each, the
   justification once, an alternative weighed and dropped in one line; only when a decision

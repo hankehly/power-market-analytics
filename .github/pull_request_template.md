@@ -25,9 +25,10 @@ did not. Rows by kind of change:
 - forecasting code or a preset: whose forecasts change, a reference run reproduced
   (period by period, or as a MAE difference), MLflow params and artifacts added
 - a dashboard: charts added, moved or detached, datasets changed, load time before and after
-- CI or tooling: the jobs that change, what fails now that passed or the reverse
+- CI, tooling, a setting or a template: the jobs that change, what fails now that passed
+  or the reverse, what a form or a tool now pre-fills or enforces
 - a dependency upgrade: the packages that matter, from and to, advisories cleared
-- docs, templates, settings: the one line "None: docs only." instead of the table -->
+- prose documentation alone: the one line "None: docs only." instead of the table -->
 
 | | |
 |---|---|
