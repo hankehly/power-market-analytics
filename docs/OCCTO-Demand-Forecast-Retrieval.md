@@ -410,14 +410,14 @@ The end-to-end refresh (downloader and loader run in the devcontainer; the
 loader needs Spark; `just refresh-all` runs the same steps for every source):
 
 ```bash
-just python scripts/download_occto_demand_forecast.py
-just python scripts/download_occto_area_reserve_rate.py    # §9
-just python scripts/load_occto_demand_forecast.py
-just python scripts/load_occto_area_reserve_rate.py        # §9
+just occto download demand_forecast_dad
+just occto download area_reserve_rate_dad    # §9
+just occto load demand_forecast_dad
+just occto load area_reserve_rate_dad        # §9
 just dbt build
 ```
 
-`scripts/load_occto_demand_forecast.py` performs a full reload into
+`just occto load demand_forecast_dad` performs a full reload into
 `pma_raw.occto_demand_forecast_dad`, through the generic `CsvLoader` with the
 contract in `conf/schemas/occto_demand_forecast_dad.yaml`. The contract sets
 `windows-31j`, parses dates from `yyyy/MM/dd`, enforces the grain

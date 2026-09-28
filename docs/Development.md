@@ -31,7 +31,7 @@ inside the devcontainer from a host terminal (requires
 compose stack to be up):
 
 ```bash
-just refresh-all                         # every source: each download/load script with its defaults, one dbt build at the end
+just refresh-all                         # every source: each command's download and load with its defaults, one dbt build at the end
 just jma download hourly --prefecture 44   # one source's download + load commands (scripts/<source>.py; the pairs in CLAUDE.md), then...
 just jma load hourly && just dbt build     # ...rebuild + test dbt
 just python scripts/spot_price_backtest.py --strategy lightgbm --area tokyo  # forecast backtest
