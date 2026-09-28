@@ -129,34 +129,6 @@ LOAD_COMMANDS = [
     ),
 ]
 
-#: The grain of each default contract, proving the script read the right file.
-CONTRACT_GRAINS = {
-    "conf/schemas/jepx_spot.yaml": ["trade_date", "time_code"],
-    "conf/schemas/occto_area_reserve_rate_dad.yaml": [
-        "target_date",
-        "period_end_time",
-        "area_name_ja",
-    ],
-    "conf/schemas/occto_demand_forecast_dad.yaml": ["target_date", "area_name_ja"],
-    "conf/schemas/tepco_area_demand_generation_actual.yaml": ["target_date", "time_code"],
-    "conf/schemas/kansai_area_demand_generation_actual.yaml": ["target_date", "time_code"],
-    "conf/schemas/estat_census_population_mesh.yaml": ["census_year", "mesh_code"],
-    "conf/schemas/tepco_power_usage_hourly.yaml": ["target_date", "hour_start"],
-    "conf/schemas/kansai_power_usage_hourly.yaml": ["target_date", "hour_start"],
-    "conf/schemas/jma_hourly_staffed.yaml": ["station_id", "observed_at"],
-    "conf/schemas/jma_normal_surface_daily.yaml": [
-        "normals_period_end_year",
-        "station_number",
-        "element_code",
-        "month",
-    ],
-    "conf/schemas/jma_msm_surface_forecast.yaml": [
-        "station_id",
-        "forecast_reference_at_utc",
-        "forecast_valid_at_utc",
-    ],
-}
-
 
 @pytest.mark.parametrize(
     "stem, command, loader_attr, contract, data, table",
@@ -172,8 +144,9 @@ class TestLoadCommands:
 
         assert len(RecordingLoader.built) == 1
         built = RecordingLoader.built[0]
-        assert isinstance(built["schema"], CsvTableSchema)
-        assert built["schema"].grain == CONTRACT_GRAINS[contract]
+        # The whole model, not the grain alone: the TEPCO and Kansai contracts share a grain
+        # and an encoding and differ in three measure types, so a swapped file must fail here.
+        assert built["schema"] == CsvTableSchema.from_yaml(REPO_ROOT / contract)
         assert built["filepath"] == REPO_ROOT / data
         assert built["table"] == table
         assert built["loaded"] is True
