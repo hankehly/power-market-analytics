@@ -5,57 +5,64 @@
 - `just refresh-all` — every source in one go: download + reload `raw` for JEPX (+ the holidays
   seed), JMA hourly (+ the station seed), JMA normals, OCCTO, TEPCO (both datasets), Kansai
   (both datasets), e-Stat and MSM,
-  in that order (JMA before MSM: the MSM downloader reads the station seed), each script with
+  in that order (JMA before MSM: the MSM downloader reads the station seed), each command with
   its defaults, then a single `dbt build` (models + tests). Warm caches make it ~1.5 h,
   dominated by JMA re-fetching every station's current-year file; a failing step aborts before
   the build. It is the only refresh recipe — the per-source `refresh-<source>` / `ingest-<source>`
   recipes were dropped on 2026-08-31.
-- A single source is refreshed by running its download + load scripts (all under `scripts/`)
-  through `just python`, then `just dbt build`:
-  - JEPX: `download_jepx_spot.py`, `update_holidays_seed.py`, `load_jepx_spot.py`.
-  - JMA hourly: `update_jma_stations_seed.py` (~5 min, staffed stations inside JEPX areas only),
-    `download_jma_hourly_all.py` (stitched 7-element hourly CSVs; e.g. `--prefecture 44`; no
-    args = all ~149 staffed stations, ~13.5 h cold; `--request-interval 3` is proven — the
-    2026-08-20 full backfill, ~3,100 requests, zero 429s, ~6 h — while 2 s spacing draws 429s),
-    `load_jma_hourly.py`.
-  - JMA normals (平年値, since 2026-09-27): `download_jma_normals.py` (the version off the
+- A single source is refreshed by its command's `download` and `load` subcommands, then
+  `just dbt build`: `scripts/<source>.py`, run as `just <source> <download|load> <dataset>
+  [flags]`, `-h` at any level (since 2026-09-28; spec
+  `docs/superpowers/specs/2026-09-28-source-commands-design.md`). A dataset is named after
+  its directory under `data/<source>/`:
+  - JEPX: `just jepx download spot` (`--force-all` refetches every fiscal year),
+    `just python scripts/update_holidays_seed.py`, `just jepx load spot`.
+  - JMA hourly: `just jma download stations` (~5 min, staffed stations inside JEPX areas only;
+    rewrites the seed), `just jma download hourly` (stitched 7-element hourly CSVs; e.g.
+    `--prefecture 44` or `--station s47662`; no args = all ~149 staffed stations, ~13.5 h cold;
+    `--request-interval 3` is proven — the 2026-08-20 full backfill, ~3,100 requests, zero
+    429s, ~6 h — while 2 s spacing draws 429s), `just jma load hourly`. The per-station
+    `download_jma_hourly` script and its `--elements` went with the consolidation; another
+    element set is `JmaHourlyDownloader.download` in Python.
+  - JMA normals (平年値, since 2026-09-27): `just jma download normals` (the version off the
     平年値ダウンロード page, `normal_surface.zip` — 20 MB, always re-downloaded — validated and
     its 157 daily files extracted under `data/jma/normals/2020/` with a manifest; no `--force`),
-    `load_jma_normals.py` (152,604 rows, seconds). Host or devcontainer for the download,
+    `just jma load normals` (152,604 rows, seconds). Host or devcontainer for the download,
     devcontainer for the load.
   - OCCTO 翌々日, two datasets — the demand-forecast CSV (~700 KB, 3 HTTP calls) and the
     half-hourly area reserve-rate CSV (~20 MB/yr, fetched in 300-day windows because the portal
-    caps a download at 150,000 rows): `download_occto_demand_forecast.py`,
-    `download_occto_area_reserve_rate.py`, `load_occto_demand_forecast.py`,
-    `load_occto_area_reserve_rate.py`.
+    caps a download at 150,000 rows): `just occto download demand_forecast_dad`,
+    `just occto download area_reserve_rate_dad`, `just occto load demand_forecast_dad`,
+    `just occto load area_reserve_rate_dad`.
   - TEPCO, two datasets — the Tokyo-area demand/generation actuals
-    (`download_tepco_area_demand_generation.py` redownloads every monthly `AREA_YYYYMM.zip`,
-    2022-04 → now, ~5 MB total; `load_tepco_area_demand_generation.py`) and でんき予報 hourly
-    電力使用実績 (`download_tepco_power_usage.py` fetches the yearly `juyo-YYYY.csv` files 2016 …
+    (`just tepco download area_demand_generation` redownloads every monthly `AREA_YYYYMM.zip`,
+    2022-04 → now, ~5 MB total; `just tepco load area_demand_generation`) and でんき予報 hourly
+    電力使用実績 (`just tepco download power_usage` fetches the yearly `juyo-YYYY.csv` files 2016 …
     2022, cached — `--force-yearly` refetches them — and redownloads every monthly
-    `YYYYMM_power_usage.zip`, 2022-04 → now, ~4 MB; `load_tepco_power_usage.py`).
+    `YYYYMM_power_usage.zip`, 2022-04 → now, ~4 MB; `just tepco load power_usage`).
   - Kansai, two datasets — the same as TEPCO's actuals for 関西電力送配電 (`YYYYMM_jisseki.zip`,
-    2022-04 → now, ~2 MB total): `download_kansai_area_demand_generation.py`,
-    `load_kansai_area_demand_generation.py`; and でんき予報 hourly 電力使用実績
-    (`download_kansai_power_usage.py` redownloads every monthly `YYYYMM_jisseki.zip` under
-    `…/yamasou/`, 2016-04 → now, ~8.5 MB, 126 zips; `load_kansai_power_usage.py`, ~3,800 daily
+    2022-04 → now, ~2 MB total): `just kansai download area_demand_generation`,
+    `just kansai load area_demand_generation`; and でんき予報 hourly 電力使用実績
+    (`just kansai download power_usage` redownloads every monthly `YYYYMM_jisseki.zip` under
+    `…/yamasou/`, 2016-04 → now, ~8.5 MB, 126 zips; `just kansai load power_usage`, ~3,800 daily
     files in seconds).
-  - e-Stat: `download_estat_census_population_mesh.py` downloads every configured census vintage
+  - e-Stat: `just estat download census_population_mesh` downloads every configured census vintage
     (2015 `T000847`, 2020 `T001101` JGD2000; 151 primary-mesh zips each, cached — `--years 2020`,
     `--force`; a cold run is ~50 min because e-Stat generates each archive in ~10 s),
-    `load_estat_census_population_mesh.py`.
-  - MSM: `download_jma_msm_surface_forecast.py` downloads + decodes, for each delivery day D, the
-    three RISH GRIB2 files covering the 12 UTC D-2 run (`--start-date`, `--force`, `--keep-grib`;
-    ~157 MB per delivery day, ~54 GiB/yr), `load_jma_msm_surface_forecast.py`. `--start-date`
-    defaults to 2022-04-01, but the warehouse holds 2019-04-01 → since the 2026-09-05 backfill;
-    2019-04-01 is the earliest the downloader accepts (the archive's `FH40-51` member starts
-    with the 2019-03-05 12 UTC run), so pass it on a fresh clone. Only the
-    downloader needs a devcontainer image rebuild (`docker compose build devcontainer`)
+    `just estat load census_population_mesh`.
+  - MSM: `just jma download msm_surface_forecast` downloads + decodes, for each delivery day D,
+    the three RISH GRIB2 files covering the 12 UTC D-2 run (`--start-date`, `--force`,
+    `--keep-grib`; ~157 MB per delivery day, ~54 GiB/yr), `just jma load msm_surface_forecast`.
+    `--start-date` defaults to 2022-04-01, but the warehouse holds 2019-04-01 → since the
+    2026-09-05 backfill; 2019-04-01 is the earliest the downloader accepts (the archive's
+    `FH40-51` member starts with the 2019-03-05 12 UTC run), so pass it on a fresh clone. Only
+    the downloader needs a devcontainer image rebuild (`docker compose build devcontainer`)
     for the eccodes dependency before it can run in-container:
     `power_market_analytics/ingestion/msm/grib.py` imports eccodes at module level, and
     since the 2026-09-12 package split only the downloader reaches it — the loader imports
-    `ingestion.loader` alone. See
-    [docs/JMA-MSM-GPV-Retrieval.md](docs/JMA-MSM-GPV-Retrieval.md) §8.
+    `ingestion.loader` alone. `scripts/jma.py` imports `MsmDownloader` inside that one
+    handler, so no other `jma` subcommand needs eccodes (a test blocks eccodes and imports the
+    script). See [docs/JMA-MSM-GPV-Retrieval.md](docs/JMA-MSM-GPV-Retrieval.md) §8.
 - `just test [pytest args]` — Python unit tests (host-side pytest, ~1 min) with a `pytest-cov`
   term-missing report over `power_market_analytics/` + `scripts/` (config in `pyproject.toml`
   `[tool.coverage.*]`; gated at 100% via `fail_under`, so a partial suite fails locally and in
@@ -128,6 +135,10 @@
   excluded because `pyproject.toml` pins it to the `docker-compose.yaml` server image and both
   move together).
 - `just python <args>` / `just exec <cmd>` / `just shell` — run inside the devcontainer.
+- `just <source> <verb> <dataset> [flags]` (since 2026-09-28) — the six source commands in the
+  devcontainer, `scripts/<source>.py` for `jepx`, `jma`, `occto`, `tepco`, `kansai` and
+  `estat`: `download` or `load`, then the dataset (the directory under `data/<source>/`);
+  sugar over `just python scripts/<source>.py`. `-h` at any level lists what is under it.
 - `just dbt <args>` — dbt from `/workspace/dbt` (e.g. `just dbt build`, `just dbt show --inline "select ..." --limit 5`).
   `just dbt parse` needs no warehouse (parse never opens a connection) and is the one dbt step
   the `CI` workflow runs — a `dbt parse` job on every push: full locked `uv sync`, `dbt deps`
@@ -554,20 +565,20 @@
   families (`area_actuals.py`, `power_usage.py`) next to one package per TSO, which splits
   by dataset because each TSO publishes two. No package re-exports its modules' names:
   every name has one import path.
-- JEPX CSVs: `scripts/download_jepx_spot.py` → `data/jepx/spot/` (gitignored) →
-  `scripts/load_jepx_spot.py` (`CsvLoader`, load contract in `conf/schemas/jepx_spot.yaml`) → `pma_raw.jepx_spot`.
+- JEPX CSVs: `just jepx download spot` (`scripts/jepx.py`) → `data/jepx/spot/` (gitignored) →
+  `just jepx load spot` (`CsvLoader`, load contract in `conf/schemas/jepx_spot.yaml`) → `pma_raw.jepx_spot`.
 - JMA weather CSVs (staffed stations only since the 2026-08 re-scope, and only stations
   inside a JEPX area — Okinawa, Antarctica and 南鳥島 are excluded, so
   `dim_jma_station.area_key` is a required FK to `dim_area`):
-  `scripts/download_jma_hourly_all.py` (per-station: `download_jma_hourly.py`;
+  `just jma download hourly` (`scripts/jma.py`, `--station` for one station;
   `power_market_analytics/ingestion/jma/` splits by concern — `client` (the throttled,
   retrying POST base), `hourly`, `stations`, `load`) →
-  `data/jma/hourly/` → `scripts/load_jma_hourly.py` (`JmaHourlyCsvLoader`, positional
+  `data/jma/hourly/` → `just jma load hourly` (`JmaHourlyCsvLoader`, positional
   contract `conf/schemas/jma_hourly_staffed.yaml`, 27 columns) →
   `pma_raw.jma_hourly_staffed` only (over-budget station-years are fetched as 2 request
   windows and stitched into one file; 均質番号 resets per window, so a stitched year file
   resets it at the mid-year boundary). Station master:
-  `scripts/update_jma_stations_seed.py` (`staffed_only=True`, `jepx_areas_only=True`) →
+  `just jma download stations` (`staffed_only=True`, `jepx_areas_only=True`) →
   seed `jma_stations` → `dim_jma_station`, which joins the hand-curated seed
   `jma_station_areas` (station → JEPX area per the TSO 供給区域 definitions;
   prefecture-level except 静岡, split at the 富士川) for its `area_key`/`area_code`
@@ -575,14 +586,14 @@
   [docs/JMA-Weather-Data-Retrieval.md](docs/JMA-Weather-Data-Retrieval.md).
 - JMA MSM GPV surface forecast (one vintage per delivery day D — the 12 UTC D-2 run, leads
   28-51 = JST hour-endings 01:00-24:00 of D, safely before the demand model's 09:30 JST D-1
-  cutoff): `scripts/download_jma_msm_surface_forecast.py` (`MsmDownloader` in
+  cutoff): `just jma download msm_surface_forecast` (`MsmDownloader` in
   `power_market_analytics/ingestion/msm/download.py`; the package splits by concern —
   `vintage` (which run covers a delivery day, which files hold it), `grid`, `elements`,
   `grib` (the eccodes decoder, with per-call `codes_grib_multi_support_on()` — JMA packs
   many fields per message), `stations`, `download`, `load`, `errors`; three RISH GRIB2
   files/day, deleted after a successful extract by default) →
   `data/jma/msm_surface_forecast/` (one `csv.gz` extract +
-  manifest per delivery day) → `scripts/load_jma_msm_surface_forecast.py`
+  manifest per delivery day) → `just jma load msm_surface_forecast`
   (`MsmForecastCsvLoader`, which imports `ingestion.loader` alone, so the load step needs
   no eccodes; contract
   `conf/schemas/jma_msm_surface_forecast.yaml`) → `pma_raw.jma_msm_surface_forecast` →
@@ -593,13 +604,13 @@
   forecast-vs-observed comparisons). Protocol, GRIB2 element table and verification results:
   [docs/JMA-MSM-GPV-Retrieval.md](docs/JMA-MSM-GPV-Retrieval.md).
 - JMA climatological normals (平年値, the 1991–2020 period, in use since 2021-05-19; since
-  2026-09-27): `scripts/download_jma_normals.py` (`JmaNormalsDownloader` in
+  2026-09-27): `just jma download normals` (`JmaNormalsDownloader` in
   `power_market_analytics/ingestion/jma/normals.py`, which holds the vintage config
   `VINTAGES` — one entry, the 2030 normals become a second —, the downloader and the loader:
   the version is read off the page heading `2020年平年値（第5版)`, the archive is validated —
   the station index plus exactly 157 daily files — and the daily files, the index and
   `manifest.json` written under `data/jma/normals/2020/`, the manifest removed first and
-  written last so a failed run leaves none) → `scripts/load_jma_normals.py`
+  written last so a failed run leaves none) → `just jma load normals`
   (`JmaNormalsCsvLoader`, positional contract `conf/schemas/jma_normal_surface_daily.yaml`,
   69 fields — 7 keys, then 31 value/flag pairs —, the period, version and in-use date
   injected from the manifest, row checks in one grouped Spark pass) →
@@ -620,21 +631,21 @@
   departure-from-normal features are a feature candidate of their own. Protocol, record
   layout, element codes, flags and versions:
   [docs/JMA-Climatological-Normals-Retrieval.md](docs/JMA-Climatological-Normals-Retrieval.md).
-- OCCTO 翌々日 demand forecast: `scripts/download_occto_demand_forecast.py`
-  (`OcctoBulkDownloader` in `power_market_analytics/ingestion/occto.py`, always
+- OCCTO 翌々日 demand forecast: `just occto download demand_forecast_dad` (`scripts/occto.py`;
+  `OcctoBulkDownloader` in `power_market_analytics/ingestion/occto.py`, always
   re-downloads the whole history) → `data/occto/demand_forecast_dad/` →
-  `scripts/load_occto_demand_forecast.py`
+  `just occto load demand_forecast_dad`
   (`CsvLoader`, contract `conf/schemas/occto_demand_forecast_dad.yaml`) →
   `pma_raw.occto_demand_forecast_dad` → `stg/std_occto__demand_forecast_dad` →
   `fct_occto_demand_supply_forecast_daily` (9 JEPX areas; エリア計 totals + Okinawa stay in `std`).
   Protocol + CSV format:
   [docs/OCCTO-Demand-Forecast-Retrieval.md](docs/OCCTO-Demand-Forecast-Retrieval.md).
 - OCCTO 広域予備率 エリア・広域ブロック情報 (翌々日, half-hourly area demand/supply-capacity
-  forecast, 480 rows/day from 2025-04-01): `scripts/download_occto_area_reserve_rate.py`
+  forecast, 480 rows/day from 2025-04-01): `just occto download area_reserve_rate_dad`
   (same `OcctoBulkDownloader`, dataset `area_reserve_rate_dad` = `areaDataKnd=31`; the
   downloader splits chunked datasets into `max_days_per_download` windows and concatenates
   them into one CSV) → `data/occto/area_reserve_rate_dad/` →
-  `scripts/load_occto_area_reserve_rate.py` (`CsvLoader`, contract
+  `just occto load area_reserve_rate_dad` (`CsvLoader`, contract
   `conf/schemas/occto_area_reserve_rate_dad.yaml`) → `pma_raw.occto_area_reserve_rate_dad` →
   `stg/std_occto__area_reserve_rate_dad` (時刻 "00:30".."24:00" → JEPX `time_code` 1–48,
   block columns kept) → `fct_occto_demand_supply_forecast_30m` (grain date × time_code × area,
@@ -655,8 +666,8 @@
   - TEPCO / Tokyo: `power_market_analytics/ingestion/tso/tepco/area_demand_generation.py`
     (`TEPCO`, `TepcoAreaDownloader`; the `tepco/` package holds one module per TEPCO
     dataset and re-exports nothing) →
-    `scripts/download_tepco_area_demand_generation.py` → `data/tepco/area_demand_generation/{zip,csv}/`
-    → `scripts/load_tepco_area_demand_generation.py` (`TepcoAreaCsvLoader`, contract
+    `just tepco download area_demand_generation` (`scripts/tepco.py`) → `data/tepco/area_demand_generation/{zip,csv}/`
+    → `just tepco load area_demand_generation` (`TepcoAreaCsvLoader`, contract
     `conf/schemas/tepco_area_demand_generation_actual.yaml`) → `pma_raw.tepco_area_demand_generation_actual`
     → `stg/std_tepco__area_demand_generation_actual`. Format + quirks:
     [docs/TEPCO-Area-Demand-Generation-Retrieval.md](docs/TEPCO-Area-Demand-Generation-Retrieval.md).
@@ -664,8 +675,8 @@
     `power_market_analytics/ingestion/tso/kansai/area_demand_generation.py` (`KANSAI`,
     `KansaiAreaDownloader`; the `kansai/` package holds one module per Kansai dataset and
     re-exports nothing) →
-    `scripts/download_kansai_area_demand_generation.py` → `data/kansai/area_demand_generation/{zip,csv}/`
-    → `scripts/load_kansai_area_demand_generation.py` (`KansaiAreaCsvLoader`, contract
+    `just kansai download area_demand_generation` (`scripts/kansai.py`) → `data/kansai/area_demand_generation/{zip,csv}/`
+    → `just kansai load area_demand_generation` (`KansaiAreaCsvLoader`, contract
     `conf/schemas/kansai_area_demand_generation_actual.yaml`, nullable bigint measures) →
     `pma_raw.kansai_area_demand_generation_actual` → `stg/std_kansai__area_demand_generation_actual`.
     Format (two layouts, switch 2025-12-25) + quirks:
@@ -689,8 +700,8 @@
     `TepcoPowerUsageDownloader` = yearly `juyo-YYYY.csv` 2016 … 2022 cached + monthly
     `YYYYMM_power_usage.zip` 2022-04 → now via the shared downloader, `parse_hourly(file)` bound
     to the spec, `TepcoPowerUsageCsvLoader` — `_file_rows` drops yearly rows ≥ 2022-04-01 so
-    the daily files win) → `scripts/download_tepco_power_usage.py` →
-    `data/tepco/power_usage/{zip,csv}/` → `scripts/load_tepco_power_usage.py` (contract
+    the daily files win) → `just tepco download power_usage` →
+    `data/tepco/power_usage/{zip,csv}/` → `just tepco load power_usage` (contract
     `conf/schemas/tepco_power_usage_hourly.yaml`, grain date × hour_start 0–23) →
     `pma_raw.tepco_power_usage_hourly` → `stg_tepco__power_usage_hourly` →
     `std_tepco__power_usage_hourly` (typed hour axis: `hour_start` 0–23 as published +
@@ -706,8 +717,8 @@
     feed's, different data dir —, members `YYYYMMDD_juyo1_kansai.csv` → `juyo_06_YYYYMMDD.csv`
     from 2025-12, three hourly headers — `供給力想定値` added 2019-09-12, renamed `供給力`
     2025-12-25 —, `known_missing_days = {2024-03-31}`; `KansaiPowerUsageDownloader`,
-    `KansaiPowerUsageCsvLoader`) → `scripts/download_kansai_power_usage.py` →
-    `data/kansai/power_usage/{zip,csv}/` → `scripts/load_kansai_power_usage.py` (contract
+    `KansaiPowerUsageCsvLoader`) → `just kansai download power_usage` →
+    `data/kansai/power_usage/{zip,csv}/` → `just kansai load power_usage` (contract
     `conf/schemas/kansai_power_usage_hourly.yaml`, TEPCO's columns) →
     `pma_raw.kansai_power_usage_hourly` → `stg_kansai__power_usage_hourly` →
     `std_kansai__power_usage_hourly` (same shape as TEPCO's; `forecast_mankw` / `usage_rate_pct`
@@ -725,13 +736,13 @@
     the hourly fact and the 30-minute fact drill across: sum the 30-minute `demand_kwh` per
     `hour_of_day`. Adding a TSO = new spec + contract + stg/std models + one union branch.
 - e-Stat census 500 m population mesh (国勢調査 4次メッシュ, one CP932 text file per 第１次地域区画):
-  `scripts/download_estat_census_population_mesh.py` (`EstatCensusMeshDownloader` in
+  `just estat download census_population_mesh` (`scripts/estat.py`; `EstatCensusMeshDownloader` in
   `power_market_analytics/ingestion/estat/download.py`; per-vintage `CensusVintage` config
   in `vintages.VINTAGES` — stats id,
   population column, census date, datum, listing URL, expected file count; the listing rows come
   from the `search_detail` JSON endpoint, not the HTML page; zips validated before caching, member
   extracted byte-for-byte) → `data/estat/census_population_mesh/{year}/{zip,txt}/` →
-  `scripts/load_estat_census_population_mesh.py` (`EstatCensusMeshCsvLoader`, in the same
+  `just estat load census_population_mesh` (`EstatCensusMeshCsvLoader`, in the same
   package's `load.py`:
   vintage from the file name, reads each vintage's files in one scan (grouped by exact header line),
   selects that vintage's population column, injects vintage attributes, validates mesh codes /

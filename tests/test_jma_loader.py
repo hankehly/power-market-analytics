@@ -2,7 +2,7 @@
 
 Files are small but realistic cp932 CSVs shaped like docs/JMA-Weather-Data-Retrieval.md
 §7 (download-timestamp line, blank line, four header rows, then data rows), named the
-way ``scripts/download_jma_hourly.py`` names them, and loaded through the *real*
+way ``JmaHourlyDownloader.path_for`` names them, and loaded through the *real*
 ``conf/schemas/jma_hourly_staffed.yaml`` contract.
 """
 

@@ -8,10 +8,10 @@ description: >
   the JMA MSM surface grid
   (https://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/),
   downloaded and decoded per delivery day by MsmDownloader
-  (scripts/download_jma_msm_surface_forecast.py) into one gzip CSV extract
+  (just jma download msm_surface_forecast) into one gzip CSV extract
   (msm_surface_YYYYMMDD.csv.gz, one row per station x forecast lead hour,
   header RAW_CSV_COLUMNS) and loaded by MsmForecastCsvLoader
-  (scripts/load_jma_msm_surface_forecast.py). forecast_reference_at_utc and
+  (just jma load msm_surface_forecast). forecast_reference_at_utc and
   forecast_valid_at_utc are kept as raw-layer ISO 8601 UTC strings ("...Z")
   rather than parsed timestamps, to avoid session-timezone parsing
   ambiguity; std converts them to JST wall-clock. The nine identifying

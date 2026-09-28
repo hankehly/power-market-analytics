@@ -3,8 +3,8 @@ description: >
   (地上気象観測 日別平年値) of every staffed station,
   normal_surface/daily/nml_sfc_d_<station>.csv of normal_surface.zip from the
   平年値ダウンロード page (https://www.data.jma.go.jp/stats/data/mdrr/normal/index.html),
-  downloaded by scripts/download_jma_normals.py and loaded by
-  JmaNormalsCsvLoader (scripts/load_jma_normals.py). Format, element codes,
+  downloaded by just jma download normals and loaded by
+  JmaNormalsCsvLoader (just jma load normals; both scripts/jma.py). Format, element codes,
   flags and versions: docs/JMA-Climatological-Normals-Retrieval.md. The files
   have no header: 15 (the daily kind), the station number, the element code,
   the years of data, the first and last year the statistic covers (0 and 0

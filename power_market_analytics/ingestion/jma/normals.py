@@ -468,7 +468,7 @@ class JmaNormalsCsvLoader(CsvLoader):
         """
         if not path.exists():
             raise ValueError(
-                f"{path}: no manifest next to the daily files; run scripts/download_jma_normals.py"
+                f"{path}: no manifest next to the daily files; run `jma download normals`"
             )
         manifest: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
         missing = [key for key in self._MANIFEST_KEYS if key not in manifest]

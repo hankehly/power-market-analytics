@@ -83,7 +83,7 @@ def import_script(name: str) -> ModuleType:
     Parameters
     ----------
     name : str
-        Script file stem, e.g. ``"download_jepx_spot"``.
+        Script file stem, e.g. ``"jma"``.
 
     Returns
     -------
