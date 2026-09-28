@@ -11,9 +11,13 @@ default:
 exec *args:
     @docker compose exec -e PYTHONPATH=/workspace devcontainer "$@"
 
-[doc("Run python inside the devcontainer (e.g. just python scripts/load_jepx_spot.py)")]
+[doc("Run python inside the devcontainer (e.g. just python scripts/demand_backtest.py --area tokyo)")]
 python *args:
     @docker compose exec -e PYTHONPATH=/workspace devcontainer python "$@"
+
+[doc("JMA, inside the devcontainer: just jma download hourly|normals|msm_surface_forecast|stations … / just jma load hourly|normals|msm_surface_forecast …; -h at any level lists what is under it")]
+jma *args:
+    @just python scripts/jma.py "$@"
 
 [doc("Run dbt inside the devcontainer (e.g. just dbt run)")]
 dbt *args:
@@ -60,8 +64,9 @@ open target:
     esac
     open "$url"
 
-# One refresh recipe covers every source. A single source is refreshed by running its download +
-# load scripts through `just python` (the pairs are listed in CLAUDE.md) and then `just dbt build`.
+# One refresh recipe covers every source. A single source is refreshed by its source command's
+# download and load subcommands (JMA: `just jma …`; the other sources' download + load scripts
+# through `just python` until they are folded the same way) and then `just dbt build`.
 # JMA runs before MSM because the MSM downloader reads the station seed.
 
 [doc("Refresh every data source (JEPX + holidays seed, JMA hourly + station seed, JMA normals, OCCTO, TEPCO (both datasets), Kansai (both datasets), e-Stat, MSM) with each script's defaults, then one dbt build: ~1.5 h with warm caches, dominated by JMA's current-year files; a failing step aborts before the build")]
@@ -70,12 +75,12 @@ refresh-all:
     just python scripts/update_holidays_seed.py
     just python scripts/load_jepx_spot.py
 
-    just python scripts/update_jma_stations_seed.py
-    just python scripts/download_jma_hourly_all.py
-    just python scripts/load_jma_hourly.py
+    just jma download stations
+    just jma download hourly
+    just jma load hourly
 
-    just python scripts/download_jma_normals.py
-    just python scripts/load_jma_normals.py
+    just jma download normals
+    just jma load normals
 
     just python scripts/download_occto_demand_forecast.py
     just python scripts/download_occto_area_reserve_rate.py
@@ -95,8 +100,8 @@ refresh-all:
     just python scripts/download_estat_census_population_mesh.py
     just python scripts/load_estat_census_population_mesh.py
 
-    just python scripts/download_jma_msm_surface_forecast.py
-    just python scripts/load_jma_msm_surface_forecast.py
+    just jma download msm_surface_forecast
+    just jma load msm_surface_forecast
 
     just dbt build
 
