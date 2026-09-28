@@ -28,7 +28,7 @@
 2. `jepx download spot` with `current_fiscal_year` pinned: the two newest fiscal years forced, the rest cached — the old script's policy, now behind a verb and a dataset. Pinned in Task 1 (`TestDownloadJepxSpot`, carried over).
 3. `tepco download power_usage --force-yearly`: the flag reaches `download_all(force_yearly=True)`; `tepco download area_demand_generation --force-yearly` is refused (exit 2), since only the power-usage downloader has yearly files. Pinned in Task 1 (`TestDownloadTepcoPowerUsage` carried over; `TestParserTrees.test_a_flag_of_another_dataset_is_refused`).
 4. `estat download census_population_mesh --years 2010`: exit 2 from the parser's `choices`, no request. Pinned in Task 1 (`TestDownloadEstatCensusPopulationMesh.test_unconfigured_year_is_rejected_by_the_parser`, carried over).
-5. `kansai load area_demand_generation` reads the Kansai contract, not TEPCO's: the grain and the `windows-31j` encoding come from `conf/schemas/kansai_area_demand_generation_actual.yaml`. Pinned in Task 1 (`TestLoadCommands[kansai load area_demand_generation]::test_defaults` through `CONTRACT_GRAINS`, and `TestKansaiContract`, unchanged).
+5. `kansai load area_demand_generation` reads the Kansai contract, not TEPCO's: the two share a grain and the `windows-31j` encoding and differ only in three measure types, so a grain check cannot tell them apart. Pinned in Task 1 (`TestLoadCommands[kansai load area_demand_generation]::test_defaults`, which asserts the loader's schema equals `CsvTableSchema.from_yaml` of the row's contract file — the whole model; added after the branch review, which found the grain-only check blind to a swapped file).
 
 ## File structure
 
