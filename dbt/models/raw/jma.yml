@@ -4,7 +4,7 @@ sources:
     description: >
       JMA (Japan Meteorological Agency) historical weather observations,
       scraped from https://www.data.jma.go.jp/risk/obsdl/ by
-      scripts/download_jma_hourly.py and loaded by scripts/load_jma_hourly.py
+      `just jma download hourly` and loaded by `just jma load hourly` (scripts/jma.py)
       (full reload). The retrieval protocol and CSV formats are documented in
       docs/JMA-Weather-Data-Retrieval.md. Staffed stations only since the
       2026-08 re-scope (気象官署, s-prefixed station ids): a single
@@ -131,10 +131,10 @@ sources:
           University RISH's GRIB2 mirror of the JMA MSM surface grid
           (https://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/),
           downloaded and decoded per delivery day by MsmDownloader
-          (scripts/download_jma_msm_surface_forecast.py) into one gzip CSV
+          (just jma download msm_surface_forecast) into one gzip CSV
           extract (msm_surface_YYYYMMDD.csv.gz, one row per station x
           forecast lead hour) and loaded by MsmForecastCsvLoader
-          (scripts/load_jma_msm_surface_forecast.py). forecast_reference_at_utc
+          (just jma load msm_surface_forecast). forecast_reference_at_utc
           and forecast_valid_at_utc are kept as raw-layer ISO 8601 UTC
           strings ("...Z") rather than parsed timestamps, to avoid
           session-timezone parsing ambiguity; std converts them to JST
