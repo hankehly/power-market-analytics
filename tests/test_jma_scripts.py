@@ -1040,9 +1040,16 @@ class TestMsmDownloaderImportIsLazy:
 
         assert not hasattr(script, "MsmDownloader")
 
-    def test_only_the_msm_download_handler_needs_eccodes(self, monkeypatch):
+    def test_only_the_msm_download_handler_needs_eccodes(self, monkeypatch, capsys):
         block_eccodes(monkeypatch)
         script = import_script("jma")
+
+        # Another subcommand runs to completion under the block — through build_parser and
+        # a load handler's help — so an import argparse reaches before dispatch would fail here.
+        with pytest.raises(SystemExit) as exc:
+            script.main(["load", "normals", "-h"])
+        assert exc.value.code == 0
+        assert "usage: jma load normals" in capsys.readouterr().out
 
         with pytest.raises(ImportError):
             script.main(["download", "msm_surface_forecast"])
