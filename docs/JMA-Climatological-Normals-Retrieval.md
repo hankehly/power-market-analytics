@@ -177,13 +177,13 @@ stations.
 
 ```bash
 # The page (version), the zip (20 MB), the 157 daily files. Host-side:
-uv run python scripts/download_jma_normals.py
+uv run python scripts/jma.py download normals
 # or in the devcontainer:
-just python scripts/download_jma_normals.py            # every configured period
-just python scripts/download_jma_normals.py --years 2020 --data-dir data/jma/normals
+just jma download normals                                  # every configured period
+just jma download normals --years 2020 --data-dir data/jma/normals
 
 # Devcontainer: 152,604 rows into pma_raw.jma_normal_surface_daily, seconds.
-just python scripts/load_jma_normals.py
+just jma load normals
 just dbt build --select jma_normal_elements stg_jma__normal_surface_daily+
 ```
 

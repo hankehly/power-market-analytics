@@ -10,18 +10,23 @@
   dominated by JMA re-fetching every station's current-year file; a failing step aborts before
   the build. It is the only refresh recipe — the per-source `refresh-<source>` / `ingest-<source>`
   recipes were dropped on 2026-08-31.
-- A single source is refreshed by running its download + load scripts (all under `scripts/`)
-  through `just python`, then `just dbt build`:
+- A single source is refreshed by its download and load commands, then `just dbt build`. JMA
+  is one command since 2026-09-28 — `scripts/jma.py`, `just jma <download|load> <dataset>`,
+  `-h` at any level (spec `docs/superpowers/specs/2026-09-28-source-commands-design.md`); the
+  other five sources still run their download + load scripts (under `scripts/`) through
+  `just python` until they are folded the same way:
   - JEPX: `download_jepx_spot.py`, `update_holidays_seed.py`, `load_jepx_spot.py`.
-  - JMA hourly: `update_jma_stations_seed.py` (~5 min, staffed stations inside JEPX areas only),
-    `download_jma_hourly_all.py` (stitched 7-element hourly CSVs; e.g. `--prefecture 44`; no
-    args = all ~149 staffed stations, ~13.5 h cold; `--request-interval 3` is proven — the
-    2026-08-20 full backfill, ~3,100 requests, zero 429s, ~6 h — while 2 s spacing draws 429s),
-    `load_jma_hourly.py`.
-  - JMA normals (平年値, since 2026-09-27): `download_jma_normals.py` (the version off the
+  - JMA hourly: `just jma download stations` (~5 min, staffed stations inside JEPX areas only;
+    rewrites the seed), `just jma download hourly` (stitched 7-element hourly CSVs; e.g.
+    `--prefecture 44` or `--station s47662`; no args = all ~149 staffed stations, ~13.5 h cold;
+    `--request-interval 3` is proven — the 2026-08-20 full backfill, ~3,100 requests, zero
+    429s, ~6 h — while 2 s spacing draws 429s), `just jma load hourly`. The per-station
+    `download_jma_hourly` script and its `--elements` went with the consolidation; another
+    element set is `JmaHourlyDownloader.download` in Python.
+  - JMA normals (平年値, since 2026-09-27): `just jma download normals` (the version off the
     平年値ダウンロード page, `normal_surface.zip` — 20 MB, always re-downloaded — validated and
     its 157 daily files extracted under `data/jma/normals/2020/` with a manifest; no `--force`),
-    `load_jma_normals.py` (152,604 rows, seconds). Host or devcontainer for the download,
+    `just jma load normals` (152,604 rows, seconds). Host or devcontainer for the download,
     devcontainer for the load.
   - OCCTO 翌々日, two datasets — the demand-forecast CSV (~700 KB, 3 HTTP calls) and the
     half-hourly area reserve-rate CSV (~20 MB/yr, fetched in 300-day windows because the portal
@@ -44,18 +49,19 @@
     (2015 `T000847`, 2020 `T001101` JGD2000; 151 primary-mesh zips each, cached — `--years 2020`,
     `--force`; a cold run is ~50 min because e-Stat generates each archive in ~10 s),
     `load_estat_census_population_mesh.py`.
-  - MSM: `download_jma_msm_surface_forecast.py` downloads + decodes, for each delivery day D, the
-    three RISH GRIB2 files covering the 12 UTC D-2 run (`--start-date`, `--force`, `--keep-grib`;
-    ~157 MB per delivery day, ~54 GiB/yr), `load_jma_msm_surface_forecast.py`. `--start-date`
-    defaults to 2022-04-01, but the warehouse holds 2019-04-01 → since the 2026-09-05 backfill;
-    2019-04-01 is the earliest the downloader accepts (the archive's `FH40-51` member starts
-    with the 2019-03-05 12 UTC run), so pass it on a fresh clone. Only the
-    downloader needs a devcontainer image rebuild (`docker compose build devcontainer`)
+  - MSM: `just jma download msm_surface_forecast` downloads + decodes, for each delivery day D,
+    the three RISH GRIB2 files covering the 12 UTC D-2 run (`--start-date`, `--force`,
+    `--keep-grib`; ~157 MB per delivery day, ~54 GiB/yr), `just jma load msm_surface_forecast`.
+    `--start-date` defaults to 2022-04-01, but the warehouse holds 2019-04-01 → since the
+    2026-09-05 backfill; 2019-04-01 is the earliest the downloader accepts (the archive's
+    `FH40-51` member starts with the 2019-03-05 12 UTC run), so pass it on a fresh clone. Only
+    the downloader needs a devcontainer image rebuild (`docker compose build devcontainer`)
     for the eccodes dependency before it can run in-container:
     `power_market_analytics/ingestion/msm/grib.py` imports eccodes at module level, and
     since the 2026-09-12 package split only the downloader reaches it — the loader imports
-    `ingestion.loader` alone. See
-    [docs/JMA-MSM-GPV-Retrieval.md](docs/JMA-MSM-GPV-Retrieval.md) §8.
+    `ingestion.loader` alone. `scripts/jma.py` imports `MsmDownloader` inside that one
+    handler, so no other `jma` subcommand needs eccodes (a test blocks eccodes and imports the
+    script). See [docs/JMA-MSM-GPV-Retrieval.md](docs/JMA-MSM-GPV-Retrieval.md) §8.
 - `just test [pytest args]` — Python unit tests (host-side pytest, ~1 min) with a `pytest-cov`
   term-missing report over `power_market_analytics/` + `scripts/` (config in `pyproject.toml`
   `[tool.coverage.*]`; gated at 100% via `fail_under`, so a partial suite fails locally and in
@@ -128,6 +134,9 @@
   excluded because `pyproject.toml` pins it to the `docker-compose.yaml` server image and both
   move together).
 - `just python <args>` / `just exec <cmd>` / `just shell` — run inside the devcontainer.
+- `just jma <verb> <dataset> [flags]` (since 2026-09-28) — the JMA source command in the
+  devcontainer, `scripts/jma.py`: `download hourly|normals|msm_surface_forecast|stations`,
+  `load hourly|normals|msm_surface_forecast`; sugar over `just python scripts/jma.py`.
 - `just dbt <args>` — dbt from `/workspace/dbt` (e.g. `just dbt build`, `just dbt show --inline "select ..." --limit 5`).
   `just dbt parse` needs no warehouse (parse never opens a connection) and is the one dbt step
   the `CI` workflow runs — a `dbt parse` job on every push: full locked `uv sync`, `dbt deps`
@@ -559,15 +568,15 @@
 - JMA weather CSVs (staffed stations only since the 2026-08 re-scope, and only stations
   inside a JEPX area — Okinawa, Antarctica and 南鳥島 are excluded, so
   `dim_jma_station.area_key` is a required FK to `dim_area`):
-  `scripts/download_jma_hourly_all.py` (per-station: `download_jma_hourly.py`;
+  `just jma download hourly` (`scripts/jma.py`, `--station` for one station;
   `power_market_analytics/ingestion/jma/` splits by concern — `client` (the throttled,
   retrying POST base), `hourly`, `stations`, `load`) →
-  `data/jma/hourly/` → `scripts/load_jma_hourly.py` (`JmaHourlyCsvLoader`, positional
+  `data/jma/hourly/` → `just jma load hourly` (`JmaHourlyCsvLoader`, positional
   contract `conf/schemas/jma_hourly_staffed.yaml`, 27 columns) →
   `pma_raw.jma_hourly_staffed` only (over-budget station-years are fetched as 2 request
   windows and stitched into one file; 均質番号 resets per window, so a stitched year file
   resets it at the mid-year boundary). Station master:
-  `scripts/update_jma_stations_seed.py` (`staffed_only=True`, `jepx_areas_only=True`) →
+  `just jma download stations` (`staffed_only=True`, `jepx_areas_only=True`) →
   seed `jma_stations` → `dim_jma_station`, which joins the hand-curated seed
   `jma_station_areas` (station → JEPX area per the TSO 供給区域 definitions;
   prefecture-level except 静岡, split at the 富士川) for its `area_key`/`area_code`
@@ -575,14 +584,14 @@
   [docs/JMA-Weather-Data-Retrieval.md](docs/JMA-Weather-Data-Retrieval.md).
 - JMA MSM GPV surface forecast (one vintage per delivery day D — the 12 UTC D-2 run, leads
   28-51 = JST hour-endings 01:00-24:00 of D, safely before the demand model's 09:30 JST D-1
-  cutoff): `scripts/download_jma_msm_surface_forecast.py` (`MsmDownloader` in
+  cutoff): `just jma download msm_surface_forecast` (`MsmDownloader` in
   `power_market_analytics/ingestion/msm/download.py`; the package splits by concern —
   `vintage` (which run covers a delivery day, which files hold it), `grid`, `elements`,
   `grib` (the eccodes decoder, with per-call `codes_grib_multi_support_on()` — JMA packs
   many fields per message), `stations`, `download`, `load`, `errors`; three RISH GRIB2
   files/day, deleted after a successful extract by default) →
   `data/jma/msm_surface_forecast/` (one `csv.gz` extract +
-  manifest per delivery day) → `scripts/load_jma_msm_surface_forecast.py`
+  manifest per delivery day) → `just jma load msm_surface_forecast`
   (`MsmForecastCsvLoader`, which imports `ingestion.loader` alone, so the load step needs
   no eccodes; contract
   `conf/schemas/jma_msm_surface_forecast.yaml`) → `pma_raw.jma_msm_surface_forecast` →
@@ -593,13 +602,13 @@
   forecast-vs-observed comparisons). Protocol, GRIB2 element table and verification results:
   [docs/JMA-MSM-GPV-Retrieval.md](docs/JMA-MSM-GPV-Retrieval.md).
 - JMA climatological normals (平年値, the 1991–2020 period, in use since 2021-05-19; since
-  2026-09-27): `scripts/download_jma_normals.py` (`JmaNormalsDownloader` in
+  2026-09-27): `just jma download normals` (`JmaNormalsDownloader` in
   `power_market_analytics/ingestion/jma/normals.py`, which holds the vintage config
   `VINTAGES` — one entry, the 2030 normals become a second —, the downloader and the loader:
   the version is read off the page heading `2020年平年値（第5版)`, the archive is validated —
   the station index plus exactly 157 daily files — and the daily files, the index and
   `manifest.json` written under `data/jma/normals/2020/`, the manifest removed first and
-  written last so a failed run leaves none) → `scripts/load_jma_normals.py`
+  written last so a failed run leaves none) → `just jma load normals`
   (`JmaNormalsCsvLoader`, positional contract `conf/schemas/jma_normal_surface_daily.yaml`,
   69 fields — 7 keys, then 31 value/flag pairs —, the period, version and in-use date
   injected from the manifest, row checks in one grouped Spark pass) →

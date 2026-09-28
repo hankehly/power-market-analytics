@@ -423,21 +423,21 @@ within 0–100.
 ### 8.1 Download, load, build
 
 ```
-just python scripts/download_jma_msm_surface_forecast.py [args]
-just python scripts/load_jma_msm_surface_forecast.py
+just jma download msm_surface_forecast [args]
+just jma load msm_surface_forecast
 just dbt build
 ```
 
 `just refresh-all` runs the same three steps (the downloader with its defaults) after every
 other source.
 
-`scripts/load_jma_msm_surface_forecast.py` reads all ~2,700 daily `csv.gz`
+`just jma load msm_surface_forecast` reads all ~2,700 daily `csv.gz`
 extracts in a single Spark scan. They share one header line, so `CsvLoader`'s
 header-grouped default read applies. A full reload of 9.7 M rows takes under a
 minute — 46 s for 2,716 files on 2026-09-05 — and lands in 88 parquet files
 (349 MB).
 
-`scripts/download_jma_msm_surface_forecast.py` flags:
+`just jma download msm_surface_forecast` flags:
 
 | Flag | Default | Meaning |
 |---|---|---|
@@ -467,15 +467,17 @@ actively debugging a decode issue.
 MSM **download** script can run inside it — the baked venv predates the `eccodes` /
 `eccodeslib` dependency this pipeline added (`pyproject.toml`, `uv.lock`). Until that rebuild
 happens, the download+extract step can still run **host-side**
-(`uv run python scripts/download_jma_msm_surface_forecast.py ...`, no Spark/metastore
+(`uv run python scripts/jma.py download msm_surface_forecast ...`, no Spark/metastore
 needed).
 
 The load step does **not** need eccodes. `msm.load` imports only
 `ingestion.loader`, and the package's `__init__.py` is a docstring, so nothing pulls in
 `msm.grib` — the only module that imports eccodes. (Before the package split this was not
-true: the loader lived in the same module as the decoder.) Verified by importing each
-script with `eccodes` made unimportable: the load script imports, the download script
-raises.
+true: the loader lived in the same module as the decoder.) `scripts/jma.py` imports
+`MsmDownloader` inside the download handler only, so `jma load msm_surface_forecast` never
+reaches `msm.grib` either. Verified by a test that makes `eccodes` unimportable: the script
+imports, and `download msm_surface_forecast` raises when it runs
+(`tests/test_jma_scripts.py::TestMsmDownloaderImportIsLazy`).
 
 ### 8.3 Resume behavior
 

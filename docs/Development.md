@@ -32,8 +32,8 @@ compose stack to be up):
 
 ```bash
 just refresh-all                         # every source: each download/load script with its defaults, one dbt build at the end
-just python scripts/download_jma_hourly_all.py --prefecture 44   # one source's download + load scripts (pairs in CLAUDE.md), then...
-just python scripts/load_jma_hourly.py && just dbt build          # ...rebuild + test dbt
+just jma download hourly --prefecture 44   # one source's download + load commands (scripts/<source>.py; the pairs in CLAUDE.md), then...
+just jma load hourly && just dbt build     # ...rebuild + test dbt
 just python scripts/spot_price_backtest.py --strategy lightgbm --area tokyo  # forecast backtest
 just python scripts/compare_spot_price_runs.py --baseline <run_id> --candidate <run_id>  # matched run comparison
 just dbt test --select stg_jepx__spot    # dbt, run from /workspace/dbt
