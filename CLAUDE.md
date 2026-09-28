@@ -5,7 +5,7 @@
 - `just refresh-all` — every source in one go: download + reload `raw` for JEPX (+ the holidays
   seed), JMA hourly (+ the station seed), JMA normals, OCCTO, TEPCO (both datasets), Kansai
   (both datasets), e-Stat and MSM,
-  in that order (JMA before MSM: the MSM downloader reads the station seed), each script with
+  in that order (JMA before MSM: the MSM downloader reads the station seed), each command with
   its defaults, then a single `dbt build` (models + tests). Warm caches make it ~1.5 h,
   dominated by JMA re-fetching every station's current-year file; a failing step aborts before
   the build. It is the only refresh recipe — the per-source `refresh-<source>` / `ingest-<source>`
