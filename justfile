@@ -19,6 +19,26 @@ python *args:
 jma *args:
     @just python scripts/jma.py "$@"
 
+[doc("JEPX, inside the devcontainer: just jepx download spot [--force-all] / just jepx load spot; -h at any level lists what is under it")]
+jepx *args:
+    @just python scripts/jepx.py "$@"
+
+[doc("OCCTO, inside the devcontainer: just occto download|load demand_forecast_dad|area_reserve_rate_dad; -h at any level lists what is under it")]
+occto *args:
+    @just python scripts/occto.py "$@"
+
+[doc("TEPCO, inside the devcontainer: just tepco download|load area_demand_generation|power_usage; -h at any level lists what is under it")]
+tepco *args:
+    @just python scripts/tepco.py "$@"
+
+[doc("Kansai (関西電力送配電), inside the devcontainer: just kansai download|load area_demand_generation|power_usage; -h at any level lists what is under it")]
+kansai *args:
+    @just python scripts/kansai.py "$@"
+
+[doc("e-Stat, inside the devcontainer: just estat download census_population_mesh [--years …] [--force] / just estat load census_population_mesh; -h at any level lists what is under it")]
+estat *args:
+    @just python scripts/estat.py "$@"
+
 [doc("Run dbt inside the devcontainer (e.g. just dbt run)")]
 dbt *args:
     @docker compose exec --workdir /workspace/dbt devcontainer dbt "$@"
@@ -64,16 +84,15 @@ open target:
     esac
     open "$url"
 
-# One refresh recipe covers every source. A single source is refreshed by its source command's
-# download and load subcommands (JMA: `just jma …`; the other sources' download + load scripts
-# through `just python` until they are folded the same way) and then `just dbt build`.
-# JMA runs before MSM because the MSM downloader reads the station seed.
+# One refresh recipe covers every source. A single source is refreshed by its command's
+# download and load subcommands (`just <source> …`, the six recipes above) and then
+# `just dbt build`. JMA runs before MSM because the MSM downloader reads the station seed.
 
-[doc("Refresh every data source (JEPX + holidays seed, JMA hourly + station seed, JMA normals, OCCTO, TEPCO (both datasets), Kansai (both datasets), e-Stat, MSM) with each script's defaults, then one dbt build: ~1.5 h with warm caches, dominated by JMA's current-year files; a failing step aborts before the build")]
+[doc("Refresh every data source (JEPX + holidays seed, JMA hourly + station seed, JMA normals, OCCTO, TEPCO (both datasets), Kansai (both datasets), e-Stat, MSM) with each command's defaults, then one dbt build: ~1.5 h with warm caches, dominated by JMA's current-year files; a failing step aborts before the build")]
 refresh-all:
-    just python scripts/download_jepx_spot.py
+    just jepx download spot
     just python scripts/update_holidays_seed.py
-    just python scripts/load_jepx_spot.py
+    just jepx load spot
 
     just jma download stations
     just jma download hourly
@@ -82,23 +101,23 @@ refresh-all:
     just jma download normals
     just jma load normals
 
-    just python scripts/download_occto_demand_forecast.py
-    just python scripts/download_occto_area_reserve_rate.py
-    just python scripts/load_occto_demand_forecast.py
-    just python scripts/load_occto_area_reserve_rate.py
+    just occto download demand_forecast_dad
+    just occto download area_reserve_rate_dad
+    just occto load demand_forecast_dad
+    just occto load area_reserve_rate_dad
 
-    just python scripts/download_tepco_area_demand_generation.py
-    just python scripts/load_tepco_area_demand_generation.py
-    just python scripts/download_tepco_power_usage.py
-    just python scripts/load_tepco_power_usage.py
+    just tepco download area_demand_generation
+    just tepco load area_demand_generation
+    just tepco download power_usage
+    just tepco load power_usage
 
-    just python scripts/download_kansai_area_demand_generation.py
-    just python scripts/load_kansai_area_demand_generation.py
-    just python scripts/download_kansai_power_usage.py
-    just python scripts/load_kansai_power_usage.py
+    just kansai download area_demand_generation
+    just kansai load area_demand_generation
+    just kansai download power_usage
+    just kansai load power_usage
 
-    just python scripts/download_estat_census_population_mesh.py
-    just python scripts/load_estat_census_population_mesh.py
+    just estat download census_population_mesh
+    just estat load census_population_mesh
 
     just jma download msm_surface_forecast
     just jma load msm_surface_forecast
