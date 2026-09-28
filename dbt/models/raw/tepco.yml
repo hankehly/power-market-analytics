@@ -6,13 +6,13 @@ sources:
       service area, one table per dataset: the エリア需要・発電情報 30-minute
       actuals downloaded from the monthly archives linked on
       https://www.tepco.co.jp/forecast/html/area-download-j.html by
-      scripts/download_tepco_area_demand_generation.py and loaded by
-      scripts/load_tepco_area_demand_generation.py (full reload; archive
+      `just tepco download area_demand_generation` and loaded by
+      `just tepco load area_demand_generation` (scripts/tepco.py; full reload; archive
       layout, CSV format and quirks in
       docs/TEPCO-Area-Demand-Generation-Retrieval.md), and the でんき予報
       hourly 電力使用実績 from
       https://www.tepco.co.jp/forecast/html/download-j.html
-      (scripts/download_tepco_power_usage.py / load_tepco_power_usage.py;
+      (`just tepco download power_usage` / `just tepco load power_usage`;
       docs/TEPCO-Power-Usage-Retrieval.md).
     tables:
       - name: tepco_area_demand_generation_actual
@@ -72,8 +72,8 @@ sources:
           yearly juyo-YYYY.csv files (2016-04-01 → 2022-03-31) and, from
           2022-04-01, the hourly table of the daily YYYYMMDD_power_usage.csv
           members of the monthly YYYYMM_power_usage.zip archives (downloaded
-          by scripts/download_tepco_power_usage.py, loaded by
-          scripts/load_tepco_power_usage.py, full reload). The daily files also
+          by `just tepco download power_usage`, loaded by
+          `just tepco load power_usage`, full reload). The daily files also
           hold a 5-minute table (当日実績 + 太陽光); it is not loaded. One row
           per target date and hour (0-23); grain enforced at load time.
           History starts 2016-04-01 and runs through yesterday. A display

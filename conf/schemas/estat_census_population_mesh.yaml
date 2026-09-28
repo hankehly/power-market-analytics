@@ -4,8 +4,8 @@ description: >
   Source: the 第１次地域区画 (primary mesh) archives listed on
   https://www.e-stat.go.jp/gis/statmap-search (statsId T000847 = 2015,
   T001101 = 2020 JGD2000), one tbl{statsId}H{primary}.txt per archive,
-  downloaded by scripts/download_estat_census_population_mesh.py and loaded
-  by EstatCensusMeshCsvLoader (scripts/load_estat_census_population_mesh.py).
+  downloaded by just estat download census_population_mesh and loaded by
+  EstatCensusMeshCsvLoader (just estat load census_population_mesh; both scripts/estat.py).
   Protocol, format and privacy rules: docs/eStat-Census-Population-Mesh-Retrieval.md.
   Files are CP932 with two header rows (source codes, then Japanese labels);
   the loader drops the label row and, per file, injects the vintage

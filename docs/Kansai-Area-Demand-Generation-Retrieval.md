@@ -143,8 +143,8 @@ the 48 data rows, normalises dates, injects `file_updated_at`, and
 full-reloads `pma_raw.kansai_area_demand_generation_actual`. End to end:
 
 ```bash
-just python scripts/download_kansai_area_demand_generation.py
-just python scripts/load_kansai_area_demand_generation.py
+just kansai download area_demand_generation
+just kansai load area_demand_generation
 just dbt build
 ```
 

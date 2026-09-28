@@ -156,8 +156,8 @@ the `__`-prefixed string columns. Grain `(target_date, hour_start)` is
 enforced at load time; an unknown header fails the load. End to end:
 
 ```bash
-just python scripts/download_kansai_power_usage.py   # 126 zips, ~8.5 MB
-just python scripts/load_kansai_power_usage.py       # 3,809 files, 91,416 rows, ~10 s
+just kansai download power_usage   # 126 zips, ~8.5 MB
+just kansai load power_usage       # 3,809 files, 91,416 rows, ~10 s
 just dbt build
 ```
 
