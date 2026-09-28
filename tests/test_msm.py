@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 
 from power_market_analytics.ingestion.loader import CsvTableSchema
+from power_market_analytics.ingestion.msm import vintage as msm_vintage
 from power_market_analytics.ingestion.msm.elements import (
     MSM_SURFACE_ELEMENTS,
     RAW_CSV_COLUMNS,
@@ -607,3 +608,30 @@ class TestMsmForecastCsvLoader:
 
         with pytest.raises(FileNotFoundError, match="No MSM forecast csv.gz files found"):
             loader._resolve_files()
+
+
+class TestDefaultEndDate:
+    def test_is_jst_today_plus_one_day(self, monkeypatch):
+        frozen = datetime.datetime(2026, 8, 21, 23, 59, tzinfo=msm_vintage.JST)
+        monkeypatch.setattr(msm_vintage, "_now", lambda: frozen)
+
+        assert msm_vintage.default_end_date() == datetime.date(2026, 8, 22)
+
+    def test_uses_jst_not_the_naive_calendar_date(self, monkeypatch):
+        # 2026-08-21 15:30 UTC == 2026-08-22 00:30 JST, so "today" is already
+        # the 22nd in JST even though a naive UTC read would still say 21st.
+        frozen = datetime.datetime(2026, 8, 22, 0, 30, tzinfo=msm_vintage.JST)
+        monkeypatch.setattr(msm_vintage, "_now", lambda: frozen)
+
+        assert msm_vintage.default_end_date() == datetime.date(2026, 8, 23)
+
+    def test_real_now_returns_a_date_in_the_future(self):
+        # No monkeypatch: exercises the real _now() seam. The reference date
+        # is read once, strictly before default_end_date() makes its own
+        # (possibly later) _now() call — so the result is always at least
+        # one full day ahead of this reference, even if midnight JST falls
+        # between the two reads; comparing against a *second*, later now()
+        # read would be flaky right at that boundary.
+        reference_date = datetime.datetime.now(msm_vintage.JST).date()
+
+        assert msm_vintage.default_end_date() > reference_date
