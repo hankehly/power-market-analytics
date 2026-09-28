@@ -1,5 +1,4 @@
-"""CLI wiring tests for every ``load`` subcommand of the source scripts, and the
-``scripts/load_*.py`` entry points not yet folded into one.
+"""CLI wiring tests for every ``load`` subcommand of the six source scripts.
 
 Each is exercised through ``main(argv)`` with the loader class swapped for a fake that
 records its constructor arguments, so the tests pin the default contract / data path /
@@ -41,60 +40,68 @@ def reset_recording_loader():
 #:  default contract, default data path, default table)
 LOAD_COMMANDS = [
     (
-        "load_jepx_spot",
-        [],
+        "jepx",
+        ["load", "spot"],
         "CsvLoader",
         "conf/schemas/jepx_spot.yaml",
         "data/jepx/spot",
         "pma_raw.jepx_spot",
     ),
     (
-        "load_occto_area_reserve_rate",
-        [],
+        "occto",
+        ["load", "area_reserve_rate_dad"],
         "CsvLoader",
         "conf/schemas/occto_area_reserve_rate_dad.yaml",
         "data/occto/area_reserve_rate_dad",
         "pma_raw.occto_area_reserve_rate_dad",
     ),
     (
-        "load_occto_demand_forecast",
-        [],
+        "occto",
+        ["load", "demand_forecast_dad"],
         "CsvLoader",
         "conf/schemas/occto_demand_forecast_dad.yaml",
         "data/occto/demand_forecast_dad",
         "pma_raw.occto_demand_forecast_dad",
     ),
     (
-        "load_tepco_area_demand_generation",
-        [],
+        "tepco",
+        ["load", "area_demand_generation"],
         "TepcoAreaCsvLoader",
         "conf/schemas/tepco_area_demand_generation_actual.yaml",
         "data/tepco/area_demand_generation/csv",
         "pma_raw.tepco_area_demand_generation_actual",
     ),
     (
-        "load_estat_census_population_mesh",
-        [],
-        "EstatCensusMeshCsvLoader",
-        "conf/schemas/estat_census_population_mesh.yaml",
-        "data/estat/census_population_mesh",
-        "pma_raw.estat_census_population_mesh",
-    ),
-    (
-        "load_tepco_power_usage",
-        [],
+        "tepco",
+        ["load", "power_usage"],
         "TepcoPowerUsageCsvLoader",
         "conf/schemas/tepco_power_usage_hourly.yaml",
         "data/tepco/power_usage/csv",
         "pma_raw.tepco_power_usage_hourly",
     ),
     (
-        "load_kansai_power_usage",
-        [],
+        "kansai",
+        ["load", "area_demand_generation"],
+        "KansaiAreaCsvLoader",
+        "conf/schemas/kansai_area_demand_generation_actual.yaml",
+        "data/kansai/area_demand_generation/csv",
+        "pma_raw.kansai_area_demand_generation_actual",
+    ),
+    (
+        "kansai",
+        ["load", "power_usage"],
         "KansaiPowerUsageCsvLoader",
         "conf/schemas/kansai_power_usage_hourly.yaml",
         "data/kansai/power_usage/csv",
         "pma_raw.kansai_power_usage_hourly",
+    ),
+    (
+        "estat",
+        ["load", "census_population_mesh"],
+        "EstatCensusMeshCsvLoader",
+        "conf/schemas/estat_census_population_mesh.yaml",
+        "data/estat/census_population_mesh",
+        "pma_raw.estat_census_population_mesh",
     ),
     (
         "jma",
@@ -132,6 +139,7 @@ CONTRACT_GRAINS = {
     ],
     "conf/schemas/occto_demand_forecast_dad.yaml": ["target_date", "area_name_ja"],
     "conf/schemas/tepco_area_demand_generation_actual.yaml": ["target_date", "time_code"],
+    "conf/schemas/kansai_area_demand_generation_actual.yaml": ["target_date", "time_code"],
     "conf/schemas/estat_census_population_mesh.yaml": ["census_year", "mesh_code"],
     "conf/schemas/tepco_power_usage_hourly.yaml": ["target_date", "hour_start"],
     "conf/schemas/kansai_power_usage_hourly.yaml": ["target_date", "hour_start"],
@@ -209,6 +217,6 @@ class TestLoadCommands:
 
 
 def test_repo_root_constant_points_at_the_checkout():
-    for stem in ("load_jepx_spot", "jma"):
+    for stem in ("jepx", "occto", "tepco", "kansai", "estat", "jma"):
         assert import_script(stem).REPO_ROOT == REPO_ROOT
         assert isinstance(import_script(stem).REPO_ROOT, Path)
