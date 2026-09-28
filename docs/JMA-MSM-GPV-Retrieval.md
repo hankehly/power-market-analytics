@@ -614,8 +614,9 @@ stations × 2,716 delivery days, 9,712,416 rows.
 
 The 100%-coverage unit test suites for the MSM ingestion code
 (`tests/test_msm.py`, `tests/test_msm_grib.py`, `tests/test_msm_downloader.py`,
-`tests/test_msm_loader.py`, `tests/test_msm_scripts.py`) all remained green through this
-verification, alongside the real-file run.
+`tests/test_msm_loader.py`, `tests/test_msm_scripts.py` — the last folded into
+`tests/test_jma_scripts.py` and `tests/test_msm.py` on 2026-09-28) all remained green through
+this verification, alongside the real-file run.
 
 ### 9.4 Forecast-vs-observed comparison
 
