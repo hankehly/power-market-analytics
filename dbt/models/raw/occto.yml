@@ -4,9 +4,10 @@ sources:
     description: >
       OCCTO (電力広域的運営推進機関) public disclosure data, downloaded from
       the 情報ダウンロード bulk endpoint on https://occtonet3.occto.or.jp/ by
-      scripts/download_occto_*.py and loaded by scripts/load_occto_*.py
-      (full reload, one script pair per dataset). The retrieval protocol and
-      CSV formats are documented in docs/OCCTO-Demand-Forecast-Retrieval.md.
+      `just occto download <dataset>` and loaded by `just occto load <dataset>`
+      (scripts/occto.py; full reload, one subcommand pair per dataset). The
+      retrieval protocol and CSV formats are documented in
+      docs/OCCTO-Demand-Forecast-Retrieval.md.
     tables:
       - name: occto_demand_forecast_dad
         description: >

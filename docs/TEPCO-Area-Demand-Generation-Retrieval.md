@@ -163,8 +163,8 @@ injects `file_updated_at` from the metadata line, and full-reloads
 `pma_raw.tepco_area_demand_generation_actual`. End to end:
 
 ```bash
-just python scripts/download_tepco_area_demand_generation.py
-just python scripts/load_tepco_area_demand_generation.py
+just tepco download area_demand_generation
+just tepco load area_demand_generation
 just dbt build
 ```
 

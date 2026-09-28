@@ -1,9 +1,8 @@
-"""CLI wiring tests for the ``scripts/load_*.py`` entry points.
+"""CLI wiring tests for every ``load`` subcommand of the six source scripts.
 
-Each script is exercised through ``main(argv)`` with the loader class swapped
-for a fake that records its constructor arguments, so the tests pin the
-default contract / data path / table literals and the CLI overrides without
-touching Spark.
+Each is exercised through ``main(argv)`` with the loader class swapped for a fake that
+records its constructor arguments, so the tests pin the default contract / data path /
+table literals and the CLI overrides without touching Spark.
 """
 
 from __future__ import annotations
@@ -37,106 +36,124 @@ def reset_recording_loader():
     RecordingLoader.built = []
 
 
-#: (script stem, loader attribute in the script namespace, default contract,
-#:  default data path, default table)
-GENERIC_SCRIPTS = [
+#: (script stem, the argv before the load flags, loader attribute in the script namespace,
+#:  default contract, default data path, default table)
+LOAD_COMMANDS = [
     (
-        "load_jepx_spot",
+        "jepx",
+        ["load", "spot"],
         "CsvLoader",
         "conf/schemas/jepx_spot.yaml",
         "data/jepx/spot",
         "pma_raw.jepx_spot",
     ),
     (
-        "load_occto_area_reserve_rate",
+        "occto",
+        ["load", "area_reserve_rate_dad"],
         "CsvLoader",
         "conf/schemas/occto_area_reserve_rate_dad.yaml",
         "data/occto/area_reserve_rate_dad",
         "pma_raw.occto_area_reserve_rate_dad",
     ),
     (
-        "load_occto_demand_forecast",
+        "occto",
+        ["load", "demand_forecast_dad"],
         "CsvLoader",
         "conf/schemas/occto_demand_forecast_dad.yaml",
         "data/occto/demand_forecast_dad",
         "pma_raw.occto_demand_forecast_dad",
     ),
     (
-        "load_tepco_area_demand_generation",
+        "tepco",
+        ["load", "area_demand_generation"],
         "TepcoAreaCsvLoader",
         "conf/schemas/tepco_area_demand_generation_actual.yaml",
         "data/tepco/area_demand_generation/csv",
         "pma_raw.tepco_area_demand_generation_actual",
     ),
     (
-        "load_estat_census_population_mesh",
-        "EstatCensusMeshCsvLoader",
-        "conf/schemas/estat_census_population_mesh.yaml",
-        "data/estat/census_population_mesh",
-        "pma_raw.estat_census_population_mesh",
-    ),
-    (
-        "load_tepco_power_usage",
+        "tepco",
+        ["load", "power_usage"],
         "TepcoPowerUsageCsvLoader",
         "conf/schemas/tepco_power_usage_hourly.yaml",
         "data/tepco/power_usage/csv",
         "pma_raw.tepco_power_usage_hourly",
     ),
     (
-        "load_kansai_power_usage",
+        "kansai",
+        ["load", "area_demand_generation"],
+        "KansaiAreaCsvLoader",
+        "conf/schemas/kansai_area_demand_generation_actual.yaml",
+        "data/kansai/area_demand_generation/csv",
+        "pma_raw.kansai_area_demand_generation_actual",
+    ),
+    (
+        "kansai",
+        ["load", "power_usage"],
         "KansaiPowerUsageCsvLoader",
         "conf/schemas/kansai_power_usage_hourly.yaml",
         "data/kansai/power_usage/csv",
         "pma_raw.kansai_power_usage_hourly",
     ),
     (
-        "load_jma_normals",
+        "estat",
+        ["load", "census_population_mesh"],
+        "EstatCensusMeshCsvLoader",
+        "conf/schemas/estat_census_population_mesh.yaml",
+        "data/estat/census_population_mesh",
+        "pma_raw.estat_census_population_mesh",
+    ),
+    (
+        "jma",
+        ["load", "hourly"],
+        "JmaHourlyCsvLoader",
+        "conf/schemas/jma_hourly_staffed.yaml",
+        "data/jma/hourly/s*_101-201-301-401-501-605-610_*.csv",
+        "pma_raw.jma_hourly_staffed",
+    ),
+    (
+        "jma",
+        ["load", "normals"],
         "JmaNormalsCsvLoader",
         "conf/schemas/jma_normal_surface_daily.yaml",
         "data/jma/normals",
         "pma_raw.jma_normal_surface_daily",
     ),
+    (
+        "jma",
+        ["load", "msm_surface_forecast"],
+        "MsmForecastCsvLoader",
+        "conf/schemas/jma_msm_surface_forecast.yaml",
+        "data/jma/msm_surface_forecast/csv",
+        "pma_raw.jma_msm_surface_forecast",
+    ),
 ]
 
-#: The grain of each default contract, proving the script read the right file.
-CONTRACT_GRAINS = {
-    "conf/schemas/jepx_spot.yaml": ["trade_date", "time_code"],
-    "conf/schemas/occto_area_reserve_rate_dad.yaml": [
-        "target_date",
-        "period_end_time",
-        "area_name_ja",
-    ],
-    "conf/schemas/occto_demand_forecast_dad.yaml": ["target_date", "area_name_ja"],
-    "conf/schemas/tepco_area_demand_generation_actual.yaml": ["target_date", "time_code"],
-    "conf/schemas/estat_census_population_mesh.yaml": ["census_year", "mesh_code"],
-    "conf/schemas/tepco_power_usage_hourly.yaml": ["target_date", "hour_start"],
-    "conf/schemas/kansai_power_usage_hourly.yaml": ["target_date", "hour_start"],
-    "conf/schemas/jma_normal_surface_daily.yaml": [
-        "normals_period_end_year",
-        "station_number",
-        "element_code",
-        "month",
-    ],
-}
 
-
-@pytest.mark.parametrize("stem, loader_attr, contract, data, table", GENERIC_SCRIPTS)
-class TestSingleContractScripts:
-    def test_defaults(self, monkeypatch, stem, loader_attr, contract, data, table):
+@pytest.mark.parametrize(
+    "stem, command, loader_attr, contract, data, table",
+    LOAD_COMMANDS,
+    ids=[" ".join([stem, *command]) for stem, command, *_ in LOAD_COMMANDS],
+)
+class TestLoadCommands:
+    def test_defaults(self, monkeypatch, stem, command, loader_attr, contract, data, table):
         script = import_script(stem)
         monkeypatch.setattr(script, loader_attr, RecordingLoader)
 
-        script.main([])
+        script.main([*command])
 
         assert len(RecordingLoader.built) == 1
         built = RecordingLoader.built[0]
-        assert isinstance(built["schema"], CsvTableSchema)
-        assert built["schema"].grain == CONTRACT_GRAINS[contract]
+        # The whole model, not the grain alone: the TEPCO and Kansai contracts share a grain
+        # and an encoding and differ in three measure types, so a swapped file must fail here.
+        assert built["schema"] == CsvTableSchema.from_yaml(REPO_ROOT / contract)
         assert built["filepath"] == REPO_ROOT / data
         assert built["table"] == table
         assert built["loaded"] is True
 
-    def test_overrides(self, tmp_path, monkeypatch, stem, loader_attr, contract, data, table):
+    def test_overrides(
+        self, tmp_path, monkeypatch, stem, command, loader_attr, contract, data, table
+    ):
         script = import_script(stem)
         monkeypatch.setattr(script, loader_attr, RecordingLoader)
         # A minimal contract file so --schema is proven to be honoured.
@@ -145,6 +162,7 @@ class TestSingleContractScripts:
 
         script.main(
             [
+                *command,
                 "--schema",
                 str(schema_file),
                 "--data",
@@ -162,64 +180,16 @@ class TestSingleContractScripts:
         assert built["loaded"] is True
 
     def test_missing_schema_file_fails_before_loading(
-        self, tmp_path, monkeypatch, stem, loader_attr, contract, data, table
+        self, tmp_path, monkeypatch, stem, command, loader_attr, contract, data, table
     ):
         script = import_script(stem)
         monkeypatch.setattr(script, loader_attr, RecordingLoader)
         with pytest.raises(FileNotFoundError):
-            script.main(["--schema", str(tmp_path / "nope.yaml")])
+            script.main([*command, "--schema", str(tmp_path / "nope.yaml")])
         assert RecordingLoader.built == []
 
 
-class TestLoadJmaHourly:
-    def test_loads_the_staffed_layout_with_defaults(self, monkeypatch):
-        script = import_script("load_jma_hourly")
-        monkeypatch.setattr(script, "JmaHourlyCsvLoader", RecordingLoader)
-
-        script.main([])
-
-        assert [(b["filepath"], b["table"], b["loaded"]) for b in RecordingLoader.built] == [
-            (
-                REPO_ROOT / "data/jma/hourly" / "s*_101-201-301-401-501-605-610_*.csv",
-                "pma_raw.jma_hourly_staffed",
-                True,
-            ),
-        ]
-        (staffed,) = (b["schema"] for b in RecordingLoader.built)
-        assert isinstance(staffed, CsvTableSchema)
-        assert staffed.grain == ["station_id", "observed_at"]
-        assert staffed.columns[-1].source == "_c26"
-
-    def test_data_dir_and_schema_dir_overrides(self, tmp_path, monkeypatch):
-        script = import_script("load_jma_hourly")
-        monkeypatch.setattr(script, "JmaHourlyCsvLoader", RecordingLoader)
-        schema_dir = tmp_path / "schemas"
-        schema_dir.mkdir()
-        (schema_dir / "jma_hourly_staffed.yaml").write_text(
-            "grain: [s]\ncolumns:\n  - {name: s, type: string}\n",
-            encoding="utf-8",
-        )
-        data_dir = tmp_path / "hourly"
-
-        script.main(["--data-dir", str(data_dir), "--schema-dir", str(schema_dir)])
-
-        assert [b["schema"].grain for b in RecordingLoader.built] == [["s"]]
-        assert [b["filepath"] for b in RecordingLoader.built] == [
-            data_dir / "s*_101-201-301-401-501-605-610_*.csv",
-        ]
-
-    def test_formats_table_is_the_source_of_truth(self):
-        script = import_script("load_jma_hourly")
-        assert script.FORMATS == [
-            (
-                "jma_hourly_staffed",
-                "s*_101-201-301-401-501-605-610_*.csv",
-                "pma_raw.jma_hourly_staffed",
-            ),
-        ]
-
-
 def test_repo_root_constant_points_at_the_checkout():
-    for stem in ("load_jepx_spot", "load_jma_hourly"):
+    for stem in ("jepx", "occto", "tepco", "kansai", "estat", "jma"):
         assert import_script(stem).REPO_ROOT == REPO_ROOT
         assert isinstance(import_script(stem).REPO_ROOT, Path)

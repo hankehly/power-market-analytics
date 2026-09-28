@@ -215,8 +215,8 @@ It then injects `census_year`, `census_date`, `geodetic_datum`, `stats_id`,
 `(census_year, mesh_code)`). End to end:
 
 ```bash
-just python scripts/download_estat_census_population_mesh.py   # [--years 2015 2020] [--force]; ~50 min cold (server-side archive generation), ~2 min when cached
-just python scripts/load_estat_census_population_mesh.py
+just estat download census_population_mesh   # [--years 2015 2020] [--force]; ~50 min cold (server-side archive generation), ~2 min when cached
+just estat load census_population_mesh
 just dbt build
 ```
 
@@ -254,7 +254,7 @@ The CLI registries are in `tests/test_download_scripts.py` and
    `geodetic_datum`, `stats_id`, `population_source_column`, `listing_url`,
    `expected_file_count`) and add the year to the tests' vintage assertions
    and the singular dbt test `assert_fct_census_population_mesh_has_every_vintage`.
-4. Download (`scripts/download_estat_census_population_mesh.py`, `--years <year>`
+4. Download (`just estat download census_population_mesh`, `--years <year>`
    to fetch only the new vintage first), load, `just dbt build`. No schema change
    is needed: the raw contract, models and tests are vintage-agnostic; the
    `dim_population_mesh_500m` unique test will flag any mesh whose

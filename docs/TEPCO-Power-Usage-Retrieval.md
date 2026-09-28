@@ -146,8 +146,8 @@ The loader then drops yearly rows on or after 2022-04-01. It hands the contract
 `__usage_rate_pct`, `__supply_capacity_mankw`, `__file_updated_at` and
 `__source_file`. Grain `(target_date, hour_start)` is enforced at load time;
 an unknown header line fails the load. Entry points:
-`scripts/download_tepco_power_usage.py` (`--force-yearly`) and
-`scripts/load_tepco_power_usage.py`, then `just dbt build` (`just refresh-all` runs
+`just tepco download power_usage` (`--force-yearly`) and
+`just tepco load power_usage`, then `just dbt build` (`just refresh-all` runs
 them alongside every other source).
 
 Warehouse path: `pma_raw.tepco_power_usage_hourly` → `stg_tepco__power_usage_hourly` (as-is) →

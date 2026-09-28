@@ -45,7 +45,7 @@ def default_end_date() -> datetime.date:
     -------
     datetime.date
         JST "today" (:func:`_now`) plus one day — the default
-        ``--end-date`` of ``scripts/download_jma_msm_surface_forecast.py``.
+        ``--end-date`` of ``jma download msm_surface_forecast`` (``scripts/jma.py``).
     """
     return _now().date() + datetime.timedelta(days=1)
 
