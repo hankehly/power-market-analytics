@@ -577,7 +577,14 @@
   contract `conf/schemas/jma_hourly_staffed.yaml`, 27 columns) →
   `pma_raw.jma_hourly_staffed` only (over-budget station-years are fetched as 2 request
   windows and stitched into one file; 均質番号 resets per window, so a stitched year file
-  resets it at the mid-year boundary). Station master:
+  resets it at the mid-year boundary). `fct_area_weather_hourly` (curated, since 2026-09-29,
+  feature candidates #237 and #238) is the area-grain rollup of `fct_jma_weather_hourly`:
+  the population-weighted observed temperature and solar radiation per hour with, per
+  element, the count and the population share of the stations that reported it — the one
+  definition of the observed weighting, which `ftr_hour_jma_obs` reads (it computed the
+  same means inside its own SQL until then, equal to the bit). Radiation is recorded at 7
+  of Tokyo's 21 and 3 of Kansai's 11 weighted stations, 55.4 % of each area's weight, the
+  representative station carrying three quarters or more of that share. Station master:
   `just jma download stations` (`staffed_only=True`, `jepx_areas_only=True`) →
   seed `jma_stations` → `dim_jma_station`, which joins the hand-curated seed
   `jma_station_areas` (station → JEPX area per the TSO 供給区域 definitions;
@@ -815,7 +822,14 @@
   report it by `ftr_hour_msm`'s rule, complete windows only, every sum oldest hour first; the
   72 weights are literals the model's Jinja computes at compile time, because Spark's `pow()`
   and Python's can differ in the last bit and a literal cannot — the unit test's Python
-  reference matches to the bit; `available_at` unchanged; in no preset yet), `ftr_hour_msm` (the representative station's
+  reference matches to the bit; `available_at` unchanged; in no preset yet; since
+  2026-09-29 the weighted hour comes from `fct_area_weather_hourly`, and the mart also
+  carries `lag_2d_popw_temperature_c`, `lag_7d_popw_temperature_c`,
+  `lag_2d_popw_solar_radiation_mjm2` and `lag_7d_popw_solar_radiation_mjm2`, the fact at
+  the same hour two and seven days back — the weather the load lags were recorded under,
+  the researcher's lag-window weather idea of 2026-09-28 (feature candidates #237 and
+  #238; spec `docs/superpowers/specs/2026-09-29-lag-window-weather-siblings-design.md`,
+  PR 1 of 4); in no preset yet), `ftr_hour_msm` (the representative station's
   forecast temperature and the population-weighted `popw_forecast_<element>` of thirteen
   MSM elements, generated from one Jinja list in the model: temperature, humidity, rain,
   solar radiation — `popw_forecast_solar_radiation_mjm2` in MJ/m2, since 2026-09-12,
@@ -833,7 +847,13 @@
   vintage, in hour order, null from the first missing hour on — left out at first, then built
   the same day when the researcher corrected the reason: the *forecast* radiation is
   population-weighted with no null, it is the *observed* one only 7 of Tokyo's 21 weighted
-  stations record, so #135's observed radiation stays out; in no preset yet), `ftr_period_actuals` (since
+  stations record, so #135's observed radiation stays out; in no preset yet; since
+  2026-09-29 also `delta_lag_2d_popw_temperature_c`, `delta_lag_7d_popw_temperature_c`,
+  `delta_lag_2d_popw_solar_radiation_mjm2` and `delta_lag_7d_popw_solar_radiation_mjm2`,
+  D's forecast minus the sibling of `ftr_hour_jma_obs` at the same hour, positive when D
+  is warmer or brighter than the day the load lag comes from — placed here rather than in
+  the observation mart because a delta needs the vintage, which this row already waits
+  for, so no `available_at` of the observation mart moves; in no preset yet), `ftr_period_actuals` (since
   2026-09-12 the lags of 2, 3, 7, 9, 14, 21 and 28 days, the plain and 8:4:2:1 weighted
   means of the four weekly lags, the D-2 − D-9 change and the same two means over the last
   four complete days of D's `ftr_day_calendar` day type at or before D-2; since 2026-09-13
