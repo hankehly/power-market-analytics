@@ -266,11 +266,46 @@ FTR_DAY_CALENDAR = FeatureView(
     tags={"grain": "day"},
 )
 
+FTR_DAY_JMA_OBS_SOURCE = SparkSource(
+    name="ftr_day_jma_obs",
+    query="select area_code, cast(date_format(trade_date, 'yyyyMMdd') as int) as trade_date_key, lag_2d_mean_popw_temperature_c, lag_2d_evening_mean_popw_temperature_c, lag_2d_mean_popw_solar_radiation_mjm2, available_at from pma_features.ftr_day_jma_obs",
+    timestamp_field="available_at",
+    description="Day-level summaries of the area's population-weighted observed weather on D-2, the newest complete observation day before the 09:30 D-1 issue time, from fct_area_weather_hourly: the daily mean of the temperature and of the solar radiation, and the evening mean of the temperature over the four hours ending 19:00 to 22:00, the load's 18:00 to 22:00 (the researcher's lag-window weather idea of 2026-09-28, feature candidates #237 and #238; spec docs/superpowers/specs/2026-09-29-lag-window-weather-siblings-design.md). Complete days only for the daily means: null unless all 24 hours have a value; the evening mean needs its four hours only. Every mean is added in hour order through the ordered_weighted_mean macro with weight 1, so the value is the same on every build. Their differences from D's forecast are in ftr_day_msm. Grain: area_code x trade_date; a row exists for every day D whose D-2 has at least one hour in the fact.",
+)
+FTR_DAY_JMA_OBS = FeatureView(
+    name="ftr_day_jma_obs",
+    entities=list(GRAIN_ENTITIES["day"]),
+    schema=[
+        Field(
+            name="lag_2d_mean_popw_temperature_c",
+            dtype=Float64,
+            description="The mean over the 24 hours of D-2 of the area's population-weighted observed temperature, C: the temperature the D-2 daily load features (ftr_day_actuals' LAG(DAILY_MEAN(demand_kwh), 2d) and its neighbours) were recorded under (feature candidate #237). Null unless all 24 hours have a value.",
+            tags={"categorical": "false", "expression": "LAG(DAILY_MEAN(MEAN(temperature_c, weight=population)), 2d)"},
+        ),
+        Field(
+            name="lag_2d_evening_mean_popw_temperature_c",
+            dtype=Float64,
+            description="The same over the four hours ending 19:00 to 22:00 of D-2, the load's evening window 18:00 to 22:00 (feature candidate #237): the temperature under ftr_day_actuals' LAG(DAILY_MEAN(demand_kwh, time=18:00-22:00), 2d). Null unless all four hours have a value; the other twenty are not needed.",
+            tags={"categorical": "false", "expression": "LAG(DAILY_MEAN(MEAN(temperature_c, weight=population), time=18:00-22:00), 2d)"},
+        ),
+        Field(
+            name="lag_2d_mean_popw_solar_radiation_mjm2",
+            dtype=Float64,
+            description="The mean over the 24 hours of D-2 of the area's population-weighted observed solar radiation, MJ/m2 per hour (feature candidate #238), weighted over the stations that record it: 7 of Tokyo's 21 weighted stations and 3 of Kansai's 11, 55.4 % of each area's weight, the representative station three quarters or more of that share (fct_area_weather_hourly's description); a more representative radiation source is future work. Null unless all 24 hours have a value.",
+            tags={"categorical": "false", "expression": "LAG(DAILY_MEAN(MEAN(solar_radiation_mjm2, weight=population)), 2d)"},
+        ),
+    ],
+    source=FTR_DAY_JMA_OBS_SOURCE,
+    online=False,
+    description="Day-level summaries of the area's population-weighted observed weather on D-2, the newest complete observation day before the 09:30 D-1 issue time, from fct_area_weather_hourly: the daily mean of the temperature and of the solar radiation, and the evening mean of the temperature over the four hours ending 19:00 to 22:00, the load's 18:00 to 22:00 (the researcher's lag-window weather idea of 2026-09-28, feature candidates #237 and #238; spec docs/superpowers/specs/2026-09-29-lag-window-weather-siblings-design.md). Complete days only for the daily means: null unless all 24 hours have a value; the evening mean needs its four hours only. Every mean is added in hour order through the ordered_weighted_mean macro with weight 1, so the value is the same on every build. Their differences from D's forecast are in ftr_day_msm. Grain: area_code x trade_date; a row exists for every day D whose D-2 has at least one hour in the fact.",
+    tags={"grain": "day"},
+)
+
 FTR_DAY_MSM_SOURCE = SparkSource(
     name="ftr_day_msm",
-    query="select area_code, cast(date_format(trade_date, 'yyyyMMdd') as int) as trade_date_key, max_popw_forecast_temperature_c, min_popw_forecast_temperature_c, mean_popw_forecast_temperature_c, max_popw_forecast_temperature_hour_ending, morning_trend_popw_forecast_temperature_c, available_at from pma_features.ftr_day_msm",
+    query="select area_code, cast(date_format(trade_date, 'yyyyMMdd') as int) as trade_date_key, max_popw_forecast_temperature_c, min_popw_forecast_temperature_c, mean_popw_forecast_temperature_c, max_popw_forecast_temperature_hour_ending, morning_trend_popw_forecast_temperature_c, evening_mean_popw_forecast_temperature_c, mean_popw_forecast_solar_radiation_mjm2, delta_lag_2d_mean_popw_temperature_c, delta_lag_2d_evening_mean_popw_temperature_c, delta_lag_2d_mean_popw_solar_radiation_mjm2, available_at from pma_features.ftr_day_msm",
     timestamp_field="available_at",
-    description="Day-level summaries of the MSM forecast for each delivery day per bidding zone, one row per forecast vintage: the maximum, minimum and mean over the day's 24 hours of ftr_hour_msm's population-weighted forecast temperature, and the hour of the maximum (feature candidate #132). Complete days only: those four columns are null unless all 24 hours of the vintage have a temperature. Also the morning trend of the same temperature over 06:00 to 10:00, which needs its four hours only (feature candidate #151). Grain: area_code x trade_date x forecast_reference_at. available_at is the latest of the day's hours: the vintage's, reference + 4 h.",
+    description="Day-level summaries of the MSM forecast for each delivery day per bidding zone, one row per forecast vintage: the maximum, minimum and mean over the day's 24 hours of ftr_hour_msm's population-weighted forecast temperature, and the hour of the maximum (feature candidate #132). Complete days only: those four columns are null unless all 24 hours of the vintage have a temperature. Also the morning trend of the same temperature over 06:00 to 10:00, which needs its four hours only (feature candidate #151). Since 2026-09-29 also the evening mean of the forecast temperature over the four hours ending 19:00 to 22:00 and the daily mean of the forecast radiation, and the differences of the daily mean, the evening mean and the radiation mean from D-2's observed ones in ftr_day_jma_obs (feature candidates #237 and #238). Grain: area_code x trade_date x forecast_reference_at. available_at is the latest of the day's hours: the vintage's, reference + 4 h.",
 )
 FTR_DAY_MSM = FeatureView(
     name="ftr_day_msm",
@@ -306,10 +341,40 @@ FTR_DAY_MSM = FeatureView(
             description="How fast the delivery day's morning warms: the least-squares slope of the population-weighted forecast temperature against the hour over the four hours ending 07:00 to 10:00, C per hour (feature candidate #151). Computed over differences, (3 (x10 - x7) + (x9 - x8)) / 10, the same slope as the textbook sums and better conditioned. Negative when the morning cools. Null unless all four hours have a temperature; unlike the day's four summaries it does not need the other twenty.",
             tags={"categorical": "false", "expression": "DAILY_TREND(MEAN(forecast_temperature_c, weight=population), time=06:00-10:00)"},
         ),
+        Field(
+            name="evening_mean_popw_forecast_temperature_c",
+            dtype=Float64,
+            description="The mean of the population-weighted forecast temperature over the four hours ending 19:00 to 22:00, the load's evening window 18:00 to 22:00, C, added in hour order (the ordered_weighted_mean macro, weight 1): D's side of delta_lag_2d_evening_mean_popw_temperature_c (feature candidate #237). Null unless all four hours have a temperature; the other twenty are not needed.",
+            tags={"categorical": "false", "expression": "DAILY_MEAN(MEAN(forecast_temperature_c, weight=population), time=18:00-22:00)"},
+        ),
+        Field(
+            name="mean_popw_forecast_solar_radiation_mjm2",
+            dtype=Float64,
+            description="The mean of the day's 24 hourly population-weighted forecast solar radiation, MJ/m2 per hour, added in hour order: D's side of delta_lag_2d_mean_popw_solar_radiation_mjm2 (feature candidate #238). Null unless all 24 hours have a value.",
+            tags={"categorical": "false", "expression": "DAILY_MEAN(MEAN(forecast_solar_radiation_mjm2, weight=population))"},
+        ),
+        Field(
+            name="delta_lag_2d_mean_popw_temperature_c",
+            dtype=Float64,
+            description="mean_popw_forecast_temperature_c minus ftr_day_jma_obs.lag_2d_mean_popw_temperature_c: how far D's forecast daily mean sits from the observed one two days earlier, C; positive when D is warmer (feature candidate #237). It lives here because a delta needs the vintage, which this row already waits for. Null without a sibling row.",
+            tags={"categorical": "false", "expression": "DAILY_MEAN(MEAN(forecast_temperature_c, weight=population)) - LAG(DAILY_MEAN(MEAN(temperature_c, weight=population)), 2d)"},
+        ),
+        Field(
+            name="delta_lag_2d_evening_mean_popw_temperature_c",
+            dtype=Float64,
+            description="evening_mean_popw_forecast_temperature_c minus ftr_day_jma_obs.lag_2d_evening_mean_popw_temperature_c, C (feature candidate #237).",
+            tags={"categorical": "false", "expression": "DAILY_MEAN(MEAN(forecast_temperature_c, weight=population), time=18:00-22:00) - LAG(DAILY_MEAN(MEAN(temperature_c, weight=population), time=18:00-22:00), 2d)"},
+        ),
+        Field(
+            name="delta_lag_2d_mean_popw_solar_radiation_mjm2",
+            dtype=Float64,
+            description="mean_popw_forecast_solar_radiation_mjm2 minus ftr_day_jma_obs.lag_2d_mean_popw_solar_radiation_mjm2, MJ/m2 per hour; positive when D is forecast brighter (feature candidate #238). The observed side rests on the stations that record radiation, 55.4 % of the area; the forecast side on every station.",
+            tags={"categorical": "false", "expression": "DAILY_MEAN(MEAN(forecast_solar_radiation_mjm2, weight=population)) - LAG(DAILY_MEAN(MEAN(solar_radiation_mjm2, weight=population)), 2d)"},
+        ),
     ],
     source=FTR_DAY_MSM_SOURCE,
     online=False,
-    description="Day-level summaries of the MSM forecast for each delivery day per bidding zone, one row per forecast vintage: the maximum, minimum and mean over the day's 24 hours of ftr_hour_msm's population-weighted forecast temperature, and the hour of the maximum (feature candidate #132). Complete days only: those four columns are null unless all 24 hours of the vintage have a temperature. Also the morning trend of the same temperature over 06:00 to 10:00, which needs its four hours only (feature candidate #151). Grain: area_code x trade_date x forecast_reference_at. available_at is the latest of the day's hours: the vintage's, reference + 4 h.",
+    description="Day-level summaries of the MSM forecast for each delivery day per bidding zone, one row per forecast vintage: the maximum, minimum and mean over the day's 24 hours of ftr_hour_msm's population-weighted forecast temperature, and the hour of the maximum (feature candidate #132). Complete days only: those four columns are null unless all 24 hours of the vintage have a temperature. Also the morning trend of the same temperature over 06:00 to 10:00, which needs its four hours only (feature candidate #151). Since 2026-09-29 also the evening mean of the forecast temperature over the four hours ending 19:00 to 22:00 and the daily mean of the forecast radiation, and the differences of the daily mean, the evening mean and the radiation mean from D-2's observed ones in ftr_day_jma_obs (feature candidates #237 and #238). Grain: area_code x trade_date x forecast_reference_at. available_at is the latest of the day's hours: the vintage's, reference + 4 h.",
     tags={"grain": "day"},
 )
 
@@ -900,6 +965,7 @@ FTR_PERIOD_SIMILAR_DAY = FeatureView(
 VIEWS = (
     FTR_DAY_ACTUALS,
     FTR_DAY_CALENDAR,
+    FTR_DAY_JMA_OBS,
     FTR_DAY_MSM,
     FTR_DAY_OCCTO,
     FTR_HOUR_JMA_OBS,

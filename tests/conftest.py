@@ -1017,7 +1017,52 @@ def day_msm_summary(hours: list[dict]) -> dict:
             3 * (temperatures[9] - temperatures[6]) + (temperatures[8] - temperatures[7])
         )
         / 10,
+        # The evening hours ending 19 to 22 and the day's radiation, added in hour order.
+        "evening_mean_popw_forecast_temperature_c": sum(temperatures[18:22]) / 4,
+        "mean_popw_forecast_solar_radiation_mjm2": (
+            sum(row["popw_forecast_solar_radiation_mjm2"] for row in hours) / 24
+        ),
         "available_at": max(row["available_at"] for row in hours),
+    }
+
+
+def day_jma_obs_row(day: pd.Timestamp) -> dict | None:
+    """``ftr_day_jma_obs``'s row of the fixture for delivery day ``day``, reading D-2.
+
+    Only the representative station observes, so the area's population-weighted
+    hour is its ``synthetic_temperature``. The daily mean needs all 24 hours, the
+    evening mean the hours ending 19 to 22; an hour in ``TEMPERATURE_MISSING_HOURS``
+    makes the mean that needs it None. The fixture records no radiation. None
+    when D-2 is not a ``DEMAND_DAYS`` day.
+
+    Parameters
+    ----------
+    day : pandas.Timestamp
+        The delivery day D.
+
+    Returns
+    -------
+    dict or None
+    """
+    obs_day = day - pd.Timedelta(days=2)
+    if obs_day not in DEMAND_DAYS:
+        return None
+
+    def mean(hours: range) -> float | None:
+        total = 0.0
+        for hour in hours:
+            if (obs_day, hour) in TEMPERATURE_MISSING_HOURS:
+                return None
+            total += synthetic_temperature(obs_day, hour)
+        return total / len(hours)
+
+    return {
+        "area_code": "tokyo",
+        "trade_date": day.date(),
+        "lag_2d_mean_popw_temperature_c": mean(range(1, 25)),
+        "lag_2d_evening_mean_popw_temperature_c": mean(range(19, 23)),
+        "lag_2d_mean_popw_solar_radiation_mjm2": None,
+        "available_at": obs_day + pd.Timedelta(days=1, hours=1),
     }
 
 
@@ -1468,7 +1513,7 @@ def curated_warehouse(spark: SparkSession) -> CuratedWarehouse:
 
 
 def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> None:
-    """The nine feature marts of ``pma_features``, from the fixture's data (tokyo facts).
+    """The ten feature marts of ``pma_features``, from the fixture's data (tokyo facts).
 
     ``available_at`` is any instant before the 09:30 D-1 issue time, except the
     calendar's, which is the mart's constant. The similar-day mart holds one
@@ -1648,6 +1693,34 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
         day_msm_summary(list(hours))
         for _, hours in itertools.groupby(msm_rows, key=lambda row: row["trade_date"])
     ]
+    # D's forecast means minus D-2's observed ones: None without a sibling row, and
+    # None for the radiation, which the fixture does not observe.
+    day_jma_obs_rows = [row for row in (day_jma_obs_row(day) for day in DEMAND_DAYS) if row]
+    obs_by_day = {row["trade_date"]: row for row in day_jma_obs_rows}
+    for day_row in day_msm_rows:
+        obs = obs_by_day.get(day_row["trade_date"])
+        for name, forecast_key, obs_key in (
+            (
+                "delta_lag_2d_mean_popw_temperature_c",
+                "mean_popw_forecast_temperature_c",
+                "lag_2d_mean_popw_temperature_c",
+            ),
+            (
+                "delta_lag_2d_evening_mean_popw_temperature_c",
+                "evening_mean_popw_forecast_temperature_c",
+                "lag_2d_evening_mean_popw_temperature_c",
+            ),
+            (
+                "delta_lag_2d_mean_popw_solar_radiation_mjm2",
+                "mean_popw_forecast_solar_radiation_mjm2",
+                "lag_2d_mean_popw_solar_radiation_mjm2",
+            ),
+        ):
+            day_row[name] = (
+                None
+                if obs is None or obs[obs_key] is None
+                else day_row[forecast_key] - obs[obs_key]
+            )
     actuals = warehouse.demand.dropna(subset=["demand_kwh"])
     demand_at = {
         (pd.Timestamp(row["date_key"]), int(row["time_code"])): int(row["demand_kwh"])
@@ -2075,13 +2148,40 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
         "delta_lag_7d_popw_solar_radiation_mjm2 double, available_at timestamp",
         "pma_features.ftr_hour_msm",
     )
+    day_jma_obs = pd.DataFrame(day_jma_obs_rows)
+    for col in (
+        "lag_2d_mean_popw_temperature_c",
+        "lag_2d_evening_mean_popw_temperature_c",
+        "lag_2d_mean_popw_solar_radiation_mjm2",
+    ):
+        day_jma_obs[col] = nullable_column(day_jma_obs[col], float)
     write_table(
         spark,
-        pd.DataFrame(day_msm_rows),
+        day_jma_obs,
+        "area_code string, trade_date date, lag_2d_mean_popw_temperature_c double, "
+        "lag_2d_evening_mean_popw_temperature_c double, "
+        "lag_2d_mean_popw_solar_radiation_mjm2 double, available_at timestamp",
+        "pma_features.ftr_day_jma_obs",
+    )
+    day_msm = pd.DataFrame(day_msm_rows)
+    for col in (
+        "delta_lag_2d_mean_popw_temperature_c",
+        "delta_lag_2d_evening_mean_popw_temperature_c",
+        "delta_lag_2d_mean_popw_solar_radiation_mjm2",
+    ):
+        day_msm[col] = nullable_column(day_msm[col], float)
+    write_table(
+        spark,
+        day_msm,
         "area_code string, trade_date date, max_popw_forecast_temperature_c double, "
         "min_popw_forecast_temperature_c double, mean_popw_forecast_temperature_c double, "
         "max_popw_forecast_temperature_hour_ending int, "
-        "morning_trend_popw_forecast_temperature_c double, available_at timestamp",
+        "morning_trend_popw_forecast_temperature_c double, "
+        "evening_mean_popw_forecast_temperature_c double, "
+        "mean_popw_forecast_solar_radiation_mjm2 double, "
+        "delta_lag_2d_mean_popw_temperature_c double, "
+        "delta_lag_2d_evening_mean_popw_temperature_c double, "
+        "delta_lag_2d_mean_popw_solar_radiation_mjm2 double, available_at timestamp",
         "pma_features.ftr_day_msm",
     )
     write_table(
