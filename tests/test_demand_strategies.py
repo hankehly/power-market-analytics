@@ -65,6 +65,9 @@ class TestRegistry:
             "e212",
             "e219",
             "e221",
+            "e243",
+            "e244",
+            "e245",
         )
         assert STRATEGIES == tuple(PRESETS)
 
