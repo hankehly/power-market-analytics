@@ -39,6 +39,18 @@ SIMILAR_DAY_FEATURES = (
     "wavg_similar_day_pool_top3_demand_kwh",
     "similar_day_pool_rank1_distance",
     "similar_day_pool_rank1_lag_days",
+    # The pool days' weather and its deltas to D's forecast (since 2026-09-29).
+    *(
+        f"{prefix}similar_day_pool_rank{rank}_popw_{element}"
+        for element in ("temperature_c", "solar_radiation_mjm2")
+        for prefix in ("", "delta_")
+        for rank in (1, 2, 3)
+    ),
+    *(
+        f"{prefix}wavg_similar_day_pool_top3_popw_{element}"
+        for element in ("temperature_c", "solar_radiation_mjm2")
+        for prefix in ("", "delta_")
+    ),
 )
 COLUMNS = [
     "area_code",

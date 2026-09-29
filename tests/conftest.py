@@ -346,6 +346,68 @@ def similar_day_load(day: pd.Timestamp, time_code: int) -> float:
     return load
 
 
+def similar_day_popw_temperature(day: pd.Timestamp, time_code: int, rank: int) -> float | None:
+    """``similar_day_pool_rank{rank}_popw_temperature_c`` of the fixture's row.
+
+    Only the representative station observes in the fixture, so the area's
+    population-weighted temperature at the hour containing the period on the
+    pool's rank day is its ``synthetic_temperature``; None where that day is
+    outside ``DEMAND_DAYS`` or the hour is in ``TEMPERATURE_MISSING_HOURS``. The
+    fixture records no solar radiation, so the radiation siblings are None.
+
+    Parameters
+    ----------
+    day : pandas.Timestamp
+        The delivery day.
+    time_code : int
+        The period, 1-48.
+    rank : int
+        1, 2 or 3.
+
+    Returns
+    -------
+    float or None
+    """
+    reference = similar_day_pool_reference(day, rank)
+    hour = (time_code + 1) // 2
+    if reference not in DEMAND_DAYS or (reference, hour) in TEMPERATURE_MISSING_HOURS:
+        return None
+    return synthetic_temperature(reference, hour)
+
+
+def similar_day_popw_temperature_mean(values: Sequence[float | None]) -> float | None:
+    """``wavg_similar_day_pool_top3_popw_temperature_c`` of the fixture's row.
+
+    The job's inverse-distance rule as the ``inverse_distance_mean`` macro writes
+    it: one over each ``SIMILAR_DAY_RANK_DISTANCES`` distance for the ranks whose
+    value is present, the total added in rank order, each ``inverse / total *
+    value`` added in rank order; None when no value is present.
+
+    Parameters
+    ----------
+    values : sequence of float or None
+        The three ranks' temperatures, rank 1 first; None where absent.
+
+    Returns
+    -------
+    float or None
+    """
+    inverse = [
+        0.0 if value is None else 1.0 / distance
+        for value, distance in zip(values, SIMILAR_DAY_RANK_DISTANCES, strict=True)
+    ]
+    total = 0.0
+    for weight in inverse:
+        total += weight
+    if total == 0.0:
+        return None
+    mean = 0.0
+    for weight, value in zip(inverse, values, strict=True):
+        if value is not None:
+            mean += weight / total * value
+    return mean
+
+
 #: The lags ``ftr_period_actuals`` carries, in days before the delivery day.
 ACTUALS_LAG_DAYS = (2, 3, 7, 9, 14, 21, 28)
 #: The weights of the mart's two four-input exponentially weighted means, newest input first.
@@ -2069,6 +2131,18 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
             else day - pd.Timedelta(days=1) + pd.Timedelta(hours=1)
         )
         for tc in range(1, 49):
+            # The pool days' observed temperature at the hour containing the period,
+            # its inverse-distance mean, and D's forecast minus each; every fixture
+            # similar-day row has a forecast (FORECAST_MISSING_DAY makes no row).
+            hour = (tc + 1) // 2
+            pool_temperatures = [similar_day_popw_temperature(day, tc, rank) for rank in (1, 2, 3)]
+            pool_temperature_mean = similar_day_popw_temperature_mean(pool_temperatures)
+            forecast_temperature = popw_forecast(
+                day,
+                hour,
+                synthetic_forecast_temperature(day, hour),
+                SECOND_STATION_FORECAST_OFFSET_C,
+            )
             row = {
                 "area_code": "tokyo",
                 "trade_date": day.date(),
@@ -2112,6 +2186,32 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
                 "similar_day_pool_n_candidates": 87,
                 "similar_day_pool_fit_cutoff": day - pd.Timedelta(days=1),
                 "similar_day_pool_rank1_lag_days": (day - pool_rank1_reference).days,
+                **{
+                    f"similar_day_pool_rank{rank}_popw_temperature_c": temperature
+                    for rank, temperature in enumerate(pool_temperatures, start=1)
+                },
+                "wavg_similar_day_pool_top3_popw_temperature_c": pool_temperature_mean,
+                **{
+                    f"similar_day_pool_rank{rank}_popw_solar_radiation_mjm2": None
+                    for rank in (1, 2, 3)
+                },
+                "wavg_similar_day_pool_top3_popw_solar_radiation_mjm2": None,
+                **{
+                    f"delta_similar_day_pool_rank{rank}_popw_temperature_c": (
+                        None if temperature is None else forecast_temperature - temperature
+                    )
+                    for rank, temperature in enumerate(pool_temperatures, start=1)
+                },
+                "delta_wavg_similar_day_pool_top3_popw_temperature_c": (
+                    None
+                    if pool_temperature_mean is None
+                    else forecast_temperature - pool_temperature_mean
+                ),
+                **{
+                    f"delta_similar_day_pool_rank{rank}_popw_solar_radiation_mjm2": None
+                    for rank in (1, 2, 3)
+                },
+                "delta_wavg_similar_day_pool_top3_popw_solar_radiation_mjm2": None,
                 "available_at": available_at,
                 "published_at": pd.Timestamp("2026-09-11 09:00:00"),
             }
@@ -2123,6 +2223,11 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
         "similar_day_rank1_distance",
         "similar_day_rank2_distance",
         "similar_day_rank3_distance",
+        *(
+            col
+            for col in similar_day.columns
+            if col.endswith(("_popw_temperature_c", "_popw_solar_radiation_mjm2"))
+        ),
     ):
         similar_day[col] = nullable_column(similar_day[col], float)
     similar_day["similar_day_n_candidates"] = nullable_column(
@@ -2310,8 +2415,24 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
         "similar_day_pool_rank3_reference_date date, similar_day_pool_rank1_distance double, "
         "similar_day_pool_rank2_distance double, similar_day_pool_rank3_distance double, "
         "similar_day_pool_n_candidates int, similar_day_pool_fit_cutoff timestamp, "
-        "similar_day_pool_rank1_lag_days int, available_at timestamp, "
-        "published_at timestamp",
+        "similar_day_pool_rank1_lag_days int, "
+        "similar_day_pool_rank1_popw_temperature_c double, "
+        "similar_day_pool_rank2_popw_temperature_c double, "
+        "similar_day_pool_rank3_popw_temperature_c double, "
+        "wavg_similar_day_pool_top3_popw_temperature_c double, "
+        "similar_day_pool_rank1_popw_solar_radiation_mjm2 double, "
+        "similar_day_pool_rank2_popw_solar_radiation_mjm2 double, "
+        "similar_day_pool_rank3_popw_solar_radiation_mjm2 double, "
+        "wavg_similar_day_pool_top3_popw_solar_radiation_mjm2 double, "
+        "delta_similar_day_pool_rank1_popw_temperature_c double, "
+        "delta_similar_day_pool_rank2_popw_temperature_c double, "
+        "delta_similar_day_pool_rank3_popw_temperature_c double, "
+        "delta_wavg_similar_day_pool_top3_popw_temperature_c double, "
+        "delta_similar_day_pool_rank1_popw_solar_radiation_mjm2 double, "
+        "delta_similar_day_pool_rank2_popw_solar_radiation_mjm2 double, "
+        "delta_similar_day_pool_rank3_popw_solar_radiation_mjm2 double, "
+        "delta_wavg_similar_day_pool_top3_popw_solar_radiation_mjm2 double, "
+        "available_at timestamp, published_at timestamp",
         "pma_features.ftr_period_similar_day",
     )
 
