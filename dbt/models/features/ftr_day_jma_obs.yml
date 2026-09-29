@@ -1,0 +1,140 @@
+models:
+  - name: ftr_day_jma_obs
+    config:
+      contract:
+        enforced: true
+    description: >
+      Day-level summaries of the area's population-weighted observed weather on D-2, the
+      newest complete observation day before the 09:30 D-1 issue time, from
+      fct_area_weather_hourly: the daily mean of the temperature and of the solar
+      radiation, and the evening mean of the temperature over the four hours ending 19:00
+      to 22:00, the load's 18:00 to 22:00 (the researcher's lag-window weather idea of
+      2026-09-28, feature candidates #237 and #238; spec
+      docs/superpowers/specs/2026-09-29-lag-window-weather-siblings-design.md). Complete
+      days only for the daily means: null unless all 24 hours have a value; the evening
+      mean needs its four hours only. Every mean is added in hour order through the
+      ordered_weighted_mean macro with weight 1, so the value is the same on every build.
+      Their differences from D's forecast are in ftr_day_msm. Grain: area_code x
+      trade_date; a row exists for every day D whose D-2 has at least one hour in the fact.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - area_code
+              - trade_date
+    columns:
+      - name: area_code
+        data_type: string
+        description: >
+          dim_area.area_code of the bidding zone.
+        data_tests:
+          - not_null
+      - name: trade_date
+        data_type: date
+        description: >
+          The delivery day D; the row reads D-2.
+        data_tests:
+          - not_null
+      - name: lag_2d_mean_popw_temperature_c
+        data_type: double
+        description: >
+          The mean over the 24 hours of D-2 of the area's population-weighted observed
+          temperature, C: the temperature the D-2 daily load features
+          (ftr_day_actuals' LAG(DAILY_MEAN(demand_kwh), 2d) and its neighbours) were
+          recorded under (feature candidate #237). Null unless all 24 hours have a value.
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "LAG(DAILY_MEAN(MEAN(temperature_c, weight=population)), 2d)"
+      - name: lag_2d_evening_mean_popw_temperature_c
+        data_type: double
+        description: >
+          The same over the four hours ending 19:00 to 22:00 of D-2, the load's evening
+          window 18:00 to 22:00 (feature candidate #237): the temperature under
+          ftr_day_actuals' LAG(DAILY_MEAN(demand_kwh, time=18:00-22:00), 2d). Null unless
+          all four hours have a value; the other twenty are not needed.
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "LAG(DAILY_MEAN(MEAN(temperature_c, weight=population), time=18:00-22:00), 2d)"
+      - name: lag_2d_mean_popw_solar_radiation_mjm2
+        data_type: double
+        description: >
+          The mean over the 24 hours of D-2 of the area's population-weighted observed
+          solar radiation, MJ/m2 per hour (feature candidate #238), weighted over the
+          stations that record it: 7 of Tokyo's 21 weighted stations and 3 of Kansai's
+          11, 55.4 % of each area's weight, the representative station three quarters or
+          more of that share (fct_area_weather_hourly's description); a more
+          representative radiation source is future work. Null unless all 24 hours have a
+          value.
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "LAG(DAILY_MEAN(MEAN(solar_radiation_mjm2, weight=population)), 2d)"
+      - name: available_at
+        data_type: timestamp
+        description: >
+          When the row became public, naive JST: 01:00 on D-1, hour 24's observed end + 1 h
+          under fct_area_weather_hourly's rule — a rule, not the latest hour present, so a
+          day missing its last hours stamps the same instant, which is never earlier than
+          any value the row holds is public (the evening mean's hours are public by 23:00
+          on D-2).
+        data_tests:
+          - not_null
+
+unit_tests:
+  - name: ftr_day_jma_obs_complete_days_evening_hours_and_a_null_element
+    description: >
+      Four Tokyo observation days, read two days later. 2025-03-01 is complete: the
+      temperature 10 + 0.5 x the hour ending gives a daily mean of 16.25 and an evening
+      mean (hours 19 to 22: 19.5, 20, 20.5, 21) of 20.25, the radiation 0.25 every hour a
+      mean of 0.25, every sum exact in doubles. 2025-03-02 has no hour 5, so both daily
+      means are null while the evening mean stands. 2025-03-03 has no hour 20: the evening
+      mean is null and the daily means are null too, the day being incomplete.
+      2025-03-04 has every temperature but a null radiation at hour 12: the temperature
+      means stand, the radiation mean is null. 2025-03-05 has no hour 24 at all: the
+      evening mean stands, the daily means are null. available_at is 01:00 on the next
+      day on every row, a rule, whatever hours are missing — 03-05's included, where the
+      latest hour present would say 00:00.
+    model: ftr_day_jma_obs
+    given:
+      - input: ref('dim_area')
+        rows:
+          - {area_key: 1, area_code: tokyo}
+      - input: ref('fct_area_weather_hourly')
+        format: sql
+        rows: |
+          with hours as (
+            select explode(sequence(1, 24)) as h
+          )
+          select 1 as area_key, date '2025-03-01' as date_key, h as hour_ending,
+            cast(10 + 0.5 * h as double) as popw_temperature_c, cast(0.25 as double) as popw_solar_radiation_mjm2,
+            timestampadd(hour, h + 1, timestamp '2025-03-01 00:00:00') as available_at
+          from hours
+          union all
+          select 1, date '2025-03-02', h, cast(10 + 0.5 * h as double), cast(0.25 as double),
+            timestampadd(hour, h + 1, timestamp '2025-03-02 00:00:00')
+          from hours where h <> 5
+          union all
+          select 1, date '2025-03-03', h, cast(10 + 0.5 * h as double), cast(0.25 as double),
+            timestampadd(hour, h + 1, timestamp '2025-03-03 00:00:00')
+          from hours where h <> 20
+          union all
+          select 1, date '2025-03-04', h, cast(10 + 0.5 * h as double),
+            case when h = 12 then cast(null as double) else cast(0.25 as double) end,
+            timestampadd(hour, h + 1, timestamp '2025-03-04 00:00:00')
+          from hours
+          union all
+          select 1, date '2025-03-05', h, cast(10 + 0.5 * h as double), cast(0.25 as double),
+            timestampadd(hour, h + 1, timestamp '2025-03-05 00:00:00')
+          from hours where h <> 24
+    expect:
+      rows:
+        - {area_code: tokyo, trade_date: 2025-03-03, lag_2d_mean_popw_temperature_c: 16.25, lag_2d_evening_mean_popw_temperature_c: 20.25, lag_2d_mean_popw_solar_radiation_mjm2: 0.25, available_at: "2025-03-02 01:00:00"}
+        - {area_code: tokyo, trade_date: 2025-03-04, lag_2d_mean_popw_temperature_c: null, lag_2d_evening_mean_popw_temperature_c: 20.25, lag_2d_mean_popw_solar_radiation_mjm2: null, available_at: "2025-03-03 01:00:00"}
+        - {area_code: tokyo, trade_date: 2025-03-05, lag_2d_mean_popw_temperature_c: null, lag_2d_evening_mean_popw_temperature_c: null, lag_2d_mean_popw_solar_radiation_mjm2: null, available_at: "2025-03-04 01:00:00"}
+        - {area_code: tokyo, trade_date: 2025-03-06, lag_2d_mean_popw_temperature_c: 16.25, lag_2d_evening_mean_popw_temperature_c: 20.25, lag_2d_mean_popw_solar_radiation_mjm2: null, available_at: "2025-03-05 01:00:00"}
+        - {area_code: tokyo, trade_date: 2025-03-07, lag_2d_mean_popw_temperature_c: null, lag_2d_evening_mean_popw_temperature_c: 20.25, lag_2d_mean_popw_solar_radiation_mjm2: null, available_at: "2025-03-06 01:00:00"}

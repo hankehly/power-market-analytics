@@ -78,6 +78,24 @@ with
     {{ ref('ftr_day_calendar') }} m
     cross join periods p
   ),
+  ftr_day_jma_obs as (
+  select
+    m.area_code,
+    m.trade_date,
+    p.time_code,
+    'ftr_day_jma_obs' as feature_view,
+    m.available_at,
+    cast(null as timestamp) as published_at,
+    stack(
+      3,
+      'lag_2d_mean_popw_temperature_c', cast(m.lag_2d_mean_popw_temperature_c as double), false,
+      'lag_2d_evening_mean_popw_temperature_c', cast(m.lag_2d_evening_mean_popw_temperature_c as double), false,
+      'lag_2d_mean_popw_solar_radiation_mjm2', cast(m.lag_2d_mean_popw_solar_radiation_mjm2 as double), false
+    ) as (feature_name, feature_value, is_categorical)
+  from
+    {{ ref('ftr_day_jma_obs') }} m
+    cross join periods p
+  ),
   ftr_day_msm as (
   select
     m.area_code,
@@ -87,12 +105,17 @@ with
     m.available_at,
     cast(null as timestamp) as published_at,
     stack(
-      5,
+      10,
       'max_popw_forecast_temperature_c', cast(m.max_popw_forecast_temperature_c as double), false,
       'min_popw_forecast_temperature_c', cast(m.min_popw_forecast_temperature_c as double), false,
       'mean_popw_forecast_temperature_c', cast(m.mean_popw_forecast_temperature_c as double), false,
       'max_popw_forecast_temperature_hour_ending', cast(m.max_popw_forecast_temperature_hour_ending as double), false,
-      'morning_trend_popw_forecast_temperature_c', cast(m.morning_trend_popw_forecast_temperature_c as double), false
+      'morning_trend_popw_forecast_temperature_c', cast(m.morning_trend_popw_forecast_temperature_c as double), false,
+      'evening_mean_popw_forecast_temperature_c', cast(m.evening_mean_popw_forecast_temperature_c as double), false,
+      'mean_popw_forecast_solar_radiation_mjm2', cast(m.mean_popw_forecast_solar_radiation_mjm2 as double), false,
+      'delta_lag_2d_mean_popw_temperature_c', cast(m.delta_lag_2d_mean_popw_temperature_c as double), false,
+      'delta_lag_2d_evening_mean_popw_temperature_c', cast(m.delta_lag_2d_evening_mean_popw_temperature_c as double), false,
+      'delta_lag_2d_mean_popw_solar_radiation_mjm2', cast(m.delta_lag_2d_mean_popw_solar_radiation_mjm2 as double), false
     ) as (feature_name, feature_value, is_categorical)
   from
     {{ ref('ftr_day_msm') }} m
@@ -280,6 +303,8 @@ with
   select * from ftr_day_actuals
   union all
   select * from ftr_day_calendar
+  union all
+  select * from ftr_day_jma_obs
   union all
   select * from ftr_day_msm
   union all

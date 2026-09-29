@@ -68,7 +68,7 @@
   `[tool.coverage.*]`; gated at 100% via `fail_under`, so a partial suite fails locally and in
   CI — `.github/workflows/ci.yml` runs the same command on every push). Shared fixtures in
   `tests/conftest.py`: `spark` (local session, temp warehouse, no metastore),
-  `curated_warehouse` (synthetic `pma_curated` star for both tasks), `feature_marts` (the nine
+  `curated_warehouse` (synthetic `pma_curated` star for both tasks), `feature_marts` (the ten
   `pma_features` marts from it under a UTC session — the similar-day mart holds ranks 1–3
   at lags 364, 7 and 371, their mean and one same-holiday day, 2024-04-29 —
   with the Feast store in a temp registry; every test that builds a preset strategy takes
@@ -775,7 +775,7 @@
   feature column tagged `config.meta.feature` / `categorical` / `expression`, plus `available_at` carried
   from the facts through the `available_at()` macro; the singular test
   `assert_feature_marts_declare_available_at` lists any feature model without the column.
-  Today's nine: `ftr_day_actuals` (since 2026-09-12, research `demand/R-006`: D-2's mean,
+  Today's ten: `ftr_day_actuals` (since 2026-09-12, research `demand/R-006`: D-2's mean,
   max, min (since 2026-09-13) and max − min over its 48 periods, complete days only; since
   2026-09-13 also D-2's load factor, its means over 06:00–10:00, 13:00–17:00 and
   18:00–22:00 (windows set from the weekday load shape of both areas), its peak time code
@@ -799,7 +799,15 @@
   holiday's load — `day_type` is a step of its own and the three join it on the date, not
   `lag()` over rows, so a gap in the spine could not shift a value; null where the earlier
   day is before the spine's first day, 2016-01-01; categorical like `day_type`; the
-  researcher added D-3 to the issue's D-2 and D-7; in no preset yet), `ftr_day_msm` (since
+  researcher added D-3 to the issue's D-2 and D-7; in no preset yet), `ftr_day_jma_obs`
+  (since 2026-09-29, feature candidates #237 and #238, spec
+  `docs/superpowers/specs/2026-09-29-lag-window-weather-siblings-design.md`, PR 2 of 4:
+  D-2's daily mean and evening mean — the hours ending 19:00–22:00, the load's
+  18:00–22:00 — of the population-weighted observed temperature and D-2's daily mean of
+  the observed radiation, from `fct_area_weather_hourly`; complete days only for the daily
+  means, the four evening hours for the evening mean, every sum in hour order; available
+  at 01:00 on D-1; their deltas to D's forecast are in `ftr_day_msm`; in no preset yet),
+  `ftr_day_msm` (since
   2026-09-19, feature candidate #132: the delivery day's max, min and mean of `ftr_hour_msm`'s
   `popw_forecast_temperature_c` over its 24 hours and the hour ending of the max, the
   earliest on a tie — `max_` / `min_` / `mean_popw_forecast_temperature_c` and
@@ -813,7 +821,12 @@
   differences, `(3 (x10 − x7) + (x9 − x8)) / 10` — the same slope as the textbook sums,
   which subtract two large numbers and come out 3e-14 off; it needs its four hours only, so
   a day incomplete elsewhere has a trend and no summaries; the issue's cumulative forecast
-  solar radiation was left out by the researcher; in no preset yet),
+  solar radiation was left out by the researcher; in no preset yet; since 2026-09-29
+  (feature candidates #237 and #238, PR 2 of 4) also `evening_mean_popw_forecast_temperature_c`
+  over the hours ending 19:00–22:00, `mean_popw_forecast_solar_radiation_mjm2` over the
+  day's 24 hours, and the three `delta_lag_2d_*` columns, those means and the daily mean
+  minus `ftr_day_jma_obs`'s D-2 ones, placed here because a delta needs the vintage; in
+  no preset yet),
   `ftr_day_occto`, `ftr_hour_jma_obs` (the representative station's `wavg_temperature_c`;
   since 2026-09-19, feature candidate #150, also the first population-weighted *observed*
   temperature in a mart, accumulated along the clock over the hours ending at the target hour
