@@ -1,0 +1,48 @@
+description: >-
+  e219 plus both elements of the lag-window weather siblings (spec 2026-09-29):
+  the temperature and the solar radiation the D-2, D-7, day-type and similar-day
+  lags were recorded under, the two D-side forecast means, and D's forecast
+  minus each — the 21 columns of e243 and the 19 of e244, 144 features.
+  Experiment #245.
+base: e219
+add:
+  - ftr_hour_jma_obs:lag_2d_popw_temperature_c
+  - ftr_hour_jma_obs:lag_7d_popw_temperature_c
+  - ftr_hour_msm:delta_lag_2d_popw_temperature_c
+  - ftr_hour_msm:delta_lag_7d_popw_temperature_c
+  - ftr_day_jma_obs:lag_2d_mean_popw_temperature_c
+  - ftr_day_jma_obs:lag_2d_evening_mean_popw_temperature_c
+  - ftr_day_msm:evening_mean_popw_forecast_temperature_c
+  - ftr_day_msm:delta_lag_2d_mean_popw_temperature_c
+  - ftr_day_msm:delta_lag_2d_evening_mean_popw_temperature_c
+  - ftr_period_daytype_weather:mean_daytype_4d_popw_temperature_c
+  - ftr_period_daytype_weather:ewm_daytype_4d_popw_temperature_c
+  - ftr_period_daytype_weather:delta_mean_daytype_4d_popw_temperature_c
+  - ftr_period_daytype_weather:delta_ewm_daytype_4d_popw_temperature_c
+  - ftr_period_similar_day:similar_day_pool_rank1_popw_temperature_c
+  - ftr_period_similar_day:similar_day_pool_rank2_popw_temperature_c
+  - ftr_period_similar_day:similar_day_pool_rank3_popw_temperature_c
+  - ftr_period_similar_day:wavg_similar_day_pool_top3_popw_temperature_c
+  - ftr_period_similar_day:delta_similar_day_pool_rank1_popw_temperature_c
+  - ftr_period_similar_day:delta_similar_day_pool_rank2_popw_temperature_c
+  - ftr_period_similar_day:delta_similar_day_pool_rank3_popw_temperature_c
+  - ftr_period_similar_day:delta_wavg_similar_day_pool_top3_popw_temperature_c
+  - ftr_hour_jma_obs:lag_2d_popw_solar_radiation_mjm2
+  - ftr_hour_jma_obs:lag_7d_popw_solar_radiation_mjm2
+  - ftr_hour_msm:delta_lag_2d_popw_solar_radiation_mjm2
+  - ftr_hour_msm:delta_lag_7d_popw_solar_radiation_mjm2
+  - ftr_day_jma_obs:lag_2d_mean_popw_solar_radiation_mjm2
+  - ftr_day_msm:mean_popw_forecast_solar_radiation_mjm2
+  - ftr_day_msm:delta_lag_2d_mean_popw_solar_radiation_mjm2
+  - ftr_period_daytype_weather:mean_daytype_4d_popw_solar_radiation_mjm2
+  - ftr_period_daytype_weather:ewm_daytype_4d_popw_solar_radiation_mjm2
+  - ftr_period_daytype_weather:delta_mean_daytype_4d_popw_solar_radiation_mjm2
+  - ftr_period_daytype_weather:delta_ewm_daytype_4d_popw_solar_radiation_mjm2
+  - ftr_period_similar_day:similar_day_pool_rank1_popw_solar_radiation_mjm2
+  - ftr_period_similar_day:similar_day_pool_rank2_popw_solar_radiation_mjm2
+  - ftr_period_similar_day:similar_day_pool_rank3_popw_solar_radiation_mjm2
+  - ftr_period_similar_day:wavg_similar_day_pool_top3_popw_solar_radiation_mjm2
+  - ftr_period_similar_day:delta_similar_day_pool_rank1_popw_solar_radiation_mjm2
+  - ftr_period_similar_day:delta_similar_day_pool_rank2_popw_solar_radiation_mjm2
+  - ftr_period_similar_day:delta_similar_day_pool_rank3_popw_solar_radiation_mjm2
+  - ftr_period_similar_day:delta_wavg_similar_day_pool_top3_popw_solar_radiation_mjm2
