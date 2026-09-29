@@ -152,7 +152,7 @@ Expected: `feature/issue-<T>-weather-siblings-hour-marts`.
 
 **Interfaces:**
 - Consumes: `fct_jma_weather_hourly` (`station_id`, `observed_at`, `observed_hour_start_at`, `date_key`, `temperature_c`, `solar_radiation_mjm2`, `available_at`), `fct_census_population_jma_station` (`census_year`, `area_key`, `station_id`, `area_population_weight`), `dim_area` (`area_key`).
-- Produces: a table with `area_key int`, `date_key date`, `hour_ending int`, `observed_at timestamp`, `observed_hour_start_at timestamp`, `census_year int`, `popw_temperature_c double`, `n_stations_temperature int`, `weight_share_temperature double`, `popw_solar_radiation_mjm2 double`, `n_stations_solar_radiation_mjm2 int`, `weight_share_solar_radiation_mjm2 double`, `available_at timestamp`; key `(area_key, observed_at)`. Tasks 2 and 3 read `area_key`, `date_key`, `hour_ending`, `observed_hour_start_at`, the two `popw_` columns.
+- Produces: a table with `area_key int`, `date_key date`, `hour_ending int`, `observed_at timestamp`, `observed_hour_start_at timestamp`, `census_year int`, `popw_temperature_c double`, `n_stations_temperature int`, `weight_share_temperature double`, `popw_solar_radiation_mjm2 double`, `n_stations_solar_radiation int`, `weight_share_solar_radiation double`, `available_at timestamp`; key `(area_key, observed_at)`. Tasks 2 and 3 read `area_key`, `date_key`, `hour_ending`, `observed_hour_start_at`, the two `popw_` columns.
 
 - [ ] **Step 1: Write the failing unit test**
 
@@ -179,7 +179,7 @@ models:
       つくば 0.046, 宇都宮 0.034, 前橋 0.034, 甲府 0.014, 銚子 0.010, 父島; 55.4 % of the
       weight, 横浜, 千葉 and 熊谷 the largest without) and 3 of Kansai's 11 (大阪 0.446, 奈良
       0.080, 彦根 0.029; 55.4 %, 京都, 神戸 and 姫路 the largest without), so a radiation
-      mean is close to the representative station's value, and weight_share_solar_radiation_mjm2
+      mean is close to the representative station's value, and weight_share_solar_radiation
       says on every row how much of the area it rests on.
     data_tests:
       - dbt_utils.unique_combination_of_columns:
@@ -192,7 +192,7 @@ models:
             expression: "(popw_temperature_c is null) = (n_stations_temperature = 0)"
       - dbt_utils.expression_is_true:
           arguments:
-            expression: "(popw_solar_radiation_mjm2 is null) = (n_stations_solar_radiation_mjm2 = 0)"
+            expression: "(popw_solar_radiation_mjm2 is null) = (n_stations_solar_radiation = 0)"
     columns:
       - name: area_key
         data_type: int
@@ -266,12 +266,12 @@ models:
           record it, renormalised over them, MJ/m2; null when none does. Recorded at 7 of
           Tokyo's 21 weighted stations and 3 of Kansai's 11 (the model description), so
           the mean is 75 % (東京) or 80 % (大阪) the representative station's reading.
-      - name: n_stations_solar_radiation_mjm2
+      - name: n_stations_solar_radiation
         data_type: int
         description: How many weighted stations report solar radiation this hour.
         data_tests:
           - not_null
-      - name: weight_share_solar_radiation_mjm2
+      - name: weight_share_solar_radiation
         data_type: double
         description: >
           The population weight of the stations that report solar radiation this hour,
@@ -318,8 +318,8 @@ unit_tests:
           - {station_id: s2, observed_at: "2025-03-01 02:00:00", observed_hour_start_at: "2025-03-01 01:00:00", date_key: 2025-03-01, temperature_c: null, solar_radiation_mjm2: null, available_at: "2025-03-01 03:00:00"}
     expect:
       rows:
-        - {area_key: 1, date_key: 2025-03-01, hour_ending: 1, observed_at: "2025-03-01 01:00:00", observed_hour_start_at: "2025-03-01 00:00:00", census_year: 2020, popw_temperature_c: 12.5, n_stations_temperature: 2, weight_share_temperature: 1.0, popw_solar_radiation_mjm2: 1.0, n_stations_solar_radiation_mjm2: 1, weight_share_solar_radiation_mjm2: 0.75, available_at: "2025-03-01 02:00:00"}
-        - {area_key: 1, date_key: 2025-03-01, hour_ending: 2, observed_at: "2025-03-01 02:00:00", observed_hour_start_at: "2025-03-01 01:00:00", census_year: 2020, popw_temperature_c: null, n_stations_temperature: 0, weight_share_temperature: 0.0, popw_solar_radiation_mjm2: 0.5, n_stations_solar_radiation_mjm2: 1, weight_share_solar_radiation_mjm2: 0.75, available_at: "2025-03-01 03:00:00"}
+        - {area_key: 1, date_key: 2025-03-01, hour_ending: 1, observed_at: "2025-03-01 01:00:00", observed_hour_start_at: "2025-03-01 00:00:00", census_year: 2020, popw_temperature_c: 12.5, n_stations_temperature: 2, weight_share_temperature: 1.0, popw_solar_radiation_mjm2: 1.0, n_stations_solar_radiation: 1, weight_share_solar_radiation: 0.75, available_at: "2025-03-01 02:00:00"}
+        - {area_key: 1, date_key: 2025-03-01, hour_ending: 2, observed_at: "2025-03-01 02:00:00", observed_hour_start_at: "2025-03-01 01:00:00", census_year: 2020, popw_temperature_c: null, n_stations_temperature: 0, weight_share_temperature: 0.0, popw_solar_radiation_mjm2: 0.5, n_stations_solar_radiation: 1, weight_share_solar_radiation: 0.75, available_at: "2025-03-01 03:00:00"}
 ```
 
 - [ ] **Step 2: Run the unit test to see it fail**
@@ -561,7 +561,7 @@ Add the four columns to the contract, after `ewm_72h_popw_temperature_c` and bef
           of Tokyo's 21 weighted stations (東京 three quarters of their weight; 横浜, 千葉
           and 熊谷 the largest without) and 3 of Kansai's 11 (大阪 four fifths; 京都, 神戸
           and 姫路 without), 55.4 % of each area's weight, so the value is close to the
-          representative station's; fct_area_weather_hourly.weight_share_solar_radiation_mjm2
+          representative station's; fct_area_weather_hourly.weight_share_solar_radiation
           gives the hour's share. A more representative radiation source is future work.
           Null when none of them reported the hour.
         config:
@@ -988,7 +988,7 @@ Write `after.sql`:
 
 ```sql
 select hour_ending, popw_temperature_c, n_stations_temperature, weight_share_temperature,
-       popw_solar_radiation_mjm2, n_stations_solar_radiation_mjm2, weight_share_solar_radiation_mjm2
+       popw_solar_radiation_mjm2, n_stations_solar_radiation, weight_share_solar_radiation
 from pma_curated.fct_area_weather_hourly f join pma_curated.dim_area d on d.area_key = f.area_key
 where d.area_code = 'tokyo' and f.date_key = date '2025-03-04' and hour_ending in (6, 12, 15) order by hour_ending;
 select o.hour_ending, o.lag_2d_popw_temperature_c, o.lag_7d_popw_temperature_c, o.lag_2d_popw_solar_radiation_mjm2,
@@ -1000,7 +1000,7 @@ select count(*) as rows_with_two_vintages from (
   select area_code, trade_date, hour_ending from pma_features.ftr_hour_msm group by 1, 2, 3 having count(*) > 1);
 ```
 
-Expected: on 2025-03-04 Tokyo hour 12, `weight_share_solar_radiation_mjm2` about 0.554, `delta_lag_2d_popw_temperature_c` between −16 and −8 (a 4 to 5 °C forecast against a 17 to 18 °C observation on 03-02), `delta_lag_2d_popw_solar_radiation_mjm2` negative, `available_at` 2025-03-03 01:00; `rows_with_two_vintages` 0. Put the numbers in the PR body's Evidence.
+Expected: on 2025-03-04 Tokyo hour 12, `weight_share_solar_radiation` about 0.554, `delta_lag_2d_popw_temperature_c` between −16 and −8 (a 4 to 5 °C forecast against a 17 to 18 °C observation on 03-02), `delta_lag_2d_popw_solar_radiation_mjm2` negative, `available_at` 2025-03-03 01:00; `rows_with_two_vintages` 0. Put the numbers in the PR body's Evidence.
 
 - [ ] **Step 5: Read the eight columns through Feast**
 
