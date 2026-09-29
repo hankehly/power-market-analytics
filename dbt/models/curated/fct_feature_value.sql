@@ -125,11 +125,15 @@ with
     m.available_at,
     cast(null as timestamp) as published_at,
     stack(
-      4,
+      8,
       'wavg_temperature_c', cast(m.wavg_temperature_c as double), false,
       'mean_24h_popw_temperature_c', cast(m.mean_24h_popw_temperature_c as double), false,
       'mean_72h_popw_temperature_c', cast(m.mean_72h_popw_temperature_c as double), false,
-      'ewm_72h_popw_temperature_c', cast(m.ewm_72h_popw_temperature_c as double), false
+      'ewm_72h_popw_temperature_c', cast(m.ewm_72h_popw_temperature_c as double), false,
+      'lag_2d_popw_temperature_c', cast(m.lag_2d_popw_temperature_c as double), false,
+      'lag_7d_popw_temperature_c', cast(m.lag_7d_popw_temperature_c as double), false,
+      'lag_2d_popw_solar_radiation_mjm2', cast(m.lag_2d_popw_solar_radiation_mjm2 as double), false,
+      'lag_7d_popw_solar_radiation_mjm2', cast(m.lag_7d_popw_solar_radiation_mjm2 as double), false
     ) as (feature_name, feature_value, is_categorical)
   from
     {{ ref('ftr_hour_jma_obs') }} m
@@ -144,7 +148,7 @@ with
     m.available_at,
     cast(null as timestamp) as published_at,
     stack(
-      16,
+      20,
       'forecast_temperature_c', cast(m.forecast_temperature_c as double), false,
       'popw_forecast_temperature_c', cast(m.popw_forecast_temperature_c as double), false,
       'popw_forecast_relative_humidity_pct', cast(m.popw_forecast_relative_humidity_pct as double), false,
@@ -160,7 +164,11 @@ with
       'popw_forecast_surface_pressure_hpa', cast(m.popw_forecast_surface_pressure_hpa as double), false,
       'popw_forecast_sea_level_pressure_hpa', cast(m.popw_forecast_sea_level_pressure_hpa as double), false,
       'popw_forecast_discomfort_index', cast(m.popw_forecast_discomfort_index as double), false,
-      'cum_popw_forecast_solar_radiation_mjm2', cast(m.cum_popw_forecast_solar_radiation_mjm2 as double), false
+      'cum_popw_forecast_solar_radiation_mjm2', cast(m.cum_popw_forecast_solar_radiation_mjm2 as double), false,
+      'delta_lag_2d_popw_temperature_c', cast(m.delta_lag_2d_popw_temperature_c as double), false,
+      'delta_lag_7d_popw_temperature_c', cast(m.delta_lag_7d_popw_temperature_c as double), false,
+      'delta_lag_2d_popw_solar_radiation_mjm2', cast(m.delta_lag_2d_popw_solar_radiation_mjm2 as double), false,
+      'delta_lag_7d_popw_solar_radiation_mjm2', cast(m.delta_lag_7d_popw_solar_radiation_mjm2 as double), false
     ) as (feature_name, feature_value, is_categorical)
   from
     {{ ref('ftr_hour_msm') }} m

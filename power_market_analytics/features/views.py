@@ -350,9 +350,9 @@ FTR_DAY_OCCTO = FeatureView(
 
 FTR_HOUR_JMA_OBS_SOURCE = SparkSource(
     name="ftr_hour_jma_obs",
-    query="select area_code, cast(date_format(trade_date, 'yyyyMMdd') as int) as trade_date_key, hour_ending, wavg_temperature_c, mean_24h_popw_temperature_c, mean_72h_popw_temperature_c, ewm_72h_popw_temperature_c, available_at from pma_features.ftr_hour_jma_obs",
+    query="select area_code, cast(date_format(trade_date, 'yyyyMMdd') as int) as trade_date_key, hour_ending, wavg_temperature_c, mean_24h_popw_temperature_c, mean_72h_popw_temperature_c, ewm_72h_popw_temperature_c, lag_2d_popw_temperature_c, lag_7d_popw_temperature_c, lag_2d_popw_solar_radiation_mjm2, lag_7d_popw_solar_radiation_mjm2, available_at from pma_features.ftr_hour_jma_obs",
     timestamp_field="available_at",
-    description="The recency-weighted same-hour temperature at each bidding zone's representative JMA station (dim_area.representative_jma_station_id) over D-8..D-2, the demand presets' wavg_temperature_c; and, since feature candidate #150, the area's population-weighted observed temperature accumulated along the clock over the 24 and 72 hours ending at the hour on D-2, with its 24-hour half-life weighted average. Grain: area_code x trade_date x hour_ending (1-24, hour ending). A row exists for every delivery day that at least one lag observation reaches; the value is null only when every lag is missing.",
+    description="The recency-weighted same-hour temperature at each bidding zone's representative JMA station (dim_area.representative_jma_station_id) over D-8..D-2, the demand presets' wavg_temperature_c; and, since feature candidate #150, the area's population-weighted observed temperature accumulated along the clock over the 24 and 72 hours ending at the hour on D-2, with its 24-hour half-life weighted average. Since 2026-09-29 the weighted hour comes from fct_area_weather_hourly, and the mart carries the D-2 and D-7 population-weighted temperature and solar radiation at the hour, the weather the two load lags were recorded under (feature candidates #237 and #238). Grain: area_code x trade_date x hour_ending (1-24, hour ending). A row exists for every delivery day that at least one lag observation of the representative station reaches; the value is null only when every lag is missing.",
 )
 FTR_HOUR_JMA_OBS = FeatureView(
     name="ftr_hour_jma_obs",
@@ -382,16 +382,40 @@ FTR_HOUR_JMA_OBS = FeatureView(
             description="The same 72 hours weighted 0.5^(k / 24), k hours back from the newest: a half-life of 24 hours, divided by the sum of the weights, C (feature candidate #150). The 72 weights are literals the model computes when it compiles, so the SQL only adds and multiplies and the value is the same on every build. Null unless all 72 hours have a value.",
             tags={"categorical": "false", "expression": "EWA(MEAN(temperature_c, weight=population), gap=2d, window=72, step=1h, halflife=24)"},
         ),
+        Field(
+            name="lag_2d_popw_temperature_c",
+            dtype=Float64,
+            description="The area's population-weighted observed temperature at this hour on D-2, C, from fct_area_weather_hourly: the weather the load lag LAG(demand_kwh, 2d) was recorded under (the researcher's lag-window weather idea of 2026-09-28, feature candidate #237; spec docs/superpowers/specs/2026-09-29-lag-window-weather-siblings-design.md). Null when no weighted station reported that hour. Its difference from D's forecast is ftr_hour_msm.delta_lag_2d_popw_temperature_c. Not a duplicate of the windows above: mean_24h_popw_temperature_c averages the 24 hours ending here on D-2, and wavg_temperature_c gives D-2 half its weight over D-2 to D-8; this is the one hour.",
+            tags={"categorical": "false", "expression": "LAG(MEAN(temperature_c, weight=population), 2d)"},
+        ),
+        Field(
+            name="lag_7d_popw_temperature_c",
+            dtype=Float64,
+            description="The same at this hour on D-7: the weather under LAG(demand_kwh, 7d) (feature candidate #237).",
+            tags={"categorical": "false", "expression": "LAG(MEAN(temperature_c, weight=population), 7d)"},
+        ),
+        Field(
+            name="lag_2d_popw_solar_radiation_mjm2",
+            dtype=Float64,
+            description="The area's population-weighted observed solar radiation over this hour on D-2, MJ/m2, from fct_area_weather_hourly (feature candidate #238), weighted over the stations that record it: 7 of Tokyo's 21 weighted stations (東京 three quarters of their weight; 横浜, 千葉 and 熊谷 the largest without) and 3 of Kansai's 11 (大阪 four fifths; 京都, 神戸 and 姫路 without), 55.4 % of each area's weight, so the value is close to the representative station's; the fact's weight_share_solar_radiation_mjm2 gives the hour's share. A more representative radiation source is future work. Null when none of them reported the hour.",
+            tags={"categorical": "false", "expression": "LAG(MEAN(solar_radiation_mjm2, weight=population), 2d)"},
+        ),
+        Field(
+            name="lag_7d_popw_solar_radiation_mjm2",
+            dtype=Float64,
+            description="The same over this hour on D-7 (feature candidate #238).",
+            tags={"categorical": "false", "expression": "LAG(MEAN(solar_radiation_mjm2, weight=population), 7d)"},
+        ),
     ],
     source=FTR_HOUR_JMA_OBS_SOURCE,
     online=False,
-    description="The recency-weighted same-hour temperature at each bidding zone's representative JMA station (dim_area.representative_jma_station_id) over D-8..D-2, the demand presets' wavg_temperature_c; and, since feature candidate #150, the area's population-weighted observed temperature accumulated along the clock over the 24 and 72 hours ending at the hour on D-2, with its 24-hour half-life weighted average. Grain: area_code x trade_date x hour_ending (1-24, hour ending). A row exists for every delivery day that at least one lag observation reaches; the value is null only when every lag is missing.",
+    description="The recency-weighted same-hour temperature at each bidding zone's representative JMA station (dim_area.representative_jma_station_id) over D-8..D-2, the demand presets' wavg_temperature_c; and, since feature candidate #150, the area's population-weighted observed temperature accumulated along the clock over the 24 and 72 hours ending at the hour on D-2, with its 24-hour half-life weighted average. Since 2026-09-29 the weighted hour comes from fct_area_weather_hourly, and the mart carries the D-2 and D-7 population-weighted temperature and solar radiation at the hour, the weather the two load lags were recorded under (feature candidates #237 and #238). Grain: area_code x trade_date x hour_ending (1-24, hour ending). A row exists for every delivery day that at least one lag observation of the representative station reaches; the value is null only when every lag is missing.",
     tags={"grain": "hour"},
 )
 
 FTR_HOUR_MSM_SOURCE = SparkSource(
     name="ftr_hour_msm",
-    query="select area_code, cast(date_format(trade_date, 'yyyyMMdd') as int) as trade_date_key, hour_ending, forecast_temperature_c, popw_forecast_temperature_c, popw_forecast_relative_humidity_pct, popw_forecast_precipitation_mm, popw_forecast_solar_radiation_mjm2, popw_forecast_total_cloud_cover_pct, popw_forecast_high_cloud_cover_pct, popw_forecast_middle_cloud_cover_pct, popw_forecast_low_cloud_cover_pct, popw_forecast_wind_speed_ms, popw_forecast_u_wind_ms, popw_forecast_v_wind_ms, popw_forecast_surface_pressure_hpa, popw_forecast_sea_level_pressure_hpa, popw_forecast_discomfort_index, cum_popw_forecast_solar_radiation_mjm2, available_at from pma_features.ftr_hour_msm",
+    query="select area_code, cast(date_format(trade_date, 'yyyyMMdd') as int) as trade_date_key, hour_ending, forecast_temperature_c, popw_forecast_temperature_c, popw_forecast_relative_humidity_pct, popw_forecast_precipitation_mm, popw_forecast_solar_radiation_mjm2, popw_forecast_total_cloud_cover_pct, popw_forecast_high_cloud_cover_pct, popw_forecast_middle_cloud_cover_pct, popw_forecast_low_cloud_cover_pct, popw_forecast_wind_speed_ms, popw_forecast_u_wind_ms, popw_forecast_v_wind_ms, popw_forecast_surface_pressure_hpa, popw_forecast_sea_level_pressure_hpa, popw_forecast_discomfort_index, cum_popw_forecast_solar_radiation_mjm2, delta_lag_2d_popw_temperature_c, delta_lag_7d_popw_temperature_c, delta_lag_2d_popw_solar_radiation_mjm2, delta_lag_7d_popw_solar_radiation_mjm2, available_at from pma_features.ftr_hour_msm",
     timestamp_field="available_at",
     description="The MSM forecast for each delivery-day hour per bidding zone, one row per forecast vintage: the representative station's temperature (the feature of the demand preset e169) and the population-weighted temperature, humidity, rain, solar radiation, cloud cover (total, high, middle, low), wind (speed, u, v) and pressure (surface, sea-level) over the area's staffed stations with the latest census vintage's weights (the demand preset e170 and the similar-day selector; tasks/demand/datasets.py), and the 不快指数 of the weighted temperature and humidity. Grain: area_code x trade_date x hour_ending x forecast_reference_at. available_at is the vintage's: reference + 4 h.",
 )
@@ -494,6 +518,30 @@ FTR_HOUR_MSM = FeatureView(
             dtype=Float64,
             description="The delivery day's population-weighted forecast solar radiation added up from midnight through this hour, MJ/m2: how much sun has fallen so far (feature candidate #151). popw_forecast_solar_radiation_mjm2 summed over the hours 1 to this one of the same vintage, in hour order. It stops at the first hour without a value: from there on it is null for the rest of the day, a total that skipped an hour being too small. At hour 24 it is the day's total.",
             tags={"categorical": "false", "expression": "CUM_SUM(MEAN(forecast_solar_radiation_mjm2, weight=population)) by trade_date"},
+        ),
+        Field(
+            name="delta_lag_2d_popw_temperature_c",
+            dtype=Float64,
+            description="D's population-weighted forecast temperature at this hour minus the area's population-weighted observed temperature at the same hour on D-2 (ftr_hour_jma_obs.lag_2d_popw_temperature_c), C: how far the target hour's weather sits from the weather the load lag LAG(demand_kwh, 2d) was recorded under; positive when D is warmer. The researcher's lag-window weather idea of 2026-09-28 (feature candidate #237; spec docs/superpowers/specs/2026-09-29-lag-window-weather-siblings-design.md). It lives here, not in the observation mart, because a delta needs the vintage, public at 01:00 on D-1, which this row already waits for. Null without a sibling row.",
+            tags={"categorical": "false", "expression": "MEAN(forecast_temperature_c, weight=population) - LAG(MEAN(temperature_c, weight=population), 2d)"},
+        ),
+        Field(
+            name="delta_lag_7d_popw_temperature_c",
+            dtype=Float64,
+            description="The same against the hour on D-7 (ftr_hour_jma_obs.lag_7d_popw_temperature_c; feature candidate #237).",
+            tags={"categorical": "false", "expression": "MEAN(forecast_temperature_c, weight=population) - LAG(MEAN(temperature_c, weight=population), 7d)"},
+        ),
+        Field(
+            name="delta_lag_2d_popw_solar_radiation_mjm2",
+            dtype=Float64,
+            description="D's population-weighted forecast solar radiation over this hour minus the observed one on D-2 (ftr_hour_jma_obs.lag_2d_popw_solar_radiation_mjm2), MJ/m2; positive when D is forecast brighter (feature candidate #238). The observed side is weighted over the stations that record radiation, 55.4 % of the area (that column's description); the forecast side over every station.",
+            tags={"categorical": "false", "expression": "MEAN(forecast_solar_radiation_mjm2, weight=population) - LAG(MEAN(solar_radiation_mjm2, weight=population), 2d)"},
+        ),
+        Field(
+            name="delta_lag_7d_popw_solar_radiation_mjm2",
+            dtype=Float64,
+            description="The same against the hour on D-7 (feature candidate #238).",
+            tags={"categorical": "false", "expression": "MEAN(forecast_solar_radiation_mjm2, weight=population) - LAG(MEAN(solar_radiation_mjm2, weight=population), 7d)"},
         ),
     ],
     source=FTR_HOUR_MSM_SOURCE,
