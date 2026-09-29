@@ -93,7 +93,9 @@ models:
         data_type: double
         description: >
           The population weight of the stations that report a temperature this hour, 0 to
-          1: the share of the area the mean rests on.
+          1: the share of the area the mean rests on. Rounded to twelve decimals, because
+          an area's weights add up to 1 only within floating rounding (Kyushu's 25 give
+          1.0000000000000002); the mean itself is not rounded.
         data_tests:
           - not_null
           - dbt_utils.accepted_range:
@@ -158,3 +160,25 @@ unit_tests:
       rows:
         - {area_key: 1, date_key: 2025-03-01, hour_ending: 1, observed_at: "2025-03-01 01:00:00", observed_hour_start_at: "2025-03-01 00:00:00", census_year: 2020, popw_temperature_c: 12.5, n_stations_temperature_c: 2, weight_share_temperature_c: 1.0, popw_solar_radiation_mjm2: 1.0, n_stations_solar_radiation_mjm2: 1, weight_share_solar_radiation_mjm2: 0.75, available_at: "2025-03-01 02:00:00"}
         - {area_key: 1, date_key: 2025-03-01, hour_ending: 2, observed_at: "2025-03-01 02:00:00", observed_hour_start_at: "2025-03-01 01:00:00", census_year: 2020, popw_temperature_c: null, n_stations_temperature_c: 0, weight_share_temperature_c: 0.0, popw_solar_radiation_mjm2: 0.5, n_stations_solar_radiation_mjm2: 1, weight_share_solar_radiation_mjm2: 0.75, available_at: "2025-03-01 03:00:00"}
+
+  - name: fct_area_weather_hourly_weight_share_is_rounded_to_twelve_decimals
+    description: >
+      Three stations whose weights 0.7, 0.2 and 0.1 add up to 0.9999999999999999 in
+      doubles (Kyushu's 25 weights add up to 1.0000000000000002 the same way, on every
+      hour all 25 report). The share is a coverage number, so it is rounded to twelve
+      decimals and reads 1.0; the mean is not rounded.
+    model: fct_area_weather_hourly
+    given:
+      - input: ref('fct_census_population_jma_station')
+        rows:
+          - {census_year: 2020, area_key: 1, station_id: s1, area_population_weight: 0.7}
+          - {census_year: 2020, area_key: 1, station_id: s2, area_population_weight: 0.2}
+          - {census_year: 2020, area_key: 1, station_id: s3, area_population_weight: 0.1}
+      - input: ref('fct_jma_weather_hourly')
+        rows:
+          - {station_id: s1, observed_at: "2025-03-01 01:00:00", observed_hour_start_at: "2025-03-01 00:00:00", date_key: 2025-03-01, temperature_c: 10.0, solar_radiation_mjm2: null, available_at: "2025-03-01 02:00:00"}
+          - {station_id: s2, observed_at: "2025-03-01 01:00:00", observed_hour_start_at: "2025-03-01 00:00:00", date_key: 2025-03-01, temperature_c: 10.0, solar_radiation_mjm2: null, available_at: "2025-03-01 02:00:00"}
+          - {station_id: s3, observed_at: "2025-03-01 01:00:00", observed_hour_start_at: "2025-03-01 00:00:00", date_key: 2025-03-01, temperature_c: 10.0, solar_radiation_mjm2: null, available_at: "2025-03-01 02:00:00"}
+    expect:
+      rows:
+        - {area_key: 1, hour_ending: 1, n_stations_temperature_c: 3, weight_share_temperature_c: 1.0, n_stations_solar_radiation_mjm2: 0, weight_share_solar_radiation_mjm2: 0.0}

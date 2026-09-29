@@ -53,7 +53,9 @@ with
     -- Added in station order, renormalised over the stations present; null when none is.
     {{ ordered_weighted_mean(element ~ '_terms') }} as popw_{{ element }},
     cast(size({{ element }}_terms) as int) as n_stations_{{ element }},
-    aggregate({{ element }}_terms, cast(0 as double), (acc, x) -> acc + x.weight)
+    -- A coverage number, rounded to twelve decimals: an area's weights add up to 1
+    -- only within floating rounding (Kyushu's 25 give 1.0000000000000002).
+    round(aggregate({{ element }}_terms, cast(0 as double), (acc, x) -> acc + x.weight), 12)
       as weight_share_{{ element }},
     {%- endfor %}
     available_at
