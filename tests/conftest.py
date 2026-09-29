@@ -17,7 +17,7 @@ import itertools
 import math
 import os
 import time
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -465,12 +465,12 @@ def ratio_or_none(numerator: float | None, denominator: float | None) -> float |
     return numerator / denominator
 
 
-def mean_of_present(values: list[int | None]) -> float | None:
+def mean_of_present(values: Sequence[float | None]) -> float | None:
     """The plain mean over the values present, as ``ftr_period_actuals`` takes it.
 
     Parameters
     ----------
-    values : list of int or None
+    values : sequence of float or None
         The inputs, newest first; None where an input is absent.
 
     Returns
@@ -483,13 +483,13 @@ def mean_of_present(values: list[int | None]) -> float | None:
 
 
 def ewm_of_present(
-    values: list[int | None], weights: tuple[int, ...] = EWM_WEIGHTS
+    values: Sequence[float | None], weights: tuple[int, ...] = EWM_WEIGHTS
 ) -> float | None:
     """The weighted mean over the values present, weights by position.
 
     Parameters
     ----------
-    values : list of int or None
+    values : sequence of float or None
         One input per weight, newest first; None where an input is absent.
     weights : tuple of int, default EWM_WEIGHTS
         The weights, newest input first.
@@ -1513,7 +1513,7 @@ def curated_warehouse(spark: SparkSession) -> CuratedWarehouse:
 
 
 def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> None:
-    """The ten feature marts of ``pma_features``, from the fixture's data (tokyo facts).
+    """The eleven feature marts of ``pma_features``, from the fixture's data (tokyo facts).
 
     ``available_at`` is any instant before the 09:30 D-1 issue time, except the
     calendar's, which is the mart's constant. The similar-day mart holds one
@@ -1735,6 +1735,7 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
     # A complete day's 48 periods added up: the mart divides D-2 and D-7 by their mean.
     day_sums = {day: sum(demand_at[(day, tc)] for tc in range(1, 49)) for day in complete_days}
     actuals_rows = []
+    daytype_weather_rows = []
     for day in delivery_days:
         # The last four complete days of D's day type at or before D-2, newest
         # first; none when the fixture's calendar has no row for D.
@@ -1889,6 +1890,56 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
                             *mean_days,
                         ]
                     ),
+                }
+            )
+            if not window_days:
+                continue
+            # ftr_period_daytype_weather: the window's observed temperature at the
+            # hour containing the period, over the days present (an hour in
+            # TEMPERATURE_MISSING_HOURS is absent), newest first, with the load
+            # feature's means; the fixture observes no radiation. The delta is D's
+            # population-weighted forecast minus the sibling where D has a
+            # forecast. available_at is the load row's: its D-2 file lands at
+            # 05:00 on D-1, after the vintage's 01:00.
+            hour = (tc + 1) // 2
+            window_temperatures: list[float | None] = [
+                None if (d, hour) in TEMPERATURE_MISSING_HOURS else synthetic_temperature(d, hour)
+                for d in window_days
+            ] + [None] * (4 - len(window_days))
+            siblings = {
+                "mean": mean_of_present(window_temperatures),
+                "ewm": ewm_of_present(window_temperatures),
+            }
+            forecast = (
+                popw_forecast(
+                    day,
+                    hour,
+                    synthetic_forecast_temperature(day, hour),
+                    SECOND_STATION_FORECAST_OFFSET_C,
+                )
+                if day in DEMAND_DAYS and day != FORECAST_MISSING_DAY
+                else None
+            )
+            daytype_weather_rows.append(
+                {
+                    "area_code": "tokyo",
+                    "trade_date": day.date(),
+                    "time_code": tc,
+                    **{
+                        f"{stat}_daytype_4d_popw_temperature_c": sibling
+                        for stat, sibling in siblings.items()
+                    },
+                    "mean_daytype_4d_popw_solar_radiation_mjm2": None,
+                    "ewm_daytype_4d_popw_solar_radiation_mjm2": None,
+                    **{
+                        f"delta_{stat}_daytype_4d_popw_temperature_c": (
+                            None if forecast is None or sibling is None else forecast - sibling
+                        )
+                        for stat, sibling in siblings.items()
+                    },
+                    "delta_mean_daytype_4d_popw_solar_radiation_mjm2": None,
+                    "delta_ewm_daytype_4d_popw_solar_radiation_mjm2": None,
+                    "available_at": actuals_rows[-1]["available_at"],
                 }
             )
     period_actuals = pd.DataFrame(actuals_rows)
@@ -2207,6 +2258,23 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
         "lag_2d_wind_solar_generation_kwh bigint, lag_7d_wind_solar_generation_kwh bigint, "
         "available_at timestamp",
         "pma_features.ftr_period_actuals",
+    )
+    daytype_weather = pd.DataFrame(daytype_weather_rows)
+    for col in daytype_weather.columns:
+        if col.endswith(("_temperature_c", "_solar_radiation_mjm2")):
+            daytype_weather[col] = nullable_column(daytype_weather[col], float)
+    write_table(
+        spark,
+        daytype_weather,
+        "area_code string, trade_date date, time_code int, "
+        "mean_daytype_4d_popw_temperature_c double, ewm_daytype_4d_popw_temperature_c double, "
+        "mean_daytype_4d_popw_solar_radiation_mjm2 double, "
+        "ewm_daytype_4d_popw_solar_radiation_mjm2 double, "
+        "delta_mean_daytype_4d_popw_temperature_c double, "
+        "delta_ewm_daytype_4d_popw_temperature_c double, "
+        "delta_mean_daytype_4d_popw_solar_radiation_mjm2 double, "
+        "delta_ewm_daytype_4d_popw_solar_radiation_mjm2 double, available_at timestamp",
+        "pma_features.ftr_period_daytype_weather",
     )
     write_table(
         spark,

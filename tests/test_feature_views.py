@@ -24,6 +24,7 @@ def test_one_view_per_mart_on_the_entities_of_its_grain():
         "ftr_hour_jma_obs",
         "ftr_hour_msm",
         "ftr_period_actuals",
+        "ftr_period_daytype_weather",
         "ftr_period_jepx",
         "ftr_period_similar_day",
     ]
@@ -35,6 +36,7 @@ def test_one_view_per_mart_on_the_entities_of_its_grain():
     assert by_name["ftr_day_msm"].tags == {"grain": "day"}
     assert by_name["ftr_hour_msm"].entities == [*day, HOUR_ENDING.name]
     assert by_name["ftr_period_jepx"].entities == [*day, TIME_CODE.name]
+    assert by_name["ftr_period_daytype_weather"].entities == [*day, TIME_CODE.name]
     assert by_name["ftr_hour_msm"].tags == {"grain": "hour"}
 
 
