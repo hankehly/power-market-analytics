@@ -4,7 +4,7 @@ models:
       contract:
         enforced: true
     description: >
-      The recency-weighted same-hour temperature at each bidding zone's representative JMA station (dim_area.representative_jma_station_id) over D-8..D-2, the demand presets' wavg_temperature_c; and, since feature candidate #150, the area's population-weighted observed temperature accumulated along the clock over the 24 and 72 hours ending at the hour on D-2, with its 24-hour half-life weighted average. Grain: area_code x trade_date x hour_ending (1-24, hour ending). A row exists for every delivery day that at least one lag observation reaches; the value is null only when every lag is missing.
+      The recency-weighted same-hour temperature at each bidding zone's representative JMA station (dim_area.representative_jma_station_id) over D-8..D-2, the demand presets' wavg_temperature_c; and, since feature candidate #150, the area's population-weighted observed temperature accumulated along the clock over the 24 and 72 hours ending at the hour on D-2, with its 24-hour half-life weighted average. Since 2026-09-29 the weighted hour comes from fct_area_weather_hourly, and the mart carries the D-2 and D-7 population-weighted temperature and solar radiation at the hour, the weather the two load lags were recorded under (feature candidates #237 and #238). Grain: area_code x trade_date x hour_ending (1-24, hour ending). A row exists for every delivery day that at least one lag observation of the representative station reaches; the value is null only when every lag is missing.
     data_tests:
       - dbt_utils.unique_combination_of_columns:
           arguments:
@@ -71,10 +71,61 @@ models:
             feature: true
             categorical: false
             expression: "EWA(MEAN(temperature_c, weight=population), gap=2d, window=72, step=1h, halflife=24)"
+      - name: lag_2d_popw_temperature_c
+        data_type: double
+        description: >
+          The area's population-weighted observed temperature at this hour on D-2, C, from
+          fct_area_weather_hourly: the weather the load lag LAG(demand_kwh, 2d) was recorded
+          under (the researcher's lag-window weather idea of 2026-09-28, feature candidate
+          #237; spec docs/superpowers/specs/2026-09-29-lag-window-weather-siblings-design.md).
+          Null when no weighted station reported that hour. Its difference from D's forecast
+          is ftr_hour_msm.delta_lag_2d_popw_temperature_c. Not a duplicate of the windows
+          above: mean_24h_popw_temperature_c averages the 24 hours ending here on D-2, and
+          wavg_temperature_c gives D-2 half its weight over D-2 to D-8; this is the one hour.
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "LAG(MEAN(temperature_c, weight=population), 2d)"
+      - name: lag_7d_popw_temperature_c
+        data_type: double
+        description: >
+          The same at this hour on D-7: the weather under LAG(demand_kwh, 7d) (feature
+          candidate #237).
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "LAG(MEAN(temperature_c, weight=population), 7d)"
+      - name: lag_2d_popw_solar_radiation_mjm2
+        data_type: double
+        description: >
+          The area's population-weighted observed solar radiation over this hour on D-2,
+          MJ/m2, from fct_area_weather_hourly (feature candidate #238), weighted over the
+          stations that record it: 7 of Tokyo's 21 weighted stations (東京 three quarters of
+          their weight; 横浜, 千葉 and 熊谷 the largest without) and 3 of Kansai's 11 (大阪
+          four fifths; 京都, 神戸 and 姫路 without), 55.4 % of each area's weight, so the value
+          is close to the representative station's; the fact's
+          weight_share_solar_radiation_mjm2 gives the hour's share. A more representative
+          radiation source is future work. Null when none of them reported the hour.
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "LAG(MEAN(solar_radiation_mjm2, weight=population), 2d)"
+      - name: lag_7d_popw_solar_radiation_mjm2
+        data_type: double
+        description: >
+          The same over this hour on D-7 (feature candidate #238).
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "LAG(MEAN(solar_radiation_mjm2, weight=population), 7d)"
       - name: available_at
         data_type: timestamp
         description: >
-          When the row became public, naive JST: D-2's hour end + 1 h, the JMA rule for the newest observation the window can hold.
+          When the row became public, naive JST: D-2's hour end + 1 h, the JMA rule for the newest observation the window can hold. The D-2 siblings end at that hour and the D-7 ones are older, so the same instant holds.
         data_tests:
           - not_null
 
@@ -165,3 +216,38 @@ unit_tests:
         - {area_code: tokyo, trade_date: 2025-03-10, hour_ending: 24, mean_24h_popw_temperature_c: null, mean_72h_popw_temperature_c: null, ewm_72h_popw_temperature_c: null}
         - {area_code: tokyo, trade_date: 2025-03-11, hour_ending: 24, mean_24h_popw_temperature_c: null, mean_72h_popw_temperature_c: null, ewm_72h_popw_temperature_c: null}
         - {area_code: tokyo, trade_date: 2025-03-12, hour_ending: 24, mean_24h_popw_temperature_c: null, mean_72h_popw_temperature_c: null, ewm_72h_popw_temperature_c: null}
+
+  - name: ftr_hour_jma_obs_lag_2d_and_7d_weather_siblings
+    description: >
+      The representative station's hour-1 readings on 2025-03-07 and 03-08 make the
+      mart's rows for 03-09 to 03-16. The fact holds hour 1 of 03-07 (12 C, 0.3 MJ/m2)
+      and of 03-02 (9 C, 0.1). 03-09 reads 03-07 as D-2 and 03-02 as D-7; 03-14 reads
+      03-07 as D-7; every other row has no fact hour two or seven days back and is null.
+      wavg_temperature_c and available_at are the first test's, untouched.
+    model: ftr_hour_jma_obs
+    given:
+      - input: ref('dim_area')
+        rows:
+          - {area_key: 1, area_code: tokyo, representative_jma_station_id: s1}
+      - input: ref('fct_jma_weather_hourly')
+        rows:
+          - {station_id: s1, date_key: 2025-03-07, observed_hour_start_at: "2025-03-07 00:00:00", temperature_c: 11.0}
+          - {station_id: s1, date_key: 2025-03-08, observed_hour_start_at: "2025-03-08 00:00:00", temperature_c: 5.0}
+      - input: ref('fct_area_weather_hourly')
+        format: sql
+        rows: |
+          select 1 as area_key, date '2025-03-07' as date_key, 1 as hour_ending,
+            timestamp '2025-03-07 00:00:00' as observed_hour_start_at,
+            cast(12 as double) as popw_temperature_c, cast(0.3 as double) as popw_solar_radiation_mjm2
+          union all
+          select 1, date '2025-03-02', 1, timestamp '2025-03-02 00:00:00', cast(9 as double), cast(0.1 as double)
+    expect:
+      rows:
+        - {area_code: tokyo, trade_date: 2025-03-09, hour_ending: 1, wavg_temperature_c: 11.0, lag_2d_popw_temperature_c: 12.0, lag_7d_popw_temperature_c: 9.0, lag_2d_popw_solar_radiation_mjm2: 0.3, lag_7d_popw_solar_radiation_mjm2: 0.1, available_at: "2025-03-07 02:00:00"}
+        - {area_code: tokyo, trade_date: 2025-03-10, hour_ending: 1, wavg_temperature_c: 7.0, lag_2d_popw_temperature_c: null, lag_7d_popw_temperature_c: null, lag_2d_popw_solar_radiation_mjm2: null, lag_7d_popw_solar_radiation_mjm2: null, available_at: "2025-03-08 02:00:00"}
+        - {area_code: tokyo, trade_date: 2025-03-11, hour_ending: 1, wavg_temperature_c: 7.0, lag_2d_popw_temperature_c: null, lag_7d_popw_temperature_c: null, lag_2d_popw_solar_radiation_mjm2: null, lag_7d_popw_solar_radiation_mjm2: null, available_at: "2025-03-09 02:00:00"}
+        - {area_code: tokyo, trade_date: 2025-03-12, hour_ending: 1, wavg_temperature_c: 7.0, lag_2d_popw_temperature_c: null, lag_7d_popw_temperature_c: null, lag_2d_popw_solar_radiation_mjm2: null, lag_7d_popw_solar_radiation_mjm2: null, available_at: "2025-03-10 02:00:00"}
+        - {area_code: tokyo, trade_date: 2025-03-13, hour_ending: 1, wavg_temperature_c: 7.0, lag_2d_popw_temperature_c: null, lag_7d_popw_temperature_c: null, lag_2d_popw_solar_radiation_mjm2: null, lag_7d_popw_solar_radiation_mjm2: null, available_at: "2025-03-11 02:00:00"}
+        - {area_code: tokyo, trade_date: 2025-03-14, hour_ending: 1, wavg_temperature_c: 7.0, lag_2d_popw_temperature_c: null, lag_7d_popw_temperature_c: 12.0, lag_2d_popw_solar_radiation_mjm2: null, lag_7d_popw_solar_radiation_mjm2: 0.3, available_at: "2025-03-12 02:00:00"}
+        - {area_code: tokyo, trade_date: 2025-03-15, hour_ending: 1, wavg_temperature_c: 7.0, lag_2d_popw_temperature_c: null, lag_7d_popw_temperature_c: null, lag_2d_popw_solar_radiation_mjm2: null, lag_7d_popw_solar_radiation_mjm2: null, available_at: "2025-03-13 02:00:00"}
+        - {area_code: tokyo, trade_date: 2025-03-16, hour_ending: 1, wavg_temperature_c: 5.0, lag_2d_popw_temperature_c: null, lag_7d_popw_temperature_c: null, lag_2d_popw_solar_radiation_mjm2: null, lag_7d_popw_solar_radiation_mjm2: null, available_at: "2025-03-14 02:00:00"}

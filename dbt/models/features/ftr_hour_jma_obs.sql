@@ -144,9 +144,15 @@ with
     accumulated.mean_24h_popw_temperature_c,
     accumulated.mean_72h_popw_temperature_c,
     accumulated.ewm_72h_popw_temperature_c,
+    -- The weather the load lags were recorded under: the fact at the same hour
+    -- two and seven days back. Null where the fact has no such hour.
+    lag_2d.popw_temperature_c as lag_2d_popw_temperature_c,
+    lag_7d.popw_temperature_c as lag_7d_popw_temperature_c,
+    lag_2d.popw_solar_radiation_mjm2 as lag_2d_popw_solar_radiation_mjm2,
+    lag_7d.popw_solar_radiation_mjm2 as lag_7d_popw_solar_radiation_mjm2,
     -- Public once the newest observation the window can hold, D-2's, is:
-    -- its hour end + 1 h.
-    -- The accumulated windows end at the same hour, so the same instant holds.
+    -- its hour end + 1 h. The accumulated windows and the D-2 siblings end at
+    -- the same hour, and the D-7 siblings are older, so the same instant holds.
     timestampadd(hour, windows.hour_ending + 1, cast(date_sub(windows.trade_date, 2) as timestamp)) as available_at
   from
     windows
@@ -154,6 +160,14 @@ with
       on accumulated.area_code = windows.area_code
       and accumulated.trade_date = windows.trade_date
       and accumulated.hour_ending = windows.hour_ending
+    left join area_hours as lag_2d
+      on lag_2d.area_code = windows.area_code
+      and lag_2d.obs_date = date_sub(windows.trade_date, 2)
+      and lag_2d.hour_ending = windows.hour_ending
+    left join area_hours as lag_7d
+      on lag_7d.area_code = windows.area_code
+      and lag_7d.obs_date = date_sub(windows.trade_date, 7)
+      and lag_7d.hour_ending = windows.hour_ending
   )
 
 select * from final
