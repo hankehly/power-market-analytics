@@ -848,6 +848,71 @@ FTR_PERIOD_ACTUALS = FeatureView(
     tags={"grain": "period"},
 )
 
+FTR_PERIOD_DAYTYPE_WEATHER_SOURCE = SparkSource(
+    name="ftr_period_daytype_weather",
+    query="select area_code, cast(date_format(trade_date, 'yyyyMMdd') as int) as trade_date_key, time_code, mean_daytype_4d_popw_temperature_c, ewm_daytype_4d_popw_temperature_c, mean_daytype_4d_popw_solar_radiation_mjm2, ewm_daytype_4d_popw_solar_radiation_mjm2, delta_mean_daytype_4d_popw_temperature_c, delta_ewm_daytype_4d_popw_temperature_c, delta_mean_daytype_4d_popw_solar_radiation_mjm2, delta_ewm_daytype_4d_popw_solar_radiation_mjm2, available_at from pma_features.ftr_period_daytype_weather",
+    timestamp_field="available_at",
+    description="The weather the day-type load window was recorded under, and how far D's forecast sits from it (the researcher's lag-window weather idea of 2026-09-28, feature candidates #237 and #238; spec docs/superpowers/specs/2026-09-29-lag-window-weather-siblings-design.md). The window is ftr_period_actuals' own: the four newest complete days of D's day type at or before D-2, read from the dates that mart exposes (daytype_4d_date_1 to _4), so the two marts always read the same days. At each period the mart takes the area's population-weighted observed temperature and solar radiation from fct_area_weather_hourly at the hour containing the period, (time_code + 1) div 2, on those days, and forms the plain mean and the 8:4:2:1 weighted mean over the days whose value is present, the load feature's weights by position; then D's population-weighted forecast at the same hour minus each mean. Grain: area_code x trade_date x time_code; a row exists wherever the load window does. A row's available_at is the latest of the load window row's, the four hours' and the forecast vintage's, 01:00 on D-1 in practice. ftr_hour_msm holds one vintage per delivery day (the singular test assert_ftr_hour_msm_one_vintage_per_delivery_day), so the forecast join adds no row.",
+)
+FTR_PERIOD_DAYTYPE_WEATHER = FeatureView(
+    name="ftr_period_daytype_weather",
+    entities=list(GRAIN_ENTITIES["period"]),
+    schema=[
+        Field(
+            name="mean_daytype_4d_popw_temperature_c",
+            dtype=Float64,
+            description="The mean of the area's population-weighted observed temperature at this hour over the day-type window's days, C: the temperature mean_daytype_4d_demand_kwh's loads were recorded under (feature candidate #237). Over the days whose hour is in fct_area_weather_hourly; null when none is.",
+            tags={"categorical": "false", "expression": "ROLLING_MEAN(MEAN(temperature_c, weight=population), gap=2d, window=4) by day_type"},
+        ),
+        Field(
+            name="ewm_daytype_4d_popw_temperature_c",
+            dtype=Float64,
+            description="The same with weights 8, 4, 2, 1 from the window's newest day back, over the days present: the temperature ewm_daytype_4d_demand_kwh's loads were recorded under (feature candidate #237).",
+            tags={"categorical": "false", "expression": "EWA(MEAN(temperature_c, weight=population), gap=2d, window=4, halflife=1) by day_type"},
+        ),
+        Field(
+            name="mean_daytype_4d_popw_solar_radiation_mjm2",
+            dtype=Float64,
+            description="The mean of the area's population-weighted observed solar radiation over this hour on the window's days, MJ/m2 (feature candidate #238), weighted over the stations that record it: 7 of Tokyo's 21 weighted stations and 3 of Kansai's 11, 55.4 % of each area's weight (fct_area_weather_hourly's description); a more representative radiation source is future work. Over the days present; null when none is.",
+            tags={"categorical": "false", "expression": "ROLLING_MEAN(MEAN(solar_radiation_mjm2, weight=population), gap=2d, window=4) by day_type"},
+        ),
+        Field(
+            name="ewm_daytype_4d_popw_solar_radiation_mjm2",
+            dtype=Float64,
+            description="The same radiation with weights 8, 4, 2, 1 from the newest day back, over the days present (feature candidate #238).",
+            tags={"categorical": "false", "expression": "EWA(MEAN(solar_radiation_mjm2, weight=population), gap=2d, window=4, halflife=1) by day_type"},
+        ),
+        Field(
+            name="delta_mean_daytype_4d_popw_temperature_c",
+            dtype=Float64,
+            description="D's population-weighted forecast temperature at this hour minus mean_daytype_4d_popw_temperature_c, C: how far the target hour's weather sits from the weather the day-type window's loads come from; positive when D is warmer (feature candidate #237). Null without a forecast row or a sibling.",
+            tags={"categorical": "false", "expression": "MEAN(forecast_temperature_c, weight=population) - (ROLLING_MEAN(MEAN(temperature_c, weight=population), gap=2d, window=4) by day_type)"},
+        ),
+        Field(
+            name="delta_ewm_daytype_4d_popw_temperature_c",
+            dtype=Float64,
+            description="The same against ewm_daytype_4d_popw_temperature_c (feature candidate #237).",
+            tags={"categorical": "false", "expression": "MEAN(forecast_temperature_c, weight=population) - (EWA(MEAN(temperature_c, weight=population), gap=2d, window=4, halflife=1) by day_type)"},
+        ),
+        Field(
+            name="delta_mean_daytype_4d_popw_solar_radiation_mjm2",
+            dtype=Float64,
+            description="D's population-weighted forecast solar radiation over this hour minus mean_daytype_4d_popw_solar_radiation_mjm2, MJ/m2; positive when D is forecast brighter (feature candidate #238). The observed side rests on the stations that record radiation, 55.4 % of the area; the forecast side on every station.",
+            tags={"categorical": "false", "expression": "MEAN(forecast_solar_radiation_mjm2, weight=population) - (ROLLING_MEAN(MEAN(solar_radiation_mjm2, weight=population), gap=2d, window=4) by day_type)"},
+        ),
+        Field(
+            name="delta_ewm_daytype_4d_popw_solar_radiation_mjm2",
+            dtype=Float64,
+            description="The same against ewm_daytype_4d_popw_solar_radiation_mjm2 (feature candidate #238).",
+            tags={"categorical": "false", "expression": "MEAN(forecast_solar_radiation_mjm2, weight=population) - (EWA(MEAN(solar_radiation_mjm2, weight=population), gap=2d, window=4, halflife=1) by day_type)"},
+        ),
+    ],
+    source=FTR_PERIOD_DAYTYPE_WEATHER_SOURCE,
+    online=False,
+    description="The weather the day-type load window was recorded under, and how far D's forecast sits from it (the researcher's lag-window weather idea of 2026-09-28, feature candidates #237 and #238; spec docs/superpowers/specs/2026-09-29-lag-window-weather-siblings-design.md). The window is ftr_period_actuals' own: the four newest complete days of D's day type at or before D-2, read from the dates that mart exposes (daytype_4d_date_1 to _4), so the two marts always read the same days. At each period the mart takes the area's population-weighted observed temperature and solar radiation from fct_area_weather_hourly at the hour containing the period, (time_code + 1) div 2, on those days, and forms the plain mean and the 8:4:2:1 weighted mean over the days whose value is present, the load feature's weights by position; then D's population-weighted forecast at the same hour minus each mean. Grain: area_code x trade_date x time_code; a row exists wherever the load window does. A row's available_at is the latest of the load window row's, the four hours' and the forecast vintage's, 01:00 on D-1 in practice. ftr_hour_msm holds one vintage per delivery day (the singular test assert_ftr_hour_msm_one_vintage_per_delivery_day), so the forecast join adds no row.",
+    tags={"grain": "period"},
+)
+
 FTR_PERIOD_JEPX_SOURCE = SparkSource(
     name="ftr_period_jepx",
     query="select area_code, cast(date_format(trade_date, 'yyyyMMdd') as int) as trade_date_key, time_code, lag_1d_price, available_at from pma_features.ftr_period_jepx",
@@ -971,6 +1036,7 @@ VIEWS = (
     FTR_HOUR_JMA_OBS,
     FTR_HOUR_MSM,
     FTR_PERIOD_ACTUALS,
+    FTR_PERIOD_DAYTYPE_WEATHER,
     FTR_PERIOD_JEPX,
     FTR_PERIOD_SIMILAR_DAY,
 )
