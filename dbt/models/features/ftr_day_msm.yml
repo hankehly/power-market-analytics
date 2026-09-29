@@ -4,7 +4,7 @@ models:
       contract:
         enforced: true
     description: >
-      Day-level summaries of the MSM forecast for each delivery day per bidding zone, one row per forecast vintage: the maximum, minimum and mean over the day's 24 hours of ftr_hour_msm's population-weighted forecast temperature, and the hour of the maximum (feature candidate #132). Complete days only: those four columns are null unless all 24 hours of the vintage have a temperature. Also the morning trend of the same temperature over 06:00 to 10:00, which needs its four hours only (feature candidate #151). Grain: area_code x trade_date x forecast_reference_at. available_at is the latest of the day's hours: the vintage's, reference + 4 h.
+      Day-level summaries of the MSM forecast for each delivery day per bidding zone, one row per forecast vintage: the maximum, minimum and mean over the day's 24 hours of ftr_hour_msm's population-weighted forecast temperature, and the hour of the maximum (feature candidate #132). Complete days only: those four columns are null unless all 24 hours of the vintage have a temperature. Also the morning trend of the same temperature over 06:00 to 10:00, which needs its four hours only (feature candidate #151). Since 2026-09-29 also the evening mean of the forecast temperature over the four hours ending 19:00 to 22:00 and the daily mean of the forecast radiation, and the differences of the daily mean, the evening mean and the radiation mean from D-2's observed ones in ftr_day_jma_obs (feature candidates #237 and #238). Grain: area_code x trade_date x forecast_reference_at. available_at is the latest of the day's hours: the vintage's, reference + 4 h.
     data_tests:
       - dbt_utils.unique_combination_of_columns:
           arguments:
@@ -81,10 +81,70 @@ models:
             feature: true
             categorical: false
             expression: "DAILY_TREND(MEAN(forecast_temperature_c, weight=population), time=06:00-10:00)"
+      - name: evening_mean_popw_forecast_temperature_c
+        data_type: double
+        description: >
+          The mean of the population-weighted forecast temperature over the four hours
+          ending 19:00 to 22:00, the load's evening window 18:00 to 22:00, C, added in hour
+          order (the ordered_weighted_mean macro, weight 1): D's side of
+          delta_lag_2d_evening_mean_popw_temperature_c (feature candidate #237). Null unless
+          all four hours have a temperature; the other twenty are not needed.
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "DAILY_MEAN(MEAN(forecast_temperature_c, weight=population), time=18:00-22:00)"
+      - name: mean_popw_forecast_solar_radiation_mjm2
+        data_type: double
+        description: >
+          The mean of the day's 24 hourly population-weighted forecast solar radiation,
+          MJ/m2 per hour, added in hour order: D's side of
+          delta_lag_2d_mean_popw_solar_radiation_mjm2 (feature candidate #238). Null unless
+          all 24 hours have a value.
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "DAILY_MEAN(MEAN(forecast_solar_radiation_mjm2, weight=population))"
+      - name: delta_lag_2d_mean_popw_temperature_c
+        data_type: double
+        description: >
+          mean_popw_forecast_temperature_c minus ftr_day_jma_obs.lag_2d_mean_popw_temperature_c:
+          how far D's forecast daily mean sits from the observed one two days earlier, C;
+          positive when D is warmer (feature candidate #237). It lives here because a delta
+          needs the vintage, which this row already waits for. Null without a sibling row.
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "DAILY_MEAN(MEAN(forecast_temperature_c, weight=population)) - LAG(DAILY_MEAN(MEAN(temperature_c, weight=population)), 2d)"
+      - name: delta_lag_2d_evening_mean_popw_temperature_c
+        data_type: double
+        description: >
+          evening_mean_popw_forecast_temperature_c minus
+          ftr_day_jma_obs.lag_2d_evening_mean_popw_temperature_c, C (feature candidate #237).
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "DAILY_MEAN(MEAN(forecast_temperature_c, weight=population), time=18:00-22:00) - LAG(DAILY_MEAN(MEAN(temperature_c, weight=population), time=18:00-22:00), 2d)"
+      - name: delta_lag_2d_mean_popw_solar_radiation_mjm2
+        data_type: double
+        description: >
+          mean_popw_forecast_solar_radiation_mjm2 minus
+          ftr_day_jma_obs.lag_2d_mean_popw_solar_radiation_mjm2, MJ/m2 per hour; positive
+          when D is forecast brighter (feature candidate #238). The observed side rests on
+          the stations that record radiation, 55.4 % of the area; the forecast side on every
+          station.
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "DAILY_MEAN(MEAN(forecast_solar_radiation_mjm2, weight=population)) - LAG(DAILY_MEAN(MEAN(solar_radiation_mjm2, weight=population)), 2d)"
       - name: available_at
         data_type: timestamp
         description: >
-          When the row became public, naive JST: the latest available_at of the day's hours in ftr_hour_msm.
+          When the row became public, naive JST: the latest available_at of the day's hours in ftr_hour_msm, the vintage's, or the D-2 sibling's in ftr_day_jma_obs if later, which it never is (01:00 on D-1 both).
         data_tests:
           - not_null
 
@@ -105,6 +165,15 @@ unit_tests:
       alone. (3 (30.1 - 25.7) + (28.8 - 27.2)) / 10 = 1.4800000000000009.
     model: ftr_day_msm
     given:
+      - input: ref('ftr_day_jma_obs')
+        format: sql
+        rows: |
+          select cast(null as string) as area_code, cast(null as date) as trade_date,
+            cast(null as double) as lag_2d_mean_popw_temperature_c,
+            cast(null as double) as lag_2d_evening_mean_popw_temperature_c,
+            cast(null as double) as lag_2d_mean_popw_solar_radiation_mjm2,
+            cast(null as timestamp) as available_at
+          where false
       - input: ref('ftr_hour_msm')
         rows:
           - {area_code: tokyo, trade_date: 2025-08-01, hour_ending: 1, forecast_reference_at: "2025-07-30 21:00:00", popw_forecast_temperature_c: 25.9, available_at: "2025-07-31 01:00:00"}
@@ -198,6 +267,15 @@ unit_tests:
       hours, so the four summaries are null.
     model: ftr_day_msm
     given:
+      - input: ref('ftr_day_jma_obs')
+        format: sql
+        rows: |
+          select cast(null as string) as area_code, cast(null as date) as trade_date,
+            cast(null as double) as lag_2d_mean_popw_temperature_c,
+            cast(null as double) as lag_2d_evening_mean_popw_temperature_c,
+            cast(null as double) as lag_2d_mean_popw_solar_radiation_mjm2,
+            cast(null as timestamp) as available_at
+          where false
       - input: ref('ftr_hour_msm')
         rows:
           - {area_code: tokyo, trade_date: 2025-08-01, hour_ending: 7, forecast_reference_at: "2025-07-30 21:00:00", popw_forecast_temperature_c: 20.0, available_at: "2025-07-31 01:00:00"}
@@ -222,3 +300,51 @@ unit_tests:
         - {area_code: tokyo, trade_date: 2025-08-02, max_popw_forecast_temperature_c: null, morning_trend_popw_forecast_temperature_c: 0.0}
         - {area_code: tokyo, trade_date: 2025-08-03, max_popw_forecast_temperature_c: null, morning_trend_popw_forecast_temperature_c: -0.5899999999999995}
         - {area_code: tokyo, trade_date: 2025-08-04, max_popw_forecast_temperature_c: null, morning_trend_popw_forecast_temperature_c: null}
+
+  - name: ftr_day_msm_evening_and_radiation_means_and_the_deltas_to_d_2
+    description: >
+      One vintage per day, 24 hours each, the forecast temperature 20 + 0.5 x the hour
+      (daily mean 26.25, evening hours 19 to 22 mean 30.25) and the forecast radiation
+      0.5 every hour (mean 0.5), every sum exact. 2025-03-03 has a D-2 sibling row
+      (16.25, 20.25, 0.25): the deltas are 10.0, 10.0 and 0.25. 2025-03-04 has no
+      sibling row: its two means stand and its deltas are null. 2025-03-05 has no hour 20:
+      the day is incomplete, so every mean and delta is null, the evening ones because
+      the evening needs its four hours. A sibling row for 2025-03-06, a day with no
+      vintage, makes no row. available_at stays the vintage's on every row: the sibling's
+      01:00 on D-1 equals it.
+    model: ftr_day_msm
+    given:
+      - input: ref('ftr_hour_msm')
+        format: sql
+        rows: |
+          with hours as (select explode(sequence(1, 24)) as h)
+          select 'tokyo' as area_code, date '2025-03-03' as trade_date, h as hour_ending,
+            timestamp '2025-03-01 21:00:00' as forecast_reference_at,
+            cast(20 + 0.5 * h as double) as popw_forecast_temperature_c,
+            cast(0.5 as double) as popw_forecast_solar_radiation_mjm2,
+            timestamp '2025-03-02 01:00:00' as available_at
+          from hours
+          union all
+          select 'tokyo', date '2025-03-04', h, timestamp '2025-03-02 21:00:00',
+            cast(20 + 0.5 * h as double), cast(0.5 as double), timestamp '2025-03-03 01:00:00'
+          from hours
+          union all
+          select 'tokyo', date '2025-03-05', h, timestamp '2025-03-03 21:00:00',
+            cast(20 + 0.5 * h as double), cast(0.5 as double), timestamp '2025-03-04 01:00:00'
+          from hours where h <> 20
+      - input: ref('ftr_day_jma_obs')
+        format: sql
+        rows: |
+          select 'tokyo' as area_code, date '2025-03-03' as trade_date,
+            cast(16.25 as double) as lag_2d_mean_popw_temperature_c,
+            cast(20.25 as double) as lag_2d_evening_mean_popw_temperature_c,
+            cast(0.25 as double) as lag_2d_mean_popw_solar_radiation_mjm2,
+            timestamp '2025-03-02 01:00:00' as available_at
+          union all
+          select 'tokyo', date '2025-03-06', cast(16.25 as double), cast(20.25 as double),
+            cast(0.25 as double), timestamp '2025-03-05 01:00:00'
+    expect:
+      rows:
+        - {area_code: tokyo, trade_date: 2025-03-03, forecast_reference_at: "2025-03-01 21:00:00", mean_popw_forecast_temperature_c: 26.25, evening_mean_popw_forecast_temperature_c: 30.25, mean_popw_forecast_solar_radiation_mjm2: 0.5, delta_lag_2d_mean_popw_temperature_c: 10.0, delta_lag_2d_evening_mean_popw_temperature_c: 10.0, delta_lag_2d_mean_popw_solar_radiation_mjm2: 0.25, available_at: "2025-03-02 01:00:00"}
+        - {area_code: tokyo, trade_date: 2025-03-04, forecast_reference_at: "2025-03-02 21:00:00", mean_popw_forecast_temperature_c: 26.25, evening_mean_popw_forecast_temperature_c: 30.25, mean_popw_forecast_solar_radiation_mjm2: 0.5, delta_lag_2d_mean_popw_temperature_c: null, delta_lag_2d_evening_mean_popw_temperature_c: null, delta_lag_2d_mean_popw_solar_radiation_mjm2: null, available_at: "2025-03-03 01:00:00"}
+        - {area_code: tokyo, trade_date: 2025-03-05, forecast_reference_at: "2025-03-03 21:00:00", mean_popw_forecast_temperature_c: null, evening_mean_popw_forecast_temperature_c: null, mean_popw_forecast_solar_radiation_mjm2: null, delta_lag_2d_mean_popw_temperature_c: null, delta_lag_2d_evening_mean_popw_temperature_c: null, delta_lag_2d_mean_popw_solar_radiation_mjm2: null, available_at: "2025-03-04 01:00:00"}
