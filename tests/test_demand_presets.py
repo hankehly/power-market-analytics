@@ -1,9 +1,11 @@
-"""The demand presets: the thirteen files of conf/presets/demand, pinned to their tuples.
+"""The demand presets: the sixteen files of conf/presets/demand, pinned to their tuples.
 
 The ten renamed on 2026-09-27 (``e169`` … ``e179``, chain names until then) keep
 the tuples they were registered with on 2026-09-19; ``e212``, the joint test of
 experiment #212, is pinned to the 104 references it was written with on
-2026-09-20; ``e219`` and ``e221`` are counted, not pinned.
+2026-09-20; ``e219`` and ``e221`` are counted, not pinned; the lag-window weather
+batches ``e243``, ``e244`` and ``e245`` (2026-09-29) are counted and pinned to what
+they add to ``e219``.
 """
 
 from __future__ import annotations
@@ -202,12 +204,33 @@ def test_the_ten_renamed_files_resolve_to_the_tuples_registered_on_2026_09_19():
     assert {
         name: (p.base, p.features) for name, p in PRESETS.items() if name in EXPECTED
     } == EXPECTED
-    assert set(PRESETS) == set(EXPECTED) | {"e212", "e219", "e221"}
+    assert set(PRESETS) == set(EXPECTED) | {"e212", "e219", "e221", "e243", "e244", "e245"}
     assert all(p.task == "demand" for p in PRESETS.values())
     # The root's four, written out twice, still lead both of its former children.
     base_four = ("time_code", "month", "day_of_week", "wavg_temperature_c", "lag_7d_demand_kwh")
     assert PRESETS["e169"].feature_cols[:5] == base_four
     assert PRESETS["e170"].feature_cols[:5] == base_four
+
+
+def test_the_lag_window_weather_batches_add_their_columns_to_e219():
+    # The three experiment presets of 2026-09-29: e219 plus the 21 temperature
+    # columns, the 19 radiation columns, and both; a batch adds and drops nothing else.
+    baseline = PRESETS["e219"]
+    added = {
+        name: tuple(f for f in PRESETS[name].features if f not in baseline.features)
+        for name in ("e243", "e244", "e245")
+    }
+    assert all(PRESETS[name].base == "e219" for name in added)
+    assert all(set(baseline.features) <= set(PRESETS[name].features) for name in added)
+    assert {name: len(refs) for name, refs in added.items()} == {"e243": 21, "e244": 19, "e245": 40}
+    assert added["e245"] == (*added["e243"], *added["e244"])
+    # Every added column names its element: the observed siblings and deltas end in
+    # popw_<element>, the two D-side forecast means in popw_forecast_<element>.
+    assert all(ref.split(":")[1].endswith("temperature_c") for ref in added["e243"])
+    assert all(ref.split(":")[1].endswith("solar_radiation_mjm2") for ref in added["e244"])
+    assert all(
+        categorical_columns(PRESETS[name]) == categorical_columns(baseline) for name in added
+    )
 
 
 def test_every_file_has_a_description():
@@ -244,8 +267,8 @@ def test_types_and_categoricals_come_from_the_views():
     assert all(
         categorical_columns(preset) == (("day_type",) if name in WITH_DAY_TYPE else ())
         for name, preset in PRESETS.items()
-        if name
-        not in ("e212", "e219", "e221")  # e212's five are pinned below; the others share them
+        # e212's five are pinned below; e219, e221 and the e219-based batches share them.
+        if name not in ("e212", "e219", "e221", "e243", "e244", "e245")
     )
 
 
