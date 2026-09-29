@@ -19,6 +19,7 @@ MART_NAMES = [
     "ftr_hour_jma_obs",
     "ftr_hour_msm",
     "ftr_period_actuals",
+    "ftr_period_daytype_weather",
     "ftr_period_jepx",
     "ftr_period_similar_day",
 ]

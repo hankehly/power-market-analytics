@@ -246,6 +246,22 @@ models:
             feature: true
             categorical: false
             expression: "oldest_daytype_4d_lag_days"
+      - name: daytype_4d_date_1
+        data_type: date
+        description: >
+          The newest day of the day-type window: the newest complete day of D's day type at or before D-2, the day newest_daytype_4d_lag_days counts back to; the same on all 48 periods of a day; null where the window is. Not a feature: ftr_period_daytype_weather reads the window's dates here, so the window has one definition (the lag-window weather idea, feature candidates #237 and #238).
+      - name: daytype_4d_date_2
+        data_type: date
+        description: >
+          The window's second newest day; null when the window holds one day.
+      - name: daytype_4d_date_3
+        data_type: date
+        description: >
+          The window's third newest day; null when the window holds fewer than three.
+      - name: daytype_4d_date_4
+        data_type: date
+        description: >
+          The window's oldest day when it holds four, the day oldest_daytype_4d_lag_days counts back to; null when it holds fewer.
       - name: mean_daytype_weekly_lags_demand_kwh
         data_type: double
         description: >
@@ -484,6 +500,12 @@ unit_tests:
           cast(t.ewm_daytype as double) as ewm_daytype_4d_demand_kwh,
           cast(t.newest_age as int) as newest_daytype_4d_lag_days,
           cast(t.oldest_age as int) as oldest_daytype_4d_lag_days,
+          -- The window's dates: one Saturday a week, so the k-th date is the newest
+          -- plus 7 (k - 1) days back, present while the oldest reaches that far.
+          date_sub(t.trade_date, t.newest_age) as daytype_4d_date_1,
+          case when t.oldest_age >= t.newest_age + 7 then date_sub(t.trade_date, t.newest_age + 7) end as daytype_4d_date_2,
+          case when t.oldest_age >= t.newest_age + 14 then date_sub(t.trade_date, t.newest_age + 14) end as daytype_4d_date_3,
+          case when t.oldest_age >= t.newest_age + 21 then date_sub(t.trade_date, t.newest_age + 21) end as daytype_4d_date_4,
           cast(t.mean_daytype_weekly as double) as mean_daytype_weekly_lags_demand_kwh,
           cast(t.ewm_daytype_weekly as double) as ewm_daytype_weekly_lags_demand_kwh,
           cast(t.ewm_5d as double) as ewm_5d_demand_kwh,

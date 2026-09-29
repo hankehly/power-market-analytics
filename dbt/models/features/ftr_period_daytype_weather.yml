@@ -1,0 +1,205 @@
+models:
+  - name: ftr_period_daytype_weather
+    config:
+      contract:
+        enforced: true
+    description: >
+      The weather the day-type load window was recorded under, and how far D's forecast
+      sits from it (the researcher's lag-window weather idea of 2026-09-28, feature
+      candidates #237 and #238; spec
+      docs/superpowers/specs/2026-09-29-lag-window-weather-siblings-design.md). The
+      window is ftr_period_actuals' own: the four newest complete days of D's day type at
+      or before D-2, read from the dates that mart exposes (daytype_4d_date_1 to _4), so
+      the two marts always read the same days. At each period the mart takes the area's
+      population-weighted observed temperature and solar radiation from
+      fct_area_weather_hourly at the hour containing the period, (time_code + 1) div 2, on
+      those days, and forms the plain mean and the 8:4:2:1 weighted mean over the days
+      whose value is present, the load feature's weights by position; then D's
+      population-weighted forecast at the same hour minus each mean. Grain: area_code x
+      trade_date x time_code; a row exists wherever the load window does. A row's
+      available_at is the latest of the load window row's, the four hours' and the
+      forecast vintage's, 01:00 on D-1 in practice. ftr_hour_msm holds one vintage per
+      delivery day (the singular test assert_ftr_hour_msm_one_vintage_per_delivery_day), so
+      the forecast join adds no row.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - area_code
+              - trade_date
+              - time_code
+    columns:
+      - name: area_code
+        data_type: string
+        description: >
+          dim_area.area_code of the bidding zone.
+        data_tests:
+          - not_null
+      - name: trade_date
+        data_type: date
+        description: >
+          The delivery day D.
+        data_tests:
+          - not_null
+      - name: time_code
+        data_type: int
+        description: >
+          JEPX 30-minute period 1-48; its hour is (time_code + 1) div 2.
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 1
+                max_value: 48
+      - name: mean_daytype_4d_popw_temperature_c
+        data_type: double
+        description: >
+          The mean of the area's population-weighted observed temperature at this hour
+          over the day-type window's days, C: the temperature
+          mean_daytype_4d_demand_kwh's loads were recorded under (feature candidate #237).
+          Over the days whose hour is in fct_area_weather_hourly; null when none is.
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "ROLLING_MEAN(MEAN(temperature_c, weight=population), gap=2d, window=4) by day_type"
+      - name: ewm_daytype_4d_popw_temperature_c
+        data_type: double
+        description: >
+          The same with weights 8, 4, 2, 1 from the window's newest day back, over the days
+          present: the temperature ewm_daytype_4d_demand_kwh's loads were recorded under
+          (feature candidate #237).
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "EWA(MEAN(temperature_c, weight=population), gap=2d, window=4, halflife=1) by day_type"
+      - name: mean_daytype_4d_popw_solar_radiation_mjm2
+        data_type: double
+        description: >
+          The mean of the area's population-weighted observed solar radiation over this
+          hour on the window's days, MJ/m2 (feature candidate #238), weighted over the
+          stations that record it: 7 of Tokyo's 21 weighted stations and 3 of Kansai's 11,
+          55.4 % of each area's weight (fct_area_weather_hourly's description); a more
+          representative radiation source is future work. Over the days present; null when
+          none is.
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "ROLLING_MEAN(MEAN(solar_radiation_mjm2, weight=population), gap=2d, window=4) by day_type"
+      - name: ewm_daytype_4d_popw_solar_radiation_mjm2
+        data_type: double
+        description: >
+          The same radiation with weights 8, 4, 2, 1 from the newest day back, over the days
+          present (feature candidate #238).
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "EWA(MEAN(solar_radiation_mjm2, weight=population), gap=2d, window=4, halflife=1) by day_type"
+      - name: delta_mean_daytype_4d_popw_temperature_c
+        data_type: double
+        description: >
+          D's population-weighted forecast temperature at this hour minus
+          mean_daytype_4d_popw_temperature_c, C: how far the target hour's weather sits
+          from the weather the day-type window's loads come from; positive when D is warmer
+          (feature candidate #237). Null without a forecast row or a sibling.
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "MEAN(forecast_temperature_c, weight=population) - (ROLLING_MEAN(MEAN(temperature_c, weight=population), gap=2d, window=4) by day_type)"
+      - name: delta_ewm_daytype_4d_popw_temperature_c
+        data_type: double
+        description: >
+          The same against ewm_daytype_4d_popw_temperature_c (feature candidate #237).
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "MEAN(forecast_temperature_c, weight=population) - (EWA(MEAN(temperature_c, weight=population), gap=2d, window=4, halflife=1) by day_type)"
+      - name: delta_mean_daytype_4d_popw_solar_radiation_mjm2
+        data_type: double
+        description: >
+          D's population-weighted forecast solar radiation over this hour minus
+          mean_daytype_4d_popw_solar_radiation_mjm2, MJ/m2; positive when D is forecast
+          brighter (feature candidate #238). The observed side rests on the stations that
+          record radiation, 55.4 % of the area; the forecast side on every station.
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "MEAN(forecast_solar_radiation_mjm2, weight=population) - (ROLLING_MEAN(MEAN(solar_radiation_mjm2, weight=population), gap=2d, window=4) by day_type)"
+      - name: delta_ewm_daytype_4d_popw_solar_radiation_mjm2
+        data_type: double
+        description: >
+          The same against ewm_daytype_4d_popw_solar_radiation_mjm2 (feature candidate #238).
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "MEAN(forecast_solar_radiation_mjm2, weight=population) - (EWA(MEAN(solar_radiation_mjm2, weight=population), gap=2d, window=4, halflife=1) by day_type)"
+      - name: available_at
+        data_type: timestamp
+        description: >
+          When the row became public, naive JST: the latest of the load window row's
+          available_at in ftr_period_actuals, the four hours' in fct_area_weather_hourly
+          and the forecast vintage's in ftr_hour_msm (reference + 4 h, 01:00 on D-1), which
+          is the latest in practice; greatest() skips a missing hour or forecast.
+        data_tests:
+          - not_null
+
+unit_tests:
+  - name: ftr_period_daytype_weather_window_means_weights_and_deltas
+    description: >
+      Four Tokyo rows of the load mart at time code 24, hour 12. Row A (2025-03-04) has
+      the window dates 02-28, 02-27, 02-26, 02-25, whose hour-12 temperatures are 12, 14,
+      16, 18 and radiations 1.0, 0.5, 0.25, 0.25, newest first: the mean is 15 and 0.5, the
+      8:4:2:1 mean (96 + 56 + 32 + 18) / 15 and (8 + 2 + 0.5 + 0.25) / 15; the forecast is
+      5 C and 0.75, so the deltas are 5 - 15, 5 - 202 / 15, 0.75 - 0.5 and
+      0.75 - 10.75 / 15. Row B (2025-03-05) has 02-24 as its second date, a day with no
+      hour in the fact: the means run over the three days present, (12 + 16 + 18) / 3 and
+      (96 + 32 + 18) / 11, the weights by position. Row C (2025-03-06) has two dates,
+      02-28 and 02-27: 13 and (96 + 56) / 12. Row D (2025-03-07) has the four dates and no
+      forecast row: the siblings stand, the deltas are null. available_at is the greatest
+      of the load row's (03-01 00:30), the hours' (13:00 on their day) and the vintage's:
+      the vintage's 01:00 on D-1 on A, B and C, the load row's on D. Every expected double
+      is the same additions and divisions in Python.
+    model: ftr_period_daytype_weather
+    given:
+      - input: ref('dim_area')
+        rows:
+          - {area_key: 1, area_code: tokyo}
+      - input: ref('ftr_period_actuals')
+        format: sql
+        rows: |
+          select 'tokyo' as area_code, date '2025-03-04' as trade_date, 24 as time_code,
+            date '2025-02-28' as daytype_4d_date_1, date '2025-02-27' as daytype_4d_date_2,
+            date '2025-02-26' as daytype_4d_date_3, date '2025-02-25' as daytype_4d_date_4,
+            timestamp '2025-03-01 00:30:00' as available_at
+          union all
+          select 'tokyo', date '2025-03-05', 24, date '2025-02-28', date '2025-02-24', date '2025-02-26', date '2025-02-25', timestamp '2025-03-01 00:30:00'
+          union all
+          select 'tokyo', date '2025-03-06', 24, date '2025-02-28', date '2025-02-27', cast(null as date), cast(null as date), timestamp '2025-03-01 00:30:00'
+          union all
+          select 'tokyo', date '2025-03-07', 24, date '2025-02-28', date '2025-02-27', date '2025-02-26', date '2025-02-25', timestamp '2025-03-01 00:30:00'
+      - input: ref('fct_area_weather_hourly')
+        format: sql
+        rows: |
+          select 1 as area_key, date '2025-02-28' as date_key, 12 as hour_ending, cast(12 as double) as popw_temperature_c, cast(1.0 as double) as popw_solar_radiation_mjm2, timestamp '2025-02-28 13:00:00' as available_at
+          union all select 1, date '2025-02-27', 12, cast(14 as double), cast(0.5 as double), timestamp '2025-02-27 13:00:00'
+          union all select 1, date '2025-02-26', 12, cast(16 as double), cast(0.25 as double), timestamp '2025-02-26 13:00:00'
+          union all select 1, date '2025-02-25', 12, cast(18 as double), cast(0.25 as double), timestamp '2025-02-25 13:00:00'
+      - input: ref('ftr_hour_msm')
+        format: sql
+        rows: |
+          select 'tokyo' as area_code, date '2025-03-04' as trade_date, 12 as hour_ending, cast(5 as double) as popw_forecast_temperature_c, cast(0.75 as double) as popw_forecast_solar_radiation_mjm2, timestamp '2025-03-03 01:00:00' as available_at
+          union all select 'tokyo', date '2025-03-05', 12, cast(5 as double), cast(0.75 as double), timestamp '2025-03-04 01:00:00'
+          union all select 'tokyo', date '2025-03-06', 12, cast(5 as double), cast(0.75 as double), timestamp '2025-03-05 01:00:00'
+    expect:
+      rows:
+        - {area_code: tokyo, trade_date: 2025-03-04, time_code: 24, mean_daytype_4d_popw_temperature_c: 15.0, ewm_daytype_4d_popw_temperature_c: 13.466666666666667, mean_daytype_4d_popw_solar_radiation_mjm2: 0.5, ewm_daytype_4d_popw_solar_radiation_mjm2: 0.7166666666666667, delta_mean_daytype_4d_popw_temperature_c: -10.0, delta_ewm_daytype_4d_popw_temperature_c: -8.466666666666667, delta_mean_daytype_4d_popw_solar_radiation_mjm2: 0.25, delta_ewm_daytype_4d_popw_solar_radiation_mjm2: 0.033333333333333326, available_at: "2025-03-03 01:00:00"}
+        - {area_code: tokyo, trade_date: 2025-03-05, time_code: 24, mean_daytype_4d_popw_temperature_c: 15.333333333333334, ewm_daytype_4d_popw_temperature_c: 13.272727272727273, mean_daytype_4d_popw_solar_radiation_mjm2: 0.5, ewm_daytype_4d_popw_solar_radiation_mjm2: 0.7954545454545454, delta_mean_daytype_4d_popw_temperature_c: -10.333333333333334, delta_ewm_daytype_4d_popw_temperature_c: -8.272727272727273, delta_mean_daytype_4d_popw_solar_radiation_mjm2: 0.25, delta_ewm_daytype_4d_popw_solar_radiation_mjm2: -0.045454545454545414, available_at: "2025-03-04 01:00:00"}
+        - {area_code: tokyo, trade_date: 2025-03-06, time_code: 24, mean_daytype_4d_popw_temperature_c: 13.0, ewm_daytype_4d_popw_temperature_c: 12.666666666666666, mean_daytype_4d_popw_solar_radiation_mjm2: 0.75, ewm_daytype_4d_popw_solar_radiation_mjm2: 0.8333333333333334, delta_mean_daytype_4d_popw_temperature_c: -8.0, delta_ewm_daytype_4d_popw_temperature_c: -7.666666666666666, delta_mean_daytype_4d_popw_solar_radiation_mjm2: 0.0, delta_ewm_daytype_4d_popw_solar_radiation_mjm2: -0.08333333333333337, available_at: "2025-03-05 01:00:00"}
+        - {area_code: tokyo, trade_date: 2025-03-07, time_code: 24, mean_daytype_4d_popw_temperature_c: 15.0, ewm_daytype_4d_popw_temperature_c: 13.466666666666667, mean_daytype_4d_popw_solar_radiation_mjm2: 0.5, ewm_daytype_4d_popw_solar_radiation_mjm2: 0.7166666666666667, delta_mean_daytype_4d_popw_temperature_c: null, delta_ewm_daytype_4d_popw_temperature_c: null, delta_mean_daytype_4d_popw_solar_radiation_mjm2: null, delta_ewm_daytype_4d_popw_solar_radiation_mjm2: null, available_at: "2025-03-01 00:30:00"}
