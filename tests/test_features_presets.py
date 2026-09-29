@@ -49,6 +49,9 @@ REGISTERED_SERVICES = [
     "demand__e212",
     "demand__e219",
     "demand__e221",
+    "demand__e243",
+    "demand__e244",
+    "demand__e245",
     "spot_price__lightgbm",
     "spot_price__lightgbm_occto",
 ]
