@@ -284,6 +284,20 @@ with
       partition by actuals.area_code, day_types.day_type, actuals.time_code
       order by actuals.date_key
     ) as value_3,
+    -- The predecessors' dates themselves, for the marts that read the weather of
+    -- the same days (ftr_period_daytype_weather); null exactly where the load is.
+    lag(actuals.date_key, 1) over (
+      partition by actuals.area_code, day_types.day_type, actuals.time_code
+      order by actuals.date_key
+    ) as date_key_1,
+    lag(actuals.date_key, 2) over (
+      partition by actuals.area_code, day_types.day_type, actuals.time_code
+      order by actuals.date_key
+    ) as date_key_2,
+    lag(actuals.date_key, 3) over (
+      partition by actuals.area_code, day_types.day_type, actuals.time_code
+      order by actuals.date_key
+    ) as date_key_3,
     -- The oldest day of the four, or the oldest present when there are fewer: a
     -- predecessor's date is null exactly where its load is.
     coalesce(
@@ -399,6 +413,13 @@ with
     -- complete day, so the 48 periods of a day read the same days and agree.
     datediff(lookup.trade_date, candidate_periods.date_key) as newest_daytype_4d_lag_days,
     datediff(lookup.trade_date, candidate_periods.oldest_date_key) as oldest_daytype_4d_lag_days,
+    -- The window's dates themselves, newest first, for the marts that read the
+    -- weather of the same days (ftr_period_daytype_weather); null beyond the
+    -- window's last day.
+    candidate_periods.date_key as daytype_4d_date_1,
+    candidate_periods.date_key_1 as daytype_4d_date_2,
+    candidate_periods.date_key_2 as daytype_4d_date_3,
+    candidate_periods.date_key_3 as daytype_4d_date_4,
     candidate_periods.available_at
   from
     lookup
@@ -600,6 +621,10 @@ with
     day_type_windows.ewm_daytype_4d_demand_kwh,
     day_type_windows.newest_daytype_4d_lag_days,
     day_type_windows.oldest_daytype_4d_lag_days,
+    day_type_windows.daytype_4d_date_1,
+    day_type_windows.daytype_4d_date_2,
+    day_type_windows.daytype_4d_date_3,
+    day_type_windows.daytype_4d_date_4,
     day_type_weekly_lags.mean_daytype_weekly_lags_demand_kwh,
     day_type_weekly_lags.ewm_daytype_weekly_lags_demand_kwh,
     -- Weights 16, 8, 4, 2, 1 for D-2 to D-6, over the lags present.
