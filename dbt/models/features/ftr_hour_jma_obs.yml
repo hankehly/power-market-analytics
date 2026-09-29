@@ -106,7 +106,7 @@ models:
           their weight; 横浜, 千葉 and 熊谷 the largest without) and 3 of Kansai's 11 (大阪
           four fifths; 京都, 神戸 and 姫路 without), 55.4 % of each area's weight, so the value
           is close to the representative station's; the fact's
-          weight_share_solar_radiation_mjm2 gives the hour's share. A more representative
+          weight_share_solar_radiation gives the hour's share. A more representative
           radiation source is future work. Null when none of them reported the hour.
         config:
           meta:
