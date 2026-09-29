@@ -77,8 +77,11 @@ models:
       - name: available_at
         data_type: timestamp
         description: >
-          When the row became public, naive JST: the latest available_at of D-2's hours
-          in fct_area_weather_hourly, hour 24's observed end + 1 h, 01:00 on D-1.
+          When the row became public, naive JST: 01:00 on D-1, hour 24's observed end + 1 h
+          under fct_area_weather_hourly's rule — a rule, not the latest hour present, so a
+          day missing its last hours stamps the same instant, which is never earlier than
+          any value the row holds is public (the evening mean's hours are public by 23:00
+          on D-2).
         data_tests:
           - not_null
 
@@ -92,8 +95,10 @@ unit_tests:
       means are null while the evening mean stands. 2025-03-03 has no hour 20: the evening
       mean is null and the daily means are null too, the day being incomplete.
       2025-03-04 has every temperature but a null radiation at hour 12: the temperature
-      means stand, the radiation mean is null. available_at is each day's hour-24 end
-      + 1 h, 01:00 on the next day, whatever hours are missing.
+      means stand, the radiation mean is null. 2025-03-05 has no hour 24 at all: the
+      evening mean stands, the daily means are null. available_at is 01:00 on the next
+      day on every row, a rule, whatever hours are missing — 03-05's included, where the
+      latest hour present would say 00:00.
     model: ftr_day_jma_obs
     given:
       - input: ref('dim_area')
@@ -122,9 +127,14 @@ unit_tests:
             case when h = 12 then cast(null as double) else cast(0.25 as double) end,
             timestampadd(hour, h + 1, timestamp '2025-03-04 00:00:00')
           from hours
+          union all
+          select 1, date '2025-03-05', h, cast(10 + 0.5 * h as double), cast(0.25 as double),
+            timestampadd(hour, h + 1, timestamp '2025-03-05 00:00:00')
+          from hours where h <> 24
     expect:
       rows:
         - {area_code: tokyo, trade_date: 2025-03-03, lag_2d_mean_popw_temperature_c: 16.25, lag_2d_evening_mean_popw_temperature_c: 20.25, lag_2d_mean_popw_solar_radiation_mjm2: 0.25, available_at: "2025-03-02 01:00:00"}
         - {area_code: tokyo, trade_date: 2025-03-04, lag_2d_mean_popw_temperature_c: null, lag_2d_evening_mean_popw_temperature_c: 20.25, lag_2d_mean_popw_solar_radiation_mjm2: null, available_at: "2025-03-03 01:00:00"}
         - {area_code: tokyo, trade_date: 2025-03-05, lag_2d_mean_popw_temperature_c: null, lag_2d_evening_mean_popw_temperature_c: null, lag_2d_mean_popw_solar_radiation_mjm2: null, available_at: "2025-03-04 01:00:00"}
         - {area_code: tokyo, trade_date: 2025-03-06, lag_2d_mean_popw_temperature_c: 16.25, lag_2d_evening_mean_popw_temperature_c: 20.25, lag_2d_mean_popw_solar_radiation_mjm2: null, available_at: "2025-03-05 01:00:00"}
+        - {area_code: tokyo, trade_date: 2025-03-07, lag_2d_mean_popw_temperature_c: null, lag_2d_evening_mean_popw_temperature_c: 20.25, lag_2d_mean_popw_solar_radiation_mjm2: null, available_at: "2025-03-06 01:00:00"}
