@@ -869,9 +869,9 @@
   for, so no `available_at` of the observation mart moves; in no preset yet; since
   2026-09-29 the singular test `assert_ftr_hour_msm_one_vintage_per_delivery_day` fails
   the build should a second vintage of a delivery day and hour ever be loaded, because
-  `ftr_period_daytype_weather` (and `ftr_period_similar_day` from PR 4 of the spec) joins
-  this mart on area, day and hour and a second vintage would double its rows — only the
-  12 UTC D-2 run is loaded, the spec's decision 10), `ftr_period_actuals` (since
+  `ftr_period_daytype_weather` and `ftr_period_similar_day` join this mart on area, day
+  and hour and a second vintage would double their rows — only the 12 UTC D-2 run is
+  loaded, the spec's decision 10), `ftr_period_actuals` (since
   2026-09-12 the lags of 2, 3, 7, 9, 14, 21 and 28 days, the plain and 8:4:2:1 weighted
   means of the four weekly lags, the D-2 − D-9 change and the same two means over the last
   four complete days of D's `ftr_day_calendar` day type at or before D-2; since 2026-09-13
@@ -948,8 +948,24 @@
   same-holiday day, and `similar_day_rank1_lag_days`, the mart's one computed value,
   `trade_date` minus the rank-1 reference date — so no change to the fit-and-score job, no
   new scoring run and no `pma_ml.similar_day` drop. On 2026-09-14 `similar_day_demand_kwh` was retired (a
-  `retired_features` row) and its reference date, lag and distance columns were dropped);
-  every strategy reads them through Feast. `fct_feature_value` (curated,
+  `retired_features` row) and its reference date, lag and distance columns were dropped.
+  Since 2026-09-29 (feature candidates #237 and #238, PR 4 of 4 of the lag-window weather
+  siblings) sixteen more tagged columns, again with no change to the job: the pool days'
+  population-weighted observed temperature and solar radiation from
+  `fct_area_weather_hourly` at the hour containing the period on each pool rank's
+  reference date, `similar_day_pool_rank<r>_popw_<element>` for r = 1 … 3, their
+  inverse-distance mean `wavg_similar_day_pool_top3_popw_<element>` under the job's own
+  rule — the macro `inverse_distance_mean` in `dbt/macros/`, `1 / d` per rank present,
+  zero distances sharing the weight, the total and the mean added in rank order,
+  renormalised over the ranks whose value is present; the singular test
+  `assert_ftr_period_similar_day_mean_rule_reproduces_the_job` applies it to the stored
+  pool rank loads and distances and matches `wavg_similar_day_pool_top3_demand_kwh` to
+  the bit on every row, because halving is exact in binary — and D's population-weighted
+  forecast at that hour (`ftr_hour_msm`) minus each, `delta_…`, positive when D is warmer
+  or brighter than the pool day; null where the fact has no hour on a pool day, the pool
+  has no such rank or D has no forecast; `available_at` and `published_at` unchanged, the
+  row already waiting for the vintage; in no preset yet); every strategy reads them
+  through Feast. `fct_feature_value` (curated,
   since 2026-09-12, PR 3) unpivots every tagged column of every mart to the period grain as
   one long fact — day marts broadcast to the 48 periods, hour marts to their two through
   `dim_half_hour`, a mart with `published_at` reduced to the newest published row per
