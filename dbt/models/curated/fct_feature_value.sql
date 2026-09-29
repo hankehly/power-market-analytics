@@ -293,7 +293,7 @@ with
     m.available_at,
     m.published_at,
     stack(
-      12,
+      28,
       'similar_day_rank1_demand_kwh', cast(m.similar_day_rank1_demand_kwh as double), false,
       'similar_day_rank2_demand_kwh', cast(m.similar_day_rank2_demand_kwh as double), false,
       'similar_day_rank3_demand_kwh', cast(m.similar_day_rank3_demand_kwh as double), false,
@@ -305,7 +305,23 @@ with
       'similar_day_pool_rank3_demand_kwh', cast(m.similar_day_pool_rank3_demand_kwh as double), false,
       'wavg_similar_day_pool_top3_demand_kwh', cast(m.wavg_similar_day_pool_top3_demand_kwh as double), false,
       'similar_day_pool_rank1_distance', cast(m.similar_day_pool_rank1_distance as double), false,
-      'similar_day_pool_rank1_lag_days', cast(m.similar_day_pool_rank1_lag_days as double), false
+      'similar_day_pool_rank1_lag_days', cast(m.similar_day_pool_rank1_lag_days as double), false,
+      'similar_day_pool_rank1_popw_temperature_c', cast(m.similar_day_pool_rank1_popw_temperature_c as double), false,
+      'similar_day_pool_rank2_popw_temperature_c', cast(m.similar_day_pool_rank2_popw_temperature_c as double), false,
+      'similar_day_pool_rank3_popw_temperature_c', cast(m.similar_day_pool_rank3_popw_temperature_c as double), false,
+      'wavg_similar_day_pool_top3_popw_temperature_c', cast(m.wavg_similar_day_pool_top3_popw_temperature_c as double), false,
+      'similar_day_pool_rank1_popw_solar_radiation_mjm2', cast(m.similar_day_pool_rank1_popw_solar_radiation_mjm2 as double), false,
+      'similar_day_pool_rank2_popw_solar_radiation_mjm2', cast(m.similar_day_pool_rank2_popw_solar_radiation_mjm2 as double), false,
+      'similar_day_pool_rank3_popw_solar_radiation_mjm2', cast(m.similar_day_pool_rank3_popw_solar_radiation_mjm2 as double), false,
+      'wavg_similar_day_pool_top3_popw_solar_radiation_mjm2', cast(m.wavg_similar_day_pool_top3_popw_solar_radiation_mjm2 as double), false,
+      'delta_similar_day_pool_rank1_popw_temperature_c', cast(m.delta_similar_day_pool_rank1_popw_temperature_c as double), false,
+      'delta_similar_day_pool_rank2_popw_temperature_c', cast(m.delta_similar_day_pool_rank2_popw_temperature_c as double), false,
+      'delta_similar_day_pool_rank3_popw_temperature_c', cast(m.delta_similar_day_pool_rank3_popw_temperature_c as double), false,
+      'delta_wavg_similar_day_pool_top3_popw_temperature_c', cast(m.delta_wavg_similar_day_pool_top3_popw_temperature_c as double), false,
+      'delta_similar_day_pool_rank1_popw_solar_radiation_mjm2', cast(m.delta_similar_day_pool_rank1_popw_solar_radiation_mjm2 as double), false,
+      'delta_similar_day_pool_rank2_popw_solar_radiation_mjm2', cast(m.delta_similar_day_pool_rank2_popw_solar_radiation_mjm2 as double), false,
+      'delta_similar_day_pool_rank3_popw_solar_radiation_mjm2', cast(m.delta_similar_day_pool_rank3_popw_solar_radiation_mjm2 as double), false,
+      'delta_wavg_similar_day_pool_top3_popw_solar_radiation_mjm2', cast(m.delta_wavg_similar_day_pool_top3_popw_solar_radiation_mjm2 as double), false
     ) as (feature_name, feature_value, is_categorical)
   from
     (
