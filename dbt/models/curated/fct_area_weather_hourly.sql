@@ -50,13 +50,15 @@ with
     observed_hour_start_at,
     census_year,
     {%- for element in weighted_elements %}
+    {%- set label = element.rsplit('_', 1)[0] %}
     -- Added in station order, renormalised over the stations present; null when none is.
     {{ ordered_weighted_mean(element ~ '_terms') }} as popw_{{ element }},
-    cast(size({{ element }}_terms) as int) as n_stations_{{ element }},
+    -- The count and the share carry the element's name without its unit.
+    cast(size({{ element }}_terms) as int) as n_stations_{{ label }},
     -- A coverage number, rounded to twelve decimals: an area's weights add up to 1
     -- only within floating rounding (Kyushu's 25 give 1.0000000000000002).
     round(aggregate({{ element }}_terms, cast(0 as double), (acc, x) -> acc + x.weight), 12)
-      as weight_share_{{ element }},
+      as weight_share_{{ label }},
     {%- endfor %}
     available_at
   from
