@@ -63,6 +63,16 @@ day skipped, the 13 presets for Tokyo and `e169` … `e171` for Kansai. The
 runs are the MLflow runs tagged `batch = pinned-window-reeval-2026-09-27`; the
 table of their MAE, MAPE and matched comparisons against the baselines is
 [#230](https://github.com/hankehly/power-market-analytics/issues/230).
+On 2026-09-29 the lag-window weather batches ran on the same window against
+`e219`'s run `8fb1b358…`: `e243` (the 21 temperature columns, MAE −2.4 %, the
+CI over days excluding zero), `e244` (the 19 radiation columns, −0.9 %, the CI
+including zero) and `e245` (all 40, −3.3 %, excluding zero; −0.9 % against
+`e243` with the CI including zero) — the numbers and the researcher's decision
+are in [#243](https://github.com/hankehly/power-market-analytics/issues/243),
+[#244](https://github.com/hankehly/power-market-analytics/issues/244) and
+[#245](https://github.com/hankehly/power-market-analytics/issues/245); the
+three presets are registered, and the baseline stays `e212` until a decision
+moves it.
 
 **Preset names.** Every demand preset is named after the experiment that tested
 it, `e<issue number>` (the [research README](research/README.md)'s rule). Until
