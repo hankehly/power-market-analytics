@@ -122,7 +122,7 @@ with
   )
   ),
 
-  final as (
+  forecast as (
   select
     coalesce(representative.area_code, weighted.area_code) as area_code,
     coalesce(representative.trade_date, weighted.trade_date) as trade_date,
@@ -147,6 +147,55 @@ with
       and weighted.trade_date = representative.trade_date
       and weighted.hour_ending = representative.hour_ending
       and weighted.forecast_reference_at = representative.forecast_reference_at
+  ),
+
+  -- The weather the load lags were recorded under, at the same hour on D-2 and D-7.
+  observed as (
+  select
+    area_code,
+    trade_date,
+    hour_ending,
+    lag_2d_popw_temperature_c,
+    lag_7d_popw_temperature_c,
+    lag_2d_popw_solar_radiation_mjm2,
+    lag_7d_popw_solar_radiation_mjm2,
+    available_at
+  from {{ ref('ftr_hour_jma_obs') }}
+  ),
+
+  final as (
+  select
+    forecast.area_code,
+    forecast.trade_date,
+    forecast.hour_ending,
+    forecast.forecast_reference_at,
+    forecast.census_year,
+    forecast.forecast_temperature_c,
+    {%- for element in weighted_elements %}
+    forecast.popw_forecast_{{ element }},
+    {%- endfor %}
+    forecast.popw_forecast_discomfort_index,
+    forecast.cum_popw_forecast_solar_radiation_mjm2,
+    -- D's forecast minus the observed hour two and seven days earlier: positive
+    -- when D is warmer or brighter than the days the load lags come from. They
+    -- live here because a delta needs the vintage, which this row already waits
+    -- for; null where the observation mart has no row for the hour.
+    forecast.popw_forecast_temperature_c - observed.lag_2d_popw_temperature_c
+      as delta_lag_2d_popw_temperature_c,
+    forecast.popw_forecast_temperature_c - observed.lag_7d_popw_temperature_c
+      as delta_lag_7d_popw_temperature_c,
+    forecast.popw_forecast_solar_radiation_mjm2 - observed.lag_2d_popw_solar_radiation_mjm2
+      as delta_lag_2d_popw_solar_radiation_mjm2,
+    forecast.popw_forecast_solar_radiation_mjm2 - observed.lag_7d_popw_solar_radiation_mjm2
+      as delta_lag_7d_popw_solar_radiation_mjm2,
+    -- The vintage's instant: the sibling's is never later (greatest skips a null one).
+    {{ available_at(['forecast.available_at', 'observed.available_at']) }} as available_at
+  from
+    forecast
+    left join observed
+      on observed.area_code = forecast.area_code
+      and observed.trade_date = forecast.trade_date
+      and observed.hour_ending = forecast.hour_ending
   )
 
 select * from final

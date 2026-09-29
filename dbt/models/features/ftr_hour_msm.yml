@@ -190,10 +190,59 @@ models:
             feature: true
             categorical: false
             expression: "CUM_SUM(MEAN(forecast_solar_radiation_mjm2, weight=population)) by trade_date"
+      - name: delta_lag_2d_popw_temperature_c
+        data_type: double
+        description: >
+          D's population-weighted forecast temperature at this hour minus the area's
+          population-weighted observed temperature at the same hour on D-2
+          (ftr_hour_jma_obs.lag_2d_popw_temperature_c), C: how far the target hour's
+          weather sits from the weather the load lag LAG(demand_kwh, 2d) was recorded
+          under; positive when D is warmer. The researcher's lag-window weather idea of
+          2026-09-28 (feature candidate #237; spec
+          docs/superpowers/specs/2026-09-29-lag-window-weather-siblings-design.md). It lives
+          here, not in the observation mart, because a delta needs the vintage, public at
+          01:00 on D-1, which this row already waits for. Null without a sibling row.
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "MEAN(forecast_temperature_c, weight=population) - LAG(MEAN(temperature_c, weight=population), 2d)"
+      - name: delta_lag_7d_popw_temperature_c
+        data_type: double
+        description: >
+          The same against the hour on D-7 (ftr_hour_jma_obs.lag_7d_popw_temperature_c;
+          feature candidate #237).
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "MEAN(forecast_temperature_c, weight=population) - LAG(MEAN(temperature_c, weight=population), 7d)"
+      - name: delta_lag_2d_popw_solar_radiation_mjm2
+        data_type: double
+        description: >
+          D's population-weighted forecast solar radiation over this hour minus the
+          observed one on D-2 (ftr_hour_jma_obs.lag_2d_popw_solar_radiation_mjm2), MJ/m2;
+          positive when D is forecast brighter (feature candidate #238). The observed side
+          is weighted over the stations that record radiation, 55.4 % of the area (that
+          column's description); the forecast side over every station.
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "MEAN(forecast_solar_radiation_mjm2, weight=population) - LAG(MEAN(solar_radiation_mjm2, weight=population), 2d)"
+      - name: delta_lag_7d_popw_solar_radiation_mjm2
+        data_type: double
+        description: >
+          The same against the hour on D-7 (feature candidate #238).
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "MEAN(forecast_solar_radiation_mjm2, weight=population) - LAG(MEAN(solar_radiation_mjm2, weight=population), 7d)"
       - name: available_at
         data_type: timestamp
         description: >
-          When the row became public, naive JST: the vintage's available_at, reference + 4 h.
+          When the row became public, naive JST: the vintage's available_at, reference + 4 h, or the D-2 sibling's if later, which it never is (its newest hour is public at 01:00 on D-1 at the latest, the vintage's instant).
         data_tests:
           - not_null
 
@@ -210,6 +259,15 @@ unit_tests:
       - input: ref('dim_area')
         rows:
           - {area_key: 1, area_code: tokyo, representative_jma_station_id: s1}
+      - input: ref('ftr_hour_jma_obs')
+        format: sql
+        rows: |
+          select cast(null as string) as area_code, cast(null as date) as trade_date,
+            cast(null as int) as hour_ending,
+            cast(null as double) as lag_2d_popw_temperature_c, cast(null as double) as lag_7d_popw_temperature_c,
+            cast(null as double) as lag_2d_popw_solar_radiation_mjm2, cast(null as double) as lag_7d_popw_solar_radiation_mjm2,
+            cast(null as timestamp) as available_at
+          where false
       - input: ref('fct_census_population_jma_station')
         rows:
           - {census_year: 2015, area_key: 1, station_id: s1, area_population_weight: 1.0}
@@ -237,6 +295,15 @@ unit_tests:
       - input: ref('dim_area')
         rows:
           - {area_key: 1, area_code: tokyo, representative_jma_station_id: s1}
+      - input: ref('ftr_hour_jma_obs')
+        format: sql
+        rows: |
+          select cast(null as string) as area_code, cast(null as date) as trade_date,
+            cast(null as int) as hour_ending,
+            cast(null as double) as lag_2d_popw_temperature_c, cast(null as double) as lag_7d_popw_temperature_c,
+            cast(null as double) as lag_2d_popw_solar_radiation_mjm2, cast(null as double) as lag_7d_popw_solar_radiation_mjm2,
+            cast(null as timestamp) as available_at
+          where false
       - input: ref('fct_census_population_jma_station')
         rows:
           - {census_year: 2020, area_key: 1, station_id: s1, area_population_weight: 0.75}
@@ -270,6 +337,15 @@ unit_tests:
       - input: ref('dim_area')
         rows:
           - {area_key: 1, area_code: tokyo, representative_jma_station_id: s1}
+      - input: ref('ftr_hour_jma_obs')
+        format: sql
+        rows: |
+          select cast(null as string) as area_code, cast(null as date) as trade_date,
+            cast(null as int) as hour_ending,
+            cast(null as double) as lag_2d_popw_temperature_c, cast(null as double) as lag_7d_popw_temperature_c,
+            cast(null as double) as lag_2d_popw_solar_radiation_mjm2, cast(null as double) as lag_7d_popw_solar_radiation_mjm2,
+            cast(null as timestamp) as available_at
+          where false
       - input: ref('fct_census_population_jma_station')
         rows:
           - {census_year: 2020, area_key: 1, station_id: s1, area_population_weight: 1.0}
@@ -299,3 +375,35 @@ unit_tests:
         - {area_code: tokyo, trade_date: 2025-08-03, hour_ending: 1, forecast_reference_at: "2025-08-01 21:00:00", popw_forecast_solar_radiation_mjm2: 1.5, cum_popw_forecast_solar_radiation_mjm2: 1.5}
         - {area_code: tokyo, trade_date: 2025-08-03, hour_ending: 2, forecast_reference_at: "2025-08-01 21:00:00", popw_forecast_solar_radiation_mjm2: 2.5, cum_popw_forecast_solar_radiation_mjm2: 4.0}
         - {area_code: tokyo, trade_date: 2025-08-03, hour_ending: 1, forecast_reference_at: "2025-08-01 09:00:00", popw_forecast_solar_radiation_mjm2: 10.0, cum_popw_forecast_solar_radiation_mjm2: 10.0}
+
+  - name: ftr_hour_msm_deltas_to_the_lag_day_weather
+    description: >
+      One Tokyo station carrying the whole weight, two forecast hours of one vintage.
+      Hour 1 has a sibling row (D-2 13 C and 0.5 MJ/m2, D-7 7 C and no radiation): the
+      deltas are the forecast minus it, 10 - 13, 10 - 7, 2.0 - 0.5, and null for the
+      missing radiation. Hour 2 has no sibling row: every delta is null and the forecast
+      row stays. available_at stays the vintage's, 01:00 on D-1, on both: the sibling's
+      02:00 on D-2 is earlier, and greatest() skips the null one.
+    model: ftr_hour_msm
+    given:
+      - input: ref('dim_area')
+        rows:
+          - {area_key: 1, area_code: tokyo, representative_jma_station_id: s1}
+      - input: ref('fct_census_population_jma_station')
+        rows:
+          - {census_year: 2020, area_key: 1, station_id: s1, area_population_weight: 1.0}
+      - input: ref('fct_jma_msm_weather_forecast_hourly')
+        rows:
+          - {station_id: s1, date_key: 2025-03-10, forecast_hour_start_at: "2025-03-10 00:00:00", forecast_reference_at: "2025-03-08 21:00:00", temperature_c: 10.0, solar_radiation_mjm2: 2.0, available_at: "2025-03-09 01:00:00"}
+          - {station_id: s1, date_key: 2025-03-10, forecast_hour_start_at: "2025-03-10 01:00:00", forecast_reference_at: "2025-03-08 21:00:00", temperature_c: 8.0, solar_radiation_mjm2: 1.5, available_at: "2025-03-09 01:00:00"}
+      - input: ref('ftr_hour_jma_obs')
+        format: sql
+        rows: |
+          select 'tokyo' as area_code, date '2025-03-10' as trade_date, 1 as hour_ending,
+            cast(13 as double) as lag_2d_popw_temperature_c, cast(7 as double) as lag_7d_popw_temperature_c,
+            cast(0.5 as double) as lag_2d_popw_solar_radiation_mjm2, cast(null as double) as lag_7d_popw_solar_radiation_mjm2,
+            timestamp '2025-03-08 02:00:00' as available_at
+    expect:
+      rows:
+        - {area_code: tokyo, trade_date: 2025-03-10, hour_ending: 1, forecast_reference_at: "2025-03-08 21:00:00", popw_forecast_temperature_c: 10.0, delta_lag_2d_popw_temperature_c: -3.0, delta_lag_7d_popw_temperature_c: 3.0, delta_lag_2d_popw_solar_radiation_mjm2: 1.5, delta_lag_7d_popw_solar_radiation_mjm2: null, available_at: "2025-03-09 01:00:00"}
+        - {area_code: tokyo, trade_date: 2025-03-10, hour_ending: 2, forecast_reference_at: "2025-03-08 21:00:00", popw_forecast_temperature_c: 8.0, delta_lag_2d_popw_temperature_c: null, delta_lag_7d_popw_temperature_c: null, delta_lag_2d_popw_solar_radiation_mjm2: null, delta_lag_7d_popw_solar_radiation_mjm2: null, available_at: "2025-03-09 01:00:00"}

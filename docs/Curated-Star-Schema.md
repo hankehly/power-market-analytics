@@ -1,6 +1,6 @@
 # Curated star schema
 
-The curated layer (`dbt/models/curated/`) holds the sixteen fact tables below across
+The curated layer (`dbt/models/curated/`) holds the seventeen fact tables below across
 six subject areas, sharing a conformed `dim_date` (the census fact, a
 once-per-census snapshot, joins its own mesh dimension instead):
 
@@ -9,6 +9,7 @@ once-per-census snapshot, joins its own mesh dimension instead):
 | `fct_jepx_spot_market` | trade date × 30-minute time code | Market-wide JEPX day-ahead auction results. |
 | `fct_jepx_spot_area_price` | delivery period × bidding zone | Area clearing prices. |
 | `fct_jma_weather_hourly` | station × observation hour | JMA hourly weather observations. Native hourly grain, not interpolated to 30-minute JEPX periods — align by joining each delivery period to the weather hour that contains it. |
+| `fct_area_weather_hourly` | bidding zone × observation hour | The area-grain rollup of `fct_jma_weather_hourly`: the population-weighted observed temperature and solar radiation per hour, with per element the count and the population share of the stations that reported it (the coverage). The one definition of the observed weighting; the feature marts read the weather of a past day here. |
 | `fct_jma_normal_daily` | station × calendar day (`month`, `day_of_month`) | JMA 1991–2020 climatological normals of the daily elements — mean / max / min temperature with their standard deviations, cloud cover, sunshine, radiation, precipitation, snowfall, snow depth, three occurrence rates in % — one quality flag per element; 366 rows per station, Feb 29 included. A normal has no date: join a dated row on the month and day of its date. |
 | `fct_jma_normal_hourly` | station × calendar day × hour ending | The normal of the temperature at each hour 01–24 with its standard deviation and flag; the hour axis of `fct_jma_weather_hourly` (hour 24 belongs to the day it ends). |
 | `fct_spot_price_forecast` | MLflow run × delivery period × area | Day-ahead price forecasts written back from backtest runs (`scripts/spot_price_backtest.py` → `pma_ml.spot_price_forecast`); `run_id` is a degenerate dimension linking to the MLflow run. Forecasts only — no actuals stored. |
@@ -30,6 +31,8 @@ erDiagram
     dim_area ||--o{ fct_jepx_spot_area_price : "area_key"
     dim_date ||--o{ fct_jma_weather_hourly : "date_key"
     dim_jma_station ||--o{ fct_jma_weather_hourly : "station_id"
+    dim_date ||--o{ fct_area_weather_hourly : "date_key"
+    dim_area ||--o{ fct_area_weather_hourly : "area_key"
     dim_jma_station ||--o{ fct_jma_normal_daily : "station_id"
     dim_jma_station ||--o{ fct_jma_normal_hourly : "station_id"
     dim_date ||--o{ fct_spot_price_forecast : "date_key"
@@ -186,6 +189,21 @@ erDiagram
         int solar_radiation_homogeneity_no
     }
 
+    fct_area_weather_hourly {
+        int area_key PK, FK
+        timestamp observed_at PK
+        date date_key FK
+        int hour_ending
+        timestamp observed_hour_start_at
+        int census_year
+        double popw_temperature_c
+        int n_stations_temperature
+        double weight_share_temperature
+        double popw_solar_radiation_mjm2
+        int n_stations_solar_radiation
+        double weight_share_solar_radiation
+        timestamp available_at
+    }
     fct_jma_normal_daily {
         int normals_period_end_year PK
         string station_id PK, FK
@@ -362,7 +380,7 @@ erDiagram
     classDef dim fill:#DBEAFE,stroke:#2563EB,color:#1E3A8A
     classDef fact fill:#FEF3C7,stroke:#B45309,color:#78350F
     class dim_date,dim_half_hour,dim_area,dim_jma_station,dim_population_mesh_500m dim
-    class fct_jepx_spot_market,fct_jepx_spot_area_price,fct_jma_weather_hourly,fct_jma_normal_daily,fct_jma_normal_hourly,fct_spot_price_forecast,fct_spot_price_forecast_accuracy,fct_demand_forecast,fct_demand_forecast_accuracy,fct_occto_demand_supply_forecast_daily,fct_occto_demand_supply_forecast_30m,fct_area_demand_generation_actual,fct_census_population_mesh fact
+    class fct_jepx_spot_market,fct_jepx_spot_area_price,fct_jma_weather_hourly,fct_jma_normal_daily,fct_jma_normal_hourly,fct_spot_price_forecast,fct_spot_price_forecast_accuracy,fct_demand_forecast,fct_demand_forecast_accuracy,fct_occto_demand_supply_forecast_daily,fct_occto_demand_supply_forecast_30m,fct_area_demand_generation_actual,fct_census_population_mesh,fct_area_weather_hourly fact
 ```
 
 Notes:
@@ -375,6 +393,7 @@ Notes:
 | `fct_spot_price_forecast_accuracy` | Error columns are null where the actual is missing (Hokkaido suspension) and percentage errors are also null where the actual is 0.00 JPY/kWh, so `AVG(abs_error_jpy_kwh)` / `AVG(abs_pct_error)` reproduce the MLflow run's MAE / `mape_excl_zero_actuals`. Actuals at the post-FY2016 0.01 floor still make percentage errors explode — prefer MAE when a window contains near-zero prices. |
 | `dim_date` | Conformed across all subject areas: its spine starts 2016-01-01 to cover JMA weather (JEPX spot begins at fiscal year 2016 = 2016-04-01). |
 | `fct_jma_weather_hourly` | `observed_at` marks the end of the observation hour; precipitation and sunshine accumulate over `[observed_hour_start_at, observed_at]`, temperature and wind are instantaneous at `observed_at`. `phenomenon_absent` columns are null only when the quality flag is 2/1/0, and for snow depth also when snow is untracked off-season. Value 0 with `phenomenon_absent = 0` is a JMA "trace" reading, below measurement resolution, distinct from a true zero (`phenomenon_absent = 1`). |
+| `fct_area_weather_hourly` | Each element is weighted over the stations that report it that hour, renormalised, with the latest census vintage's `fct_census_population_jma_station` weights and the terms added in station order; `n_stations_*` and `weight_share_*` (rounded to twelve decimals; the shares add up to 1 only within floating rounding) say how much of the area a mean rests on. Temperature is recorded at every weighted station; solar radiation at 7 of Tokyo's 21 and 3 of Kansai's 11, 55.4 % of each area's weight, so a radiation mean is close to the representative station's. Grain and time axis as `fct_jma_weather_hourly`'s (`observed_at` the hour end, `date_key` the hour-start date). |
 | `fct_jma_normal_daily`, `fct_jma_normal_hourly` | Normals are per station and calendar day, not dated: no `date_key`, no `dim_date` reference; a dated row joins on `month` and `day_of_month` of its date (and `hour_ending` for the hourly fact). A `_quality_flag` of 7 or 5 is reference only — the observation ended or the series was cut — and JMA says not to use it for a departure from normal. `available_at` is 2021-05-19 00:00 for the whole 1991–2020 period, a documented bound (only the current version of JMA's archive is served). The class thresholds and the years behind each statistic stay in `std_jma__normal_daily`. |
 | `fct_occto_demand_supply_forecast_daily` | MW columns are additive across areas; `usage_rate` / `reserve_rate` are fractions (0.924 = 92.4%, converted from OCCTO's percentages in the standardized layer) and non-additive (average, or recompute from the MW columns). `min_demand_mw` for `date_key` ≤ 2025-03-31 is the demand at the minimum-reserve-rate hour, not the minimum demand (an OCCTO definition change). Hour-ending values run 1–24 (24 = the hour ending at midnight). |
 | `fct_occto_demand_supply_forecast_30m` | Measures are power in MW for the 30-minute period: additive across areas (they sum to OCCTO's wide-area block demand), not across periods — × 0.5 h for MWh, × 500 for the kWh unit of `fct_area_demand_generation_actual`. `supply_capacity_mw` is available supply capacity (供給力), not a generation forecast; minus `demand_mw` it is the published area reserve and can be negative. |
