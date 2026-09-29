@@ -68,7 +68,7 @@
   `[tool.coverage.*]`; gated at 100% via `fail_under`, so a partial suite fails locally and in
   CI — `.github/workflows/ci.yml` runs the same command on every push). Shared fixtures in
   `tests/conftest.py`: `spark` (local session, temp warehouse, no metastore),
-  `curated_warehouse` (synthetic `pma_curated` star for both tasks), `feature_marts` (the ten
+  `curated_warehouse` (synthetic `pma_curated` star for both tasks), `feature_marts` (the eleven
   `pma_features` marts from it under a UTC session — the similar-day mart holds ranks 1–3
   at lags 364, 7 and 371, their mean and one same-holiday day, 2024-04-29 —
   with the Feast store in a temp registry; every test that builds a preset strategy takes
@@ -775,7 +775,7 @@
   feature column tagged `config.meta.feature` / `categorical` / `expression`, plus `available_at` carried
   from the facts through the `available_at()` macro; the singular test
   `assert_feature_marts_declare_available_at` lists any feature model without the column.
-  Today's ten: `ftr_day_actuals` (since 2026-09-12, research `demand/R-006`: D-2's mean,
+  Today's eleven: `ftr_day_actuals` (since 2026-09-12, research `demand/R-006`: D-2's mean,
   max, min (since 2026-09-13) and max − min over its 48 periods, complete days only; since
   2026-09-13 also D-2's load factor, its means over 06:00–10:00, 13:00–17:00 and
   18:00–22:00 (windows set from the weekday load shape of both areas), its peak time code
@@ -866,7 +866,12 @@
   D's forecast minus the sibling of `ftr_hour_jma_obs` at the same hour, positive when D
   is warmer or brighter than the day the load lag comes from — placed here rather than in
   the observation mart because a delta needs the vintage, which this row already waits
-  for, so no `available_at` of the observation mart moves; in no preset yet), `ftr_period_actuals` (since
+  for, so no `available_at` of the observation mart moves; in no preset yet; since
+  2026-09-29 the singular test `assert_ftr_hour_msm_one_vintage_per_delivery_day` fails
+  the build should a second vintage of a delivery day and hour ever be loaded, because
+  the period marts `ftr_period_daytype_weather` and `ftr_period_similar_day` join this
+  mart on area, day and hour and a second vintage would double their rows — only the
+  12 UTC D-2 run is loaded, the spec's decision 10), `ftr_period_actuals` (since
   2026-09-12 the lags of 2, 3, 7, 9, 14, 21 and 28 days, the plain and 8:4:2:1 weighted
   means of the four weekly lags, the D-2 − D-9 change and the same two means over the last
   four complete days of D's `ftr_day_calendar` day type at or before D-2; since 2026-09-13
@@ -911,7 +916,24 @@
   so a row exists wherever any lag exists and a
   column is null where its input is absent; `available_at` is the greatest over the rows
   shifted onto the row, so the whole row waits for the newest lag's file; every weighted mean is explicit
-  arithmetic over named columns, exact and order-free), `ftr_period_jepx` (each proven
+  arithmetic over named columns, exact and order-free; since 2026-09-29 also the day-type
+  window's four dates as untagged columns `daytype_4d_date_1` … `daytype_4d_date_4`,
+  newest first, null beyond the days the window has, which `ftr_period_daytype_weather`
+  reads so the two marts read the same days — PR 3 of 4 of the lag-window weather
+  siblings; no tagged column or `available_at` moved), `ftr_period_daytype_weather`
+  (since 2026-09-29, PR 3 of 4, feature candidates #237 and #238: at each period, the plain
+  and the 8:4:2:1 weighted mean of the area's population-weighted observed temperature and
+  solar radiation from `fct_area_weather_hourly` at the hour containing the period over
+  the four dates the day-type window reads — `mean_daytype_4d_popw_<element>` and
+  `ewm_daytype_4d_popw_<element>`, over the days whose hour is present, the load feature's
+  weights by position, so they are the weather `mean_daytype_4d_demand_kwh` and
+  `ewm_daytype_4d_demand_kwh` were recorded under — and D's population-weighted forecast
+  at the same hour minus each, `delta_mean_…` and `delta_ewm_…`, positive when D is warmer
+  or brighter; the radiation rests on the stations that record it, 55.4 % of each area's
+  weight, as the fact's description says; a row wherever the load window has one;
+  `available_at` the latest of the load row's, the four hours'
+  and the vintage's, 01:00 on D-1 in practice — which is why the deltas live here and not
+  in `ftr_period_actuals`, whose rows are public at 00:30; in no preset yet), `ftr_period_jepx` (each proven
   equal to the Python builder it mirrors for Tokyo 2025) and `ftr_period_similar_day`
   (since 2026-09-11: the demand
   similar days as the fit-and-score job wrote them to `pma_ml.similar_day`, passed through
