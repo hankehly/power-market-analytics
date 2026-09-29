@@ -85,7 +85,21 @@ def test_the_similar_day_source_breaks_ties_on_the_vintages_published_at():
         "similar_day_rank1_distance, similar_day_rank1_lag_days, "
         "similar_day_pool_rank1_demand_kwh, similar_day_pool_rank2_demand_kwh, "
         "similar_day_pool_rank3_demand_kwh, wavg_similar_day_pool_top3_demand_kwh, "
-        "similar_day_pool_rank1_distance, similar_day_pool_rank1_lag_days, available_at, "
+        "similar_day_pool_rank1_distance, similar_day_pool_rank1_lag_days, "
+        "similar_day_pool_rank1_popw_temperature_c, similar_day_pool_rank2_popw_temperature_c, "
+        "similar_day_pool_rank3_popw_temperature_c, wavg_similar_day_pool_top3_popw_temperature_c, "
+        "similar_day_pool_rank1_popw_solar_radiation_mjm2, "
+        "similar_day_pool_rank2_popw_solar_radiation_mjm2, "
+        "similar_day_pool_rank3_popw_solar_radiation_mjm2, "
+        "wavg_similar_day_pool_top3_popw_solar_radiation_mjm2, "
+        "delta_similar_day_pool_rank1_popw_temperature_c, "
+        "delta_similar_day_pool_rank2_popw_temperature_c, "
+        "delta_similar_day_pool_rank3_popw_temperature_c, "
+        "delta_wavg_similar_day_pool_top3_popw_temperature_c, "
+        "delta_similar_day_pool_rank1_popw_solar_radiation_mjm2, "
+        "delta_similar_day_pool_rank2_popw_solar_radiation_mjm2, "
+        "delta_similar_day_pool_rank3_popw_solar_radiation_mjm2, "
+        "delta_wavg_similar_day_pool_top3_popw_solar_radiation_mjm2, available_at, "
         "published_at from pma_features.ftr_period_similar_day"
     )
     assert views.FTR_PERIOD_SIMILAR_DAY_SOURCE.created_timestamp_column == "published_at"
@@ -145,6 +159,37 @@ def test_the_similar_day_view_carries_the_ranks_their_mean_and_rank_1s_distance_
             "categorical": "false",
             "expression": "similar_day_pool_rank1_lag_days",
         },
+        # The pool days' weather at the period's hour and its deltas to D's forecast
+        # (since 2026-09-29): the load features' expressions with the element swapped in.
+        **{
+            f"{prefix}similar_day_pool_rank{rank}_popw_{element}": {
+                "categorical": "false",
+                "expression": (
+                    f"{forecast}SIMILAR_DAY(MEAN({element}, weight=population), gap=(2d, 335d), "
+                    f"window=(30, 60), rank={rank}, holidays=similarity)"
+                ),
+            }
+            for element in ("temperature_c", "solar_radiation_mjm2")
+            for prefix, forecast in (
+                ("", ""),
+                ("delta_", f"MEAN(forecast_{element}, weight=population) - "),
+            )
+            for rank in (1, 2, 3)
+        },
+        **{
+            f"{prefix}wavg_similar_day_pool_top3_popw_{element}": {
+                "categorical": "false",
+                "expression": (
+                    f"{forecast}SIMILAR_DAY_MEAN(MEAN({element}, weight=population), gap=(2d, 335d), "
+                    "window=(30, 60), k=3, weight=inverse_distance, holidays=similarity)"
+                ),
+            }
+            for element in ("temperature_c", "solar_radiation_mjm2")
+            for prefix, forecast in (
+                ("", ""),
+                ("delta_", f"MEAN(forecast_{element}, weight=population) - "),
+            )
+        },
     }
     assert list(fields) == [
         "similar_day_rank1_demand_kwh",
@@ -159,6 +204,17 @@ def test_the_similar_day_view_carries_the_ranks_their_mean_and_rank_1s_distance_
         "wavg_similar_day_pool_top3_demand_kwh",
         "similar_day_pool_rank1_distance",
         "similar_day_pool_rank1_lag_days",
+        *(
+            f"{prefix}{stem}_popw_{element}"
+            for prefix in ("", "delta_")
+            for element in ("temperature_c", "solar_radiation_mjm2")
+            for stem in (
+                "similar_day_pool_rank1",
+                "similar_day_pool_rank2",
+                "similar_day_pool_rank3",
+                "wavg_similar_day_pool_top3",
+            )
+        ),
     ]
     assert fields.pop("similar_day_rank1_lag_days").dtype == Int64
     assert fields.pop("similar_day_pool_rank1_lag_days").dtype == Int64
