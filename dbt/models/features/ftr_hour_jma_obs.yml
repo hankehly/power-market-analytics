@@ -91,8 +91,13 @@ unit_tests:
       - input: ref('dim_area')
         rows:
           - {area_key: 1, area_code: tokyo, representative_jma_station_id: s1}
-      - input: ref('fct_census_population_jma_station')
-        rows: []
+      - input: ref('fct_area_weather_hourly')
+        format: sql
+        rows: |
+          select cast(null as int) as area_key, cast(null as date) as date_key,
+            cast(null as int) as hour_ending, cast(null as timestamp) as observed_hour_start_at,
+            cast(null as double) as popw_temperature_c, cast(null as double) as popw_solar_radiation_mjm2
+          where false
       - input: ref('fct_jma_weather_hourly')
         rows:
           - {station_id: s1, date_key: 2025-03-06, observed_hour_start_at: "2025-03-06 00:00:00", temperature_c: null}
@@ -112,50 +117,44 @@ unit_tests:
 
   - name: ftr_hour_jma_obs_population_weighted_24h_and_72h_windows
     description: >
-      Stations s2 and s3 carry Tokyo's weights, 0.75 and 0.25 (a 2015 vintage
-      is ignored), and report every hour from 03-01 00:00 to 03-05 23:00: s2 at
-      10 + 0.5 x the hour + the day of the month, s3 four degrees warmer, so
-      the area's hourly value is s2 + 1. Two things are missing. No station
-      reports 03-01 10:00. s3 has no value at 03-03 07:00, so that hour is s2
-      alone, renormalised. s1, the representative station, carries no weight
-      and has two readings, 03-03 and 03-04 at 23:00, which make the mart's
-      rows: hour ending 24 on 03-05 to 03-12. Each row reads the windows that
-      end at that hour on D-2. 03-05 has its 24-hour mean, 03-03's hours, one
-      of them the renormalised one (19.75 - 1 / 24), but no 72-hour value: its
-      window holds the hour no station reports. 03-06 and 03-07 have all
-      three. From 03-08 the windows end after the last observation, so all are
-      null. The weighted average's 72 weights halve every 24 hours and are
-      literals in the model, so the expected doubles are the same additions
-      and multiplications in the same order in Python.
+      The fact holds Tokyo's population-weighted hour for every hour from
+      03-01 00:00 to 03-05 23:00 at 11 + 0.5 x the hour + the day of the
+      month (the weighting itself is the fact's own unit test). Two things
+      are missing. The fact has no row for 03-01 10:00, the hour no station
+      reported. 03-03 07:00 is one degree lower, 16.5, the hour one station
+      reported alone. s1, the representative station, has two readings, 03-03
+      and 03-04 at 23:00, which make the mart's rows: hour ending 24 on 03-05
+      to 03-12. Each row reads the windows that end at that hour on D-2. 03-05
+      has its 24-hour mean, 03-03's hours, one of them the lower one
+      (19.75 - 1 / 24), but no 72-hour value: its window holds the missing
+      hour. 03-06 and 03-07 have all three. From 03-08 the windows end after
+      the last fact hour, so all are null. The weighted average's 72 weights
+      halve every 24 hours and are literals in the model, so the expected
+      doubles are the same additions and multiplications in the same order in
+      Python.
     model: ftr_hour_jma_obs
     given:
       - input: ref('dim_area')
         rows:
           - {area_key: 1, area_code: tokyo, representative_jma_station_id: s1}
-      - input: ref('fct_census_population_jma_station')
-        rows:
-          - {census_year: 2015, area_key: 1, station_id: s2, area_population_weight: 1.0}
-          - {census_year: 2020, area_key: 1, station_id: s2, area_population_weight: 0.75}
-          - {census_year: 2020, area_key: 1, station_id: s3, area_population_weight: 0.25}
       - input: ref('fct_jma_weather_hourly')
+        rows:
+          - {station_id: s1, date_key: 2025-03-03, observed_hour_start_at: "2025-03-03 23:00:00", temperature_c: 8.0}
+          - {station_id: s1, date_key: 2025-03-04, observed_hour_start_at: "2025-03-04 23:00:00", temperature_c: 9.0}
+      - input: ref('fct_area_weather_hourly')
         format: sql
         rows: |
           with hours as (
             select explode(sequence(
               timestamp '2025-03-01 00:00:00', timestamp '2025-03-05 23:00:00', interval 1 hour)) as ts
           )
-          select 's2' as station_id, cast(ts as date) as date_key, ts as observed_hour_start_at,
-            cast(10 + hour(ts) * 0.5 + day(ts) as double) as temperature_c
+          select 1 as area_key, cast(ts as date) as date_key, hour(ts) + 1 as hour_ending,
+            ts as observed_hour_start_at,
+            case when ts = timestamp '2025-03-03 07:00:00'
+              then cast(10 + hour(ts) * 0.5 + day(ts) as double)
+              else cast(11 + hour(ts) * 0.5 + day(ts) as double) end as popw_temperature_c,
+            cast(null as double) as popw_solar_radiation_mjm2
           from hours where ts <> timestamp '2025-03-01 10:00:00'
-          union all
-          select 's3', cast(ts as date), ts,
-            case when ts <> timestamp '2025-03-03 07:00:00'
-              then cast(14 + hour(ts) * 0.5 + day(ts) as double) end
-          from hours where ts <> timestamp '2025-03-01 10:00:00'
-          union all
-          select 's1', date '2025-03-03', timestamp '2025-03-03 23:00:00', cast(8 as double)
-          union all
-          select 's1', date '2025-03-04', timestamp '2025-03-04 23:00:00', cast(9 as double)
     expect:
       rows:
         - {area_code: tokyo, trade_date: 2025-03-05, hour_ending: 24, mean_24h_popw_temperature_c: 19.708333333333332, mean_72h_popw_temperature_c: null, ewm_72h_popw_temperature_c: null}
