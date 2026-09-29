@@ -397,7 +397,7 @@ FTR_HOUR_JMA_OBS = FeatureView(
         Field(
             name="lag_2d_popw_solar_radiation_mjm2",
             dtype=Float64,
-            description="The area's population-weighted observed solar radiation over this hour on D-2, MJ/m2, from fct_area_weather_hourly (feature candidate #238), weighted over the stations that record it: 7 of Tokyo's 21 weighted stations (東京 three quarters of their weight; 横浜, 千葉 and 熊谷 the largest without) and 3 of Kansai's 11 (大阪 four fifths; 京都, 神戸 and 姫路 without), 55.4 % of each area's weight, so the value is close to the representative station's; the fact's weight_share_solar_radiation_mjm2 gives the hour's share. A more representative radiation source is future work. Null when none of them reported the hour.",
+            description="The area's population-weighted observed solar radiation over this hour on D-2, MJ/m2, from fct_area_weather_hourly (feature candidate #238), weighted over the stations that record it: 7 of Tokyo's 21 weighted stations (東京 three quarters of their weight; 横浜, 千葉 and 熊谷 the largest without) and 3 of Kansai's 11 (大阪 four fifths; 京都, 神戸 and 姫路 without), 55.4 % of each area's weight, so the value is close to the representative station's; the fact's weight_share_solar_radiation gives the hour's share. A more representative radiation source is future work. Null when none of them reported the hour.",
             tags={"categorical": "false", "expression": "LAG(MEAN(solar_radiation_mjm2, weight=population), 2d)"},
         ),
         Field(
