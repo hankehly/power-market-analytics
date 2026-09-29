@@ -938,10 +938,10 @@ FTR_PERIOD_JEPX = FeatureView(
 
 FTR_PERIOD_SIMILAR_DAY_SOURCE = SparkSource(
     name="ftr_period_similar_day",
-    query="select area_code, cast(date_format(trade_date, 'yyyyMMdd') as int) as trade_date_key, time_code, similar_day_rank1_demand_kwh, similar_day_rank2_demand_kwh, similar_day_rank3_demand_kwh, wavg_similar_day_top3_demand_kwh, similar_day_rank1_distance, similar_day_rank1_lag_days, similar_day_pool_rank1_demand_kwh, similar_day_pool_rank2_demand_kwh, similar_day_pool_rank3_demand_kwh, wavg_similar_day_pool_top3_demand_kwh, similar_day_pool_rank1_distance, similar_day_pool_rank1_lag_days, available_at, published_at from pma_features.ftr_period_similar_day",
+    query="select area_code, cast(date_format(trade_date, 'yyyyMMdd') as int) as trade_date_key, time_code, similar_day_rank1_demand_kwh, similar_day_rank2_demand_kwh, similar_day_rank3_demand_kwh, wavg_similar_day_top3_demand_kwh, similar_day_rank1_distance, similar_day_rank1_lag_days, similar_day_pool_rank1_demand_kwh, similar_day_pool_rank2_demand_kwh, similar_day_pool_rank3_demand_kwh, wavg_similar_day_pool_top3_demand_kwh, similar_day_pool_rank1_distance, similar_day_pool_rank1_lag_days, similar_day_pool_rank1_popw_temperature_c, similar_day_pool_rank2_popw_temperature_c, similar_day_pool_rank3_popw_temperature_c, wavg_similar_day_pool_top3_popw_temperature_c, similar_day_pool_rank1_popw_solar_radiation_mjm2, similar_day_pool_rank2_popw_solar_radiation_mjm2, similar_day_pool_rank3_popw_solar_radiation_mjm2, wavg_similar_day_pool_top3_popw_solar_radiation_mjm2, delta_similar_day_pool_rank1_popw_temperature_c, delta_similar_day_pool_rank2_popw_temperature_c, delta_similar_day_pool_rank3_popw_temperature_c, delta_wavg_similar_day_pool_top3_popw_temperature_c, delta_similar_day_pool_rank1_popw_solar_radiation_mjm2, delta_similar_day_pool_rank2_popw_solar_radiation_mjm2, delta_similar_day_pool_rank3_popw_solar_radiation_mjm2, delta_wavg_similar_day_pool_top3_popw_solar_radiation_mjm2, available_at, published_at from pma_features.ftr_period_similar_day",
     timestamp_field="available_at",
     created_timestamp_column="published_at",
-    description="The demand similar-day features for every delivery period, as scripts/fit_similar_day.py scored them walking forward and wrote them to pma_ml.similar_day. The pool follows Park, Song and Kwon (2020): for a delivery day D, the days D - 2 ... D - 31 and D - 335 ... D - 394, without special days (dim_date.is_holiday) and without days whose whole load was not public by D's issue time (09:30 on D-1). Every few days the job refits the seven weights of tasks/demand/similar_day.py's distance on the 730 days before that step and ranks the days that follow with them. The distance has seven parts: the lag in days, the 24-hour RMSE of D's population-weighted MSM forecast against the candidate's population-weighted observation for temperature, humidity and rain, and the differences in days since and until a named holiday and in holiday degree. The three nearest days give four features: their hourly loads over the hour containing the period, halved, and their inverse-distance weighted mean. A special day whose same holiday last year (dim_date.holiday_name_ja) lies 335 ... 394 days back, with its load public by the issue time, takes that day instead (similar_day_method same_holiday): rank 1 and the mean carry its load, and ranks 2 and 3, the distances, the candidate count and the fit cutoff are null. Any other special day is ranked like an ordinary day (similarity). The similar_day_pool_* columns carry the ranking on every day, that override included, so a preset picks the variant it wants. No day is ranked with weights that saw a load that was not yet public: each fit runs at a cutoff on the pairs of the 730 days before it whose target load was public by then, and a day is ranked by the latest fit whose cutoff is on or before its issue time. available_at is the latest of every input behind the row, both variants' included: D's MSM forecast vintage, the fit's cutoff and the load availability of the days either variant ranked or took. The reference days, distances, candidate count, fit cutoff and method sit next to the features, untagged. One row per scoring run: the as-of join takes the newest run usable at the issue time, and among rows tied on available_at the newest published wins. So a re-run replaces an older run's row only where the two rows' available_at tie: a same-holiday row, public about a year before its day, loses to an older run's ranked row for the same day. When the method's rules change, drop pma_ml.similar_day (or the older run's partition) before the re-run. Grain: area_code x trade_date x time_code x similar_day_run_id.",
+    description="The demand similar-day features for every delivery period, as scripts/fit_similar_day.py scored them walking forward and wrote them to pma_ml.similar_day. The pool follows Park, Song and Kwon (2020): for a delivery day D, the days D - 2 ... D - 31 and D - 335 ... D - 394, without special days (dim_date.is_holiday) and without days whose whole load was not public by D's issue time (09:30 on D-1). Every few days the job refits the seven weights of tasks/demand/similar_day.py's distance on the 730 days before that step and ranks the days that follow with them. The distance has seven parts: the lag in days, the 24-hour RMSE of D's population-weighted MSM forecast against the candidate's population-weighted observation for temperature, humidity and rain, and the differences in days since and until a named holiday and in holiday degree. The three nearest days give four features: their hourly loads over the hour containing the period, halved, and their inverse-distance weighted mean. A special day whose same holiday last year (dim_date.holiday_name_ja) lies 335 ... 394 days back, with its load public by the issue time, takes that day instead (similar_day_method same_holiday): rank 1 and the mean carry its load, and ranks 2 and 3, the distances, the candidate count and the fit cutoff are null. Any other special day is ranked like an ordinary day (similarity). The similar_day_pool_* columns carry the ranking on every day, that override included, so a preset picks the variant it wants. No day is ranked with weights that saw a load that was not yet public: each fit runs at a cutoff on the pairs of the 730 days before it whose target load was public by then, and a day is ranked by the latest fit whose cutoff is on or before its issue time. available_at is the latest of every input behind the row, both variants' included: D's MSM forecast vintage, the fit's cutoff and the load availability of the days either variant ranked or took. The reference days, distances, candidate count, fit cutoff and method sit next to the features, untagged. One row per scoring run: the as-of join takes the newest run usable at the issue time, and among rows tied on available_at the newest published wins. So a re-run replaces an older run's row only where the two rows' available_at tie: a same-holiday row, public about a year before its day, loses to an older run's ranked row for the same day. When the method's rules change, drop pma_ml.similar_day (or the older run's partition) before the re-run. Since 2026-09-29 (feature candidates #237 and #238, spec docs/superpowers/specs/2026-09-29-lag-window-weather-siblings-design.md, section 5.7) the mart also carries the pool days' observed weather at the hour containing the period — fct_area_weather_hourly's population-weighted temperature and solar radiation on each pool rank's reference date, their inverse-distance mean under the job's rule (the inverse_distance_mean macro, proven equal to the job's own mean by the singular test assert_ftr_period_similar_day_mean_rule_reproduces_the_job) — and D's population-weighted forecast at that hour (ftr_hour_msm, one vintage per delivery day) minus each: 16 columns, null where the fact has no hour on a pool day, the pool has no such rank or D has no forecast. available_at is unchanged: the row already waits for the vintage, and a pool day's weather is public an hour after its hour, long before its load. Grain: area_code x trade_date x time_code x similar_day_run_id.",
 )
 FTR_PERIOD_SIMILAR_DAY = FeatureView(
     name="ftr_period_similar_day",
@@ -1019,10 +1019,106 @@ FTR_PERIOD_SIMILAR_DAY = FeatureView(
             description="The days from the pool ranking's rank-1 day to D. Always in one of the pool's two windows, 2 to 31 or 335 to 394: the same-holiday override cannot reach it. Null where the pool had no candidate.",
             tags={"categorical": "false", "expression": "similar_day_pool_rank1_lag_days"},
         ),
+        Field(
+            name="similar_day_pool_rank1_popw_temperature_c",
+            dtype=Float64,
+            description="The area's population-weighted observed temperature (fct_area_weather_hourly) at the hour containing the period on the pool's rank-1 day, similar_day_pool_rank1_reference_date, C: the weather similar_day_pool_rank1_demand_kwh was recorded under (feature candidate #237). Null where the fact has no hour on that day or the pool has no rank 1.",
+            tags={"categorical": "false", "expression": "SIMILAR_DAY(MEAN(temperature_c, weight=population), gap=(2d, 335d), window=(30, 60), rank=1, holidays=similarity)"},
+        ),
+        Field(
+            name="similar_day_pool_rank2_popw_temperature_c",
+            dtype=Float64,
+            description="The same on the pool's rank-2 day (feature candidate #237).",
+            tags={"categorical": "false", "expression": "SIMILAR_DAY(MEAN(temperature_c, weight=population), gap=(2d, 335d), window=(30, 60), rank=2, holidays=similarity)"},
+        ),
+        Field(
+            name="similar_day_pool_rank3_popw_temperature_c",
+            dtype=Float64,
+            description="The same on the pool's rank-3 day (feature candidate #237).",
+            tags={"categorical": "false", "expression": "SIMILAR_DAY(MEAN(temperature_c, weight=population), gap=(2d, 335d), window=(30, 60), rank=3, holidays=similarity)"},
+        ),
+        Field(
+            name="wavg_similar_day_pool_top3_popw_temperature_c",
+            dtype=Float64,
+            description="The three ranks' temperatures weighted by the job's inverse-distance weights (the inverse_distance_mean macro: 1 / distance per rank, renormalised over the ranks whose value is present, zero distances sharing the weight equally), C: the temperature wavg_similar_day_pool_top3_demand_kwh's loads were recorded under (feature candidate #237). Null where no rank has a value.",
+            tags={"categorical": "false", "expression": "SIMILAR_DAY_MEAN(MEAN(temperature_c, weight=population), gap=(2d, 335d), window=(30, 60), k=3, weight=inverse_distance, holidays=similarity)"},
+        ),
+        Field(
+            name="similar_day_pool_rank1_popw_solar_radiation_mjm2",
+            dtype=Float64,
+            description="The area's population-weighted observed solar radiation over the hour containing the period on the pool's rank-1 day, MJ/m2 (feature candidate #238), weighted over the stations that record it: 7 of Tokyo's 21 weighted stations and 3 of Kansai's 11, 55.4 % of each area's weight (fct_area_weather_hourly's description); a more representative radiation source is future work. Null where the fact has no hour on that day or the pool has no rank 1.",
+            tags={"categorical": "false", "expression": "SIMILAR_DAY(MEAN(solar_radiation_mjm2, weight=population), gap=(2d, 335d), window=(30, 60), rank=1, holidays=similarity)"},
+        ),
+        Field(
+            name="similar_day_pool_rank2_popw_solar_radiation_mjm2",
+            dtype=Float64,
+            description="The same on the pool's rank-2 day (feature candidate #238).",
+            tags={"categorical": "false", "expression": "SIMILAR_DAY(MEAN(solar_radiation_mjm2, weight=population), gap=(2d, 335d), window=(30, 60), rank=2, holidays=similarity)"},
+        ),
+        Field(
+            name="similar_day_pool_rank3_popw_solar_radiation_mjm2",
+            dtype=Float64,
+            description="The same on the pool's rank-3 day (feature candidate #238).",
+            tags={"categorical": "false", "expression": "SIMILAR_DAY(MEAN(solar_radiation_mjm2, weight=population), gap=(2d, 335d), window=(30, 60), rank=3, holidays=similarity)"},
+        ),
+        Field(
+            name="wavg_similar_day_pool_top3_popw_solar_radiation_mjm2",
+            dtype=Float64,
+            description="The three ranks' radiation weighted by the job's inverse-distance weights, as the temperature mean is (feature candidate #238). Null where no rank has a value.",
+            tags={"categorical": "false", "expression": "SIMILAR_DAY_MEAN(MEAN(solar_radiation_mjm2, weight=population), gap=(2d, 335d), window=(30, 60), k=3, weight=inverse_distance, holidays=similarity)"},
+        ),
+        Field(
+            name="delta_similar_day_pool_rank1_popw_temperature_c",
+            dtype=Float64,
+            description="D's population-weighted forecast temperature at this hour (ftr_hour_msm) minus similar_day_pool_rank1_popw_temperature_c, C: how far the target hour's weather sits from the weather the rank-1 day's load comes from; positive when D is warmer (feature candidate #237). Null without a forecast row or a sibling.",
+            tags={"categorical": "false", "expression": "MEAN(forecast_temperature_c, weight=population) - SIMILAR_DAY(MEAN(temperature_c, weight=population), gap=(2d, 335d), window=(30, 60), rank=1, holidays=similarity)"},
+        ),
+        Field(
+            name="delta_similar_day_pool_rank2_popw_temperature_c",
+            dtype=Float64,
+            description="The same against the rank-2 day's temperature (feature candidate #237).",
+            tags={"categorical": "false", "expression": "MEAN(forecast_temperature_c, weight=population) - SIMILAR_DAY(MEAN(temperature_c, weight=population), gap=(2d, 335d), window=(30, 60), rank=2, holidays=similarity)"},
+        ),
+        Field(
+            name="delta_similar_day_pool_rank3_popw_temperature_c",
+            dtype=Float64,
+            description="The same against the rank-3 day's temperature (feature candidate #237).",
+            tags={"categorical": "false", "expression": "MEAN(forecast_temperature_c, weight=population) - SIMILAR_DAY(MEAN(temperature_c, weight=population), gap=(2d, 335d), window=(30, 60), rank=3, holidays=similarity)"},
+        ),
+        Field(
+            name="delta_wavg_similar_day_pool_top3_popw_temperature_c",
+            dtype=Float64,
+            description="The same against wavg_similar_day_pool_top3_popw_temperature_c (feature candidate #237).",
+            tags={"categorical": "false", "expression": "MEAN(forecast_temperature_c, weight=population) - SIMILAR_DAY_MEAN(MEAN(temperature_c, weight=population), gap=(2d, 335d), window=(30, 60), k=3, weight=inverse_distance, holidays=similarity)"},
+        ),
+        Field(
+            name="delta_similar_day_pool_rank1_popw_solar_radiation_mjm2",
+            dtype=Float64,
+            description="D's population-weighted forecast solar radiation over this hour minus similar_day_pool_rank1_popw_solar_radiation_mjm2, MJ/m2; positive when D is forecast brighter than the rank-1 day (feature candidate #238). The observed side rests on the stations that record radiation, 55.4 % of the area; the forecast side on every station. Null without a forecast row or a sibling.",
+            tags={"categorical": "false", "expression": "MEAN(forecast_solar_radiation_mjm2, weight=population) - SIMILAR_DAY(MEAN(solar_radiation_mjm2, weight=population), gap=(2d, 335d), window=(30, 60), rank=1, holidays=similarity)"},
+        ),
+        Field(
+            name="delta_similar_day_pool_rank2_popw_solar_radiation_mjm2",
+            dtype=Float64,
+            description="The same against the rank-2 day's radiation (feature candidate #238).",
+            tags={"categorical": "false", "expression": "MEAN(forecast_solar_radiation_mjm2, weight=population) - SIMILAR_DAY(MEAN(solar_radiation_mjm2, weight=population), gap=(2d, 335d), window=(30, 60), rank=2, holidays=similarity)"},
+        ),
+        Field(
+            name="delta_similar_day_pool_rank3_popw_solar_radiation_mjm2",
+            dtype=Float64,
+            description="The same against the rank-3 day's radiation (feature candidate #238).",
+            tags={"categorical": "false", "expression": "MEAN(forecast_solar_radiation_mjm2, weight=population) - SIMILAR_DAY(MEAN(solar_radiation_mjm2, weight=population), gap=(2d, 335d), window=(30, 60), rank=3, holidays=similarity)"},
+        ),
+        Field(
+            name="delta_wavg_similar_day_pool_top3_popw_solar_radiation_mjm2",
+            dtype=Float64,
+            description="The same against wavg_similar_day_pool_top3_popw_solar_radiation_mjm2 (feature candidate #238).",
+            tags={"categorical": "false", "expression": "MEAN(forecast_solar_radiation_mjm2, weight=population) - SIMILAR_DAY_MEAN(MEAN(solar_radiation_mjm2, weight=population), gap=(2d, 335d), window=(30, 60), k=3, weight=inverse_distance, holidays=similarity)"},
+        ),
     ],
     source=FTR_PERIOD_SIMILAR_DAY_SOURCE,
     online=False,
-    description="The demand similar-day features for every delivery period, as scripts/fit_similar_day.py scored them walking forward and wrote them to pma_ml.similar_day. The pool follows Park, Song and Kwon (2020): for a delivery day D, the days D - 2 ... D - 31 and D - 335 ... D - 394, without special days (dim_date.is_holiday) and without days whose whole load was not public by D's issue time (09:30 on D-1). Every few days the job refits the seven weights of tasks/demand/similar_day.py's distance on the 730 days before that step and ranks the days that follow with them. The distance has seven parts: the lag in days, the 24-hour RMSE of D's population-weighted MSM forecast against the candidate's population-weighted observation for temperature, humidity and rain, and the differences in days since and until a named holiday and in holiday degree. The three nearest days give four features: their hourly loads over the hour containing the period, halved, and their inverse-distance weighted mean. A special day whose same holiday last year (dim_date.holiday_name_ja) lies 335 ... 394 days back, with its load public by the issue time, takes that day instead (similar_day_method same_holiday): rank 1 and the mean carry its load, and ranks 2 and 3, the distances, the candidate count and the fit cutoff are null. Any other special day is ranked like an ordinary day (similarity). The similar_day_pool_* columns carry the ranking on every day, that override included, so a preset picks the variant it wants. No day is ranked with weights that saw a load that was not yet public: each fit runs at a cutoff on the pairs of the 730 days before it whose target load was public by then, and a day is ranked by the latest fit whose cutoff is on or before its issue time. available_at is the latest of every input behind the row, both variants' included: D's MSM forecast vintage, the fit's cutoff and the load availability of the days either variant ranked or took. The reference days, distances, candidate count, fit cutoff and method sit next to the features, untagged. One row per scoring run: the as-of join takes the newest run usable at the issue time, and among rows tied on available_at the newest published wins. So a re-run replaces an older run's row only where the two rows' available_at tie: a same-holiday row, public about a year before its day, loses to an older run's ranked row for the same day. When the method's rules change, drop pma_ml.similar_day (or the older run's partition) before the re-run. Grain: area_code x trade_date x time_code x similar_day_run_id.",
+    description="The demand similar-day features for every delivery period, as scripts/fit_similar_day.py scored them walking forward and wrote them to pma_ml.similar_day. The pool follows Park, Song and Kwon (2020): for a delivery day D, the days D - 2 ... D - 31 and D - 335 ... D - 394, without special days (dim_date.is_holiday) and without days whose whole load was not public by D's issue time (09:30 on D-1). Every few days the job refits the seven weights of tasks/demand/similar_day.py's distance on the 730 days before that step and ranks the days that follow with them. The distance has seven parts: the lag in days, the 24-hour RMSE of D's population-weighted MSM forecast against the candidate's population-weighted observation for temperature, humidity and rain, and the differences in days since and until a named holiday and in holiday degree. The three nearest days give four features: their hourly loads over the hour containing the period, halved, and their inverse-distance weighted mean. A special day whose same holiday last year (dim_date.holiday_name_ja) lies 335 ... 394 days back, with its load public by the issue time, takes that day instead (similar_day_method same_holiday): rank 1 and the mean carry its load, and ranks 2 and 3, the distances, the candidate count and the fit cutoff are null. Any other special day is ranked like an ordinary day (similarity). The similar_day_pool_* columns carry the ranking on every day, that override included, so a preset picks the variant it wants. No day is ranked with weights that saw a load that was not yet public: each fit runs at a cutoff on the pairs of the 730 days before it whose target load was public by then, and a day is ranked by the latest fit whose cutoff is on or before its issue time. available_at is the latest of every input behind the row, both variants' included: D's MSM forecast vintage, the fit's cutoff and the load availability of the days either variant ranked or took. The reference days, distances, candidate count, fit cutoff and method sit next to the features, untagged. One row per scoring run: the as-of join takes the newest run usable at the issue time, and among rows tied on available_at the newest published wins. So a re-run replaces an older run's row only where the two rows' available_at tie: a same-holiday row, public about a year before its day, loses to an older run's ranked row for the same day. When the method's rules change, drop pma_ml.similar_day (or the older run's partition) before the re-run. Since 2026-09-29 (feature candidates #237 and #238, spec docs/superpowers/specs/2026-09-29-lag-window-weather-siblings-design.md, section 5.7) the mart also carries the pool days' observed weather at the hour containing the period — fct_area_weather_hourly's population-weighted temperature and solar radiation on each pool rank's reference date, their inverse-distance mean under the job's rule (the inverse_distance_mean macro, proven equal to the job's own mean by the singular test assert_ftr_period_similar_day_mean_rule_reproduces_the_job) — and D's population-weighted forecast at that hour (ftr_hour_msm, one vintage per delivery day) minus each: 16 columns, null where the fact has no hour on a pool day, the pool has no such rank or D has no forecast. available_at is unchanged: the row already waits for the vintage, and a pool day's weather is public an hour after its hour, long before its load. Grain: area_code x trade_date x time_code x similar_day_run_id.",
     tags={"grain": "period"},
 )
 
