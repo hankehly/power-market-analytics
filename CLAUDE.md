@@ -869,8 +869,8 @@
   for, so no `available_at` of the observation mart moves; in no preset yet; since
   2026-09-29 the singular test `assert_ftr_hour_msm_one_vintage_per_delivery_day` fails
   the build should a second vintage of a delivery day and hour ever be loaded, because
-  the period marts `ftr_period_daytype_weather` and `ftr_period_similar_day` join this
-  mart on area, day and hour and a second vintage would double their rows — only the
+  `ftr_period_daytype_weather` (and `ftr_period_similar_day` from PR 4 of the spec) joins
+  this mart on area, day and hour and a second vintage would double its rows — only the
   12 UTC D-2 run is loaded, the spec's decision 10), `ftr_period_actuals` (since
   2026-09-12 the lags of 2, 3, 7, 9, 14, 21 and 28 days, the plain and 8:4:2:1 weighted
   means of the four weekly lags, the D-2 − D-9 change and the same two means over the last
