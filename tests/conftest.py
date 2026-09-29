@@ -910,6 +910,68 @@ def accumulated_temperature(day: pd.Timestamp, hour_ending: int) -> dict[str, fl
     }
 
 
+def lag_popw_temperature(day: pd.Timestamp, hour_ending: int, lag_days: int) -> float | None:
+    """``ftr_hour_jma_obs.lag_<k>d_popw_temperature_c`` of the fixture for a delivery-day hour.
+
+    Only the representative station observes in the fixture, so the area's
+    population-weighted temperature at the hour on D-k is its
+    ``synthetic_temperature``; None outside ``DEMAND_DAYS`` or in
+    ``TEMPERATURE_MISSING_HOURS``. The fixture records no solar radiation, so
+    the radiation siblings are None everywhere.
+
+    Parameters
+    ----------
+    day : pandas.Timestamp
+        The delivery day D.
+    hour_ending : int
+        The hour, 1 to 24.
+    lag_days : int
+        2 or 7, the days back.
+
+    Returns
+    -------
+    float or None
+    """
+    obs_day = day - pd.Timedelta(days=lag_days)
+    if obs_day not in DEMAND_DAYS or (obs_day, hour_ending) in TEMPERATURE_MISSING_HOURS:
+        return None
+    return synthetic_temperature(obs_day, hour_ending)
+
+
+def delta_to_lag_popw_temperature(
+    day: pd.Timestamp, hour_ending: int, lag_days: int
+) -> float | None:
+    """``ftr_hour_msm.delta_lag_<k>d_popw_temperature_c`` of the fixture for a delivery-day hour.
+
+    D's population-weighted forecast temperature (``popw_forecast`` of
+    ``synthetic_forecast_temperature``) minus ``lag_popw_temperature``; None
+    without a sibling.
+
+    Parameters
+    ----------
+    day : pandas.Timestamp
+        The delivery day D.
+    hour_ending : int
+        The hour, 1 to 24.
+    lag_days : int
+        2 or 7, the days back.
+
+    Returns
+    -------
+    float or None
+    """
+    sibling = lag_popw_temperature(day, hour_ending, lag_days)
+    if sibling is None:
+        return None
+    forecast = popw_forecast(
+        day,
+        hour_ending,
+        synthetic_forecast_temperature(day, hour_ending),
+        SECOND_STATION_FORECAST_OFFSET_C,
+    )
+    return forecast - sibling
+
+
 def popw_forecast(day: pd.Timestamp, hour_ending: int, value: float, offset: float) -> float:
     """A ``ftr_hour_msm`` population-weighted column of the fixture for a delivery-day hour.
 
@@ -1493,6 +1555,10 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
                     "hour_ending": hour,
                     "wavg_temperature_c": value,
                     **accumulated_temperature(day, hour),
+                    "lag_2d_popw_temperature_c": lag_popw_temperature(day, hour, 2),
+                    "lag_7d_popw_temperature_c": lag_popw_temperature(day, hour, 7),
+                    "lag_2d_popw_solar_radiation_mjm2": None,
+                    "lag_7d_popw_solar_radiation_mjm2": None,
                     "available_at": day - pd.Timedelta(days=1) + pd.Timedelta(hours=1),
                 }
             )
@@ -1501,6 +1567,10 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
         "mean_24h_popw_temperature_c",
         "mean_72h_popw_temperature_c",
         "ewm_72h_popw_temperature_c",
+        "lag_2d_popw_temperature_c",
+        "lag_7d_popw_temperature_c",
+        "lag_2d_popw_solar_radiation_mjm2",
+        "lag_7d_popw_solar_radiation_mjm2",
     ):
         jma_obs[col] = nullable_column(jma_obs[col], float)
     msm_rows: list[dict[str, Any]] = [
@@ -1553,6 +1623,12 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
                     SECOND_STATION_FORECAST_HUMIDITY_OFFSET_PCT,
                 ),
             ),
+            # D's forecast minus the sibling hour: None without one. The fixture
+            # observes no radiation, so the radiation deltas are None everywhere.
+            "delta_lag_2d_popw_temperature_c": delta_to_lag_popw_temperature(day, hour, 2),
+            "delta_lag_7d_popw_temperature_c": delta_to_lag_popw_temperature(day, hour, 7),
+            "delta_lag_2d_popw_solar_radiation_mjm2": None,
+            "delta_lag_7d_popw_solar_radiation_mjm2": None,
             # The D-2 12 UTC vintage, reference 21:00 JST, public four hours later.
             "available_at": day - pd.Timedelta(days=1) + pd.Timedelta(hours=1),
         }
@@ -1973,18 +2049,30 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
         jma_obs,
         "area_code string, trade_date date, hour_ending int, wavg_temperature_c double, "
         "mean_24h_popw_temperature_c double, mean_72h_popw_temperature_c double, "
-        "ewm_72h_popw_temperature_c double, available_at timestamp",
+        "ewm_72h_popw_temperature_c double, lag_2d_popw_temperature_c double, "
+        "lag_7d_popw_temperature_c double, lag_2d_popw_solar_radiation_mjm2 double, "
+        "lag_7d_popw_solar_radiation_mjm2 double, available_at timestamp",
         "pma_features.ftr_hour_jma_obs",
     )
+    msm = pd.DataFrame(msm_rows)
+    for col in (
+        "delta_lag_2d_popw_temperature_c",
+        "delta_lag_7d_popw_temperature_c",
+        "delta_lag_2d_popw_solar_radiation_mjm2",
+        "delta_lag_7d_popw_solar_radiation_mjm2",
+    ):
+        msm[col] = nullable_column(msm[col], float)
     write_table(
         spark,
-        pd.DataFrame(msm_rows),
+        msm,
         "area_code string, trade_date date, hour_ending int, forecast_temperature_c double, "
         "popw_forecast_temperature_c double, popw_forecast_relative_humidity_pct double, "
         "popw_forecast_precipitation_mm double, popw_forecast_solar_radiation_mjm2 double, "
         + "".join(f"popw_forecast_{element} double, " for element in MSM_EXTRA_ELEMENTS)
         + "popw_forecast_discomfort_index double, "
-        "cum_popw_forecast_solar_radiation_mjm2 double, available_at timestamp",
+        "cum_popw_forecast_solar_radiation_mjm2 double, delta_lag_2d_popw_temperature_c double, "
+        "delta_lag_7d_popw_temperature_c double, delta_lag_2d_popw_solar_radiation_mjm2 double, "
+        "delta_lag_7d_popw_solar_radiation_mjm2 double, available_at timestamp",
         "pma_features.ftr_hour_msm",
     )
     write_table(

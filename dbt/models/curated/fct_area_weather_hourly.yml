@@ -1,0 +1,184 @@
+models:
+  - name: fct_area_weather_hourly
+    config:
+      contract:
+        enforced: true
+    description: >
+      The area's population-weighted observed weather, one row per bidding zone and
+      observation hour: an aggregate of fct_jma_weather_hourly over the area's staffed
+      stations with fct_census_population_jma_station's weights of the latest census
+      vintage, renormalised over the stations that report the element that hour and added
+      in station order (the ordered_weighted_mean macro), as ftr_hour_msm weighs the
+      forecast. Every feature that reads the weather of a past day reads it here, so the
+      weighting is defined once (until 2026-09-29 ftr_hour_jma_obs computed the same means
+      inside its own SQL, equal to the bit). Grain: area_key x observed_at (the hour end, as
+      fct_jma_weather_hourly places it; hour 24 on the day it ends). A row exists for every
+      hour any weighted station has a row for; an element no station reports that hour is
+      null with n_stations 0 and weight_share 0. Coverage differs by element: temperature is
+      recorded at every weighted station; solar radiation at 7 of Tokyo's 21 (東京 0.417,
+      つくば 0.046, 宇都宮 0.034, 前橋 0.034, 甲府 0.014, 銚子 0.010, 父島; 55.4 % of the
+      weight, 横浜, 千葉 and 熊谷 the largest without) and 3 of Kansai's 11 (大阪 0.446, 奈良
+      0.080, 彦根 0.029; 55.4 %, 京都, 神戸 and 姫路 the largest without), so a radiation
+      mean is close to the representative station's reading, and
+      weight_share_solar_radiation says on every row how much of the area it rests on.
+      A more representative radiation source is future work.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - area_key
+              - observed_at
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "(popw_temperature_c is null) = (n_stations_temperature = 0)"
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "(popw_solar_radiation_mjm2 is null) = (n_stations_solar_radiation = 0)"
+    columns:
+      - name: area_key
+        data_type: int
+        description: Foreign key to dim_area.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_area')
+                field: area_key
+      - name: date_key
+        data_type: date
+        description: >
+          Foreign key to dim_date on the observation day, the hour-start date: hour 24
+          stays on the day it measured.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_date')
+                field: date_key
+      - name: hour_ending
+        data_type: int
+        description: Observation hour 1-24, hour ending, the JMA convention.
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 1
+                max_value: 24
+      - name: observed_at
+        data_type: timestamp
+        description: End of the observation hour (JST), fct_jma_weather_hourly's.
+        data_tests:
+          - not_null
+      - name: observed_hour_start_at
+        data_type: timestamp
+        description: Start of the observation hour, observed_at minus one hour.
+        data_tests:
+          - not_null
+      - name: census_year
+        data_type: int
+        description: The census vintage whose weights the row uses, the latest loaded.
+        data_tests:
+          - not_null
+      - name: popw_temperature_c
+        data_type: double
+        description: >
+          The temperature weighted over the area's stations that report it this hour,
+          renormalised over them, C; null when none does.
+      - name: n_stations_temperature
+        data_type: int
+        description: How many weighted stations report a temperature this hour.
+        data_tests:
+          - not_null
+      - name: weight_share_temperature
+        data_type: double
+        description: >
+          The population weight of the stations that report a temperature this hour, 0 to
+          1: the share of the area the mean rests on. Rounded to twelve decimals, because
+          an area's weights add up to 1 only within floating rounding (Kyushu's 25 give
+          1.0000000000000002); the mean itself is not rounded.
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 1
+      - name: popw_solar_radiation_mjm2
+        data_type: double
+        description: >
+          The global solar radiation over the hour weighted over the area's stations that
+          record it, renormalised over them, MJ/m2; null when none does. Recorded at 7 of
+          Tokyo's 21 weighted stations and 3 of Kansai's 11 (the model description), so
+          the mean is 75 % (東京) or 80 % (大阪) the representative station's reading.
+      - name: n_stations_solar_radiation
+        data_type: int
+        description: How many weighted stations report solar radiation this hour.
+        data_tests:
+          - not_null
+      - name: weight_share_solar_radiation
+        data_type: double
+        description: >
+          The population weight of the stations that report solar radiation this hour,
+          0 to 1; 0.554 in Tokyo and in Kansai when all of theirs do.
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 1
+      - name: available_at
+        data_type: timestamp
+        description: >
+          When the row became public, naive JST: the latest of its stations' rows,
+          observed_at + 1 h under the standardized rule.
+        data_tests:
+          - not_null
+
+unit_tests:
+  - name: fct_area_weather_hourly_weights_renormalise_per_element
+    description: >
+      Two Tokyo stations with 2020 weights 0.75 (s1) and 0.25 (s2), a 2015 vintage that
+      must be ignored, and s3 with rows but no census weight, which must not count. Hour 1:
+      both report a temperature (10 and 20, so 12.5 over the whole weight), only s1 reports
+      radiation (1.0 over its 0.75, renormalised to 1.0, share 0.75). Hour 2: neither
+      reports a temperature (null, count 0, share 0) and s1 alone reports radiation 0.5.
+      available_at is the stations' latest.
+    model: fct_area_weather_hourly
+    given:
+      - input: ref('fct_census_population_jma_station')
+        rows:
+          - {census_year: 2015, area_key: 1, station_id: s1, area_population_weight: 1.0}
+          - {census_year: 2020, area_key: 1, station_id: s1, area_population_weight: 0.75}
+          - {census_year: 2020, area_key: 1, station_id: s2, area_population_weight: 0.25}
+      - input: ref('fct_jma_weather_hourly')
+        rows:
+          - {station_id: s1, observed_at: "2025-03-01 01:00:00", observed_hour_start_at: "2025-03-01 00:00:00", date_key: 2025-03-01, temperature_c: 10.0, solar_radiation_mjm2: 1.0, available_at: "2025-03-01 02:00:00"}
+          - {station_id: s2, observed_at: "2025-03-01 01:00:00", observed_hour_start_at: "2025-03-01 00:00:00", date_key: 2025-03-01, temperature_c: 20.0, solar_radiation_mjm2: null, available_at: "2025-03-01 02:00:00"}
+          - {station_id: s3, observed_at: "2025-03-01 01:00:00", observed_hour_start_at: "2025-03-01 00:00:00", date_key: 2025-03-01, temperature_c: 99.0, solar_radiation_mjm2: 99.0, available_at: "2025-03-01 02:00:00"}
+          - {station_id: s1, observed_at: "2025-03-01 02:00:00", observed_hour_start_at: "2025-03-01 01:00:00", date_key: 2025-03-01, temperature_c: null, solar_radiation_mjm2: 0.5, available_at: "2025-03-01 03:00:00"}
+          - {station_id: s2, observed_at: "2025-03-01 02:00:00", observed_hour_start_at: "2025-03-01 01:00:00", date_key: 2025-03-01, temperature_c: null, solar_radiation_mjm2: null, available_at: "2025-03-01 03:00:00"}
+    expect:
+      rows:
+        - {area_key: 1, date_key: 2025-03-01, hour_ending: 1, observed_at: "2025-03-01 01:00:00", observed_hour_start_at: "2025-03-01 00:00:00", census_year: 2020, popw_temperature_c: 12.5, n_stations_temperature: 2, weight_share_temperature: 1.0, popw_solar_radiation_mjm2: 1.0, n_stations_solar_radiation: 1, weight_share_solar_radiation: 0.75, available_at: "2025-03-01 02:00:00"}
+        - {area_key: 1, date_key: 2025-03-01, hour_ending: 2, observed_at: "2025-03-01 02:00:00", observed_hour_start_at: "2025-03-01 01:00:00", census_year: 2020, popw_temperature_c: null, n_stations_temperature: 0, weight_share_temperature: 0.0, popw_solar_radiation_mjm2: 0.5, n_stations_solar_radiation: 1, weight_share_solar_radiation: 0.75, available_at: "2025-03-01 03:00:00"}
+
+  - name: fct_area_weather_hourly_weight_share_is_rounded_to_twelve_decimals
+    description: >
+      Three stations whose weights 0.7, 0.2 and 0.1 add up to 0.9999999999999999 in
+      doubles (Kyushu's 25 weights add up to 1.0000000000000002 the same way, on every
+      hour all 25 report). The share is a coverage number, so it is rounded to twelve
+      decimals and reads 1.0; the mean is not rounded.
+    model: fct_area_weather_hourly
+    given:
+      - input: ref('fct_census_population_jma_station')
+        rows:
+          - {census_year: 2020, area_key: 1, station_id: s1, area_population_weight: 0.7}
+          - {census_year: 2020, area_key: 1, station_id: s2, area_population_weight: 0.2}
+          - {census_year: 2020, area_key: 1, station_id: s3, area_population_weight: 0.1}
+      - input: ref('fct_jma_weather_hourly')
+        rows:
+          - {station_id: s1, observed_at: "2025-03-01 01:00:00", observed_hour_start_at: "2025-03-01 00:00:00", date_key: 2025-03-01, temperature_c: 10.0, solar_radiation_mjm2: null, available_at: "2025-03-01 02:00:00"}
+          - {station_id: s2, observed_at: "2025-03-01 01:00:00", observed_hour_start_at: "2025-03-01 00:00:00", date_key: 2025-03-01, temperature_c: 10.0, solar_radiation_mjm2: null, available_at: "2025-03-01 02:00:00"}
+          - {station_id: s3, observed_at: "2025-03-01 01:00:00", observed_hour_start_at: "2025-03-01 00:00:00", date_key: 2025-03-01, temperature_c: 10.0, solar_radiation_mjm2: null, available_at: "2025-03-01 02:00:00"}
+    expect:
+      rows:
+        - {area_key: 1, hour_ending: 1, n_stations_temperature: 3, weight_share_temperature: 1.0, n_stations_solar_radiation: 0, weight_share_solar_radiation: 0.0}

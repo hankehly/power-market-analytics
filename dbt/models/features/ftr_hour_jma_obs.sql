@@ -26,56 +26,21 @@ with
     inner join areas on areas.station_id = weather.station_id
   ),
 
-  -- The latest census vintage's station weights, as ftr_hour_msm takes them.
-  station_weights as (
-  select
-    all_areas.area_code,
-    weights.station_id,
-    weights.area_population_weight
-  from
-    {{ ref('fct_census_population_jma_station') }} as weights
-    inner join {{ ref('dim_area') }} as all_areas
-      on all_areas.area_key = weights.area_key
-  where
-    weights.census_year = (select max(census_year) from {{ ref('fct_census_population_jma_station') }})
-  ),
-
-  -- Each observed hour's stations that report a temperature, in station order: a
-  -- fixed order whatever order Spark reads the rows in. hour_index counts the
-  -- hours along the clock, so a window can cross midnight.
-  area_hour_terms as (
-  select
-    station_weights.area_code,
-    weather.date_key as obs_date,
-    hour(weather.observed_hour_start_at) + 1 as hour_ending,
-    cast(div(unix_timestamp(weather.observed_hour_start_at), 3600) as bigint) as hour_index,
-    array_sort(collect_list(
-      case when weather.temperature_c is not null
-        then named_struct(
-          'station_id', weather.station_id,
-          'weight', station_weights.area_population_weight,
-          'value', weather.temperature_c
-        )
-      end
-    )) as terms
-  from
-    {{ ref('fct_jma_weather_hourly') }} as weather
-    inner join station_weights on station_weights.station_id = weather.station_id
-  group by
-    station_weights.area_code, weather.date_key, weather.observed_hour_start_at
-  ),
-
-  -- The area's population-weighted observed temperature of the hour, renormalised
-  -- over the stations that report it; null when none does.
+  -- The area's population-weighted observed hour, from the curated fact, which
+  -- weighs the stations as ftr_hour_msm weighs the forecast (the weighting was
+  -- computed here until 2026-09-29; the fact gives the same value to the bit).
+  -- hour_index counts the hours along the clock, so a window can cross midnight.
   area_hours as (
   select
-    area_code,
-    obs_date,
-    hour_ending,
-    hour_index,
-    {{ ordered_weighted_mean('terms') }} as popw_temperature_c
+    all_areas.area_code,
+    fact.date_key as obs_date,
+    fact.hour_ending,
+    cast(div(unix_timestamp(fact.observed_hour_start_at), 3600) as bigint) as hour_index,
+    fact.popw_temperature_c,
+    fact.popw_solar_radiation_mjm2
   from
-    area_hour_terms
+    {{ ref('fct_area_weather_hourly') }} as fact
+    inner join {{ ref('dim_area') }} as all_areas on all_areas.area_key = fact.area_key
   ),
 
   -- The 72 hours ending at each hour, those that have a value, oldest first.
@@ -179,9 +144,15 @@ with
     accumulated.mean_24h_popw_temperature_c,
     accumulated.mean_72h_popw_temperature_c,
     accumulated.ewm_72h_popw_temperature_c,
+    -- The weather the load lags were recorded under: the fact at the same hour
+    -- two and seven days back. Null where the fact has no such hour.
+    lag_2d.popw_temperature_c as lag_2d_popw_temperature_c,
+    lag_7d.popw_temperature_c as lag_7d_popw_temperature_c,
+    lag_2d.popw_solar_radiation_mjm2 as lag_2d_popw_solar_radiation_mjm2,
+    lag_7d.popw_solar_radiation_mjm2 as lag_7d_popw_solar_radiation_mjm2,
     -- Public once the newest observation the window can hold, D-2's, is:
-    -- its hour end + 1 h.
-    -- The accumulated windows end at the same hour, so the same instant holds.
+    -- its hour end + 1 h. The accumulated windows and the D-2 siblings end at
+    -- the same hour, and the D-7 siblings are older, so the same instant holds.
     timestampadd(hour, windows.hour_ending + 1, cast(date_sub(windows.trade_date, 2) as timestamp)) as available_at
   from
     windows
@@ -189,6 +160,14 @@ with
       on accumulated.area_code = windows.area_code
       and accumulated.trade_date = windows.trade_date
       and accumulated.hour_ending = windows.hour_ending
+    left join area_hours as lag_2d
+      on lag_2d.area_code = windows.area_code
+      and lag_2d.obs_date = date_sub(windows.trade_date, 2)
+      and lag_2d.hour_ending = windows.hour_ending
+    left join area_hours as lag_7d
+      on lag_7d.area_code = windows.area_code
+      and lag_7d.obs_date = date_sub(windows.trade_date, 7)
+      and lag_7d.hour_ending = windows.hour_ending
   )
 
 select * from final
