@@ -34,8 +34,7 @@ with
       case when popw_solar_radiation_mjm2 is not null
         then named_struct('hour_ending', hour_ending, 'weight', cast(1 as double), 'value', popw_solar_radiation_mjm2)
       end
-    )) as radiation_terms,
-    max(available_at) as available_at
+    )) as radiation_terms
   from
     hours
   group by
@@ -54,8 +53,10 @@ with
       as lag_2d_evening_mean_popw_temperature_c,
     case when size(radiation_terms) = 24 then {{ ordered_weighted_mean('radiation_terms') }} end
       as lag_2d_mean_popw_solar_radiation_mjm2,
-    -- The day's latest hour, hour 24's end + 1 h: 01:00 on D-1.
-    available_at
+    -- Hour 24's observed end + 1 h under the fact's rule: 01:00 on D-1, a rule
+    -- rather than the latest hour present, so a day missing its last hours
+    -- stamps the same instant, never earlier than any value the row holds.
+    timestampadd(hour, 1, cast(date_add(obs_date, 1) as timestamp)) as available_at
   from
     days
   )
