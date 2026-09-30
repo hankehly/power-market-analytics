@@ -1034,6 +1034,44 @@ def delta_to_lag_popw_temperature(
     return forecast - sibling
 
 
+def previous_day_forecast(day: pd.Timestamp, hour_ending: int) -> dict[str, float | None]:
+    """``ftr_hour_msm``'s three D-1 columns of the fixture for a delivery-day hour.
+
+    D-1's population-weighted forecast temperature and radiation at the same hour,
+    and D's forecast temperature minus D-1's; None on every one when D-1 is not a
+    fixture forecast day (``FORECAST_MISSING_DAY`` or outside ``DEMAND_DAYS``).
+    """
+    previous = day - pd.Timedelta(days=1)
+    if previous not in DEMAND_DAYS or previous == FORECAST_MISSING_DAY:
+        return {
+            "lag_1d_popw_forecast_temperature_c": None,
+            "lag_1d_popw_forecast_solar_radiation_mjm2": None,
+            "delta_lag_1d_popw_forecast_temperature_c": None,
+        }
+    temperature = popw_forecast(
+        previous,
+        hour_ending,
+        synthetic_forecast_temperature(previous, hour_ending),
+        SECOND_STATION_FORECAST_OFFSET_C,
+    )
+    today = popw_forecast(
+        day,
+        hour_ending,
+        synthetic_forecast_temperature(day, hour_ending),
+        SECOND_STATION_FORECAST_OFFSET_C,
+    )
+    return {
+        "lag_1d_popw_forecast_temperature_c": temperature,
+        "lag_1d_popw_forecast_solar_radiation_mjm2": popw_forecast(
+            previous,
+            hour_ending,
+            synthetic_forecast_solar_radiation(previous, hour_ending),
+            SECOND_STATION_FORECAST_SOLAR_OFFSET_MJM2,
+        ),
+        "delta_lag_1d_popw_forecast_temperature_c": today - temperature,
+    }
+
+
 def popw_forecast(day: pd.Timestamp, hour_ending: int, value: float, offset: float) -> float:
     """A ``ftr_hour_msm`` population-weighted column of the fixture for a delivery-day hour.
 
@@ -1083,6 +1121,11 @@ def day_msm_summary(hours: list[dict]) -> dict:
         "evening_mean_popw_forecast_temperature_c": sum(temperatures[18:22]) / 4,
         "mean_popw_forecast_solar_radiation_mjm2": (
             sum(row["popw_forecast_solar_radiation_mjm2"] for row in hours) / 24
+        ),
+        # D's own rain mean is not a column of the mart; the D-1 columns below read it
+        # off the previous day's row, and _write_feature_marts drops it before writing.
+        "mean_popw_forecast_precipitation_mm": (
+            sum(row["popw_forecast_precipitation_mm"] for row in hours) / 24
         ),
         "available_at": max(row["available_at"] for row in hours),
     }
@@ -1736,6 +1779,8 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
             "delta_lag_7d_popw_temperature_c": delta_to_lag_popw_temperature(day, hour, 7),
             "delta_lag_2d_popw_solar_radiation_mjm2": None,
             "delta_lag_7d_popw_solar_radiation_mjm2": None,
+            # D-1's forecast at the same hour and D's minus it, off the previous fixture day.
+            **previous_day_forecast(day, hour),
             # The D-2 12 UTC vintage, reference 21:00 JST, public four hours later.
             "available_at": day - pd.Timedelta(days=1) + pd.Timedelta(hours=1),
         }
@@ -1783,6 +1828,47 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
                 if obs is None or obs[obs_key] is None
                 else day_row[forecast_key] - obs[obs_key]
             )
+    # D-1's summaries off the previous fixture day's row, D minus D-1, D-1 minus D-2's
+    # observed mean and the three-day mean: None without a D-1 row or a term.
+    summary_by_day = {pd.Timestamp(row["trade_date"]): row for row in day_msm_rows}
+    for day_row in day_msm_rows:
+        previous_row = summary_by_day.get(
+            pd.Timestamp(day_row["trade_date"]) - pd.Timedelta(days=1)
+        )
+        obs = obs_by_day.get(day_row["trade_date"])
+        for name, key in (
+            ("lag_1d_mean_popw_forecast_temperature_c", "mean_popw_forecast_temperature_c"),
+            ("lag_1d_min_popw_forecast_temperature_c", "min_popw_forecast_temperature_c"),
+            (
+                "lag_1d_evening_mean_popw_forecast_temperature_c",
+                "evening_mean_popw_forecast_temperature_c",
+            ),
+            (
+                "lag_1d_mean_popw_forecast_solar_radiation_mjm2",
+                "mean_popw_forecast_solar_radiation_mjm2",
+            ),
+            ("lag_1d_mean_popw_forecast_precipitation_mm", "mean_popw_forecast_precipitation_mm"),
+        ):
+            day_row[name] = None if previous_row is None else previous_row[key]
+        previous_mean = day_row["lag_1d_mean_popw_forecast_temperature_c"]
+        observed_mean = None if obs is None else obs["lag_2d_mean_popw_temperature_c"]
+        day_row["delta_lag_1d_mean_popw_forecast_temperature_c"] = (
+            None
+            if previous_mean is None
+            else day_row["mean_popw_forecast_temperature_c"] - previous_mean
+        )
+        day_row["change_1d_2d_mean_popw_temperature_c"] = (
+            None
+            if previous_mean is None or observed_mean is None
+            else previous_mean - observed_mean
+        )
+        day_row["mean_3d_popw_temperature_c"] = (
+            None
+            if previous_mean is None or observed_mean is None
+            else (day_row["mean_popw_forecast_temperature_c"] + previous_mean + observed_mean) / 3
+        )
+    for day_row in day_msm_rows:
+        del day_row["mean_popw_forecast_precipitation_mm"]
     actuals = warehouse.demand.dropna(subset=["demand_kwh"])
     demand_at = {
         (pd.Timestamp(row["date_key"]), int(row["time_code"])): int(row["demand_kwh"])
@@ -2289,6 +2375,9 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
         "delta_lag_7d_popw_temperature_c",
         "delta_lag_2d_popw_solar_radiation_mjm2",
         "delta_lag_7d_popw_solar_radiation_mjm2",
+        "lag_1d_popw_forecast_temperature_c",
+        "lag_1d_popw_forecast_solar_radiation_mjm2",
+        "delta_lag_1d_popw_forecast_temperature_c",
     ):
         msm[col] = nullable_column(msm[col], float)
     write_table(
@@ -2301,7 +2390,10 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
         + "popw_forecast_discomfort_index double, "
         "cum_popw_forecast_solar_radiation_mjm2 double, delta_lag_2d_popw_temperature_c double, "
         "delta_lag_7d_popw_temperature_c double, delta_lag_2d_popw_solar_radiation_mjm2 double, "
-        "delta_lag_7d_popw_solar_radiation_mjm2 double, available_at timestamp",
+        "delta_lag_7d_popw_solar_radiation_mjm2 double, "
+        "lag_1d_popw_forecast_temperature_c double, "
+        "lag_1d_popw_forecast_solar_radiation_mjm2 double, "
+        "delta_lag_1d_popw_forecast_temperature_c double, available_at timestamp",
         "pma_features.ftr_hour_msm",
     )
     day_jma_obs = pd.DataFrame(day_jma_obs_rows)
@@ -2324,6 +2416,14 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
         "delta_lag_2d_mean_popw_temperature_c",
         "delta_lag_2d_evening_mean_popw_temperature_c",
         "delta_lag_2d_mean_popw_solar_radiation_mjm2",
+        "lag_1d_mean_popw_forecast_temperature_c",
+        "lag_1d_min_popw_forecast_temperature_c",
+        "lag_1d_evening_mean_popw_forecast_temperature_c",
+        "lag_1d_mean_popw_forecast_solar_radiation_mjm2",
+        "lag_1d_mean_popw_forecast_precipitation_mm",
+        "delta_lag_1d_mean_popw_forecast_temperature_c",
+        "change_1d_2d_mean_popw_temperature_c",
+        "mean_3d_popw_temperature_c",
     ):
         day_msm[col] = nullable_column(day_msm[col], float)
     write_table(
@@ -2337,7 +2437,15 @@ def _write_feature_marts(spark: SparkSession, warehouse: CuratedWarehouse) -> No
         "mean_popw_forecast_solar_radiation_mjm2 double, "
         "delta_lag_2d_mean_popw_temperature_c double, "
         "delta_lag_2d_evening_mean_popw_temperature_c double, "
-        "delta_lag_2d_mean_popw_solar_radiation_mjm2 double, available_at timestamp",
+        "delta_lag_2d_mean_popw_solar_radiation_mjm2 double, "
+        "lag_1d_mean_popw_forecast_temperature_c double, "
+        "lag_1d_min_popw_forecast_temperature_c double, "
+        "lag_1d_evening_mean_popw_forecast_temperature_c double, "
+        "lag_1d_mean_popw_forecast_solar_radiation_mjm2 double, "
+        "lag_1d_mean_popw_forecast_precipitation_mm double, "
+        "delta_lag_1d_mean_popw_forecast_temperature_c double, "
+        "change_1d_2d_mean_popw_temperature_c double, "
+        "mean_3d_popw_temperature_c double, available_at timestamp",
         "pma_features.ftr_day_msm",
     )
     write_table(

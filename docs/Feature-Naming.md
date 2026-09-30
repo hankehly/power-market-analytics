@@ -79,7 +79,7 @@ A column passed through unchanged keeps its name as its expression
 | Primitive | Meaning | Example |
 |---|---|---|
 | `LAG(x, n)` | `x` n before the delivery day. | `LAG(demand_kwh, 7d)` |
-| `DIFF(x, n)` | `x` minus `x` n earlier. | `LAG(DIFF(demand_kwh, 7d), 2d)`, `LAG(DIFF(demand_kwh, 30m), 7d)` |
+| `DIFF(x, n)` | `x` minus `x` n earlier. | `LAG(DIFF(demand_kwh, 7d), 2d)`, `LAG(DIFF(demand_kwh, 30m), 7d)`, `DIFF(DAILY_MEAN(MEAN(forecast_temperature_c, weight=population)), 1d)` |
 | `DAILY_MEAN` / `DAILY_MAX` / `DAILY_MIN` / `DAILY_RANGE` | Over one day's periods, or its 24 hours when `x` is hourly, or the periods inside `time`. Without a `LAG` the day is the delivery day, which only a forecast can fill. | `LAG(DAILY_MAX(demand_kwh), 2d)`, `LAG(DAILY_MEAN(demand_kwh, time=06:00-10:00), 2d)`, `DAILY_MAX(MEAN(forecast_temperature_c, weight=population))` |
 | `DAILY_ARGMAX(x)` | The time code of the day's highest `x`, or its hour ending, 1-24, when `x` is hourly; the earliest on a tie. | `LAG(DAILY_ARGMAX(demand_kwh), 2d)`, `DAILY_ARGMAX(MEAN(forecast_temperature_c, weight=population))` |
 | `DAILY_TREND(x, time)` | The least-squares slope of `x` against time over the periods inside `time`, per hour: `2 (n Σtx - Σt Σx) / (n Σt² - (Σt)²)`, `t` the time code. | `LAG(DAILY_TREND(demand_kwh, time=06:00-10:00), 2d)` |
