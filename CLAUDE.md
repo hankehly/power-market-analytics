@@ -834,7 +834,7 @@
   column the mart did not read before; D's own rain mean is not a column),
   `delta_lag_1d_mean_popw_forecast_temperature_c` (D minus D-1, expression
   `DIFF(…, 1d)`), `change_1d_2d_mean_popw_temperature_c` (D-1's forecast mean minus D-2's
-  observed) and `mean_3d_popw_temperature_c` (the three days' mean); in no preset yet),
+  observed) and `mean_3d_popw_temperature_c` (the three days' mean); in the preset `e249` since 2026-09-30, experiment #249),
   `ftr_day_occto`, `ftr_hour_jma_obs` (the representative station's `wavg_temperature_c`;
   since 2026-09-19, feature candidate #150, also the first population-weighted *observed*
   temperature in a mart, accumulated along the clock over the hours ending at the target hour
@@ -885,7 +885,7 @@
   `delta_lag_1d_popw_forecast_temperature_c`, D-1's own forecast at the same hour read
   off the mart's row for D-1 under the run one day earlier (the 12 UTC run of D-3), and
   D's forecast minus it — forecast against forecast, so the forecast's bias against the
-  stations cancels; nothing downloaded, no `available_at` moved; in no preset yet),
+  stations cancels; nothing downloaded, no `available_at` moved; in the preset `e249` since 2026-09-30, experiment #249),
   `ftr_period_actuals` (since
   2026-09-12 the lags of 2, 3, 7, 9, 14, 21 and 28 days, the plain and 8:4:2:1 weighted
   means of the four weekly lags, the D-2 − D-9 change and the same two means over the last
