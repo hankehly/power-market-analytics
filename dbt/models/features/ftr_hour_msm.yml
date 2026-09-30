@@ -257,8 +257,9 @@ models:
         data_type: double
         description: >
           D-1's population-weighted forecast solar radiation over this hour, MJ/m2, from the
-          same D-1 row (feature candidate #248). Null where D-1 has no row for the hour, or
-          no radiation at it.
+          same D-1 row as lag_1d_popw_forecast_temperature_c: D-1's value is its own forecast, the run one day before D's, not a revision of D's
+          (feature candidate #248). Null where D-1 has no row for the hour, or no radiation
+          at it.
         config:
           meta:
             feature: true
@@ -269,8 +270,9 @@ models:
         description: >
           popw_forecast_temperature_c minus lag_1d_popw_forecast_temperature_c: D's forecast
           minus D-1's at the same hour, C; positive when D is forecast warmer than D-1. Both
-          sides are forecasts, so the forecast's bias against the stations cancels
-          (feature candidate #248). Null without a D-1 row.
+          sides are forecasts — D-1's value is its own forecast, the run one day before D's, not a revision of D's — so the
+          forecast's bias against the stations cancels (feature candidate #248). Null
+          without a D-1 row.
         config:
           meta:
             feature: true
