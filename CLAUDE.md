@@ -308,9 +308,11 @@
   every run logs `eval_window` and `reads_holdout`, so a run that read the
   holdout is identifiable afterwards. The spot task is unpinned (both fields
   None) and still ends at the last day in the data.
-  The baseline on the pinned window is `e212` run
-  `264840a26c8f48ac83b2cfe4ebb1c16c` (`e212-tokyo-pinned-window`, MAE 518,070 kWh,
-  MAPE 3.13 %, 730 days, 0 skipped), scored with no date arguments at all.
+  The Tokyo baseline on the pinned window is `e249` run
+  `516491c3aaf94f5d9733bc051900f593` (`e249-tokyo`, MAE 482,531 kWh, MAPE 2.92 %, 730
+  days, 0 skipped, 2026-09-30), scored with no date arguments at all; until 2026-09-30 it
+  was `e212` run `264840a26c8f48ac83b2cfe4ebb1c16c` (`e212-tokyo-pinned-window`, MAE
+  518,070 kWh, MAPE 3.13 %).
   On 2026-09-27 every demand preset was re-scored on the window in one batch
   (MLflow tag `batch = pinned-window-reeval-2026-09-27`; the table of runs and
   matched comparisons is issue #230): the `e212` re-run
