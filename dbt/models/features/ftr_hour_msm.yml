@@ -4,7 +4,7 @@ models:
       contract:
         enforced: true
     description: >
-      The MSM forecast for each delivery-day hour per bidding zone, one row per forecast vintage: the representative station's temperature (the feature of the demand preset e169) and the population-weighted temperature, humidity, rain, solar radiation, cloud cover (total, high, middle, low), wind (speed, u, v) and pressure (surface, sea-level) over the area's staffed stations with the latest census vintage's weights (the demand preset e170 and the similar-day selector; tasks/demand/datasets.py), and the 不快指数 of the weighted temperature and humidity. Grain: area_code x trade_date x hour_ending x forecast_reference_at. available_at is the vintage's: reference + 4 h.
+      The MSM forecast for each delivery-day hour per bidding zone, one row per forecast vintage: the representative station's temperature (the feature of the demand preset e169) and the population-weighted temperature, humidity, rain, solar radiation, cloud cover (total, high, middle, low), wind (speed, u, v) and pressure (surface, sea-level) over the area's staffed stations with the latest census vintage's weights (the demand preset e170 and the similar-day selector; tasks/demand/datasets.py), and the 不快指数 of the weighted temperature and humidity. Since 2026-09-30 also D-1's forecast temperature and radiation at the same hour and D's forecast temperature minus D-1's, read off the mart's own row for D-1 under the run one day earlier (feature candidate #248). Grain: area_code x trade_date x hour_ending x forecast_reference_at. available_at is the vintage's: reference + 4 h.
     data_tests:
       - dbt_utils.unique_combination_of_columns:
           arguments:
@@ -239,10 +239,47 @@ models:
             feature: true
             categorical: false
             expression: "MEAN(forecast_solar_radiation_mjm2, weight=population) - LAG(MEAN(solar_radiation_mjm2, weight=population), 7d)"
+      - name: lag_1d_popw_forecast_temperature_c
+        data_type: double
+        description: >
+          D-1's population-weighted forecast temperature at this hour, C, read off the
+          mart's own row for D-1: the 12 UTC run of D-3, the one the warehouse loaded as
+          delivery day D-1, so the run one day before the run that gives D. Not an earlier
+          copy of D's forecast (feature candidate #248; spec
+          docs/superpowers/specs/2026-09-30-previous-day-forecast-weather-design.md). Null
+          where D-1 has no row for the hour under that run.
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "LAG(MEAN(forecast_temperature_c, weight=population), 1d)"
+      - name: lag_1d_popw_forecast_solar_radiation_mjm2
+        data_type: double
+        description: >
+          D-1's population-weighted forecast solar radiation over this hour, MJ/m2, from the
+          same D-1 row (feature candidate #248). Null where D-1 has no row for the hour, or
+          no radiation at it.
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "LAG(MEAN(forecast_solar_radiation_mjm2, weight=population), 1d)"
+      - name: delta_lag_1d_popw_forecast_temperature_c
+        data_type: double
+        description: >
+          popw_forecast_temperature_c minus lag_1d_popw_forecast_temperature_c: D's forecast
+          minus D-1's at the same hour, C; positive when D is forecast warmer than D-1. Both
+          sides are forecasts, so the forecast's bias against the stations cancels
+          (feature candidate #248). Null without a D-1 row.
+        config:
+          meta:
+            feature: true
+            categorical: false
+            expression: "DIFF(MEAN(forecast_temperature_c, weight=population), 1d)"
       - name: available_at
         data_type: timestamp
         description: >
-          When the row became public, naive JST: the vintage's available_at, reference + 4 h, or the D-2 sibling's if later, which it never is (its newest hour is public at 01:00 on D-1 at the latest, the vintage's instant).
+          When the row became public, naive JST: the vintage's available_at, reference + 4 h, or the D-2 sibling's if later, which it never is (its newest hour is public at 01:00 on D-1 at the latest, the vintage's instant). The D-1 row's, a day earlier, never wins either.
         data_tests:
           - not_null
 
@@ -407,3 +444,48 @@ unit_tests:
       rows:
         - {area_code: tokyo, trade_date: 2025-03-10, hour_ending: 1, forecast_reference_at: "2025-03-08 21:00:00", popw_forecast_temperature_c: 10.0, delta_lag_2d_popw_temperature_c: -3.0, delta_lag_7d_popw_temperature_c: 3.0, delta_lag_2d_popw_solar_radiation_mjm2: 1.5, delta_lag_7d_popw_solar_radiation_mjm2: null, available_at: "2025-03-09 01:00:00"}
         - {area_code: tokyo, trade_date: 2025-03-10, hour_ending: 2, forecast_reference_at: "2025-03-08 21:00:00", popw_forecast_temperature_c: 8.0, delta_lag_2d_popw_temperature_c: null, delta_lag_7d_popw_temperature_c: null, delta_lag_2d_popw_solar_radiation_mjm2: null, delta_lag_7d_popw_solar_radiation_mjm2: null, available_at: "2025-03-09 01:00:00"}
+
+  - name: ftr_hour_msm_previous_day_forecast_from_the_run_one_day_earlier
+    description: >
+      One Tokyo station carrying the whole weight. 2025-03-09 has hours 1 and 2 of the
+      run of 2025-03-07 21:00 (10 C and 0.5 MJ/m2, 12 C and no radiation) and hour 1 of
+      a second run, 2025-03-08 09:00, at 99 C. 2025-03-10 has hours 1 to 3 of the run of
+      2025-03-08 21:00 (8, 9, 7 C; 1.0, 1.5, 2.0 MJ/m2). D's row reads the run one day
+      before its own: hour 1 of 03-10 gets 10 C and 0.5, the difference 8 - 10 = -2, not
+      the 99 of the other run; hour 2 gets 12 C, a null radiation and 9 - 12 = -3; hour 3
+      has no D-1 row and the three are null. Every 03-09 row has the three null: no
+      03-08 row exists, and the 09:00 run finds no run of 2025-03-07 09:00. available_at
+      stays each vintage's own; the D-1 vintage's, a day earlier, never wins greatest().
+    model: ftr_hour_msm
+    given:
+      - input: ref('dim_area')
+        rows:
+          - {area_key: 1, area_code: tokyo, representative_jma_station_id: s1}
+      - input: ref('fct_census_population_jma_station')
+        rows:
+          - {census_year: 2020, area_key: 1, station_id: s1, area_population_weight: 1.0}
+      - input: ref('fct_jma_msm_weather_forecast_hourly')
+        rows:
+          - {station_id: s1, date_key: 2025-03-09, forecast_hour_start_at: "2025-03-09 00:00:00", forecast_reference_at: "2025-03-07 21:00:00", temperature_c: 10.0, solar_radiation_mjm2: 0.5, available_at: "2025-03-08 01:00:00"}
+          - {station_id: s1, date_key: 2025-03-09, forecast_hour_start_at: "2025-03-09 01:00:00", forecast_reference_at: "2025-03-07 21:00:00", temperature_c: 12.0, solar_radiation_mjm2: null, available_at: "2025-03-08 01:00:00"}
+          - {station_id: s1, date_key: 2025-03-09, forecast_hour_start_at: "2025-03-09 00:00:00", forecast_reference_at: "2025-03-08 09:00:00", temperature_c: 99.0, solar_radiation_mjm2: 9.0, available_at: "2025-03-08 13:00:00"}
+          - {station_id: s1, date_key: 2025-03-10, forecast_hour_start_at: "2025-03-10 00:00:00", forecast_reference_at: "2025-03-08 21:00:00", temperature_c: 8.0, solar_radiation_mjm2: 1.0, available_at: "2025-03-09 01:00:00"}
+          - {station_id: s1, date_key: 2025-03-10, forecast_hour_start_at: "2025-03-10 01:00:00", forecast_reference_at: "2025-03-08 21:00:00", temperature_c: 9.0, solar_radiation_mjm2: 1.5, available_at: "2025-03-09 01:00:00"}
+          - {station_id: s1, date_key: 2025-03-10, forecast_hour_start_at: "2025-03-10 02:00:00", forecast_reference_at: "2025-03-08 21:00:00", temperature_c: 7.0, solar_radiation_mjm2: 2.0, available_at: "2025-03-09 01:00:00"}
+      - input: ref('ftr_hour_jma_obs')
+        format: sql
+        rows: |
+          select cast(null as string) as area_code, cast(null as date) as trade_date,
+            cast(null as int) as hour_ending,
+            cast(null as double) as lag_2d_popw_temperature_c, cast(null as double) as lag_7d_popw_temperature_c,
+            cast(null as double) as lag_2d_popw_solar_radiation_mjm2, cast(null as double) as lag_7d_popw_solar_radiation_mjm2,
+            cast(null as timestamp) as available_at
+          where false
+    expect:
+      rows:
+        - {area_code: tokyo, trade_date: 2025-03-09, hour_ending: 1, forecast_reference_at: "2025-03-07 21:00:00", popw_forecast_temperature_c: 10.0, lag_1d_popw_forecast_temperature_c: null, lag_1d_popw_forecast_solar_radiation_mjm2: null, delta_lag_1d_popw_forecast_temperature_c: null, available_at: "2025-03-08 01:00:00"}
+        - {area_code: tokyo, trade_date: 2025-03-09, hour_ending: 2, forecast_reference_at: "2025-03-07 21:00:00", popw_forecast_temperature_c: 12.0, lag_1d_popw_forecast_temperature_c: null, lag_1d_popw_forecast_solar_radiation_mjm2: null, delta_lag_1d_popw_forecast_temperature_c: null, available_at: "2025-03-08 01:00:00"}
+        - {area_code: tokyo, trade_date: 2025-03-09, hour_ending: 1, forecast_reference_at: "2025-03-08 09:00:00", popw_forecast_temperature_c: 99.0, lag_1d_popw_forecast_temperature_c: null, lag_1d_popw_forecast_solar_radiation_mjm2: null, delta_lag_1d_popw_forecast_temperature_c: null, available_at: "2025-03-08 13:00:00"}
+        - {area_code: tokyo, trade_date: 2025-03-10, hour_ending: 1, forecast_reference_at: "2025-03-08 21:00:00", popw_forecast_temperature_c: 8.0, lag_1d_popw_forecast_temperature_c: 10.0, lag_1d_popw_forecast_solar_radiation_mjm2: 0.5, delta_lag_1d_popw_forecast_temperature_c: -2.0, available_at: "2025-03-09 01:00:00"}
+        - {area_code: tokyo, trade_date: 2025-03-10, hour_ending: 2, forecast_reference_at: "2025-03-08 21:00:00", popw_forecast_temperature_c: 9.0, lag_1d_popw_forecast_temperature_c: 12.0, lag_1d_popw_forecast_solar_radiation_mjm2: null, delta_lag_1d_popw_forecast_temperature_c: -3.0, available_at: "2025-03-09 01:00:00"}
+        - {area_code: tokyo, trade_date: 2025-03-10, hour_ending: 3, forecast_reference_at: "2025-03-08 21:00:00", popw_forecast_temperature_c: 7.0, lag_1d_popw_forecast_temperature_c: null, lag_1d_popw_forecast_solar_radiation_mjm2: null, delta_lag_1d_popw_forecast_temperature_c: null, available_at: "2025-03-09 01:00:00"}
