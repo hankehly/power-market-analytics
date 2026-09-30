@@ -826,7 +826,15 @@
   over the hours ending 19:00–22:00, `mean_popw_forecast_solar_radiation_mjm2` over the
   day's 24 hours, and the three `delta_lag_2d_*` columns, those means and the daily mean
   minus `ftr_day_jma_obs`'s D-2 ones, placed here because a delta needs the vintage; in
-  no preset yet),
+  no preset yet; since 2026-09-30 (feature candidate #248) also eight D-1 columns off the
+  mart's own row for D-1 under the run one day earlier: `lag_1d_mean_`, `lag_1d_min_`,
+  `lag_1d_evening_mean_popw_forecast_temperature_c`,
+  `lag_1d_mean_popw_forecast_solar_radiation_mjm2`,
+  `lag_1d_mean_popw_forecast_precipitation_mm` (a mean, mm per hour, over the rain
+  column the mart did not read before; D's own rain mean is not a column),
+  `delta_lag_1d_mean_popw_forecast_temperature_c` (D minus D-1, expression
+  `DIFF(…, 1d)`), `change_1d_2d_mean_popw_temperature_c` (D-1's forecast mean minus D-2's
+  observed) and `mean_3d_popw_temperature_c` (the three days' mean); in no preset yet),
   `ftr_day_occto`, `ftr_hour_jma_obs` (the representative station's `wavg_temperature_c`;
   since 2026-09-19, feature candidate #150, also the first population-weighted *observed*
   temperature in a mart, accumulated along the clock over the hours ending at the target hour
@@ -871,7 +879,14 @@
   the build should a second vintage of a delivery day and hour ever be loaded, because
   `ftr_period_daytype_weather` and `ftr_period_similar_day` join this mart on area, day
   and hour and a second vintage would double their rows — only the 12 UTC D-2 run is
-  loaded, the spec's decision 10), `ftr_period_actuals` (since
+  loaded, the spec's decision 10; since 2026-09-30 (feature candidate #248, spec
+  `docs/superpowers/specs/2026-09-30-previous-day-forecast-weather-design.md`) also
+  `lag_1d_popw_forecast_temperature_c`, `lag_1d_popw_forecast_solar_radiation_mjm2` and
+  `delta_lag_1d_popw_forecast_temperature_c`, D-1's own forecast at the same hour read
+  off the mart's row for D-1 under the run one day earlier (the 12 UTC run of D-3), and
+  D's forecast minus it — forecast against forecast, so the forecast's bias against the
+  stations cancels; nothing downloaded, no `available_at` moved; in no preset yet),
+  `ftr_period_actuals` (since
   2026-09-12 the lags of 2, 3, 7, 9, 14, 21 and 28 days, the plain and 8:4:2:1 weighted
   means of the four weekly lags, the D-2 − D-9 change and the same two means over the last
   four complete days of D's `ftr_day_calendar` day type at or before D-2; since 2026-09-13

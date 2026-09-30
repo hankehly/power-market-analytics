@@ -44,6 +44,16 @@ with
         )
       end
     )) as radiation_terms,
+    count(popw_forecast_precipitation_mm) as n_rain_hours,
+    array_sort(collect_list(
+      case when popw_forecast_precipitation_mm is not null
+        then named_struct(
+          'hour_ending', hour_ending,
+          'weight', cast(1 as double),
+          'value', popw_forecast_precipitation_mm
+        )
+      end
+    )) as rain_terms,
     -- The four morning hours, ending 07:00 to 10:00, for the trend.
     max(case when hour_ending = 7 then popw_forecast_temperature_c end) as temperature_07_c,
     max(case when hour_ending = 8 then popw_forecast_temperature_c end) as temperature_08_c,
@@ -79,6 +89,9 @@ with
       as evening_mean_popw_forecast_temperature_c,
     case when n_radiation_hours = 24 then {{ ordered_weighted_mean('radiation_terms') }} end
       as mean_popw_forecast_solar_radiation_mjm2,
+    -- D's own rain mean is not a column of the mart: only D-1's is, read below.
+    case when n_rain_hours = 24 then {{ ordered_weighted_mean('rain_terms') }} end
+      as mean_popw_forecast_precipitation_mm,
     {{ available_at(['available_at']) }} as available_at
   from days
   ),
@@ -93,6 +106,23 @@ with
     lag_2d_mean_popw_solar_radiation_mjm2,
     available_at
   from {{ ref('ftr_day_jma_obs') }}
+  ),
+
+  -- D-1's summaries, read off this mart's own row for D-1 under the run one day before
+  -- the run that gives D: the 12 UTC run of D-3, the one loaded as delivery day D-1.
+  -- Keyed on the run so a second run loaded for D-1 cannot double D.
+  previous_day as (
+  select
+    area_code,
+    date_add(trade_date, 1) as trade_date,
+    timestampadd(day, 1, forecast_reference_at) as forecast_reference_at,
+    mean_popw_forecast_temperature_c as lag_1d_mean_popw_forecast_temperature_c,
+    min_popw_forecast_temperature_c as lag_1d_min_popw_forecast_temperature_c,
+    evening_mean_popw_forecast_temperature_c as lag_1d_evening_mean_popw_forecast_temperature_c,
+    mean_popw_forecast_solar_radiation_mjm2 as lag_1d_mean_popw_forecast_solar_radiation_mjm2,
+    mean_popw_forecast_precipitation_mm as lag_1d_mean_popw_forecast_precipitation_mm,
+    available_at
+  from forecast
   ),
 
   final as (
@@ -115,13 +145,37 @@ with
       as delta_lag_2d_evening_mean_popw_temperature_c,
     forecast.mean_popw_forecast_solar_radiation_mjm2 - observed.lag_2d_mean_popw_solar_radiation_mjm2
       as delta_lag_2d_mean_popw_solar_radiation_mjm2,
-    -- The vintage's instant: the sibling's, 01:00 on D-1, is never later.
-    {{ available_at(['forecast.available_at', 'observed.available_at']) }} as available_at
+    -- D-1's forecast summaries and the three differences that need them. D minus D-1
+    -- is forecast against forecast; D-1 minus D-2 is a forecast against an observation,
+    -- as the delta_lag_2d columns are; the three-day mean adds D, D-1 and D-2 in that
+    -- order. Null
+    -- where D-1 has no row under the run one day earlier, or a term is missing.
+    previous_day.lag_1d_mean_popw_forecast_temperature_c,
+    previous_day.lag_1d_min_popw_forecast_temperature_c,
+    previous_day.lag_1d_evening_mean_popw_forecast_temperature_c,
+    previous_day.lag_1d_mean_popw_forecast_solar_radiation_mjm2,
+    previous_day.lag_1d_mean_popw_forecast_precipitation_mm,
+    forecast.mean_popw_forecast_temperature_c - previous_day.lag_1d_mean_popw_forecast_temperature_c
+      as delta_lag_1d_mean_popw_forecast_temperature_c,
+    previous_day.lag_1d_mean_popw_forecast_temperature_c - observed.lag_2d_mean_popw_temperature_c
+      as change_1d_2d_mean_popw_temperature_c,
+    (
+      forecast.mean_popw_forecast_temperature_c
+      + previous_day.lag_1d_mean_popw_forecast_temperature_c
+      + observed.lag_2d_mean_popw_temperature_c
+    ) / 3 as mean_3d_popw_temperature_c,
+    -- The vintage's instant: the sibling's, 01:00 on D-1, is never later, and the D-1
+    -- row's is a day earlier.
+    {{ available_at(['forecast.available_at', 'observed.available_at', 'previous_day.available_at']) }} as available_at
   from
     forecast
     left join observed
       on observed.area_code = forecast.area_code
       and observed.trade_date = forecast.trade_date
+    left join previous_day
+      on previous_day.area_code = forecast.area_code
+      and previous_day.trade_date = forecast.trade_date
+      and previous_day.forecast_reference_at = forecast.forecast_reference_at
   )
 
 select * from final
