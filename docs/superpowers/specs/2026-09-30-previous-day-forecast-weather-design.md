@@ -4,7 +4,10 @@ Date: 2026-09-30. Status: **the design was ruled on by the researcher on 2026-09
 chat; this file is the written spec for review before the plan. Claude pointed at the
 weather of D-1 on 2026-09-29, from the analysis of Tokyo 2025-03-04 (observation #247). The
 researcher decided on 2026-09-30 to include it, as forecasts only, from the rows the
-warehouse already holds, and ruled on the columns (section 2).
+warehouse already holds, and ruled on the columns (section 2). Feature candidate #248,
+experiment #249. It supersedes #133 (Claude, 2026-09-15: D-1 from D's own run, 13:00 to
+24:00, needing a re-download), closed as not planned on 2026-09-30 at the researcher's
+word, Decision `Superseded`.
 
 ## 1. Goal
 
@@ -157,10 +160,9 @@ forecast keeps its own columns and has the eleven null.
 
 ## 6. Preset and experiment
 
-One feature-candidate issue holds the eleven columns. It closes when the column PR merges,
-with the Decision left to the experiment. One experiment issue, one preset file named
-`e<issue>` under `conf/presets/demand/`, `base: e245` with an `add` list of the eleven
-expressions. One Tokyo run on the pinned window with no date arguments, compared with
+Feature candidate #248 holds the eleven columns. It closes when the column PR merges,
+with the Decision left to the experiment. Experiment #249, one preset file `e249` under
+`conf/presets/demand/`, `base: e245` with an `add` list of the eleven expressions. One Tokyo run on the pinned window with no date arguments, compared with
 `8adc4ecc…` by `compare_demand_runs.py`. The accuracy, contribution and importance marts
 are rebuilt after the run.
 
@@ -203,9 +205,11 @@ Two PRs.
 ## 9. Out of scope
 
 - Observations of D-1.
-- D-1 from the run that gives D (leads 4 to 27 of the 12 UTC D-2 run), and the 15 and 18 UTC
-  runs. Both need downloads. They come up again only if the experiment keeps these columns
-  and D-1's rain or cloud matters.
+- D-1 from the run that gives D (leads 4 to 27 of the 12 UTC D-2 run, the variant #133
+  described), and the 15 and 18 UTC runs of D-2. Both need downloads. They come up again
+  only if the experiment keeps these columns and D-1's rain or cloud matters; the same-run
+  variant would then need another physical name and expression, since this batch takes
+  #133's. A fresher run for D itself is #141, set aside on 2026-09-15 and untouched.
 - Snow.
 - D-1's rain by the hour, and its humidity, cloud, wind and pressure.
 - The hour-grain difference of radiation.
