@@ -49,7 +49,7 @@ HOLDOUT_START, HOLDOUT_END = TASK.holdout_window
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     # Default = the preset that runs for every area. The Tokyo demand baseline
-    # since experiment #212 (2026-09-20) is e212, whose similar-day mart needs
+    # since experiment #249 (2026-09-30) is e249, whose similar-day mart needs
     # the でんき予報 hourly load and a fit of the weights
     # (scripts/fit_similar_day.py), so it runs for Tokyo only; the R-003 preset
     # e171 (2026-08-26; lightgbm_msm_popw_daytype until 2026-09-27) stays the
