@@ -163,6 +163,21 @@ with
   from {{ ref('ftr_hour_jma_obs') }}
   ),
 
+  -- D-1's forecast at the same hour, read off this mart's own row for D-1 under the
+  -- run one day before the run that gives D: the 12 UTC run of D-3, the one loaded as
+  -- delivery day D-1. Keyed on the run so a second run loaded for D-1 cannot double D.
+  previous_day as (
+  select
+    area_code,
+    date_add(trade_date, 1) as trade_date,
+    hour_ending,
+    timestampadd(day, 1, forecast_reference_at) as forecast_reference_at,
+    popw_forecast_temperature_c as lag_1d_popw_forecast_temperature_c,
+    popw_forecast_solar_radiation_mjm2 as lag_1d_popw_forecast_solar_radiation_mjm2,
+    available_at
+  from forecast
+  ),
+
   final as (
   select
     forecast.area_code,
@@ -188,14 +203,27 @@ with
       as delta_lag_2d_popw_solar_radiation_mjm2,
     forecast.popw_forecast_solar_radiation_mjm2 - observed.lag_7d_popw_solar_radiation_mjm2
       as delta_lag_7d_popw_solar_radiation_mjm2,
-    -- The vintage's instant: the sibling's is never later (greatest skips a null one).
-    {{ available_at(['forecast.available_at', 'observed.available_at']) }} as available_at
+    -- D-1's forecast and D's minus it: positive when D is forecast warmer than D-1.
+    -- Both sides are forecasts, so the forecast's bias against the stations cancels.
+    -- Null where D-1 has no row under the run one day earlier.
+    previous_day.lag_1d_popw_forecast_temperature_c,
+    previous_day.lag_1d_popw_forecast_solar_radiation_mjm2,
+    forecast.popw_forecast_temperature_c - previous_day.lag_1d_popw_forecast_temperature_c
+      as delta_lag_1d_popw_forecast_temperature_c,
+    -- The vintage's instant: the sibling's is never later (greatest skips a null one),
+    -- and the D-1 row's is a day earlier.
+    {{ available_at(['forecast.available_at', 'observed.available_at', 'previous_day.available_at']) }} as available_at
   from
     forecast
     left join observed
       on observed.area_code = forecast.area_code
       and observed.trade_date = forecast.trade_date
       and observed.hour_ending = forecast.hour_ending
+    left join previous_day
+      on previous_day.area_code = forecast.area_code
+      and previous_day.trade_date = forecast.trade_date
+      and previous_day.hour_ending = forecast.hour_ending
+      and previous_day.forecast_reference_at = forecast.forecast_reference_at
   )
 
 select * from final
