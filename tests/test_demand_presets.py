@@ -204,7 +204,15 @@ def test_the_ten_renamed_files_resolve_to_the_tuples_registered_on_2026_09_19():
     assert {
         name: (p.base, p.features) for name, p in PRESETS.items() if name in EXPECTED
     } == EXPECTED
-    assert set(PRESETS) == set(EXPECTED) | {"e212", "e219", "e221", "e243", "e244", "e245"}
+    assert set(PRESETS) == set(EXPECTED) | {
+        "e212",
+        "e219",
+        "e221",
+        "e243",
+        "e244",
+        "e245",
+        "e249",
+    }
     assert all(p.task == "demand" for p in PRESETS.values())
     # The root's four, written out twice, still lead both of its former children.
     base_four = ("time_code", "month", "day_of_week", "wavg_temperature_c", "lag_7d_demand_kwh")
@@ -231,6 +239,31 @@ def test_the_lag_window_weather_batches_add_their_columns_to_e219():
     assert all(
         categorical_columns(PRESETS[name]) == categorical_columns(baseline) for name in added
     )
+
+
+def test_e249_adds_the_eleven_d1_forecast_columns_to_e245():
+    # Experiment #249, 2026-09-30: e245 plus feature candidate #248's eleven columns,
+    # three in ftr_hour_msm and eight in ftr_day_msm; nothing dropped.
+    baseline = PRESETS["e245"]
+    preset = PRESETS["e249"]
+    added = tuple(f for f in preset.features if f not in baseline.features)
+    assert preset.base == "e245"
+    assert set(baseline.features) <= set(preset.features)
+    assert added == (
+        "ftr_hour_msm:lag_1d_popw_forecast_temperature_c",
+        "ftr_hour_msm:lag_1d_popw_forecast_solar_radiation_mjm2",
+        "ftr_hour_msm:delta_lag_1d_popw_forecast_temperature_c",
+        "ftr_day_msm:lag_1d_mean_popw_forecast_temperature_c",
+        "ftr_day_msm:lag_1d_min_popw_forecast_temperature_c",
+        "ftr_day_msm:lag_1d_evening_mean_popw_forecast_temperature_c",
+        "ftr_day_msm:lag_1d_mean_popw_forecast_solar_radiation_mjm2",
+        "ftr_day_msm:lag_1d_mean_popw_forecast_precipitation_mm",
+        "ftr_day_msm:delta_lag_1d_mean_popw_forecast_temperature_c",
+        "ftr_day_msm:change_1d_2d_mean_popw_temperature_c",
+        "ftr_day_msm:mean_3d_popw_temperature_c",
+    )
+    assert len(preset.features) == len(baseline.features) + 11
+    assert categorical_columns(preset) == categorical_columns(baseline)
 
 
 def test_every_file_has_a_description():
@@ -268,7 +301,7 @@ def test_types_and_categoricals_come_from_the_views():
         categorical_columns(preset) == (("day_type",) if name in WITH_DAY_TYPE else ())
         for name, preset in PRESETS.items()
         # e212's five are pinned below; e219, e221 and the e219-based batches share them.
-        if name not in ("e212", "e219", "e221", "e243", "e244", "e245")
+        if name not in ("e212", "e219", "e221", "e243", "e244", "e245", "e249")
     )
 
 
