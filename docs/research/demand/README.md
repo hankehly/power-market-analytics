@@ -72,7 +72,11 @@ are in [#243](https://github.com/hankehly/power-market-analytics/issues/243),
 [#244](https://github.com/hankehly/power-market-analytics/issues/244) and
 [#245](https://github.com/hankehly/power-market-analytics/issues/245); the
 three presets are registered, and the baseline stays `e212` until a decision
-moves it.
+moves it. On 2026-09-30 `e249` (the eleven D-1 forecast columns of
+[#248](https://github.com/hankehly/power-market-analytics/issues/248) on
+`e245`) ran on the same window against `8adc4ecc…`: MAE −1.2 %, the CI over
+days including zero; the numbers and the researcher's decision are in
+[#249](https://github.com/hankehly/power-market-analytics/issues/249).
 
 **Preset names.** Every demand preset is named after the experiment that tested
 it, `e<issue number>` (the [research README](research/README.md)'s rule). Until
