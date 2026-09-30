@@ -147,7 +147,8 @@ with
       as delta_lag_2d_mean_popw_solar_radiation_mjm2,
     -- D-1's forecast summaries and the three differences that need them. D minus D-1
     -- is forecast against forecast; D-1 minus D-2 is a forecast against an observation,
-    -- as the delta_lag_2d columns are; the three-day mean is added in day order. Null
+    -- as the delta_lag_2d columns are; the three-day mean adds D, D-1 and D-2 in that
+    -- order. Null
     -- where D-1 has no row under the run one day earlier, or a term is missing.
     previous_day.lag_1d_mean_popw_forecast_temperature_c,
     previous_day.lag_1d_min_popw_forecast_temperature_c,
