@@ -249,8 +249,8 @@
   two features matched on 2024-08-18 … 2026-08-17 (control `3dc586c4…` MAE 594,900; old run
   `9f02c385…` 585,788, its feature rebuilt into `pma_scratch` tables; new `d019a370…` 572,428;
   new vs old −2.3 %, CI over days includes zero; kept tentatively on 2026-09-19).
-  The eleventh preset is `e212` (experiment #212, 2026-09-20), **the Tokyo baseline since
-  2026-09-20**: every tagged column of the seven marts we build ourselves, 104 features — the
+  The eleventh preset is `e212` (experiment #212, 2026-09-20), the Tokyo baseline from
+  2026-09-20 to 2026-09-30, when `e249` took it (below): every tagged column of the seven marts we build ourselves, 104 features — the
   previous baseline's 23 in their order, then the other 81, written out in full rather than as
   a `base` and an `add`, with `ftr_day_occto` and `ftr_period_jepx` left out at the
   researcher's ruling. It lowered MAE 6.5 % (546,202 → 510,465 kWh; run
@@ -308,9 +308,11 @@
   every run logs `eval_window` and `reads_holdout`, so a run that read the
   holdout is identifiable afterwards. The spot task is unpinned (both fields
   None) and still ends at the last day in the data.
-  The baseline on the pinned window is `e212` run
-  `264840a26c8f48ac83b2cfe4ebb1c16c` (`e212-tokyo-pinned-window`, MAE 518,070 kWh,
-  MAPE 3.13 %, 730 days, 0 skipped), scored with no date arguments at all.
+  The Tokyo baseline on the pinned window is `e249` run
+  `516491c3aaf94f5d9733bc051900f593` (`e249-tokyo`, MAE 482,531 kWh, MAPE 2.92 %, 730
+  days, 0 skipped, 2026-09-30), scored with no date arguments at all; until 2026-09-30 it
+  was `e212` run `264840a26c8f48ac83b2cfe4ebb1c16c` (`e212-tokyo-pinned-window`, MAE
+  518,070 kWh, MAPE 3.13 %).
   On 2026-09-27 every demand preset was re-scored on the window in one batch
   (MLflow tag `batch = pinned-window-reeval-2026-09-27`; the table of runs and
   matched comparisons is issue #230): the `e212` re-run
@@ -1272,7 +1274,7 @@
   `popw_forecast_relative_humidity_pct`, `popw_forecast_precipitation_mm` and
   `popw_forecast_solar_radiation_mjm2`. The forecast temperature is not repeated: every
   preset since `e170` carries it, so this adds three features, not four.
-  `e212` (experiment #212, kept 2026-09-20; **the Tokyo baseline since**, reference run
+  `e212` (experiment #212, kept 2026-09-20; the Tokyo baseline until 2026-09-30, reference run
   `34c506fbb30d4c7eb4efdca973e49384`) = every tagged column of the seven marts we build
   ourselves, 104 features: the preset above plus the other 81, of which 70 were in no demand
   preset at all — the other 11 are `ftr_hour_msm:forecast_temperature_c` and the ten
@@ -1283,6 +1285,16 @@
   demand days −7.9 %, but holidays +7.2 %. Its permutation importance is dominated by one of
   the added columns, `wavg_similar_day_top3_demand_kwh` (ΔMAE about 22 times the next
   feature's), so how much of the 6.5 % the other 80 carry is an open question.
+  `e219` (experiment #219, 2026-09-21) = `e212` with the six similar-day references swapped
+  for their `holidays=similarity` twins; `e243`, `e244` and `e245` (experiments #243 to #245,
+  2026-09-29) = `e219` plus the 21 temperature, the 19 radiation and all 40 lag-window
+  weather sibling columns (candidates #237 and #238; `e245` MAE −3.3 % against `e219`'s
+  `8fb1b358…`, the CI over days excluding zero); `e249` (experiment #249, kept 2026-09-30;
+  **the Tokyo baseline since**, reference run `516491c3aaf94f5d9733bc051900f593` on the
+  pinned window, MAE 482,531 kWh, MAPE 2.92 %) = `e245` plus the eleven D-1 forecast columns
+  of candidate #248, 155 features: against `8adc4ecc…` MAE −1.2 %, the CI over days
+  [−11,987, +532] including zero, winter −2.4 %, the top-10 % demand days −3.5 %, the
+  evening +0.1 %; the researcher kept it on that and retired `e212` as the baseline.
   Write-back: `pma_ml.demand_forecast` →
   `stg/std_ml__demand_forecast` →
   `fct_demand_forecast` → `fct_demand_forecast_accuracy` → Superset **Demand Forecast Analysis**
@@ -1701,9 +1713,11 @@
   `Not supported` for Reject, `Inconclusive` for the other two). R-006, R-007 and R-008 were
   kept tentatively on 2026-09-19 ("Provisionally Keep, researcher to confirm"), which made
   `e179` (then `lightgbm_msm_popw_daytype_simday_lags_weather`) the Tokyo baseline; experiment #212 took it
-  on 2026-09-20 (MAE −6.5 %) and `e212` is the Tokyo baseline since, with the matched pair
-  `32ecbdbc…` (baseline) and `34c506fb…` (candidate) on 2024-08-18 … 2026-08-17 as its
-  reference runs — a candidate on that window needs no fresh baseline run, one on any other
+  on 2026-09-20 (MAE −6.5 %) and `e212` was the Tokyo baseline until 2026-09-30, when
+  experiment #249 (the D-1 forecast columns on `e245`, MAE −1.2 %, the CI over days
+  including zero) took it: `e249` is the Tokyo baseline since, with its reference run
+  `516491c3…` on the pinned window — a candidate on the pinned window needs no fresh
+  baseline run until the data or the similar-day partition is refreshed, one on any other
   window does.
 - Keep reasoning, interpretations and decisions in the issues; keep run-level parameters,
   metrics, code versions and detailed artifacts in MLflow. Asset files are named by the issue,
