@@ -29,27 +29,32 @@ so their numbers are not comparable with a run on the window; the experiments
 decided on them keep the numbers as run.
 
 **Baseline.** A strategy run in the `demand` MLflow experiment. The Tokyo
-baseline is `e212` since 2026-09-20, when the researcher kept
-[#212](https://github.com/hankehly/power-market-analytics/issues/212) for
-lowering MAE 6.5 % (546,202 → 510,465 kWh over 2024-08-18 … 2026-08-17, CI
-over days excluding zero; run `34c506fbb30d4c7eb4efdca973e49384` against
-`32ecbdbc7c1a456d8f1411ba867c6d84`, a run of `e179` — the Tokyo baseline from
-2026-09-19, when [R-006](https://github.com/hankehly/power-market-analytics/issues/165),
-[R-007](https://github.com/hankehly/power-market-analytics/issues/166) and
-[R-008](https://github.com/hankehly/power-market-analytics/issues/167) were
-kept tentatively). Its reference run on the pinned window is
-`264840a26c8f48ac83b2cfe4ebb1c16c` (MAE 518,070 kWh, MAPE 3.13 %), which the
-batch of 2026-09-27 ([#230](https://github.com/hankehly/power-market-analytics/issues/230))
-reproduced period by period. `e212` runs for Tokyo
-only, because its similar-day mart needs the でんき予報 hourly load and a fit
-of the weights (`scripts/fit_similar_day.py`). `scripts/demand_backtest.py`
+baseline is `e249` since 2026-09-30, when the researcher kept
+[#249](https://github.com/hankehly/power-market-analytics/issues/249): the
+eleven D-1 forecast columns of
+[#248](https://github.com/hankehly/power-market-analytics/issues/248) on
+`e245`, MAE −1.2 % against `e245`'s run `8adc4ecc…` on the pinned window, the
+CI over days including zero, the gain on winter and the top-10 % demand days.
+Its reference run on the pinned window is `516491c3aaf94f5d9733bc051900f593`
+(MAE 482,531 kWh, MAPE 2.92 %, 730 days, 0 skipped). Its chain is `e245` ←
+`e219` ← `e212`: `e212` was the Tokyo baseline from 2026-09-20, when the
+researcher kept [#212](https://github.com/hankehly/power-market-analytics/issues/212)
+for lowering MAE 6.5 % (546,202 → 510,465 kWh over 2024-08-18 … 2026-08-17;
+run `34c506fbb30d4c7eb4efdca973e49384` against `32ecbdbc7c1a456d8f1411ba867c6d84`,
+a run of `e179`, the baseline from 2026-09-19); its reference run on the
+pinned window, `264840a26c8f48ac83b2cfe4ebb1c16c` (MAE 518,070 kWh, MAPE
+3.13 %), is what the batch of 2026-09-27
+([#230](https://github.com/hankehly/power-market-analytics/issues/230))
+reproduced period by period. The similar-day presets run for Tokyo only,
+because their mart needs the でんき予報 hourly load and a fit of the weights
+(`scripts/fit_similar_day.py`). `scripts/demand_backtest.py`
 keeps `e171` as its default and as the Kansai baseline
 ([R-003](https://github.com/hankehly/power-market-analytics/issues/162),
 2026-08-26); its Kansai reference run is `53b62fe1856b40bdb8c6944cb3ec0b50`
-(MAE 287,231 kWh, MAPE 3.52 %). Both reference runs are matched to the
-marts built 2026-09-19 … 2026-09-21, and the Tokyo one also to the
-similar-day partition `b18808c615184762b21621354f93bfb5` (`e171` reads no
-similar-day feature). A candidate on the pinned window can use the baseline's
+(MAE 287,231 kWh, MAPE 3.52 %). The Tokyo reference run is matched to the
+marts built through 2026-09-30 and to the similar-day partition
+`b18808c615184762b21621354f93bfb5`; the Kansai one to the marts built
+2026-09-19 … 2026-09-21 (`e171` reads no similar-day feature). A candidate on the pinned window can use the baseline's
 run as its baseline until the data is refreshed, after which re-run the
 baseline first; a re-run of the similar-day job also retires the Tokyo one,
 because the fit moves with the last bit of its inputs. Pin `--train-start`
@@ -71,12 +76,11 @@ including zero) and `e245` (all 40, −3.3 %, excluding zero; −0.9 % against
 are in [#243](https://github.com/hankehly/power-market-analytics/issues/243),
 [#244](https://github.com/hankehly/power-market-analytics/issues/244) and
 [#245](https://github.com/hankehly/power-market-analytics/issues/245); the
-three presets are registered, and the baseline stays `e212` until a decision
-moves it. On 2026-09-30 `e249` (the eleven D-1 forecast columns of
-[#248](https://github.com/hankehly/power-market-analytics/issues/248) on
-`e245`) ran on the same window against `8adc4ecc…`: MAE −1.2 %, the CI over
-days including zero; the numbers and the researcher's decision are in
-[#249](https://github.com/hankehly/power-market-analytics/issues/249).
+three presets are registered. On 2026-09-30 `e249` (the eleven D-1 forecast
+columns of [#248](https://github.com/hankehly/power-market-analytics/issues/248)
+on `e245`) ran on the same window against `8adc4ecc…`: MAE −1.2 %, the CI over
+days including zero; the researcher kept it the same day and it is the Tokyo
+baseline since ([#249](https://github.com/hankehly/power-market-analytics/issues/249)).
 
 **Preset names.** Every demand preset is named after the experiment that tested
 it, `e<issue number>` (the [research README](research/README.md)'s rule). Until
