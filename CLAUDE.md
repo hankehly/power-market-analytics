@@ -1653,8 +1653,13 @@
 ## Dimensional Modeling
 
 - For anything dimensional-modeling related (fact/dimension table design, grain declarations,
-  star schemas, SCDs, etc.), abide by the guidelines in
-  [docs/Kimball-Dimensional-Modeling-Techniques.md](docs/Kimball-Dimensional-Modeling-Techniques.md).
+  star schemas, SCDs, etc.), abide by the Kimball Group's
+  [Dimensional Modeling Techniques](https://www.kimballgroup.com/data-warehouse-business-intelligence-resources/kimball-techniques/dimensional-modeling-techniques/).
+  The index links one page per technique, under the titles the design plans cite ("Grain",
+  "Measure Type Dimensions"); read the one you need with WebFetch. The whole set is also a
+  [PDF](https://www.kimballgroup.com/wp-content/uploads/2013/08/2013.09-Kimball-Dimensional-Modeling-Techniques11.pdf).
+  The text is the Kimball Group's copyright, so the repository links to it and never keeps a
+  copy (a copy lived at `docs/Kimball-Dimensional-Modeling-Techniques.md` until 2026-10-04).
 
 ## Forecasting Research
 

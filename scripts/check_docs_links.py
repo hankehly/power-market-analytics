@@ -3,8 +3,7 @@
 The docs are a docsify site, so a link is written one of three ways and any
 of them is correct: relative to the page (``assets/R-001-mae.png``), relative
 to the site root at ``docs/`` (``research/spot_price/observations.md``), or
-relative to the repo root (``docs/Kimball-Dimensional-Modeling-Techniques.md``
-from the top-level README). A target is broken only when it resolves under
+relative to the repo root (``docs/Feature-Naming.md`` from ``CLAUDE.md``). A target is broken only when it resolves under
 none of the three.
 
 Only the path is checked, never the ``#anchor`` after it — an anchor check
