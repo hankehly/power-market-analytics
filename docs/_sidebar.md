@@ -20,5 +20,5 @@
   - [Spot price — scope defaults](research/spot_price/README.md)
 - [Development and code review](Development.md)
 - Reference
-  - [Kimball dimensional modeling](Kimball-Dimensional-Modeling-Techniques.md)
+  - [Kimball dimensional modeling](https://www.kimballgroup.com/data-warehouse-business-intelligence-resources/kimball-techniques/dimensional-modeling-techniques/)
   - [Design history — specs and plans](superpowers/README.md)
