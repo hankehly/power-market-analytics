@@ -1,6 +1,7 @@
 # Literature review prioritization
 
-**As of** 2026-09-21. **Commit** `bc92de8e3942ca87a7c3cb09fbe9d08cfa1b2211` — the state
+**As of** 2026-09-21. **Commit** `b94ec5a3cd31deef2e5ac8cea1bf6b7ebc74e70e` (`bc92de8e…`
+before the 2026-10-04 history rewrite) — the state
 of `main` the measurements in §4 were taken against. Later commits on `main` are merged
 into this branch but the numbers were not recomputed on them; §12 lists what that costs.
 
