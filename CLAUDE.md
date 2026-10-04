@@ -1514,6 +1514,11 @@
   and branch type agree: `feature/` ↔ `feat`, `fix/` ↔ `fix`, `chore/` ↔ `chore`/`docs`/`ci`/
   `build`. PR titles use the same `type(scope): description` form (PRs are merged with merge
   commits, so the title is not itself a commit).
+- History was rewritten on 2026-10-04 to remove a copy of the Kimball Group's text (see
+  Dimensional Modeling). Every commit from 2026-07-11 on has a new SHA, so an older clone
+  must be cloned again, and an old SHA — in an MLflow run's `mlflow.source.git.commit`, an
+  issue or a pull request — is looked up in
+  [docs/commit-map-2026-10-04.txt](docs/commit-map-2026-10-04.txt) (old, new).
 
 ## Code review (pull requests)
 
